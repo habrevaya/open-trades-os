@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, Address, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { FieldFilters } from "./custom-fields";
 
 export const CustomerType = z.enum(["residential", "commercial"]);
 
@@ -135,6 +136,8 @@ export const listCustomers = defineRoute({
      */
     fieldKey: z.string().max(64).optional(),
     fieldValue: z.string().max(200).optional(),
+    /** Several fields at once, each `key:value`, every one of which has to hold. */
+    fields: FieldFilters,
     includeInactive: z.boolean().default(false),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,

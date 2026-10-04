@@ -17,8 +17,10 @@ import { CATALOGUE } from "./report-catalogue";
  *   dataset (group by it, filter by it, a column of it), and a number field
  *   is also two MEASURES (its total and its average).
  *
- *   A customer's fields reach the datasets that hang off a customer, named
- *   "Customer: ..." so "jobs by the customer's membership tier" is a report.
+ *   The fields of the records a row hangs off reach its dataset too, named
+ *   for the record: "Customer: ...", "Address: ...", "Job: ...", "Unit: ..."
+ *   and "Technician: ...", so "jobs by the customer's membership tier" and
+ *   "visits where the address's gate type is Code" are reports.
  *
  *   Each kind of record is a DATASET of its own.
  *
@@ -84,17 +86,83 @@ function fieldMeasures(column: string, fields: readonly Field[]): reporting.Meas
 }
 
 /**
- * Which record each dataset is a row of, and how to reach that row's
- * customer, so the right fields land on the right dataset. The table is the
- * dataset's own alias, as `Dataset.from` requires.
+ * Which record each dataset is a row of, so its own fields land on it.
+ * The table is the dataset's own alias, as `Dataset.from` requires.
  */
-const OWN: Record<string, { entity: string; column: string; customer: string | null }> = {
-  jobs: { entity: "job", column: "job.custom_fields", customer: "job.customer_id" },
-  profitability: { entity: "job", column: "job.custom_fields", customer: "job.customer_id" },
-  invoices: { entity: "invoice", column: "invoice.custom_fields", customer: "invoice.customer_id" },
-  estimates: { entity: "estimate", column: "estimate.custom_fields", customer: "estimate.customer_id" },
-  visits: { entity: "visit", column: "visit.custom_fields", customer: null },
+const OWN: Record<string, { entity: string; column: string }> = {
+  jobs: { entity: "job", column: "job.custom_fields" },
+  profitability: { entity: "job", column: "job.custom_fields" },
+  invoices: { entity: "invoice", column: "invoice.custom_fields" },
+  estimates: { entity: "estimate", column: "estimate.custom_fields" },
+  visits: { entity: "visit", column: "visit.custom_fields" },
 };
+
+/**
+ * THE RECORDS A ROW HANGS OFF, AND THEIR FIELDS.
+ *
+ * A job is for a customer at an address; an invoice and an estimate are for
+ * a job; a visit is a trip on a job by a technician; a call is from a
+ * customer about a job. A company that put "Membership tier" on customers,
+ * "Gate type" on addresses and "Permit status" on jobs wants every report
+ * about any of those to be filtered and grouped by them, so each related
+ * record's fields are dimensions of the dataset too, named for the record
+ * ("Customer: Membership tier"), keyed with its own prefix, and read through
+ * one subquery written here from a column of the dataset's own row.
+ *
+ * Each carries the permission that reads that record on its own, so a
+ * dispatcher who may not open the staff file cannot group visits by a
+ * technician's fields, or filter by one, either. The customer's fields
+ * reached the job, invoice and estimate datasets before any of the others
+ * did, with no permission of their own, and keep that.
+ */
+interface Related {
+  entity: "customer" | "property" | "job" | "equipment" | "technician";
+  prefix: string;
+  labelPrefix: string;
+  /** The related row's id, as an expression over the dataset's own row. */
+  id: string;
+  permission?: reporting.Dimension["permission"];
+}
+
+const CUSTOMER = (id: string): Related => ({ entity: "customer", prefix: "customer_cf_", labelPrefix: "Customer: ", id });
+const ADDRESS = (id: string): Related => ({
+  entity: "property", prefix: "address_cf_", labelPrefix: "Address: ", id, permission: "property:read",
+});
+const JOB = (id: string): Related => ({ entity: "job", prefix: "job_cf_", labelPrefix: "Job: ", id, permission: "job:read" });
+const UNIT = (id: string): Related => ({
+  entity: "equipment", prefix: "unit_cf_", labelPrefix: "Unit: ", id, permission: "equipment:read",
+});
+const TECHNICIAN = (id: string): Related => ({
+  entity: "technician", prefix: "technician_cf_", labelPrefix: "Technician: ", id, permission: "user:read",
+});
+
+const TABLE_OF: Record<Related["entity"], string> = {
+  customer: "public.customer", property: "public.property", job: "public.job",
+  equipment: "public.equipment", technician: "public.technician",
+};
+
+/** The lead technician of a visit, the one the Technician grouping already names. */
+const LEAD_TECHNICIAN = "(select a.technician_id from public.visit_assignment a where a.visit_id = visit.id and a.is_lead limit 1)";
+const VISIT_JOB = (column: string) => `(select j.${column} from public.job j where j.id = visit.job_id)`;
+
+const RELATED: Record<string, Related[]> = {
+  jobs: [CUSTOMER("job.customer_id"), ADDRESS("job.property_id")],
+  profitability: [CUSTOMER("job.customer_id"), ADDRESS("job.property_id")],
+  invoices: [CUSTOMER("invoice.customer_id"), ADDRESS("invoice.property_id"), JOB("invoice.job_id")],
+  estimates: [CUSTOMER("estimate.customer_id"), ADDRESS("estimate.property_id"), JOB("estimate.job_id")],
+  visits: [
+    JOB("visit.job_id"), CUSTOMER(VISIT_JOB("customer_id")), ADDRESS(VISIT_JOB("property_id")),
+    TECHNICIAN(LEAD_TECHNICIAN),
+  ],
+  calls: [CUSTOMER("call.customer_id"), JOB("call.job_id")],
+};
+
+/** A related record's fields as dimensions of a dataset, each read through one subquery from its id. */
+function relatedDimensions(related: Related, fields: readonly Field[]): reporting.Dimension[] {
+  const column = `(select r.custom_fields from ${TABLE_OF[related.entity]} r where r.id = ${related.id})`;
+  return fieldDimensions(column, fields, related.prefix, related.labelPrefix)
+    .map((dimension) => (related.permission ? { ...dimension, permission: related.permission } : dimension));
+}
 
 const localDate = (instant: string) =>
   `to_char(${instant} at time zone coalesce((select o.timezone from public.organization o `
@@ -109,11 +177,20 @@ const localDate = (instant: string) =>
  * records' list does. Scope is the list's too: `reports.ts` applies the same
  * visibility the list uses to every dataset with this prefix.
  */
-function kindDataset(kind: typeof schema.customObjectType.$inferSelect, fields: readonly Field[]): reporting.Dataset | null {
+function kindDataset(
+  kind: typeof schema.customObjectType.$inferSelect, fields: readonly Field[], on: (entity: string) => Field[],
+): reporting.Dataset | null {
   if (!UUID.test(kind.id) || !customObjects.KEY.test(kind.key)) return null;
   const column = "custom_object_record.custom_fields";
   const gate = "record:read" as const;
   const links = kind.links as customObjects.Link[];
+  /** What a record of this kind points at, and so whose fields its report can be filtered and grouped by. */
+  const related: Related[] = [
+    ...(links.includes("customer") ? [CUSTOMER("custom_object_record.customer_id")] : []),
+    ...(links.includes("property") ? [ADDRESS("custom_object_record.property_id")] : []),
+    ...(links.includes("job") ? [JOB("custom_object_record.job_id")] : []),
+    ...(links.includes("equipment") ? [UNIT("custom_object_record.equipment_id")] : []),
+  ];
   const linkDimensions: reporting.Dimension[] = [];
   if (links.includes("customer")) {
     linkDimensions.push({ key: "customer", label: "Customer", type: "text",
@@ -153,6 +230,13 @@ function kindDataset(kind: typeof schema.customObjectType.$inferSelect, fields: 
         sql: "to_char(date_trunc('month', custom_object_record.created_at), 'YYYY-MM')" } as reporting.Dimension),
       ...linkDimensions.map(withGate),
       ...fieldDimensions(column, fields, "", "").map(withGate),
+      /**
+       * The linked records' fields keep their own permission rather than
+       * taking `record:read` from `withGate`, which would replace it.
+       * `record:read` is still required: every measure here carries it, and
+       * a report needs a measure.
+       */
+      ...related.flatMap((r) => relatedDimensions(r, on(r.entity))),
     ],
     measures: [
       withGate({ key: "count", label: kind.pluralLabel, kind: "count", type: "number" } as reporting.Measure),
@@ -184,24 +268,21 @@ export async function catalogueFor(tx: Database, _organizationId: string): Promi
   const on = (entity: string) => fields.filter((field) => field.entityType === entity);
   const extended = CATALOGUE.map((dataset) => {
     const own = OWN[dataset.key];
-    if (!own) return dataset;
-    const customerFields = own.customer ? on("customer") : [];
+    const related = RELATED[dataset.key] ?? [];
+    if (!own && related.length === 0) return dataset;
     return {
       ...dataset,
       dimensions: [
         ...dataset.dimensions,
-        ...fieldDimensions(own.column, on(own.entity), "cf_", ""),
-        ...(own.customer ? fieldDimensions(
-          `(select c.custom_fields from public.customer c where c.id = ${own.customer})`,
-          customerFields, "customer_cf_", "Customer: ",
-        ) : []),
+        ...(own ? fieldDimensions(own.column, on(own.entity), "cf_", "") : []),
+        ...related.flatMap((r) => relatedDimensions(r, on(r.entity))),
       ],
-      measures: [...dataset.measures, ...fieldMeasures(own.column, on(own.entity))],
+      measures: [...dataset.measures, ...(own ? fieldMeasures(own.column, on(own.entity)) : [])],
     };
   });
 
   const own = kinds
-    .map((kind) => kindDataset(kind, on(customObjects.entityTypeFor(kind.key))))
+    .map((kind) => kindDataset(kind, on(customObjects.entityTypeFor(kind.key)), on))
     .filter((dataset): dataset is reporting.Dataset => dataset !== null);
   return [...extended, ...own];
 }

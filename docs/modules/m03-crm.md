@@ -263,10 +263,10 @@ which is also the case where merging is the right answer.
 A contact cannot be edited on the customer's page, only added, removed and made
 primary there; changing one's details is the API's `PATCH /v1/contacts/{id}`. A
 contact attached to an address and no customer is reached through neither the
-page nor these routes, which are about a customer's people. A customer's custom fields are stored, checked and read back,
-and `/customers` and `GET /v1/customers` filter by one field holding one value
-(`fieldKey` and `fieldValue`); nothing filters by two at once, and the report
-builder does not filter by one (M29).
+page nor these routes, which are about a customer's people. A customer's custom
+fields filter `/customers` and `GET /v1/customers` several at once, every one of
+which has to hold (M29 says how), and reach the report builder on every dataset
+that hangs off a customer; there is no "any of these" across fields.
 
 A merged or soft deleted customer keeps its tags on its own row and has none in
 `customer_tag`, so it is in no tag count and no tag filter; that is deliberate,

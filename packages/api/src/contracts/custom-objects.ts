@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, pageOf } from "./common";
-import { CustomFieldDefinition } from "./custom-fields";
+import { CustomFieldDefinition, FieldFilters } from "./custom-fields";
 
 /**
  * A COMPANY'S OWN KINDS OF RECORD
@@ -149,7 +149,7 @@ export const listCustomRecords = defineRoute({
   path: "/v1/custom-records",
   summary: "One kind's records, searched and filtered",
   description:
-    "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does. The links narrow to one customer, address, job or unit.",
+    "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job or unit.",
   module: "M29",
   permissions: ["record:read"],
   input: z.object({
@@ -157,6 +157,7 @@ export const listCustomRecords = defineRoute({
     q: z.string().max(200).optional(),
     fieldKey: z.string().max(64).optional(),
     fieldValue: z.string().max(200).optional(),
+    fields: FieldFilters,
     customerId: Uuid.optional(),
     propertyId: Uuid.optional(),
     jobId: Uuid.optional(),

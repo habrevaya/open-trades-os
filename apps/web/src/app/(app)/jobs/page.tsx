@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string; field?: string; value?: string }>;
+  searchParams: Promise<{ branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -28,7 +28,7 @@ export default async function JobsPage({
   const branch = chosenBranch(options, params.branch, true);
   const named = options.branches.find((b) => b.id === branch)?.name;
   const declared = await customFields.formFields(ctx, "job");
-  const { fieldKey, fieldValue, byField } = fieldFrom(params);
+  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
 
   const { page, refusal } = await withFieldFilter((withField) => jobs.list(ctx, {
     limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
@@ -45,8 +45,8 @@ export default async function JobsPage({
           </a>
         ) : undefined}
       />
-      <BranchFilter options={options} action="/jobs" current={branch} none keep={{ field: fieldKey, value: fieldValue }} />
-      <CustomFieldFilter action="/jobs" declared={declared} keep={{ branch }} fieldKey={fieldKey} fieldValue={fieldValue}
+      <BranchFilter options={options} action="/jobs" current={branch} none keep={fieldKeep} />
+      <CustomFieldFilter action="/jobs" declared={declared} keep={{ branch }} pairs={pairs}
                          refusal={refusal} noun="jobs" />
 
       {page.data.length === 0 ? (

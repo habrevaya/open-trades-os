@@ -1,10 +1,12 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, customerTags, customFields, branches, ConflictError } from "@opentradesos/api/services";
+import { customers, customerTags, customFields, branches } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Phone } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
+import { CustomFieldFilter } from "@/components/CustomFieldFilter";
+import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,8 @@ export default async function CustomersPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    q?: string; tag?: string | string[]; match?: string; branch?: string; field?: string; value?: string;
+    q?: string; tag?: string | string[]; match?: string; branch?: string;
+    field?: string | string[]; value?: string | string[];
   }>;
 }) {
   const user = await requireSetupUser();
@@ -38,33 +41,22 @@ export default async function CustomersPage({
   const branch = chosenBranch(options, branchParam);
   const declared = await customFields.formFields(ctx, "customer");
   /**
-   * A custom field and the value to look for, both or neither. A field the
-   * company no longer declares, or a value its type cannot hold, comes back
-   * from the service as a sentence, shown above the list rather than as an
-   * error page, with the list unfiltered by it.
+   * The custom fields to look for, as many as were chosen, every one of
+   * which has to hold. A field the company no longer declares, or a value
+   * its type cannot hold, comes back from the service as a sentence, shown
+   * above the list rather than as an error page, with the list unfiltered by
+   * its fields.
    */
-  const fieldKey = field?.trim() || undefined;
-  const fieldValue = value?.trim() || undefined;
-  const byField = fieldKey && fieldValue ? { fieldKey, fieldValue } : {};
+  const { pairs, keep: fieldKeep, byField } = fieldFrom({ field, value });
 
-  const listed = async (withField: boolean) => customers.list(ctx, {
+  const { page, refusal: fieldRefusal } = await withFieldFilter((withField) => customers.list(ctx, {
     limit: 100, includeInactive: false, ...(q ? { q } : {}),
     ...(chosen.length > 0 ? { tags: chosen, tagMatch: every ? "all" as const : "any" as const } : {}),
     ...(branch ? { businessUnitId: branch } : {}),
     ...(withField ? byField : {}),
-  });
-  let fieldRefusal: string | null = null;
-  let page;
-  try {
-    page = await listed(true);
-  } catch (error) {
-    if (!(error instanceof ConflictError)) throw error;
-    fieldRefusal = error.message;
-    page = await listed(false);
-  }
+  }));
   const inUse = await customerTags.list(ctx);
-  const filteringField = fieldKey && fieldValue && !fieldRefusal
-    ? declared.find((d) => d.key === fieldKey) : undefined;
+  const filteringFields = pairs.length > 0 && !fieldRefusal;
 
   /** The address with one tag added or taken away, keeping the rest of the filter. */
   const withTags = (next: string[], all = every) => {
@@ -73,17 +65,7 @@ export default async function CustomersPage({
     for (const t of next) params.append("tag", t);
     if (all && next.length > 1) params.set("match", "all");
     if (branch) params.set("branch", branch);
-    if (fieldKey && fieldValue) { params.set("field", fieldKey); params.set("value", fieldValue); }
-    const query = params.toString();
-    return query ? `/customers?${query}` : "/customers";
-  };
-  /** Everything but the custom field, for "clear" on it. */
-  const withoutField = () => {
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    for (const t of chosen) params.append("tag", t);
-    if (every && chosen.length > 1) params.set("match", "all");
-    if (branch) params.set("branch", branch);
+    for (const pair of pairs) { params.append("field", pair.key); params.append("value", pair.value); }
     const query = params.toString();
     return query ? `/customers?${query}` : "/customers";
   };
@@ -111,62 +93,21 @@ export default async function CustomersPage({
         {chosen.map((t) => <input key={t} type="hidden" name="tag" value={t} />)}
         {every ? <input type="hidden" name="match" value="all" /> : null}
         {branch ? <input type="hidden" name="branch" value={branch} /> : null}
-        {fieldKey && fieldValue ? <><input type="hidden" name="field" value={fieldKey} /><input type="hidden" name="value" value={fieldValue} /></> : null}
+        {pairs.flatMap((pair, index) => [
+          <input key={`field-${index}`} type="hidden" name="field" value={pair.key} />,
+          <input key={`value-${index}`} type="hidden" name="value" value={pair.value} />,
+        ])}
       </form>
 
       <BranchFilter
         options={options} action="/customers" current={branch}
-        keep={{ q, tag: chosen, match: every ? "all" : undefined, field: fieldKey, value: fieldValue }}
+        keep={{ q, tag: chosen, match: every ? "all" : undefined, ...fieldKeep }}
       />
 
-      {declared.length > 0 && (
-        /*
-          The fields the company declared on customers, and a value to look
-          for. The suggestions are each choice field's own options and yes or
-          no, so the common case is picked rather than typed; free text and
-          numbers are typed. One form for every type, so it works with
-          JavaScript off.
-        */
-        <form action="/customers" method="get" className="mt-3 flex flex-wrap items-end gap-2 text-sm" aria-label="Filter by a custom field">
-          {q ? <input type="hidden" name="q" value={q} /> : null}
-          {chosen.map((t) => <input key={t} type="hidden" name="tag" value={t} />)}
-          {every ? <input type="hidden" name="match" value="all" /> : null}
-          {branch ? <input type="hidden" name="branch" value={branch} /> : null}
-          <label className="flex flex-col gap-1">
-            <span className="text-ink-700">Field</span>
-            <select name="field" defaultValue={fieldKey ?? ""} className="h-9 rounded border border-steel-300 px-2">
-              <option value="">Choose a field</option>
-              {declared.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-ink-700">Is</span>
-            <input
-              name="value" defaultValue={fieldValue ?? ""} list="custom-field-values"
-              className="h-9 w-48 rounded border border-steel-300 px-2"
-            />
-          </label>
-          <datalist id="custom-field-values">
-            {[...new Set(declared.flatMap((d) => (d.dataType === "boolean" ? ["yes", "no"] : d.options)))]
-              .map((o) => <option key={o} value={o} />)}
-          </datalist>
-          <button type="submit" className="inline-flex h-9 items-center rounded border border-steel-300 px-3 font-medium hover:bg-steel-100">
-            Filter
-          </button>
-          {fieldKey && fieldValue ? (
-            <a href={withoutField()} className="pb-2 text-ink-700 underline underline-offset-4">Clear the field</a>
-          ) : null}
-        </form>
-      )}
-      {fieldRefusal ? (
-        <p role="alert" className="mt-3 rounded border border-red-600 bg-red-tint px-3 py-2 text-sm text-red-600">
-          {fieldRefusal} The list below is not filtered by it.
-        </p>
-      ) : filteringField ? (
-        <p className="mt-3 text-sm text-ink-700">
-          Showing customers whose {filteringField.label} {filteringField.dataType === "text" ? "contains" : "is"} {fieldValue}.
-        </p>
-      ) : null}
+      <CustomFieldFilter
+        action="/customers" declared={declared} pairs={pairs} refusal={fieldRefusal} noun="customers"
+        keep={{ q, tag: chosen, match: every && chosen.length > 1 ? "all" : undefined, branch }}
+      />
 
       {inUse.length > 0 && (
         <nav aria-label="Filter by tag" className="mt-3 flex flex-wrap items-center gap-2 text-sm">
@@ -198,9 +139,9 @@ export default async function CustomersPage({
 
       {page.data.length === 0 ? (
         <Empty title={q ? `Nothing matches "${q}"` : chosen.length > 0 ? "Nobody carries those tags"
-          : filteringField ? `Nobody's ${filteringField.label} is ${fieldValue}`
+          : filteringFields ? "Nobody matches those fields"
           : branch ? "That branch has not worked for anybody yet" : "No customers yet"}>
-          {q || chosen.length > 0 || filteringField || branch
+          {q || chosen.length > 0 || filteringFields || branch
             ? "Try a phone number, or part of a name, or clear the filters."
             : "Everything else starts here: a job needs a customer, and an invoice needs a job."}
         </Empty>
