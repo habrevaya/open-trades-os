@@ -157,10 +157,43 @@ hire that came with a job gets the stop as a visit on that job; one with no
 job gets a job of its own at the address, of the company's `pickup` job type
 when it has one. A hire already given a collection is left alone, so running
 it twice books nothing twice, and one whose collection was cancelled on the
-board is offered again. A standing hire with no included period is skipped
-with the reason: it goes back when the customer says so. It needs
-`asset:write` and `job:write`. On the containers screen it is one button with
-a date.
+board is offered again. A standing hire with no included period and no
+agreed time is skipped with the reason: it goes back when the customer says
+so. It needs `asset:write` and `job:write`. On the containers screen it is one
+button with a date.
+
+The worker runs the same booking on its own, on every pass, for each company
+with a hire coming due, as many days ahead as the company says (the day
+before, unless changed), so nobody has to remember the button. A company
+turns it off, sets how far ahead, and says how many containers a truck
+carries and how long the yard takes under "Collections and the truck" on
+`/fleet/containers` (`GET /v1/rental-dispatch`, and
+`PUT /v1/rental-dispatch` with `settings:write`). It is on unless turned off.
+
+### A collection time agreed with the customer
+
+`PUT /v1/rentals/{id}/collection-time` records the window the customer
+agreed for the collection, or clears it, on each hire's row on
+`/fleet/containers`. It beats the day the price runs out, early or late: a
+customer who finished early has the can collected on the day they asked, and
+one who asked for two more days is not collected on the seventh. The worker
+and the button book the collection into that window on that day. A
+collection already on the board and not under way moves with it: kept with
+its driver when the day is the same, back on the board for the dispatcher
+when the day changes, and the driver hears either through the visit's
+notices. An agreed time that has passed is collected today in the working
+day, and counted late from the agreed day.
+
+### The driver's day, by what is on the truck
+
+"Optimise route" on the board orders a driver's day with drops, collections
+and swaps on it by what is on the truck: a drop needs an empty container on
+board, a collection needs room, a swap needs an empty and leaves with a full
+one, and the runs to the yard between are drive and time like any other
+(M09). The proposal lists each run: after which stop, before which, what is
+tipped and what is loaded. The leg comes from the hire's own record on the
+stop, or from the pack's job type (delivery, final pickup, swap, dump and
+return) before the hire exists.
 
 ### Charges found on a haul
 
@@ -316,14 +349,20 @@ this product's own board first.
 
 ## What is not built
 
-- **Collections are put on the board when somebody asks.** The button and the
-  API book every hire due by a day; nothing runs them on a clock, and a
-  collection's window is the working day rather than a time agreed with the
-  customer.
+- **Collections are booked on a clock, not by a route planner.** The worker
+  books each collection on its day, at the agreed time or in the working
+  day, unassigned; who drives it is the dispatcher's, and the day is ordered
+  by "Optimise route". A collection the customer moves after it is under way
+  is the office's to rearrange by hand.
 - **Scale tickets come from a file.** A photograph of a ticket is not read.
-- **No routing on what is on the truck.** The pack's own note says the order
-  of a driver's day is decided by what is on the truck and what has to come
-  back on it. Dispatch does not know that yet.
+- **The truck is one kind for the whole company.** How many containers a
+  truck carries and how long the yard takes are company wide; a fleet with a
+  hook lift and roll off trucks is planned as if every truck were the same.
+  The yard is where the driver's day starts: a disposal facility apart from
+  the yard is not a place the plan knows. The load in the morning is not
+  recorded; for a day already under way it is worked out from the stops done.
+  The rebalance across people leaves a driver's day with containers on it
+  alone (M09).
 - **A hire is invoiced one haul at a time.** A swap chain is several hauls and
   each is invoiced from its own row; the facility's disposal fee on a haul is
   its cost, and is not passed through.
