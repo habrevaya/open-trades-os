@@ -50,6 +50,8 @@ export * as referrals from "./referrals/index.js";
 export * as customerPortal from "./customer-portal/index.js";
 export * as catalogue from "./catalogue/index.js";
 export * as ads from "./ads/index.js";
+export * as marketplaces from "./marketplaces/index.js";
+export * as directMail from "./direct-mail/index.js";
 export * as agents from "./agents/index.js";
 export * as project from "./project/index.js";
 export * as rates from "./rates/index.js";

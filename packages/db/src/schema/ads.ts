@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timestamp, date, char } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timestamp, date, char, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -233,4 +233,92 @@ export const advertisingConsent = pgTable("advertising_consent", {
   /** One live answer per customer. */
   liveIdx: uniqueIndex("advertising_consent_live_idx").on(t.customerId).where(sql`${t.supersededAt} is null`),
   customerIdx: index("advertising_consent_customer_idx").on(t.organizationId, t.customerId),
+}));
+
+/**
+ * A SENT PURCHASE, TOLD AGAIN BECAUSE THE JOB'S REVENUE CHANGED
+ *
+ * The send row above is one per job, platform and kind, and it records what
+ * the platform was first told. A credit note or a second invoice afterwards
+ * changes what the job was worth, and this is the record of telling the
+ * platform so: a Google restatement or retraction, or a Meta purchase for
+ * the increase.
+ *
+ * RECORDED ONCE. `sequence` counts the adjustments to one send, and the
+ * unique index on the pair means two workers deciding at the same moment
+ * that the value moved write one row between them. A value that has not
+ * moved since the last adjustment writes nothing at all. A decrease Meta
+ * cannot be told is written down too, as `withheld`, so "why does Meta still
+ * think this furnace was $4,000" has an answer.
+ */
+export const adConversionAdjustment = pgTable("ad_conversion_adjustment", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  sendId: uuid("send_id").notNull().references(() => adConversionSend.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  /** `restatement`, `retraction`, `increase` or `cannot_lower`. */
+  kind: text("kind").notNull(),
+  /** What the platform believed before this, and what the job is worth to it now. */
+  previousValue: money("previous_value").notNull(),
+  newValue: money("new_value").notNull(),
+  /** What was sent: the new value for a restatement, the increase for Meta, nothing for a retraction. */
+  sentValue: money("sent_value"),
+  currency: char("currency", { length: 3 }),
+  state: adSendState("state").notNull(),
+  eventId: text("event_id").notNull(),
+  detail: text("detail"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  /** THE GUARD. One adjustment per place in line per send. */
+  sequenceIdx: uniqueIndex("ad_conversion_adjustment_sequence_idx").on(t.sendId, t.sequence),
+  queueIdx: index("ad_conversion_adjustment_queue_idx").on(t.organizationId, t.state, t.nextAttemptAt),
+}));
+
+/**
+ * WHAT PEOPLE SEARCHED, FROM SEARCH CONSOLE: one row per day per query, with
+ * the clicks and impressions Google reports for it. Rewritten for the days
+ * a pull asks about, because Google revises the last few, and found again by
+ * the day and the query, never added to.
+ */
+export const searchQueryDay = pgTable("search_query_day", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull().references(() => integrationConnection.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  query: text("query").notNull(),
+  clicks: integer("clicks").notNull().default(0),
+  impressions: integer("impressions").notNull().default(0),
+  /** Google's average position, to one decimal place. */
+  position: numeric("position", { precision: 7, scale: 2 }),
+  ...timestamps,
+}, (t) => ({
+  dayIdx: uniqueIndex("search_query_day_idx").on(t.connectionId, t.day, t.query),
+  orgIdx: index("search_query_day_org_idx").on(t.organizationId, t.day),
+}));
+
+/**
+ * SESSIONS BY SOURCE, FROM GOOGLE ANALYTICS: one row per day per source and
+ * medium as Analytics names them, with the lead source key this product files
+ * that pair under, so sessions sit on the same rows as the leads and jobs.
+ */
+export const analyticsSessionDay = pgTable("analytics_session_day", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull().references(() => integrationConnection.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  sessionSource: text("session_source").notNull(),
+  sessionMedium: text("session_medium").notNull(),
+  /** The catalogue key the pair is filed under. */
+  source: text("source").notNull(),
+  sessions: integer("sessions").notNull().default(0),
+  engagedSessions: integer("engaged_sessions").notNull().default(0),
+  ...timestamps,
+}, (t) => ({
+  dayIdx: uniqueIndex("analytics_session_day_idx").on(t.connectionId, t.day, t.sessionSource, t.sessionMedium),
+  orgIdx: index("analytics_session_day_org_idx").on(t.organizationId, t.day),
 }));

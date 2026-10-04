@@ -54,6 +54,13 @@ import { registeredRouters } from "../src/routing/index";
 import { registeredAdsAdapters } from "../src/ads/index";
 /** The lenders, on the financing seam, for the reason every registry above is named. */
 import { registeredFinancingProviders } from "../src/financing/index";
+/**
+ * The lead marketplaces' own posts, the readers of their lead emails, and the
+ * mail house, each its own seam, named for the same reason.
+ */
+import { registeredMarketplaces } from "../src/marketplaces/index";
+import { registeredLeadEmailReaders } from "../src/services/lead-emails";
+import { registeredMailProviders } from "../src/direct-mail/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -92,7 +99,8 @@ describe("the connector catalogue", () => {
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(), ...registeredRouters(),
       ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
-      ...registeredFinancingProviders(),
+      ...registeredFinancingProviders(), ...registeredMarketplaces(), ...registeredLeadEmailReaders(),
+      ...registeredMailProviders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -118,7 +126,8 @@ describe("the connector catalogue", () => {
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(), ...registeredRouters(),
       ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
-      ...registeredFinancingProviders(),
+      ...registeredFinancingProviders(), ...registeredMarketplaces(), ...registeredLeadEmailReaders(),
+      ...registeredMailProviders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
@@ -164,6 +173,12 @@ describe("the connector catalogue", () => {
       "nominatim", "mapbox",
       /** And financing, the last capability that sat in the enum with nothing behind it that an owner asks for by name. */
       "wisetack",
+      /**
+       * The rest of where a trades company's leads and money go: the other
+       * marketplaces, the emails every one of them sends, Meta's own forms,
+       * the analytics read back, and the mail house.
+       */
+      "yelp", "nextdoor", "lead_email", "meta_lead_ads", "ga4_data", "lob",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

@@ -31,7 +31,7 @@ export const dynamic = "force-dynamic";
  * spend most of their money on.
  */
 const CAPABILITY_ORDER = [
-  "ads", "lead_source", "analytics", "reviews", "email",
+  "ads", "lead_source", "analytics", "reviews", "email", "direct_mail",
 ] as const;
 
 const CAPABILITY_LABEL: Record<string, string> = {
@@ -40,6 +40,7 @@ const CAPABILITY_LABEL: Record<string, string> = {
   analytics: "Analytics",
   reviews: "Reviews",
   email: "Marketing email",
+  direct_mail: "Direct mail",
   messaging: "Messaging",
   telephony: "Telephony",
 };
@@ -52,6 +53,8 @@ const FLOW_LABEL: Record<string, string> = {
   reviews_in: "Brings in reviews",
   reviews_out: "Posts replies",
   campaigns_out: "Sends campaigns",
+  lead_messages: "Replies to leads through it",
+  mail_out: "Prints and posts mail",
 };
 
 export default async function ConnectorsPage() {

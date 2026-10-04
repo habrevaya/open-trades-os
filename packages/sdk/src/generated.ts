@@ -1271,6 +1271,13 @@ export interface CancelCampaignOutput {
   };
 }
 
+export type CancelMailCampaignInput = Record<string, unknown>;
+
+export interface CancelMailCampaignOutput {
+  id: string;
+  state: string;
+}
+
 export type CheckCallTrackingInput = Record<string, unknown>;
 
 export type CheckCallTrackingOutput = {
@@ -1677,6 +1684,30 @@ export interface ConnectConnectorOutput {
   id: string;
   provider: string;
   status: string;
+}
+
+export interface ConnectLeadMarketplaceInput {
+  platform: "angi" | "thumbtack" | "yelp";
+  displayName?: string;
+  channelId?: string;
+  campaignId?: string;
+  businessId?: string;
+  apiTokenRef?: string;
+  webhookSecretRef?: string;
+}
+
+export interface ConnectLeadMarketplaceOutput {
+  id: string;
+  platform: string;
+  displayName: string;
+  channelId: string | null;
+  campaignId: string | null;
+  webhookPath: string;
+  webhookSecretRef: string | null;
+  password: string | null;
+  replies: boolean;
+  needsApproval: boolean;
+  approval: string;
 }
 
 export interface ConvertEstimateInput {
@@ -2730,6 +2761,7 @@ export interface CreateKnowledgeNoteOutput {
 export interface CreateLeadConnectorInput {
   source: string;
   channelId?: string;
+  campaignId?: string;
   displayName: string;
   fieldMap?: Record<string, string>;
   commissionRate?: string | null;
@@ -2739,7 +2771,9 @@ export interface CreateLeadConnectorInput {
 export interface CreateLeadConnectorOutput {
   id: string;
   source: string;
+  kind: string;
   channelId: string | null;
+  campaignId: string | null;
   displayName: string;
   active: boolean;
   webhookPath: string | null;
@@ -2781,6 +2815,23 @@ export interface CreateLocationOutput {
   longitude: string | null;
   locationPrecision: "rooftop" | "interpolated" | "street" | "postal_code" | "locality" | "placed" | null;
   locationSource: string | null;
+}
+
+export interface CreateMailCampaignInput {
+  name: string;
+  kind: "postcard" | "letter";
+  size?: "4x6" | "6x9" | "6x11" | null;
+  audience: Record<string, unknown>[];
+  acquisitionCampaignId?: string | null;
+  front: string;
+  back?: string | null;
+  landingHeadline?: string | null;
+  landingBody?: string | null;
+  pricePerPiece?: string | null;
+}
+
+export interface CreateMailCampaignOutput {
+  id: string;
 }
 
 export interface CreatePaymentIntentInput {
@@ -7015,6 +7066,57 @@ export interface GetKpiScorecardOutput {
   }>;
 }
 
+export interface GetLeadInboxOutput {
+  address: string | null;
+  missing: string | null;
+  platforms: Array<{
+    key: string;
+    label: string;
+    api: string;
+    replies: boolean;
+    needsApproval: boolean;
+    approval: string;
+  }>;
+}
+
+export interface GetLeadOfferOutput {
+  id: string;
+  status: string;
+  connector: string;
+  kind: string;
+  source: string;
+  channelName: string | null;
+  campaignName: string | null;
+  externalId: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  serviceRequested: string | null;
+  notes: string | null;
+  addressLine1: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  estimatedValue: string | null;
+  charge: string | null;
+  expiresAt: string | null;
+  expired: boolean;
+  customerId: string | null;
+  jobId: string | null;
+  declineReason: string | null;
+  createdAt: string;
+  canReply: boolean;
+  cannotReplyBecause: string | null;
+  messages: Array<{
+    id: string;
+    direction: string;
+    body: string;
+    state: string;
+    error: string | null;
+    at: string;
+  }>;
+}
+
 export interface GetLivePositionsOutput {
   enabled: boolean;
   positions: Array<{
@@ -7036,6 +7138,42 @@ export interface GetLocationSharingOutput {
   enabled: boolean;
   retentionDays: number;
   intervalSeconds: number;
+}
+
+export interface GetMailCampaignOutput {
+  id: string;
+  name: string;
+  kind: string;
+  size: string | null;
+  state: string;
+  sentOn: string | null;
+  audience: Record<string, unknown>[];
+  sentence: string | null;
+  acquisitionCampaignId: string;
+  trackingCampaign: string | null;
+  front: string;
+  back: string | null;
+  landingHeadline: string | null;
+  landingBody: string | null;
+  pricePerPiece: string | null;
+  pieces: {
+    id: string;
+    state: string;
+    pieces: number;
+    sent: number;
+    skipped: number;
+    refused: number;
+    failed: number;
+    pending: number;
+  };
+  results: {
+    visited: number;
+    visits: number;
+    calls: number;
+    jobs: number;
+    revenue: string;
+    spend: string;
+  };
 }
 
 export interface GetMarketingCallOutput {
@@ -7126,6 +7264,46 @@ export interface GetMarketingFunnelOutput {
     roi: string | null;
     roas: string | null;
   };
+}
+
+export interface GetMarketingOverviewOutput {
+  from: string;
+  to: string;
+  model: string;
+  modelLabel: string;
+  rows: Array<{
+    source: string;
+    label: string;
+    channels: string[];
+    sessions: number;
+    engagedSessions: number;
+    leads: number;
+    booked: string;
+    revenue: string;
+    leadsPer100Sessions: string | null;
+  }>;
+  totals: {
+    sessions: number;
+    engagedSessions: number;
+    leads: number;
+    booked: string;
+    revenue: string;
+    searchClicks: number;
+    searchImpressions: number;
+  };
+  queries: Array<{
+    query: string;
+    clicks: number;
+    impressions: number;
+    position: string | null;
+  }>;
+  sources: Array<{
+    provider: string;
+    label: string;
+    status: string | null;
+    lastPulledAt: string | null;
+    lastError: string | null;
+  }>;
 }
 
 export interface GetMarketingSettingsOutput {
@@ -10021,6 +10199,26 @@ export interface ListConversationsOutput {
   nextCursor: string | null;
 }
 
+export interface ListConversionAdjustmentsOutput {
+  adjustments: Array<{
+    id: string;
+    provider: string;
+    providerLabel: string;
+    jobId: string;
+    jobNumber: number | null;
+    sequence: number;
+    kind: string;
+    previousValue: string;
+    newValue: string;
+    sentValue: string | null;
+    state: "sending" | "sent" | "withheld" | "refused" | "failed";
+    detail: string | null;
+    attempts: number;
+    sentAt: string | null;
+    createdAt: string;
+  }>;
+}
+
 export interface ListConversionSendsOutput {
   sends: Array<{
     id: string;
@@ -11031,7 +11229,9 @@ export interface ListLeadConnectorsOutput {
   connectors: Array<{
     id: string;
     source: string;
+    kind: string;
     channelId: string | null;
+    campaignId: string | null;
     displayName: string;
     active: boolean;
     webhookPath: string | null;
@@ -11041,6 +11241,21 @@ export interface ListLeadConnectorsOutput {
     autoAcceptRules: Record<string, unknown>;
     commissionRate: string | null;
     leadFee: string | null;
+  }>;
+}
+
+export interface ListLeadEmailsOutput {
+  emails: Array<{
+    id: string;
+    receivedAt: string;
+    from: string;
+    subject: string | null;
+    platform: string | null;
+    platformLabel: string | null;
+    outcome: string;
+    reason: string | null;
+    offerId: string | null;
+    excerpt: string | null;
   }>;
 }
 
@@ -11094,6 +11309,39 @@ export interface ListLocationsOutput {
     longitude: string | null;
     locationPrecision: "rooftop" | "interpolated" | "street" | "postal_code" | "locality" | "placed" | null;
     locationSource: string | null;
+  }>;
+}
+
+export interface ListMailCampaignsOutput {
+  campaigns: Array<{
+    id: string;
+    name: string;
+    kind: string;
+    size: string | null;
+    state: string;
+    sentOn: string | null;
+    trackingCampaign: string | null;
+    sent: number;
+    visited: number;
+    createdAt: string;
+  }>;
+}
+
+export interface ListMailPiecesOutput {
+  pieces: Array<{
+    id: string;
+    customerId: string;
+    name: string;
+    address: string;
+    code: string;
+    url: string;
+    status: string;
+    reason: string | null;
+    providerId: string | null;
+    expectedDeliveryOn: string | null;
+    sentAt: string | null;
+    firstVisitedAt: string | null;
+    visits: number;
   }>;
 }
 
@@ -13672,6 +13920,33 @@ export interface PreviewJobBillingOutput {
   }>;
 }
 
+export interface PreviewMailCampaignOutput {
+  id: string;
+  sentence: string;
+  selected: number;
+  overflow: boolean;
+  postable: number;
+  noAddress: number;
+  estimatedCost: string;
+  trackingPhone: string | null;
+  returnAddress: {
+    name: string;
+    line1: string;
+    line2: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+  } | null;
+  sample: Array<{
+    customerId: string;
+    name: string;
+    address: string;
+    postable: boolean;
+  }>;
+  front: string;
+  back: string | null;
+}
+
 export interface PreviewMessageTemplateInput {
   code: string;
   scope?: Record<string, unknown>;
@@ -15938,7 +16213,9 @@ export type RotateLeadConnectorSecretInput = Record<string, unknown>;
 export interface RotateLeadConnectorSecretOutput {
   id: string;
   source: string;
+  kind: string;
   channelId: string | null;
+  campaignId: string | null;
   displayName: string;
   active: boolean;
   webhookPath: string | null;
@@ -15949,6 +16226,21 @@ export interface RotateLeadConnectorSecretOutput {
   commissionRate: string | null;
   leadFee: string | null;
   secret: string;
+}
+
+export type RotateLeadInboxInput = Record<string, unknown>;
+
+export interface RotateLeadInboxOutput {
+  address: string | null;
+  missing: string | null;
+  platforms: Array<{
+    key: string;
+    label: string;
+    api: string;
+    replies: boolean;
+    needsApproval: boolean;
+    approval: string;
+  }>;
 }
 
 export interface RotateWebhookSecretInput {
@@ -16504,6 +16796,29 @@ export interface SendInvoiceOutput {
   messageId: string | null;
   reason: string | null;
   explanation: string | null;
+}
+
+export interface SendLeadOfferMessageInput {
+  body: string;
+}
+
+export interface SendLeadOfferMessageOutput {
+  id: string;
+  state: string;
+  error: string | null;
+}
+
+export type SendMailCampaignInput = Record<string, unknown>;
+
+export interface SendMailCampaignOutput {
+  id: string;
+  state: string;
+  pieces: number;
+  sent: number;
+  skipped: number;
+  refused: number;
+  failed: number;
+  pending: number;
 }
 
 export interface SendQueuedEmailInput {
@@ -18887,6 +19202,7 @@ export interface UpdateKnowledgeNoteOutput {
 export interface UpdateLeadConnectorInput {
   displayName?: string;
   channelId?: string;
+  campaignId?: string | null;
   fieldMap?: Record<string, string>;
   active?: boolean;
   commissionRate?: string | null;
@@ -18896,7 +19212,9 @@ export interface UpdateLeadConnectorInput {
 export interface UpdateLeadConnectorOutput {
   id: string;
   source: string;
+  kind: string;
   channelId: string | null;
+  campaignId: string | null;
   displayName: string;
   active: boolean;
   webhookPath: string | null;
@@ -18936,6 +19254,23 @@ export interface UpdateLocationOutput {
   longitude: string | null;
   locationPrecision: "rooftop" | "interpolated" | "street" | "postal_code" | "locality" | "placed" | null;
   locationSource: string | null;
+}
+
+export interface UpdateMailCampaignInput {
+  name?: string;
+  kind?: "postcard" | "letter";
+  size?: "4x6" | "6x9" | "6x11" | null;
+  audience?: Record<string, unknown>[];
+  acquisitionCampaignId?: string | null;
+  front?: string;
+  back?: string | null;
+  landingHeadline?: string | null;
+  landingBody?: string | null;
+  pricePerPiece?: string | null;
+}
+
+export interface UpdateMailCampaignOutput {
+  id: string;
 }
 
 export interface UpdateMessageTemplateInput {
@@ -20643,6 +20978,10 @@ export interface CancelCampaignParams {
   id: string;
 }
 
+export interface CancelMailCampaignParams {
+  id: string;
+}
+
 export interface CheckInAssetParams {
   assetId: string;
 }
@@ -21189,9 +21528,19 @@ export interface GetKpiScorecardInput {
   to: string;
 }
 
+export type GetLeadInboxInput = Record<string, never>;
+
+export interface GetLeadOfferInput {
+  id: string;
+}
+
 export type GetLivePositionsInput = Record<string, never>;
 
 export type GetLocationSharingInput = Record<string, never>;
+
+export interface GetMailCampaignInput {
+  id: string;
+}
 
 export interface GetMarketingCallInput {
   id: string;
@@ -21202,6 +21551,11 @@ export interface GetMarketingFunnelInput {
   to: string;
   by: "channel" | "campaign" | "number" | "platform";
   model?: "first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based";
+}
+
+export interface GetMarketingOverviewInput {
+  from: string;
+  to: string;
 }
 
 export type GetMarketingSettingsInput = Record<string, never>;
@@ -21682,6 +22036,11 @@ export interface ListConversationsInput {
   customerId?: string;
 }
 
+export interface ListConversionAdjustmentsInput {
+  jobId?: string;
+  limit?: number;
+}
+
 export interface ListConversionSendsInput {
   state?: "sending" | "sent" | "withheld" | "refused" | "failed";
   provider?: string;
@@ -21947,6 +22306,11 @@ export type ListKpiCatalogueInput = Record<string, never>;
 
 export type ListLeadConnectorsInput = Record<string, never>;
 
+export interface ListLeadEmailsInput {
+  outcome?: "lead" | "message" | "duplicate" | "unreadable";
+  limit?: number;
+}
+
 export type ListLeadFieldTargetsInput = Record<string, never>;
 
 export interface ListLeadOffersInput {
@@ -21955,6 +22319,14 @@ export interface ListLeadOffersInput {
 
 export interface ListLocationsInput {
   warehousesOnly?: boolean;
+}
+
+export type ListMailCampaignsInput = Record<string, never>;
+
+export interface ListMailPiecesInput {
+  id: string;
+  status?: "pending" | "sent" | "skipped" | "refused" | "failed";
+  limit?: number;
 }
 
 export interface ListMarketingCallsInput {
@@ -22441,6 +22813,10 @@ export interface PreviewJobBillingInput {
   id: string;
 }
 
+export interface PreviewMailCampaignInput {
+  id: string;
+}
+
 export interface PreviewPriceChangeInput {
   categoryId?: string;
   includeSubcategories?: boolean;
@@ -22826,6 +23202,14 @@ export interface SendInvoiceParams {
   invoiceId: string;
 }
 
+export interface SendLeadOfferMessageParams {
+  id: string;
+}
+
+export interface SendMailCampaignParams {
+  id: string;
+}
+
 export interface SendReportScheduleNowParams {
   id: string;
 }
@@ -23168,6 +23552,10 @@ export interface UpdateLocationParams {
   id: string;
 }
 
+export interface UpdateMailCampaignParams {
+  id: string;
+}
+
 export interface UpdateMessageTemplateParams {
   id: string;
 }
@@ -23383,6 +23771,7 @@ export interface OperationTypes {
   campaignResults: { input: CampaignResultsInput; output: CampaignResultsOutput };
   cancelAgreement: { input: CancelAgreementParams & CancelAgreementInput; output: CancelAgreementOutput };
   cancelCampaign: { input: CancelCampaignParams & CancelCampaignInput; output: CancelCampaignOutput };
+  cancelMailCampaign: { input: CancelMailCampaignParams & CancelMailCampaignInput; output: CancelMailCampaignOutput };
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
   checkInAsset: { input: CheckInAssetParams & CheckInAssetInput; output: CheckInAssetOutput };
   checkOutAsset: { input: CheckOutAssetParams & CheckOutAssetInput; output: CheckOutAssetOutput };
@@ -23406,6 +23795,7 @@ export interface OperationTypes {
   connectAiProvider: { input: ConnectAiProviderInput; output: ConnectAiProviderOutput };
   connectCallTracking: { input: ConnectCallTrackingInput; output: ConnectCallTrackingOutput };
   connectConnector: { input: ConnectConnectorParams & ConnectConnectorInput; output: ConnectConnectorOutput };
+  connectLeadMarketplace: { input: ConnectLeadMarketplaceInput; output: ConnectLeadMarketplaceOutput };
   convertEstimate: { input: ConvertEstimateParams & ConvertEstimateInput; output: ConvertEstimateOutput };
   copyBackFromSandbox: { input: CopyBackFromSandboxInput; output: CopyBackFromSandboxOutput };
   countStock: { input: CountStockInput; output: CountStockOutput };
@@ -23432,6 +23822,7 @@ export interface OperationTypes {
   createKnowledgeNote: { input: CreateKnowledgeNoteInput; output: CreateKnowledgeNoteOutput };
   createLeadConnector: { input: CreateLeadConnectorInput; output: CreateLeadConnectorOutput };
   createLocation: { input: CreateLocationInput; output: CreateLocationOutput };
+  createMailCampaign: { input: CreateMailCampaignInput; output: CreateMailCampaignOutput };
   createPaymentIntent: { input: CreatePaymentIntentInput; output: CreatePaymentIntentOutput };
   createPhoneMenu: { input: CreatePhoneMenuInput; output: CreatePhoneMenuOutput };
   createPriceBookCategory: { input: CreatePriceBookCategoryInput; output: CreatePriceBookCategoryOutput };
@@ -23591,10 +23982,14 @@ export interface OperationTypes {
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
+  getLeadInbox: { input: GetLeadInboxInput; output: GetLeadInboxOutput };
+  getLeadOffer: { input: GetLeadOfferInput; output: GetLeadOfferOutput };
   getLivePositions: { input: GetLivePositionsInput; output: GetLivePositionsOutput };
   getLocationSharing: { input: GetLocationSharingInput; output: GetLocationSharingOutput };
+  getMailCampaign: { input: GetMailCampaignInput; output: GetMailCampaignOutput };
   getMarketingCall: { input: GetMarketingCallInput; output: GetMarketingCallOutput };
   getMarketingFunnel: { input: GetMarketingFunnelInput; output: GetMarketingFunnelOutput };
+  getMarketingOverview: { input: GetMarketingOverviewInput; output: GetMarketingOverviewOutput };
   getMarketingSettings: { input: GetMarketingSettingsInput; output: GetMarketingSettingsOutput };
   getMemberPricing: { input: GetMemberPricingInput; output: GetMemberPricingOutput };
   getMyTimeclock: { input: GetMyTimeclockInput; output: GetMyTimeclockOutput };
@@ -23724,6 +24119,7 @@ export interface OperationTypes {
   listContinuingEducation: { input: ListContinuingEducationInput; output: ListContinuingEducationOutput };
   listContracts: { input: ListContractsInput; output: ListContractsOutput };
   listConversations: { input: ListConversationsInput; output: ListConversationsOutput };
+  listConversionAdjustments: { input: ListConversionAdjustmentsInput; output: ListConversionAdjustmentsOutput };
   listConversionSends: { input: ListConversionSendsInput; output: ListConversionSendsOutput };
   listCostingRates: { input: ListCostingRatesInput; output: ListCostingRatesOutput };
   listCreditNotes: { input: ListCreditNotesInput; output: ListCreditNotesOutput };
@@ -23774,9 +24170,12 @@ export interface OperationTypes {
   listKnowledgeNotes: { input: ListKnowledgeNotesInput; output: ListKnowledgeNotesOutput };
   listKpiCatalogue: { input: ListKpiCatalogueInput; output: ListKpiCatalogueOutput };
   listLeadConnectors: { input: ListLeadConnectorsInput; output: ListLeadConnectorsOutput };
+  listLeadEmails: { input: ListLeadEmailsInput; output: ListLeadEmailsOutput };
   listLeadFieldTargets: { input: ListLeadFieldTargetsInput; output: ListLeadFieldTargetsOutput };
   listLeadOffers: { input: ListLeadOffersInput; output: ListLeadOffersOutput };
   listLocations: { input: ListLocationsInput; output: ListLocationsOutput };
+  listMailCampaigns: { input: ListMailCampaignsInput; output: ListMailCampaignsOutput };
+  listMailPieces: { input: ListMailPiecesInput; output: ListMailPiecesOutput };
   listMarketingCalls: { input: ListMarketingCallsInput; output: ListMarketingCallsOutput };
   listMarketingPlatforms: { input: ListMarketingPlatformsInput; output: ListMarketingPlatformsOutput };
   listMessageTemplates: { input: ListMessageTemplatesInput; output: ListMessageTemplatesOutput };
@@ -23915,6 +24314,7 @@ export interface OperationTypes {
   planVisitUnits: { input: PlanVisitUnitsParams & PlanVisitUnitsInput; output: PlanVisitUnitsOutput };
   previewCampaign: { input: PreviewCampaignInput; output: PreviewCampaignOutput };
   previewJobBilling: { input: PreviewJobBillingInput; output: PreviewJobBillingOutput };
+  previewMailCampaign: { input: PreviewMailCampaignInput; output: PreviewMailCampaignOutput };
   previewMessageTemplate: { input: PreviewMessageTemplateInput; output: PreviewMessageTemplateOutput };
   previewPriceChange: { input: PreviewPriceChangeInput; output: PreviewPriceChangeOutput };
   previewRecurringSchedule: { input: PreviewRecurringScheduleInput; output: PreviewRecurringScheduleOutput };
@@ -24033,6 +24433,7 @@ export interface OperationTypes {
   revokePortalGrant: { input: RevokePortalGrantParams & RevokePortalGrantInput; output: RevokePortalGrantOutput };
   rotateCalendarFeed: { input: RotateCalendarFeedParams & RotateCalendarFeedInput; output: RotateCalendarFeedOutput };
   rotateLeadConnectorSecret: { input: RotateLeadConnectorSecretParams & RotateLeadConnectorSecretInput; output: RotateLeadConnectorSecretOutput };
+  rotateLeadInbox: { input: RotateLeadInboxInput; output: RotateLeadInboxOutput };
   rotateWebhookSecret: { input: RotateWebhookSecretParams & RotateWebhookSecretInput; output: RotateWebhookSecretOutput };
   runAccountingSync: { input: RunAccountingSyncInput; output: RunAccountingSyncOutput };
   runAiCompletion: { input: RunAiCompletionInput; output: RunAiCompletionOutput };
@@ -24053,6 +24454,8 @@ export interface OperationTypes {
   sendEstimate: { input: SendEstimateParams & SendEstimateInput; output: SendEstimateOutput };
   sendFinancingLink: { input: SendFinancingLinkInput; output: SendFinancingLinkOutput };
   sendInvoice: { input: SendInvoiceParams & SendInvoiceInput; output: SendInvoiceOutput };
+  sendLeadOfferMessage: { input: SendLeadOfferMessageParams & SendLeadOfferMessageInput; output: SendLeadOfferMessageOutput };
+  sendMailCampaign: { input: SendMailCampaignParams & SendMailCampaignInput; output: SendMailCampaignOutput };
   sendQueuedEmail: { input: SendQueuedEmailInput; output: SendQueuedEmailOutput };
   sendReportScheduleNow: { input: SendReportScheduleNowParams & SendReportScheduleNowInput; output: SendReportScheduleNowOutput };
   setAccountMapping: { input: SetAccountMappingInput; output: SetAccountMappingOutput };
@@ -24182,6 +24585,7 @@ export interface OperationTypes {
   updateKnowledgeNote: { input: UpdateKnowledgeNoteParams & UpdateKnowledgeNoteInput; output: UpdateKnowledgeNoteOutput };
   updateLeadConnector: { input: UpdateLeadConnectorParams & UpdateLeadConnectorInput; output: UpdateLeadConnectorOutput };
   updateLocation: { input: UpdateLocationParams & UpdateLocationInput; output: UpdateLocationOutput };
+  updateMailCampaign: { input: UpdateMailCampaignParams & UpdateMailCampaignInput; output: UpdateMailCampaignOutput };
   updateMessageTemplate: { input: UpdateMessageTemplateParams & UpdateMessageTemplateInput; output: UpdateMessageTemplateOutput };
   updatePhoneMenu: { input: UpdatePhoneMenuParams & UpdatePhoneMenuInput; output: UpdatePhoneMenuOutput };
   updatePriceBookCategory: { input: UpdatePriceBookCategoryParams & UpdatePriceBookCategoryInput; output: UpdatePriceBookCategoryOutput };
@@ -24286,6 +24690,7 @@ export const OPERATIONS = {
   campaignResults: { method: "GET", path: "/v1/campaigns/{id}/results", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   cancelAgreement: { method: "POST", path: "/v1/agreements/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   cancelCampaign: { method: "POST", path: "/v1/campaigns/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
+  cancelMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkInAsset: { method: "POST", path: "/v1/assets/{assetId}/check-in", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkOutAsset: { method: "POST", path: "/v1/assets/{assetId}/check-out", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
@@ -24309,6 +24714,7 @@ export const OPERATIONS = {
   connectAiProvider: { method: "POST", path: "/v1/ai/connections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   connectCallTracking: { method: "POST", path: "/v1/call-tracking/connect", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   connectConnector: { method: "POST", path: "/v1/connectors/{provider}", pathParams: ["provider"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  connectLeadMarketplace: { method: "POST", path: "/v1/lead-marketplaces", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   convertEstimate: { method: "POST", path: "/v1/estimates/{id}/convert", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write","job:write"] },
   copyBackFromSandbox: { method: "POST", path: "/v1/sandbox/copy-back", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   countStock: { method: "POST", path: "/v1/stock/counts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -24335,6 +24741,7 @@ export const OPERATIONS = {
   createKnowledgeNote: { method: "POST", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   createLeadConnector: { method: "POST", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   createLocation: { method: "POST", path: "/v1/locations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  createMailCampaign: { method: "POST", path: "/v1/marketing/mail", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   createPaymentIntent: { method: "POST", path: "/v1/payments/intents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   createPhoneMenu: { method: "POST", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createPriceBookCategory: { method: "POST", path: "/v1/pricebook/categories", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -24494,10 +24901,14 @@ export const OPERATIONS = {
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getLeadInbox: { method: "GET", path: "/v1/lead-inbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
+  getLeadOffer: { method: "GET", path: "/v1/lead-offers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getLivePositions: { method: "GET", path: "/v1/dispatch/positions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   getLocationSharing: { method: "GET", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getMailCampaign: { method: "GET", path: "/v1/marketing/mail/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   getMarketingCall: { method: "GET", path: "/v1/marketing/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel", pathParams: [], queryParams: ["from","to","by","model"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  getMarketingOverview: { method: "GET", path: "/v1/marketing/overview", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingSettings: { method: "GET", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getMemberPricing: { method: "GET", path: "/v1/customers/{id}/member-pricing", pathParams: ["id"], queryParams: ["propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   getMyTimeclock: { method: "GET", path: "/v1/timeclock/me", pathParams: [], queryParams: ["weekOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
@@ -24627,6 +25038,7 @@ export const OPERATIONS = {
   listContinuingEducation: { method: "GET", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listContracts: { method: "GET", path: "/v1/contracts", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listConversations: { method: "GET", path: "/v1/conversations", pathParams: [], queryParams: ["limit","cursor","status","customerId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["message:read"] },
+  listConversionAdjustments: { method: "GET", path: "/v1/marketing/conversion-adjustments", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listConversionSends: { method: "GET", path: "/v1/marketing/conversion-sends", pathParams: [], queryParams: ["state","provider","jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listCostingRates: { method: "GET", path: "/v1/costing/rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   listCreditNotes: { method: "GET", path: "/v1/credit-notes", pathParams: [], queryParams: ["cursor","limit","customerId","invoiceId","status"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
@@ -24677,9 +25089,12 @@ export const OPERATIONS = {
   listKnowledgeNotes: { method: "GET", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listKpiCatalogue: { method: "GET", path: "/v1/kpi-catalogue", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listLeadConnectors: { method: "GET", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
+  listLeadEmails: { method: "GET", path: "/v1/lead-inbox/emails", pathParams: [], queryParams: ["outcome","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listLeadFieldTargets: { method: "GET", path: "/v1/lead-connectors/fields", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listLeadOffers: { method: "GET", path: "/v1/lead-offers", pathParams: [], queryParams: ["include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listLocations: { method: "GET", path: "/v1/locations", pathParams: [], queryParams: ["warehousesOnly"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listMailCampaigns: { method: "GET", path: "/v1/marketing/mail", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
+  listMailPieces: { method: "GET", path: "/v1/marketing/mail/{id}/pieces", pathParams: ["id"], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   listMarketingCalls: { method: "GET", path: "/v1/marketing/calls", pathParams: [], queryParams: ["from","to","numberId","campaignId","channelId","limit","q"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMarketingPlatforms: { method: "GET", path: "/v1/marketing/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMessageTemplates: { method: "GET", path: "/v1/message-templates", pathParams: [], queryParams: ["channel"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -24818,6 +25233,7 @@ export const OPERATIONS = {
   planVisitUnits: { method: "PUT", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   previewCampaign: { method: "POST", path: "/v1/campaigns/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  previewMailCampaign: { method: "GET", path: "/v1/marketing/mail/{id}/preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   previewRecurringSchedule: { method: "GET", path: "/v1/recurring-schedules/{id}/preview", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -24936,6 +25352,7 @@ export const OPERATIONS = {
   revokePortalGrant: { method: "POST", path: "/v1/portal/grants/{id}/revoke", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:revoke"] },
   rotateCalendarFeed: { method: "POST", path: "/v1/calendar-feeds/{id}/rotate", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   rotateLeadConnectorSecret: { method: "POST", path: "/v1/lead-connectors/{id}/rotate", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  rotateLeadInbox: { method: "POST", path: "/v1/lead-inbox/rotate", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   rotateWebhookSecret: { method: "POST", path: "/v1/webhooks/endpoints/{id}/secret", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   runAccountingSync: { method: "POST", path: "/v1/accounting/sync", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   runAiCompletion: { method: "POST", path: "/v1/ai/completions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
@@ -24956,6 +25373,8 @@ export const OPERATIONS = {
   sendEstimate: { method: "POST", path: "/v1/estimates/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:send","portal:grant"] },
   sendFinancingLink: { method: "POST", path: "/v1/financing/applications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   sendInvoice: { method: "POST", path: "/v1/invoices/{invoiceId}/send", pathParams: ["invoiceId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
+  sendLeadOfferMessage: { method: "POST", path: "/v1/lead-offers/{id}/messages", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
+  sendMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   sendQueuedEmail: { method: "POST", path: "/v1/email/send-queued", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendReportScheduleNow: { method: "POST", path: "/v1/report-schedules/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   setAccountMapping: { method: "PUT", path: "/v1/accounting/mappings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
@@ -25085,6 +25504,7 @@ export const OPERATIONS = {
   updateKnowledgeNote: { method: "PATCH", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   updateLeadConnector: { method: "PATCH", path: "/v1/lead-connectors/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   updateLocation: { method: "PATCH", path: "/v1/locations/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateMailCampaign: { method: "PATCH", path: "/v1/marketing/mail/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   updateMessageTemplate: { method: "PATCH", path: "/v1/message-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updatePhoneMenu: { method: "PUT", path: "/v1/phone-menus/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updatePriceBookCategory: { method: "PATCH", path: "/v1/pricebook/categories/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -25658,6 +26078,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Stop a mailing: a draft never goes, and pieces not yet with the printer are not sent.
+   *
+   * POST /v1/marketing/mail/{id}/cancel. Needs campaign:write.
+   */
+  cancelMailCampaign(input: CancelMailCampaignParams & CancelMailCampaignInput, options?: CallOptions): Promise<CancelMailCampaignOutput> {
+    return this.call("cancelMailCampaign", input, options);
+  }
+
+  /**
    * Prove the API key works, and name the account it reaches.
    *
    * POST /v1/call-tracking/check. Needs integration:write.
@@ -25862,6 +26291,15 @@ export abstract class GeneratedOperations {
    */
   connectConnector(input: ConnectConnectorParams & ConnectConnectorInput, options?: CallOptions): Promise<ConnectConnectorOutput> {
     return this.call("connectConnector", input, options);
+  }
+
+  /**
+   * Set up Angi, Thumbtack or Yelp as a lead source, and get the address to give it.
+   *
+   * POST /v1/lead-marketplaces. Needs integration:write.
+   */
+  connectLeadMarketplace(input: ConnectLeadMarketplaceInput, options?: CallOptions): Promise<ConnectLeadMarketplaceOutput> {
+    return this.call("connectLeadMarketplace", input, options);
   }
 
   /**
@@ -26096,6 +26534,15 @@ export abstract class GeneratedOperations {
    */
   createLocation(input: CreateLocationInput, options?: CallOptions): Promise<CreateLocationOutput> {
     return this.call("createLocation", input, options);
+  }
+
+  /**
+   * Draft a mailing.
+   *
+   * POST /v1/marketing/mail. Needs campaign:write.
+   */
+  createMailCampaign(input: CreateMailCampaignInput, options?: CallOptions): Promise<CreateMailCampaignOutput> {
+    return this.call("createMailCampaign", input, options);
   }
 
   /**
@@ -27530,6 +27977,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The company's lead inbox address, and what each marketplace will let this product do.
+   *
+   * GET /v1/lead-inbox. Needs integration:read.
+   */
+  getLeadInbox(input: GetLeadInboxInput = {} as GetLeadInboxInput, options?: CallOptions): Promise<GetLeadInboxOutput> {
+    return this.call("getLeadInbox", input, options);
+  }
+
+  /**
+   * One lead offer: who, what, where, what it cost, and its message thread.
+   *
+   * GET /v1/lead-offers/{id}. Needs job:read.
+   */
+  getLeadOffer(input: GetLeadOfferInput, options?: CallOptions): Promise<GetLeadOfferOutput> {
+    return this.call("getLeadOffer", input, options);
+  }
+
+  /**
    * Where each technician is now.
    *
    * GET /v1/dispatch/positions. Needs visit:dispatch.
@@ -27548,6 +28013,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * One mailing, its pieces by state, and what it brought.
+   *
+   * GET /v1/marketing/mail/{id}. Needs campaign:read.
+   */
+  getMailCampaign(input: GetMailCampaignInput, options?: CallOptions): Promise<GetMailCampaignOutput> {
+    return this.call("getMailCampaign", input, options);
+  }
+
+  /**
    * One inbound call.
    *
    * GET /v1/marketing/calls/{id}. Needs adspend:read.
@@ -27563,6 +28037,15 @@ export abstract class GeneratedOperations {
    */
   getMarketingFunnel(input: GetMarketingFunnelInput, options?: CallOptions): Promise<GetMarketingFunnelOutput> {
     return this.call("getMarketingFunnel", input, options);
+  }
+
+  /**
+   * Sessions and searches from Google, beside the leads, booked jobs and revenue each source brought.
+   *
+   * GET /v1/marketing/overview. Needs adspend:read.
+   */
+  getMarketingOverview(input: GetMarketingOverviewInput, options?: CallOptions): Promise<GetMarketingOverviewOutput> {
+    return this.call("getMarketingOverview", input, options);
   }
 
   /**
@@ -28727,6 +29210,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Every paid job told again because its revenue changed after it was sent.
+   *
+   * GET /v1/marketing/conversion-adjustments. Needs adspend:read.
+   */
+  listConversionAdjustments(input: ListConversionAdjustmentsInput = {} as ListConversionAdjustmentsInput, options?: CallOptions): Promise<ListConversionAdjustmentsOutput> {
+    return this.call("listConversionAdjustments", input, options);
+  }
+
+  /**
    * Every conversion told to every platform, and every one that was not, with why.
    *
    * GET /v1/marketing/conversion-sends. Needs adspend:read.
@@ -29177,6 +29669,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Every email the lead inbox received and what became of it.
+   *
+   * GET /v1/lead-inbox/emails. Needs job:read.
+   */
+  listLeadEmails(input: ListLeadEmailsInput = {} as ListLeadEmailsInput, options?: CallOptions): Promise<ListLeadEmailsOutput> {
+    return this.call("listLeadEmails", input, options);
+  }
+
+  /**
    * Every field a sender can be mapped onto, and what it becomes.
    *
    * GET /v1/lead-connectors/fields. Needs integration:read.
@@ -29201,6 +29702,24 @@ export abstract class GeneratedOperations {
    */
   listLocations(input: ListLocationsInput = {} as ListLocationsInput, options?: CallOptions): Promise<ListLocationsOutput> {
     return this.call("listLocations", input, options);
+  }
+
+  /**
+   * Every mailing, with how many went and how many people opened their own address.
+   *
+   * GET /v1/marketing/mail. Needs campaign:read.
+   */
+  listMailCampaigns(input: ListMailCampaignsInput = {} as ListMailCampaignsInput, options?: CallOptions): Promise<ListMailCampaignsOutput> {
+    return this.call("listMailCampaigns", input, options);
+  }
+
+  /**
+   * Every piece of a mailing: who, where, its own address, what the printer said, and its visits.
+   *
+   * GET /v1/marketing/mail/{id}/pieces. Needs campaign:read.
+   */
+  listMailPieces(input: ListMailPiecesInput, options?: CallOptions): Promise<ListMailPiecesOutput> {
+    return this.call("listMailPieces", input, options);
   }
 
   /**
@@ -30446,6 +30965,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Who it would go to, how many can be posted, what it would cost, and how the first card reads.
+   *
+   * GET /v1/marketing/mail/{id}/preview. Needs campaign:read.
+   */
+  previewMailCampaign(input: PreviewMailCampaignInput, options?: CallOptions): Promise<PreviewMailCampaignOutput> {
+    return this.call("previewMailCampaign", input, options);
+  }
+
+  /**
    * See what it will actually say.
    *
    * POST /v1/message-templates/preview. Needs settings:read.
@@ -31508,6 +32036,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Give the lead inbox a new address and stop the old one.
+   *
+   * POST /v1/lead-inbox/rotate. Needs integration:write.
+   */
+  rotateLeadInbox(input: RotateLeadInboxInput = {} as RotateLeadInboxInput, options?: CallOptions): Promise<RotateLeadInboxOutput> {
+    return this.call("rotateLeadInbox", input, options);
+  }
+
+  /**
    * Give an endpoint a new signing secret.
    *
    * POST /v1/webhooks/endpoints/{id}/secret. Needs integration:write.
@@ -31685,6 +32222,24 @@ export abstract class GeneratedOperations {
    */
   sendInvoice(input: SendInvoiceParams & SendInvoiceInput, options?: CallOptions): Promise<SendInvoiceOutput> {
     return this.call("sendInvoice", input, options);
+  }
+
+  /**
+   * Reply to the customer on a lead, through the marketplace that sold it.
+   *
+   * POST /v1/lead-offers/{id}/messages. Needs message:send.
+   */
+  sendLeadOfferMessage(input: SendLeadOfferMessageParams & SendLeadOfferMessageInput, options?: CallOptions): Promise<SendLeadOfferMessageOutput> {
+    return this.call("sendLeadOfferMessage", input, options);
+  }
+
+  /**
+   * Send a mailing: freeze who it goes to and hand the first hundred pieces to the printer.
+   *
+   * POST /v1/marketing/mail/{id}/send. Needs campaign:write.
+   */
+  sendMailCampaign(input: SendMailCampaignParams & SendMailCampaignInput, options?: CallOptions): Promise<SendMailCampaignOutput> {
+    return this.call("sendMailCampaign", input, options);
   }
 
   /**
@@ -32846,6 +33401,15 @@ export abstract class GeneratedOperations {
    */
   updateLocation(input: UpdateLocationParams & UpdateLocationInput, options?: CallOptions): Promise<UpdateLocationOutput> {
     return this.call("updateLocation", input, options);
+  }
+
+  /**
+   * Change a mailing that has not gone.
+   *
+   * PATCH /v1/marketing/mail/{id}. Needs campaign:write.
+   */
+  updateMailCampaign(input: UpdateMailCampaignParams & UpdateMailCampaignInput, options?: CallOptions): Promise<UpdateMailCampaignOutput> {
+    return this.call("updateMailCampaign", input, options);
   }
 
   /**

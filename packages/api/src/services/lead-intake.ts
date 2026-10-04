@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { connectors as cat, marketing as mk, assertCan } from "@opentradesos/core";
+import { connectors as cat, marketing as mk, money as m, time, assertCan } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, NotFoundError, ConflictError,
+  audit, guardedRead, guardedWrite, timezoneOf, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
@@ -378,7 +378,17 @@ export interface IntakeOutcome {
  */
 export async function receiveLead(
   db: Database,
-  input: { connectorId: string; organizationId: string; lead: InboundLead },
+  input: {
+    connectorId: string; organizationId: string; lead: InboundLead;
+    /**
+     * The tracking campaign this one lead is credited to, when the sender
+     * names it (a Meta form's ad campaign, mapped). Otherwise the connector's
+     * own campaign, and otherwise its channel alone.
+     */
+    campaignId?: string | null | undefined;
+    /** What the marketplace charged for this lead, exactly, when it says. */
+    charge?: string | null | undefined;
+  },
 ): Promise<IntakeOutcome> {
   return db.transaction(async (raw) => {
     const tx = raw as unknown as Database;
@@ -422,6 +432,7 @@ export async function receiveLead(
       postalCode: input.lead.postalCode,
       estimatedValue: input.lead.estimatedValue,
       expiresAt: input.lead.expiresAt,
+      charge: input.charge && m.isPositive(m.money(input.charge)) ? input.charge : null,
     }).returning({ id: schema.leadOffer.id });
 
     /**
@@ -451,19 +462,45 @@ export async function receiveLead(
     const [connector] = await tx.select({
       source: schema.leadSourceConnector.source,
       channelId: schema.leadSourceConnector.channelId,
+      campaignId: schema.leadSourceConnector.acquisitionCampaignId,
+      displayName: schema.leadSourceConnector.displayName,
     }).from(schema.leadSourceConnector)
       .where(eq(schema.leadSourceConnector.id, input.connectorId)).limit(1);
-    const channel = await resolveConnectorChannel(tx, input.organizationId, {
-      source: connector?.source ?? input.lead.source,
-      channelId: connector?.channelId ?? null,
-    });
+    /**
+     * A campaign named for this lead, else the connector's, decides the
+     * channel too, so the lead and the campaign's spend land on one funnel
+     * row. A campaign that has since been archived or deleted falls back to
+     * the connector's channel rather than refusing a lead somebody paid for.
+     */
+    const campaignId = input.campaignId ?? connector?.campaignId ?? null;
+    const declared = campaignId
+      ? await acquisition.resolveDeclared(tx, input.organizationId, { campaignId }).catch(() => null)
+      : null;
+    const channel = declared
+      ? { sourceKey: declared.sourceKey, channelId: declared.channelId }
+      : await resolveConnectorChannel(tx, input.organizationId, {
+        source: connector?.source ?? input.lead.source,
+        channelId: connector?.channelId ?? null,
+      });
     await marketingService.recordDeclaredTouch(tx, input.organizationId, {
       at: new Date(),
       source: channel.sourceKey,
       channelId: channel.channelId,
+      campaignId: declared?.campaignId ?? null,
       callerE164: mk.callerKey(input.lead.contactPhone),
       visitorId: offerThread(offer!.id),
     });
+
+    if (input.charge && m.isPositive(m.money(input.charge))) {
+      await recordLeadCharge(tx, input.organizationId, {
+        offerId: offer!.id,
+        label: `${connector?.displayName ?? "Marketplace"}: lead ${input.lead.externalId}`.slice(0, 200),
+        charge: input.charge,
+        sourceKey: channel.sourceKey,
+        channelId: channel.channelId,
+        campaignId: declared?.campaignId ?? null,
+      });
+    }
 
     return { accepted: true, offerId: offer!.id, duplicate: false, reason: null };
   });
@@ -471,6 +508,52 @@ export async function receiveLead(
 
 /** The anonymous thread a lead offer's touch carries until it is accepted. */
 export const offerThread = (offerId: string) => `lead_offer:${offerId}`;
+
+/**
+ * WHAT A MARKETPLACE CHARGED FOR A LEAD, AS SPEND.
+ *
+ * Written once per offer (found again by the offer's id, so a lead posted
+ * twice is charged once) on the company's day it arrived, against the
+ * channel and campaign the lead is credited to. That is what makes Angi's
+ * and Thumbtack's cost per lead on the funnel their real one.
+ *
+ * Not for a campaign priced per lead: its cost is already its price times its
+ * leads, and writing the charge as well would count every lead twice. The
+ * charge is still kept on the offer, where it can be compared with the price.
+ */
+export async function recordLeadCharge(tx: Database, organizationId: string, input: {
+  offerId: string; label: string; charge: string;
+  sourceKey: string; channelId: string | null; campaignId: string | null;
+}): Promise<boolean> {
+  if (input.campaignId) {
+    const [campaign] = await tx.select({ costModel: schema.acquisitionCampaign.costModel })
+      .from(schema.acquisitionCampaign).where(eq(schema.acquisitionCampaign.id, input.campaignId)).limit(1);
+    if (campaign?.costModel === "per_lead") return false;
+  }
+  const [already] = await tx.select({ id: schema.adSpend.id }).from(schema.adSpend).where(and(
+    eq(schema.adSpend.organizationId, organizationId),
+    eq(schema.adSpend.origin, LEAD_CHARGE_ORIGIN),
+    eq(schema.adSpend.externalId, input.offerId),
+    isNull(schema.adSpend.deletedAt),
+  )).limit(1);
+  if (already) return false;
+  const day = time.dateIn(new Date(), await timezoneOf(tx, organizationId));
+  await tx.insert(schema.adSpend).values({
+    organizationId,
+    source: input.sourceKey,
+    campaign: input.label,
+    channelId: input.channelId,
+    acquisitionCampaignId: input.campaignId,
+    spentOn: day,
+    amount: input.charge,
+    origin: LEAD_CHARGE_ORIGIN,
+    externalId: input.offerId,
+  }).onConflictDoNothing();
+  return true;
+}
+
+/** The origin a marketplace's charge for a lead is written under. */
+export const LEAD_CHARGE_ORIGIN = "lead_charge";
 
 function offerView(
   offer: typeof schema.leadOffer.$inferSelect,

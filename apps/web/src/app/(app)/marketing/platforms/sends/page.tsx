@@ -33,7 +33,11 @@ export default async function SendsPage(
   const user = await requireSetupUser();
   const query = await searchParams;
   const state = STATES.find((s) => s === query["state"]);
-  const sends = await adConversions.listSends({ actor: user.actor, db: getDb() }, { ...(state ? { state } : {}) });
+  const ctx = { actor: user.actor, db: getDb() };
+  const [sends, adjustments] = await Promise.all([
+    adConversions.listSends(ctx, { ...(state ? { state } : {}) }),
+    adConversions.listAdjustments(ctx, { limit: 100 }),
+  ]);
   const writes = can(user.actor, "adspend:write");
 
   return (
@@ -87,6 +91,42 @@ export default async function SendsPage(
           ))}
         </Table>
       )}
+
+      <section className="mt-10" aria-labelledby="restated-heading">
+        <h2 id="restated-heading" className="text-base font-semibold">Told again when a job&rsquo;s revenue changed</h2>
+        <p className="mt-1 max-w-3xl text-sm text-ink-700">
+          A credit note or a second invoice after a paid job was sent. Google is told the new value, or that
+          nothing is left. Meta cannot lower a value it was sent, so an increase goes as a second purchase for
+          the difference and a decrease is written down here and not sent.
+        </p>
+        {adjustments.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-500">No paid job sent to a platform has changed since.</p>
+        ) : (
+          <Table label="Conversion adjustments" head={<><Th>When</Th><Th>Platform</Th><Th>Job</Th><Th>Was</Th><Th>Now</Th><Th>Sent</Th><Th>Outcome</Th></>}>
+            {adjustments.map((a) => (
+              <tr key={a.id}>
+                <Td className="whitespace-nowrap">{formatIn(new Date(a.sentAt ?? a.createdAt), user.organizationTimezone)}</Td>
+                <Td>{a.providerLabel}</Td>
+                <Td><Link href={`/jobs/${a.jobId}`} className="underline underline-offset-4">#{a.jobNumber ?? ""}</Link></Td>
+                <Td><Money value={a.previousValue} /></Td>
+                <Td><Money value={a.newValue} /></Td>
+                <Td>{ADJUSTMENT[a.kind] ?? a.kind}{a.sentValue ? <> (<Money value={a.sentValue} />)</> : null}</Td>
+                <Td>
+                  <Chip tone={a.state === "sent" ? "success" : a.state === "refused" || a.state === "failed" ? "danger" : "neutral"}>{a.state}</Chip>
+                  {a.detail ? <span className="mt-1 block text-xs text-ink-700">{a.detail}</span> : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </section>
     </div>
   );
 }
+
+const ADJUSTMENT: Record<string, string> = {
+  restatement: "Restated",
+  retraction: "Retracted",
+  increase: "The increase",
+  cannot_lower: "Not sent",
+};

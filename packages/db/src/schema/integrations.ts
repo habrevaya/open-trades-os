@@ -4,7 +4,7 @@ import { pk, timestamps, money } from "./_shared";
 import { organization, user, technician } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
-import { marketingChannel } from "./acquisition";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * INTEGRATIONS
@@ -42,6 +42,8 @@ export const capability = pgEnum("capability", [
   "ads", "analytics", "lead_source",
   /** Speech to text, for call recordings and voicemails. */
   "transcription",
+  /** A mail house that prints and posts postcards and letters. */
+  "direct_mail",
 ]);
 
 export const connectionStatus = pgEnum("connection_status", [
@@ -416,6 +418,21 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
    * channel list when the connector is set up.
    */
   channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  /**
+   * The tracking campaign under that channel its leads are credited to, when
+   * the company buys from this sender under one ("Thumbtack: spring AC"), so
+   * a marketplace lead lands on the same funnel row as the campaign's spend.
+   */
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
+  /**
+   * How leads from this sender arrive, which decides how the webhook is
+   * verified and read: `webhook` (the signed generic endpoint), `angi`,
+   * `thumbtack` and `yelp` (each platform's own post, verified its own way),
+   * or `email` (read from a notification email forwarded to the company's
+   * lead inbox, where `source` says which platform).
+   */
+  kind: text("kind").notNull().default("webhook"),
   displayName: text("display_name").notNull(),
   /** Decline automatically when accepting would breach capacity. */
   autoAcceptEnabled: boolean("auto_accept_enabled").notNull().default(false),
@@ -494,6 +511,14 @@ export const leadOffer = pgTable("lead_offer", {
   estimatedValue: money("estimated_value"),
   /** Offers usually expire fast. Speed to lead is the whole game. */
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /**
+   * What the marketplace charged for this lead, when it says. Written as spend
+   * on the day it arrived as well, so a marketplace's cost reaches the funnel
+   * without anybody typing it; kept here so the offer can say what it cost.
+   */
+  charge: money("charge"),
+  /** When the customer or the office last wrote on the lead, through the marketplace. */
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
 
   /** Set once accepted and materialized. */
   customerId: uuid("customer_id").references(() => customer.id, { onDelete: "set null" }),
@@ -514,6 +539,91 @@ export const leadOffer = pgTable("lead_offer", {
   openIdx: index("lead_offer_open_idx").on(t.organizationId, t.status, t.expiresAt),
   /** Unreconciled payouts on completed work. The report an owner wants monthly. */
   payoutIdx: index("lead_offer_payout_idx").on(t.organizationId, t.payoutReconciledAt),
+}));
+
+/**
+ * A MESSAGE ON A LEAD, THROUGH THE MARKETPLACE THAT SOLD IT
+ *
+ * Thumbtack and Yelp keep the conversation with the customer on their side,
+ * and a reply that does not go back through them does not reach the person
+ * at all: the customer's number is often withheld and the platform's relay is
+ * the only way to them. So these are not texts or emails and are not kept
+ * with them. They are the lead's own thread, in order, each with the
+ * platform's id for it so a message posted twice is kept once.
+ *
+ * An outbound row is written BEFORE the platform is asked, as `sending`, and
+ * marked `sent` or `failed` with the platform's words after, so a reply is
+ * never sent twice by a double press and never lost by a crash in between.
+ */
+export const leadOfferMessage = pgTable("lead_offer_message", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  offerId: uuid("offer_id").notNull().references(() => leadOffer.id, { onDelete: "cascade" }),
+  /** `inbound` from the customer, `outbound` from the office. */
+  direction: text("direction").notNull(),
+  body: text("body").notNull(),
+  /** The platform's id for the message. Null for an outbound one until the platform names it. */
+  externalId: text("external_id"),
+  /** `received`, `sending`, `sent` or `failed`. */
+  state: text("state").notNull(),
+  /** The platform's words when it refused or could not be reached. */
+  error: text("error"),
+  sentByUserId: uuid("sent_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** When it was written, by the platform's clock for an inbound one. */
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  threadIdx: index("lead_offer_message_thread_idx").on(t.offerId, t.at),
+  externalIdx: uniqueIndex("lead_offer_message_external_idx").on(t.offerId, t.externalId)
+    .where(sql`${t.externalId} is not null`),
+}));
+
+/**
+ * THE COMPANY'S LEAD INBOX: one address the marketplaces' lead emails are
+ * forwarded to, `leads+TOKEN@` the company's receiving domain. One per
+ * company, with a token that decides the company when an email arrives and
+ * is replaced when somebody rotates it.
+ */
+export const leadInbox = pgTable("lead_inbox", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: uniqueIndex("lead_inbox_org_idx").on(t.organizationId),
+  tokenIdx: uniqueIndex("lead_inbox_token_idx").on(t.token),
+}));
+
+/**
+ * EVERY EMAIL THE LEAD INBOX RECEIVED, AND WHAT BECAME OF IT
+ *
+ * Kept whether or not it made a lead. An email this could not read is the one
+ * somebody most needs to see: a platform changed its layout, a customer left
+ * their number out, or a mailbox sent the confirmation code for the
+ * forwarding rule being set up. `excerpt` is the words, cut short, never the
+ * HTML, because nothing here renders what a stranger sent.
+ */
+export const leadEmail = pgTable("lead_email", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The email provider's id for it, which makes a redelivery the same email. */
+  providerMessageId: text("provider_message_id").notNull(),
+  fromAddress: text("from_address").notNull(),
+  subject: text("subject"),
+  /** Which marketplace it came from, when that could be told. */
+  platform: text("platform"),
+  /** `lead`, `message` (the customer wrote again on a lead already here), `duplicate` or `unreadable`. */
+  outcome: text("outcome").notNull(),
+  /** Why it could not be read, in words. */
+  reason: text("reason"),
+  offerId: uuid("offer_id").references(() => leadOffer.id, { onDelete: "set null" }),
+  excerpt: text("excerpt"),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  providerIdx: uniqueIndex("lead_email_provider_idx").on(t.organizationId, t.providerMessageId),
+  recentIdx: index("lead_email_recent_idx").on(t.organizationId, t.receivedAt),
 }));
 
 // ---------------------------------------------------------------------------

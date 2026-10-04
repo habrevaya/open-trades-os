@@ -221,6 +221,19 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   sealed_credential_connection_idx: "One grant per connection, upserted by the sign in.",
   review_external_idx: "The platform's own review id, so a re-poll is not a second review.",
   lead_offer_external_idx: "The marketplace's own offer id.",
+  lead_offer_message_external_idx:
+    "The marketplace's own id for a message on a lead. Inserted with on conflict do nothing, so a message posted twice, or read back from Yelp on every notice, is one line in the thread.",
+  lead_inbox_org_idx: "One lead inbox per company, minted on first read with on conflict do nothing and rotated with an upsert.",
+  lead_inbox_token_idx: "A random token the service mints for the inbox address. Nobody types it.",
+  lead_email_provider_idx:
+    "The email provider's id for an email. The lead inbox takes an advisory lock on it and looks first, so a redelivery is reported as the same email.",
+  ad_conversion_adjustment_sequence_idx:
+    "One adjustment per place in line per sent purchase. The restating pass inserts with on conflict do nothing, so a collision is a second worker and is skipped.",
+  search_query_day_idx: "A day and a query per Search Console connection. A pull deletes the days it asked about and writes them again.",
+  analytics_session_day_idx: "A day, source and medium per Analytics connection. A pull deletes the days it asked about and writes them again.",
+  mail_piece_recipient_idx:
+    "One piece per customer per mailing. Written once when the audience is frozen, with on conflict do nothing, so a second press of Send posts nobody twice.",
+  mail_piece_code_idx: "Ten random characters the service mints for a piece's own address. Nobody types it into this product.",
   external_work_order_uniq_idx:
     "Their work order id. `receive` is idempotent on it by design, so a second delivery updates "
     + "rather than inserts.",

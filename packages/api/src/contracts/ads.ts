@@ -271,8 +271,92 @@ export const syncReviews = defineRoute({
   }),
 });
 
+
+export const ConversionAdjustment = z.object({
+  id: Uuid,
+  provider: z.string(),
+  providerLabel: z.string(),
+  jobId: Uuid,
+  jobNumber: z.number().int().nullable(),
+  /** Its place in line among the adjustments to the same purchase. */
+  sequence: z.number().int(),
+  /** `restatement`, `retraction` (Google), `increase` (Meta) or `cannot_lower` (a decrease Meta cannot be told). */
+  kind: z.string(),
+  previousValue: MoneyString,
+  newValue: MoneyString,
+  /** What was sent: the new value, the increase, or nothing for a retraction. */
+  sentValue: MoneyString.nullable(),
+  state: z.enum(["sending", "sent", "withheld", "refused", "failed"]),
+  detail: z.string().nullable(),
+  attempts: z.number().int(),
+  sentAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const listConversionAdjustments = defineRoute({
+  method: "get",
+  path: "/v1/marketing/conversion-adjustments",
+  summary: "Every paid job told again because its revenue changed after it was sent",
+  description:
+    "A credit note or a second invoice after a purchase was sent changes what the job was worth to the platform. Google Ads is sent a restatement to the new value (a retraction when nothing is left), against the order id the conversion carried. Meta cannot change a value it was sent, so an increase goes as a second purchase carrying only the difference, and a decrease is written down here as withheld with that reason. Each change is recorded once: a pass that finds the value unchanged writes nothing.",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({ jobId: Uuid.optional(), limit: z.number().int().min(1).max(500).optional() }),
+  output: z.object({ adjustments: z.array(ConversionAdjustment) }),
+});
+
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const getMarketingOverview = defineRoute({
+  method: "get",
+  path: "/v1/marketing/overview",
+  summary: "Sessions and searches from Google, beside the leads, booked jobs and revenue each source brought",
+  description:
+    "Sessions by source from Google Analytics 4 reports and search queries from Search Console, each read twice a day once connected, beside the funnel's leads, booked jobs and revenue for the same days, filed under the same lead source keys. Sessions are Google's count of visits and are never matched one to one with leads; the comparison is leads per hundred sessions.",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({ from: IsoDay, to: IsoDay }),
+  output: z.object({
+    from: z.string(),
+    to: z.string(),
+    model: z.string(),
+    modelLabel: z.string(),
+    rows: z.array(z.object({
+      source: z.string(),
+      label: z.string(),
+      channels: z.array(z.string()),
+      sessions: z.number().int(),
+      engagedSessions: z.number().int(),
+      leads: z.number().int(),
+      booked: z.string(),
+      revenue: MoneyString,
+      leadsPer100Sessions: z.string().nullable(),
+    })),
+    totals: z.object({
+      sessions: z.number().int(),
+      engagedSessions: z.number().int(),
+      leads: z.number().int(),
+      booked: z.string(),
+      revenue: MoneyString,
+      searchClicks: z.number().int(),
+      searchImpressions: z.number().int(),
+    }),
+    queries: z.array(z.object({
+      query: z.string(), clicks: z.number().int(), impressions: z.number().int(), position: z.string().nullable(),
+    })),
+    sources: z.array(z.object({
+      provider: z.string(),
+      label: z.string(),
+      status: z.string().nullable(),
+      lastPulledAt: z.string().datetime().nullable(),
+      lastError: z.string().nullable(),
+    })),
+  }),
+});
+
 export const adsRoutes = {
   startConnectorSignIn, finishConnectorSignIn, listMarketingPlatforms, syncMarketingPlatform,
   listPlatformCampaigns, mapPlatformCampaign, listConversionSends, retryConversionSend,
   getCustomerAdData, setCustomerAdData, confirmReviewMatch, syncReviews,
+  listConversionAdjustments, getMarketingOverview,
 } as const;

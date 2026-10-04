@@ -1,7 +1,7 @@
 import { ads } from "@opentradesos/core";
 import {
   failure, jsonOf, registerAdsAdapter, textSetting, PlatformRefusedError, PlatformUnavailableError,
-  type AdapterInput, type AdsAdapter, type EventOutcome, type OutboundEvent, type PulledLead, type PulledSpend,
+  type AdapterInput, type AdsAdapter, type EventOutcome, type OutboundAdjustment, type OutboundEvent, type PulledLead, type PulledSpend,
 } from "./provider";
 
 /**
@@ -20,6 +20,10 @@ import {
  *   itself refuses a second copy, and hashed email and phone only where core
  *   said they may go. Partial failure is on, so one stale click in a batch
  *   does not refuse the other nine.
+ *
+ *   ADJUSTMENTS. A paid job whose revenue changed after it was sent: a
+ *   RESTATEMENT to its new value or a RETRACTION when nothing is left, found
+ *   by Google through the same `orderId` the conversion carried.
  *
  *   LOCAL SERVICES LEADS. The `local_services_lead` resource, which is where
  *   Google moved Local Services leads from the old standalone API. Calls,
@@ -192,6 +196,44 @@ function createGoogleAds(provider: "google_ads" | "google_lsa", input: AdapterIn
         return events.map((event, index) => refused.has(index)
           ? { eventId: event.eventId, ok: false as const, message: refused.get(index)! }
           : { eventId: event.eventId, ok: true as const });
+      },
+    } : {}),
+
+    ...(provider === "google_ads" ? {
+      async adjustConversions(adjustments: OutboundAdjustment[]) {
+        const { customerId: cid } = ready();
+        const action = textSetting(input.settings, "conversionActionId")?.replace(/\D/g, "");
+        if (!action) throw new PlatformRefusedError("Choose the Google Ads conversion action that booked jobs are reported as.");
+        const body = await call(`customers/${cid}:uploadConversionAdjustments`, {
+          conversionAdjustments: adjustments.map((a) => ({
+            conversionAction: `customers/${cid}/conversionActions/${action}`,
+            adjustmentType: a.kind === "retraction" ? "RETRACTION" : "RESTATEMENT",
+            orderId: a.orderId,
+            adjustmentDateTime: ads.googleDateTime(a.at),
+            ...(a.kind === "restatement" && a.value !== null
+              ? { restatementValue: { adjustedValue: Number(a.value), currencyCode: a.currency } }
+              : {}),
+          })),
+          partialFailure: true,
+        }) as {
+          partialFailureError?: { message?: unknown; details?: { errors?: { message?: unknown; errorCode?: Record<string, unknown>; location?: { fieldPathElements?: { fieldName?: string; index?: number }[] } }[] }[] };
+        };
+        const refused = new Map<number, string>();
+        for (const detail of body.partialFailureError?.details ?? []) {
+          for (const error of detail.errors ?? []) {
+            const at = error.location?.fieldPathElements?.find((p) => p.fieldName === "conversion_adjustments" || p.fieldName === "conversionAdjustments")?.index;
+            const code = error.errorCode ? Object.values(error.errorCode)[0] : undefined;
+            const words = [code, error.message].filter((part) => typeof part === "string").join(": ");
+            if (typeof at === "number") refused.set(at, words || "Google refused this adjustment.");
+          }
+        }
+        if (body.partialFailureError && refused.size === 0) {
+          const words = typeof body.partialFailureError.message === "string" ? body.partialFailureError.message : "";
+          return adjustments.map((a) => ({ orderId: a.orderId, ok: false, message: words || "Google refused these adjustments." }));
+        }
+        return adjustments.map((a, index) => ({
+          orderId: a.orderId, ok: !refused.has(index), message: refused.get(index) ?? null,
+        }));
       },
     } : {}),
 

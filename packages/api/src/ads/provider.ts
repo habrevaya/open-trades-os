@@ -128,7 +128,30 @@ export interface PulledLead {
   createdAt: Date;
   /** Whether the platform charged for it, which is spend and a lead at once. */
   charged: boolean | null;
+  /** Where they are, when the platform asked them. */
+  address?: { line1: string | null; city: string | null; state: string | null; postalCode: string | null } | undefined;
+  /** The platform's campaign the lead came from, which is what credits it to a tracking campaign. */
+  campaign?: { id: string; name: string | null } | null | undefined;
   raw: Record<string, unknown>;
+}
+
+/**
+ * One day of behaviour read back: a search query from Search Console, or the
+ * sessions from one source and medium from Google Analytics.
+ */
+export type PulledAnalytics =
+  | { kind: "search"; day: string; query: string; clicks: number; impressions: number; position: string | null }
+  | { kind: "sessions"; day: string; source: string; medium: string; sessions: number; engagedSessions: number };
+
+/** One change to a purchase already sent: a new value, or none at all. */
+export interface OutboundAdjustment {
+  /** The order id the original conversion carried, which is what Google finds it by. */
+  orderId: string;
+  kind: "restatement" | "retraction";
+  /** The new value, for a restatement. */
+  value: string | null;
+  currency: string;
+  at: Date;
 }
 
 export interface PulledReview {
@@ -151,6 +174,12 @@ export interface AdsAdapter {
   sendEvents?(events: OutboundEvent[]): Promise<EventOutcome[]>;
   /** Leads created since a moment. */
   pullLeads?(since: Date): Promise<PulledLead[]>;
+  /** One lead by the platform's id, for a platform that posts only that one arrived. */
+  fetchLead?(externalId: string): Promise<PulledLead | null>;
+  /** Search queries or sessions per day over the range, inclusive. */
+  pullAnalytics?(range: { from: string; to: string }): Promise<PulledAnalytics[]>;
+  /** Restate or retract purchases already sent. One outcome per adjustment, in order, keyed by order id. */
+  adjustConversions?(adjustments: OutboundAdjustment[]): Promise<{ orderId: string; ok: boolean; message: string | null }[]>;
   /** Every review on the listing, newest first. */
   listReviews?(): Promise<PulledReview[]>;
   /** Post a reply, or replace the one there. */

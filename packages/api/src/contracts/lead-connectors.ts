@@ -28,8 +28,16 @@ export const LeadFieldTarget = z.object({
 export const LeadConnector = z.object({
   id: Uuid,
   source: z.string(),
+  /**
+   * How its leads arrive: `webhook` (the signed generic endpoint), `angi`,
+   * `thumbtack` or `yelp` (the platform's own post), or `email` (forwarded
+   * notification emails, with `source` naming the platform).
+   */
+  kind: z.string(),
   /** The channel every lead from this sender is credited to. */
   channelId: Uuid.nullable(),
+  /** The tracking campaign under it the leads are credited to, when one is chosen. */
+  campaignId: Uuid.nullable(),
   displayName: z.string(),
   active: z.boolean(),
   /** Append to this deployment's own public address to get the URL to hand over. */
@@ -76,6 +84,8 @@ export const createLeadConnector = defineRoute({
      * when it was the last.
      */
     channelId: Uuid.optional(),
+    /** A tracking campaign to credit its leads to, which decides the channel too. */
+    campaignId: Uuid.optional(),
     displayName: z.string().min(1).max(200),
     fieldMap: FieldMap.optional(),
     commissionRate: MoneyString.nullable().optional(),
@@ -114,6 +124,8 @@ export const updateLeadConnector = defineRoute({
     id: Uuid,
     displayName: z.string().min(1).max(200).optional(),
     channelId: Uuid.optional(),
+    /** A tracking campaign to credit its leads to, or null to credit the channel alone. */
+    campaignId: Uuid.nullable().optional(),
     fieldMap: FieldMap.optional(),
     active: z.boolean().optional(),
     commissionRate: MoneyString.nullable().optional(),

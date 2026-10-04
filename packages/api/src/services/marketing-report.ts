@@ -527,6 +527,11 @@ function spendNote(origin: string): string | null {
   if (origin === "manual") return null;
   if (origin === "google_ads") return "Pulled from Google Ads.";
   if (origin === "meta_ads") return "Pulled from Meta Ads.";
+  if (origin === "bing_ads") return "Pulled from Microsoft Advertising.";
+  /** What a marketplace said it charged for a lead, written when the lead arrived. */
+  if (origin === "lead_charge") return "Pulled from what the marketplace charged for the lead.";
+  /** A mailing's pieces times its price per piece, written as the pieces went to the printer. */
+  if (origin === "direct_mail") return "Pulled from the mailing's pieces and price per piece.";
   return `Imported from ${origin}.`;
 }
 

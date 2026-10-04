@@ -413,6 +413,11 @@ export const NAV: NavGroup[] = [
            * what goes back out to the ad accounts.
            */
           { href: "/marketing", label: "Funnel" },
+          /**
+           * What Google saw (sessions from Analytics, searches from Search
+           * Console) beside the leads and jobs each source brought.
+           */
+          { href: "/marketing/overview", label: "Overview" },
           /** The funnel's money columns, with where the spend came from and how fresh each platform's pull is. */
           { href: "/marketing/roi", label: "Return on spend" },
           { href: "/marketing/calls", label: "Calls" },
@@ -436,6 +441,8 @@ export const NAV: NavGroup[] = [
            * cannot be mistaken for the tracking campaigns two lines up.
            */
           { href: "/marketing/campaigns", label: "Texts and emails" },
+          /** Postcards and letters to the same audiences, each with its own address; `campaign:read` on the page, like texts. */
+          { href: "/marketing/mail", label: "Direct mail" },
           /**
            * The forms the website and the hosted pages collect leads with, and
            * the customers who send other customers. Beside the calls and the

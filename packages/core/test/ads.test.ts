@@ -4,6 +4,7 @@ import {
   sourceOfPlatformCampaign, matchCampaign, spendKey, normaliseEmail, normalisePhone, sha256Hex,
   gaClientIdFromCookie, isMetaBrowserId, metaClickParam, decideShare, eventId, retryAt,
   MAX_SEND_ATTEMPTS, googleDateTime, starRating, suggestReviewMatch, WITHHELD,
+  sessionSource, decideAdjustment, adjustmentEventId,
   type Identifier, type ShareInput,
 } from "../src/ads/index.js";
 
@@ -46,7 +47,9 @@ describe("the providers", () => {
   it("never lets personal data go to the analytics property or the review listing", () => {
     expect(PROVIDERS.ga4.personalData).toBe(false);
     expect(PROVIDERS.google_business_profile.personalData).toBe(false);
-    expect(ADS_PROVIDERS).toHaveLength(5);
+    /** Every provider is named, and only the two that match a click to a person may ever be sent one. */
+    expect(ADS_PROVIDERS).toHaveLength(9);
+    expect(ADS_PROVIDERS.filter((p) => PROVIDERS[p].personalData)).toEqual(["google_ads", "meta_ads"]);
   });
 });
 
@@ -284,5 +287,33 @@ describe("reviews", () => {
     expect(suggestReviewMatch({ authorName: "John Davis", postedAt: posted }, [
       { customerId: "c1", customerName: "John Davis", jobId: "j1", finishedAt: new Date(posted.getTime() + 3_600_000) },
     ])).toBeNull();
+  });
+});
+
+describe("Microsoft, read back, and restating", () => {
+  it("asks Microsoft for offline access on its own consent screen", () => {
+    const url = new URL(authorizeUrl({
+      family: "microsoft", clientId: "c", redirectUri: "https://x/settings/integrations/oauth",
+      scopes: PROVIDERS.bing_ads.scopes, state: "s".repeat(20),
+    }));
+    expect(url.origin + url.pathname).toBe("https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+    expect(url.searchParams.get("scope")).toBe("https://ads.microsoft.com/msads.manage offline_access");
+    expect(url.searchParams.get("access_type")).toBeNull();
+  });
+
+  it("files a session under the same source a landing page's tags would be", () => {
+    expect(sessionSource("(direct)", "(none)")).toBe("direct");
+    expect(sessionSource("google", "organic")).toBe("organic_search");
+    expect(sessionSource("google", "cpc")).toBe("google_ads");
+    expect(sessionSource("weird.example", "referral")).toBe("unknown");
+  });
+
+  it("restates Google to the new value, retracts at nothing, and only ever adds to Meta", () => {
+    expect(decideAdjustment({ provider: "google_ads", told: "400.0000", now: "400.00" })).toEqual({ kind: "none" });
+    expect(decideAdjustment({ provider: "google_ads", told: "400.00", now: "550.00" })).toEqual({ kind: "restatement", value: "550.00" });
+    expect(decideAdjustment({ provider: "google_ads", told: "400.00", now: "0.00" })).toEqual({ kind: "retraction" });
+    expect(decideAdjustment({ provider: "meta_ads", told: "300.00", now: "400.00" })).toEqual({ kind: "increase", value: "100.00", total: "400.00" });
+    expect(decideAdjustment({ provider: "meta_ads", told: "400.00", now: "340.00" })).toMatchObject({ kind: "cannot_lower" });
+    expect(adjustmentEventId("j1", 2)).toBe("ots_purchase_j1_adj2");
   });
 });

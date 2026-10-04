@@ -4,7 +4,7 @@ import { campaigns, messageTemplates } from "@opentradesos/api/services";
 import { can, campaign as cp } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { Campaigns, Audience, Recipients } from "./CampaignView";
-import { RULES } from "./rules";
+import { RuleBoxes } from "./RuleBoxes";
 import { ActionForm } from "./ActionForm";
 
 export const dynamic = "force-dynamic";
@@ -181,29 +181,7 @@ export default async function CampaignsPage(
               </label>
             </div>
 
-            <fieldset className="rounded-md border border-steel-200 p-3">
-              <legend className="px-1 text-sm font-medium">Who</legend>
-              <p className="text-xs text-ink-500">
-                Combined with AND. Every rule you tick narrows the audience, and an audience with no
-                rules at all is refused rather than sent to everybody.
-              </p>
-              <ul className="mt-2 space-y-2 text-sm">
-                {RULES.map((rule) => (
-                  <li key={rule.kind} className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" name="rule" value={rule.kind} />
-                      <span>{rule.label}</span>
-                    </label>
-                    {rule.fields?.map((box) => (
-                      <input key={box.name} name={box.name} placeholder={box.placeholder}
-                             aria-label={box.label}
-                             inputMode={box.numeric ? "numeric" : undefined}
-                             className={`${input} ${box.wide ? "w-56" : "w-24"}`} />
-                    ))}
-                  </li>
-                ))}
-              </ul>
-            </fieldset>
+            <RuleBoxes />
 
             <div className="space-y-2">
               <label className="flex flex-col gap-1 text-sm">

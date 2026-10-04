@@ -34,11 +34,11 @@ catalogue cannot drift into optimism.
 
 **What counts as built is deliberately narrow.** A parser with no transport is not a
 connector. A connector is built when a company can set it up from the settings screen
-and data arrives. Twenty six entries are built today and five are declared.
+and data arrives. Thirty six entries are built today and one is declared.
 
 **A capability is a seam, not a vendor.** Payments, email, accounting, messaging,
 telephony, ads, lead source, reviews, maps, tax, payroll, financing, storage,
-calendar and analytics are members of one enum. A connector in a capability that
+calendar, analytics and direct mail are members of one enum. A connector in a capability that
 already has an interface and a working adapter is a few hundred lines; one that needs
 a new seam is a module. That is most of what decides the build order in
 `docs/integration-queue.md`.
@@ -89,7 +89,16 @@ every screen says.
 
 **A lead connector is a webhook somebody else posts to.** It has its own secret, a
 field mapping onto real objects, a test call, and a rotation path for when the secret
-leaks.
+leaks. Angi, Thumbtack and Yelp post to the same endpoint, each verified and read by
+its own adapter on the marketplace seam (`packages/api/src/marketplaces`): a password
+the company chose for Angi and Thumbtack, and for Yelp nothing believed from the post
+at all, the lead being read back from Yelp with the company's token. A marketplace
+whose API the company cannot get at is read from its lead emails instead, forwarded
+to one address per company (M19).
+
+**A mail house is a seam of one method.** Print this finished piece and post it,
+under the piece's own id as the printer's idempotency key (`packages/api/src/direct-mail`,
+with Lob). Who gets one, what it says and what it cost stay in the service.
 
 ## Setup
 
@@ -212,8 +221,12 @@ and an application, which every adapter already supports.
 
 ## What is not built
 
-Five catalogue entries are declared and have no adapter, and the catalogue names each
-one rather than hiding them. The geocoders' rate limit is per process, so a
+One catalogue entry is declared and has no adapter (marketing email as its own
+connector; campaigns send through the email connection already there), and the
+catalogue names it rather than hiding it. Every marketplace, ad platform, analytics
+read back and mail house built here is tested against a fake of its documented API,
+not a live account, and each marketplace's API answers only a partner it has
+approved (M19 says which). The geocoders' rate limit is per process, so a
 deployment running several workers against the public OpenStreetMap server sends
 that many requests a second; run one worker, or your own geocoder. There is no
 batch geocoding endpoint: addresses are placed one at a time by the worker, and

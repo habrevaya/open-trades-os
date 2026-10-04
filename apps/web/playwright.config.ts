@@ -8,6 +8,7 @@ import { E2E_TWILIO_ENV } from "./e2e/twilio-env";
 import { E2E_ADS_ENV } from "./e2e/ads-env";
 import { E2E_AI_ENV } from "./e2e/ai-env";
 import { E2E_VOICE_RELAY_ENV } from "./e2e/voice-relay-env";
+import { E2E_MARKETING_ENV } from "./e2e/marketing-env";
 
 /**
  * THE BROWSER SUITE
@@ -106,13 +107,14 @@ export default defineConfig({
      * platforms' sealing key and secret names are the same arrangement again
      * (e2e/ads-env.ts), for a local fake of Google, and so is the model key
      * for the AI agents (e2e/ai-env.ts), and for the lender behind customer
-     * financing (e2e/wisetack-env.ts). The voice relay's address is the one
+     * financing (e2e/wisetack-env.ts), and for the lead marketplaces and the
+     * mail house (e2e/marketing-env.ts). The voice relay's address is the one
      * .env.example names for the phone assistant, pointed at a relay the
      * assistant's spec starts itself (e2e/voice-relay-env.ts).
      */
     env: {
       PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV, ...E2E_AI_ENV,
-      ...E2E_WISETACK_ENV, ...E2E_VOICE_RELAY_ENV,
+      ...E2E_WISETACK_ENV, ...E2E_VOICE_RELAY_ENV, ...E2E_MARKETING_ENV,
     },
     stdout: "pipe",
     stderr: "pipe",

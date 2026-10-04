@@ -2556,7 +2556,8 @@ returns table (organization_id uuid)
       from public.integration_connection c
       join public.organization o on o.id = c.organization_id
       left join public.sync_run r on r.connection_id = c.id
-     where c.provider in ('google_ads', 'google_lsa', 'meta_ads', 'ga4', 'google_business_profile')
+     where c.provider in ('google_ads', 'google_lsa', 'meta_ads', 'ga4', 'google_business_profile',
+                          'bing_ads', 'meta_lead_ads', 'search_console', 'ga4_data')
        and c.status = 'connected'
        and c.deleted_at is null
        and o.suspended_at is null
@@ -2567,6 +2568,30 @@ returns table (organization_id uuid)
 
 revoke all on function app.ad_work_organizations(int) from public;
 grant execute on function app.ad_work_organizations(int) to background;
+
+-- -------------------------------------------------------------------------
+-- COMPANIES WITH A MAILING HALF SENT
+--
+-- A mailing larger than one send's batch is left `sending` with pieces still
+-- pending, and the worker posts the rest. Ids and nothing else, oldest
+-- mailing first; the pieces themselves are read inside the company's own
+-- tenant boundary.
+create or replace function app.mail_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select mc.organization_id
+      from public.mail_campaign mc
+      join public.organization o on o.id = mc.organization_id
+     where mc.state = 'sending'
+       and o.suspended_at is null
+     group by mc.organization_id
+     order by min(mc.updated_at)
+     limit p_limit
+  $$;
+
+revoke all on function app.mail_work_organizations(int) from public;
+grant execute on function app.mail_work_organizations(int) to background;
 -- COMPANIES WITH AN AI AGENT THAT RUNS ON ITS OWN
 --
 -- Intake, text chat and collections run on the worker's clock as the person

@@ -342,9 +342,10 @@ describe("the counts the docs state", () => {
     const built = connectors.CONNECTORS.filter((c) => c.state === "built").length;
     const declared = connectors.CONNECTORS.filter((c) => c.state === "declared").length;
     expect(countIn("m25-integrations-provider-framework.md",
-      `${NUMBER} entries are built today and ${NUMBER} are declared`)).toEqual([built, declared]);
+      `${NUMBER} entries are built today and ${NUMBER} (?:is|are) declared`)).toEqual([built, declared]);
+    /** Singular or plural, so the sentence stays English when the count reaches one. */
     expect(countIn("m25-integrations-provider-framework.md",
-      `${NUMBER} catalogue entries are declared and have no adapter`)).toEqual([declared]);
+      `${NUMBER} catalogue (?:entry is declared and has|entries are declared and have) no adapter`)).toEqual([declared]);
   });
 
   it("M29 counts the recommended automations", () => {

@@ -33,7 +33,8 @@ export default async function LeadOffersPage() {
       <PageHeader title="Lead offers" count={open.length} />
       <p className="mt-2 max-w-2xl text-sm">
         <a href="/marketing/leads/connectors" className="underline underline-offset-4">Set up a lead source</a>{" "}
-        <span className="text-ink-700">to receive them from Angi, Thumbtack, a partner or a website form.</span>
+        <span className="text-ink-700">to receive them from Angi, Thumbtack, Yelp, Nextdoor, a partner or a website form, or see the</span>{" "}
+        <a href="/marketing/leads/emails" className="underline underline-offset-4">lead emails that arrived</a>.
       </p>
 
       {open.length === 0 ? (
@@ -43,7 +44,7 @@ export default async function LeadOffersPage() {
           {open.map((offer) => (
             <tr key={offer.id}>
               <Td>
-                <span className="font-medium">{offer.contactName ?? "No name"}</span>
+                <a href={`/marketing/leads/${offer.id}`} className="font-medium underline underline-offset-4">{offer.contactName ?? "No name"}</a>
                 {offer.contactPhone ? <span className="block"><Phone value={offer.contactPhone} /></span> : null}
                 {offer.contactEmail ? <span className="block text-xs text-ink-500">{offer.contactEmail}</span> : null}
               </Td>
@@ -89,7 +90,7 @@ export default async function LeadOffersPage() {
           <Table label="Decided offers" head={<><Th>Lead</Th><Th>From</Th><Th>Decided</Th><Th>What happened</Th></>}>
             {decided.map((offer) => (
               <tr key={offer.id}>
-                <Td>{offer.contactName ?? "No name"}</Td>
+                <Td><a href={`/marketing/leads/${offer.id}`} className="underline underline-offset-4">{offer.contactName ?? "No name"}</a></Td>
                 <Td>{offer.connector}</Td>
                 <Td>{offer.decidedAt ? formatIn(offer.decidedAt, user.organizationTimezone) : ""}</Td>
                 <Td>

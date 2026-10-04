@@ -37,11 +37,22 @@ the page per visitor, hosted lead forms, and referral links its customers
 share, with a reward when the person they sent pays for their first job.
 
 The fifth speaks to the ad platforms themselves: Google Ads, Google Local
-Services, Meta and Google Analytics, connected with a sign in on the
-platform's own consent screen. Spend is pulled into the spend rows every six
-hours and mapped onto the tracking campaigns, Local Services leads arrive in
-the lead inbox, and every booked and paid job is told back to the account
-whose click won it, once, with only what the customer and the company allow.
+Services, Meta, Microsoft Advertising and Google Analytics, connected with a
+sign in on the platform's own consent screen. Spend is pulled into the spend
+rows every six hours and mapped onto the tracking campaigns, Local Services
+leads and Meta's instant form leads arrive in the lead inbox, every booked and
+paid job is told back to the account whose click won it, once, with only what
+the customer and the company allow, and told again when its revenue changes.
+Search Console's searches and Google Analytics' sessions are read back onto a
+marketing overview beside the leads and jobs.
+
+The sixth is the lead marketplaces and the mail: Angi, Thumbtack and Yelp
+leads in the lead inbox as they are sold, credited to a channel and tracking
+campaign with their charge recorded as spend, Thumbtack and Yelp customers
+answered through the marketplace, every marketplace's lead emails read from one
+inbox address per company, and postcards and letters posted to the company's
+own customers, each with its own web address, a visit to which is credited to
+the mailing.
 
 ## The story, end to end
 
@@ -357,6 +368,126 @@ rather than refused. Every ratio is empty, never zero, when its denominator is.
   period's spend was pulled from a platform, loaded from a file or typed, and
   how fresh each connected platform's last pull is.
 
+## Lead marketplaces
+
+`Marketing > Lead offers > Lead sources` (`/marketing/leads/connectors`) lists
+Angi, Thumbtack, Yelp and Nextdoor with what each will let this product do, and
+connects the first three (`POST /v1/lead-marketplaces`). Each posts to the same
+lead endpoint the generic webhook uses, `/api/webhooks/leads/{token}`, and is
+verified its own way before anything in the post is believed:
+
+| Marketplace | How a lead arrives | Verified by | Replies | Partner approval |
+|---|---|---|---|---|
+| Angi (and HomeAdvisor) | Angi posts the lead | The password the company chose, as Angi's `X-API-KEY` header or HTTP Basic | No API for it: ring or text | Angi's CRM integration program |
+| Thumbtack | Thumbtack posts the lead and each message | HTTP Basic, the password the company chose, and its business id | Through Thumbtack | Thumbtack's partner API |
+| Yelp Request a Quote | Yelp posts only a lead id | Its business id; the lead and its messages are read back from Yelp with the company's token, so nothing in the post is believed | Through Yelp | Yelp's Leads API, then the owner grants it |
+| Nextdoor | No API for a business's enquiries | | Answer on Nextdoor | None exists |
+
+**Every one of these APIs needs that marketplace to approve the operator as a
+partner first**, and none of it can be switched on by this product on anybody's
+behalf. **They are tested against fakes built to each platform's documentation
+(`packages/api/test/marketplace-leads.integration.test.ts`), not live
+accounts**; the first real lead is where a difference would show.
+
+Setting one up takes the channel and, optionally, a tracking campaign its leads
+are credited to; the business id and the NAME of the secret holding the
+platform's access token (Thumbtack, Yelp); and for Angi and Thumbtack the name
+the password will be kept under, the password itself shown once to keep there
+and give to the marketplace. A lead becomes an offer exactly as a webhook lead
+does: a touch on the channel and campaign, the same lead posted twice is the
+same offer, and what the marketplace charged (Thumbtack's `price`, Angi's
+`fee`) is written as a spend row on the day it arrived, once per offer, so the
+channel's cost per lead is the marketplace's real one. A campaign priced per
+lead is not also charged, because its price times its leads is already its
+cost.
+
+A lead offer opens at `/marketing/leads/{id}` (`GET /v1/lead-offers/{id}`):
+who, what, where, what it cost, and the conversation. A Thumbtack or Yelp
+customer's messages are kept once each in order; a reply written there
+(`POST /v1/lead-offers/{id}/messages`, `message:send`) is written down before
+the marketplace is asked, so a double press sends it once, and a refusal is kept
+on the reply in the marketplace's words. A lead from a marketplace with no reply
+API says so where the reply box would be.
+
+## The lead inbox: marketplace leads by email
+
+For every marketplace whose API the company cannot get at, approved or not, the
+lead emails are read. Each company has one address, `leads+TOKEN@` the domain
+its email provider receives replies on (`GET /v1/lead-inbox`, shown on the lead
+sources screen), and a rule in its mailbox forwards the marketplaces' lead
+emails to it. Each arrives through the same signed email webhook a customer's
+reply does; the token in the recipient (or in the `Delivered-To` a forwarding
+rule leaves) decides the company, and only that company's token is taken.
+
+Core's reader (`marketplaces.parseLeadEmail`) tells the platform from the sender
+or from a hand forwarded message's own From line, and reads labels rather than
+layouts: "Customer name", "Phone", "Zip code" beside their values, on one line
+or the next, the platform's lead number from its links, a Yelp customer's
+relay address as their email. A lead becomes an offer credited to that
+platform's channel (or the campaign chosen for it). The same lead is one lead
+however it arrives: by the platform's lead number when the email carries one,
+otherwise by the same phone or email from the same platform in the last three
+days, which is also what stops a lead seen by the API and by email counting
+twice. A notice that the customer wrote again goes into the lead's thread.
+
+Nothing is dropped. `/marketing/leads/emails` (`GET /v1/lead-inbox/emails`)
+lists every email with what became of it, and one that could not be read says
+why and shows its words: a lead with nobody to call, a layout the reader did
+not understand, or the code a mailbox sends to confirm the forwarding rule.
+`POST /v1/lead-inbox/rotate` gives the inbox a new address.
+
+## Meta's instant forms
+
+A Facebook or Instagram lead form filled in without visiting the website.
+Connected on `Settings > Integrations` as Meta instant forms with the Page id
+and a sign in with Meta (app review for `leads_retrieval`, `pages_show_list`,
+`pages_read_engagement`, `pages_manage_metadata` and `ads_read`). Meta posts
+each lead to `/api/webhooks/meta/leads`, one address for the whole deployment
+because a Meta app has one; the Page id decides the company and the post's
+`X-Hub-Signature-256` is checked with that company's app secret before the lead
+is read back from the Graph API with the Page's token. The ten minute pull reads
+the Page's forms as well, so a post Meta never sent is found anyway, and a lead
+found both ways is one lead. Each is credited to Meta and to the tracking
+campaign its ad campaign is mapped to on `Marketing > Ad platforms` (matched by
+name first, as spend is). Meta's address check is answered only with the
+deployment's `META_LEADS_VERIFY_TOKEN`.
+
+## Direct mail
+
+`Marketing > Direct mail` (`/marketing/mail`) drafts a mailing: who (the same
+rules texts and emails use, refused when there are none), a postcard or a
+letter in HTML with the campaigns' merge fields and the mail's own
+(`{{ mail.url }}`, `{{ mail.phone }}`, `{{ mail.code }}`), the tracking campaign
+it is credited to (one is made under Direct mail with its name when none is
+chosen), the price per piece from the mail house's price list, and what the
+personal page says. A design that would print a field as nothing, or that does
+not print `{{ mail.url }}` somewhere a person can type it, is refused.
+
+The mailing's page (`/marketing/mail/{id}`) says before it goes how many it
+would reach, how many have no address that can be posted to, what it would
+cost, the return address (the company's own on `Settings > Company`, else an
+office location) and the number it prints (the tracking campaign's tracking
+number), and shows both sides as the first person gets them in a frame that runs
+nothing. Sending (`POST /v1/marketing/mail/{id}/send`) freezes who it goes to,
+one piece per customer with its own code, skips somebody with no postable
+address with the reason, and hands the pieces to Lob a hundred at a time, each
+under its own id as Lob's idempotency key and with a QR code to its own
+address; the worker sends the rest. A piece Lob refused keeps Lob's words; one
+it could not reach is tried again. What the pieces handed over on a day cost is
+one spend row on the tracking campaign for that day, rewritten as more go.
+
+Each piece's own address is `/m/{code}` on this installation. Opening it is
+counted on the piece and recorded, at most once a day, as a touch on the
+mailing's tracking campaign for the customer it was addressed to, so the job
+they book, by phone, online or when the office rings them, is credited to the
+mailing by `creditWork`. The page shows the mailing's words, the tracking
+number to ring and a booking link carrying the mailing's tag. The mailing's
+page shows what it brought: people who opened their address, calls to its
+number, jobs credited to it and their revenue, against what it cost.
+
+**Lob is tested against a fake of its documented API, not a live account.** A
+Lob key starting `test_` prints and charges nothing.
+
 ## Ad platforms, connected
 
 Every one of these needs the operator's own developer approval from the
@@ -374,7 +505,12 @@ this product on anybody's behalf:
 - **Google Business Profile** needs Google's separate approval for the
   Business Profile API (M20).
 - **Google Analytics** needs only a Measurement Protocol API secret from the
-  property.
+  property to be sent events; reading its sessions back (Google Analytics 4
+  reports) needs the Data API and a sign in with Google.
+- **Microsoft Advertising** needs a developer token from Microsoft's Developer
+  Portal and an app registered in Microsoft Entra.
+- **Search Console** needs the domain verified and the Search Console API with a
+  sign in with Google.
 
 **The code is tested against fakes of each platform, not against live
 accounts.** The adapters, the sign in, the token refresh, the spend pull, the
@@ -477,6 +613,43 @@ tag (and the `_fbp` cookie of Meta's pixel), with the whole revenue.
   withheld send can be tried again, decided afresh
   (`POST /v1/marketing/conversion-sends/{id}/retry`); a sent one cannot.
   Failed sends are retried by themselves on a ladder from five minutes to a day.
+
+### Told again when a job's revenue changes
+
+A paid job sent and then worth something different (a second invoice, a credit
+note, a voided invoice) is told again, every quarter hour, for ninety days after
+it was sent. Google Ads is sent a conversion adjustment against the order id
+the purchase carried: a restatement to the new value, or a retraction when
+nothing is left. Meta has no way to change a value it was sent, so an increase
+goes as a second Purchase carrying only the difference, under its own event id,
+and a decrease is written down as withheld with that reason and not sent. Each
+change is recorded once (`ad_conversion_adjustment`, one row per place in line
+per send under a unique index), a value unchanged since writes nothing, and the
+list is on `Marketing > Ad platforms > Conversions sent` and
+`GET /v1/marketing/conversion-adjustments`. Google Analytics is not restated.
+
+### Microsoft Advertising spend
+
+Microsoft answers with a report job, not rows: the campaign performance report
+is submitted, polled a few times a couple of seconds apart, and downloaded as a
+zip holding one CSV from an address that carries its own signature (fetched
+with no token). A report Microsoft is still preparing is left for the next pull
+and said so on the connection. Its days go into the spend rows like the
+others', found again by account, campaign and day.
+
+## Read back: the marketing overview
+
+`Marketing > Overview` (`/marketing/overview`, `GET /v1/marketing/overview`)
+puts what Google saw beside what the company got, for a range of days. Search
+Console's queries (clicks, impressions, average position) and Google
+Analytics' sessions and engaged sessions by source and medium are read twice a
+day into their own rows, the last five days asked again because both revise;
+a day read again replaces what was read before. Sessions are filed under the
+same lead source keys the leads are (`google / organic` is organic search,
+`google / cpc` is Google Ads), and each row shows sessions, leads, leads per
+hundred sessions, booked jobs and revenue by the funnel's own rules and model.
+Sessions and leads are compared as a rate and never matched one to one: a
+session is Google's count of visits and a lead is a person.
 
 The funnel also cuts by ad platform (Google Ads, Local Services, Meta,
 Microsoft, and one row for everything else), so pulled spend is compared only
@@ -672,10 +845,16 @@ revenue are facts; what share of them the campaign caused is what
 | readonly | no | no | no | no |
 
 `adspend:read` reads the funnel, its rows, the call log, spend, conversions,
-lead forms, referrals, the ad platforms' state and every conversion sent;
+lead forms, referrals, the ad platforms' state, every conversion sent and
+restated, and the overview;
 `adspend:write` manages channels, tracking campaigns, spend and lead forms,
 pulls a platform now, maps a platform's campaign and tries a send again.
-Connecting an ad platform and signing in to it is `integration:write`. A
+Connecting an ad platform and signing in to it is `integration:write`, and so
+is connecting a marketplace and rotating the lead inbox (reading its address is
+`integration:read`). A lead offer and its thread, and the lead emails, are
+`job:read`; replying to a lead through its marketplace is `message:send`. Direct
+mail is `campaign:read` to see and `campaign:write` to draft, send and stop,
+because it spends money by the piece, like texts and emails. A
 customer's answer about advertising is `customer:read` to see and
 `customer:write` to record. Buying, routing and releasing numbers, the snippet's idle
 time and what a referral earns are `settings:write`; reading the snippet's key
@@ -725,8 +904,18 @@ most real use:
 - `GET /v1/marketing/tracking-numbers` and `PATCH /v1/marketing/tracking-numbers/{id}`.
 - `GET /v1/marketing/spend`, `POST /v1/marketing/spend`,
   `DELETE /v1/marketing/spend-rows/{id}` and `POST /v1/marketing/spend/file`.
-- `GET /v1/lead-offers`, `POST /v1/lead-offers/{id}/accept` and
-  `POST /v1/lead-offers/{id}/decline`.
+- `GET /v1/lead-offers`, `GET /v1/lead-offers/{id}`, `POST /v1/lead-offers/{id}/accept`,
+  `POST /v1/lead-offers/{id}/decline` and `POST /v1/lead-offers/{id}/messages`.
+- `POST /v1/lead-marketplaces` to connect Angi, Thumbtack or Yelp;
+  `GET /v1/lead-inbox`, `POST /v1/lead-inbox/rotate` and
+  `GET /v1/lead-inbox/emails` for the lead inbox.
+- `GET /v1/marketing/mail`, `POST /v1/marketing/mail`,
+  `GET /v1/marketing/mail/{id}`, `PATCH /v1/marketing/mail/{id}`,
+  `GET /v1/marketing/mail/{id}/preview`, `POST /v1/marketing/mail/{id}/send`,
+  `POST /v1/marketing/mail/{id}/cancel` and `GET /v1/marketing/mail/{id}/pieces`
+  for direct mail.
+- `GET /v1/marketing/overview` for sessions and searches beside leads and jobs;
+  `GET /v1/marketing/conversion-adjustments` for restatements.
 - `GET /v1/marketing/settings` and `PATCH /v1/marketing/settings`.
 - `GET /v1/jobs/{jobId}/attribution` for one job's touches and every model's credit.
 - `GET /v1/marketing/touches` to read the touches for a customer, visitor or job.
@@ -792,9 +981,11 @@ Copy it into a new campaign.
 
 ## The screens
 
-`Marketing > Funnel`, `Return on spend`, `Calls`, `Lead offers`, `Tracking
-campaigns`, `Channels`, `Spend`, `Conversions`, `Ad platforms`, `Lead forms` and
-`Referrals`, and `Settings > Website`, are described above. The call screen (`/marketing/calls/{id}`) plays a kept
+`Marketing > Funnel`, `Overview`, `Return on spend`, `Calls`, `Lead offers`
+(with each offer at `/marketing/leads/{id}`, the lead sources and the lead
+emails), `Tracking campaigns`, `Channels`, `Spend`, `Conversions`, `Ad
+platforms`, `Direct mail`, `Lead forms` and `Referrals`, and `Settings >
+Website`, are described above. The call screen (`/marketing/calls/{id}`) plays a kept
 recording and a voicemail, says why nothing was recorded when recording was
 asked for and refused, says what the caller pressed in a phone menu and where
 the call went, shows the transcript of the recording or voicemail when one
@@ -844,30 +1035,47 @@ sample and therefore not a test of anything.
 ## What is not built
 
 - **Tested against fakes, not live accounts.** The Google Ads, Local Services,
-  Meta, Google Analytics and Business Profile adapters follow each platform's
-  documented API and are exercised only against fakes of it; the first real
-  account is where a difference from the documentation would show. Each needs
-  the operator's own developer approval first.
-- **Microsoft Advertising.** No adapter. Its reporting is a report job that is
-  submitted, waited on and downloaded as a zipped file, a different shape from
-  the other platforms' single query; its daily export loads through the spend
-  file, and conversions go back as a file.
-- **Search Console and analytics read back.** Nothing reads sessions, landing
-  pages or search terms from Google Analytics or Search Console; Google
-  Analytics is only sent leads and purchases.
-- **Meta's instant forms and Local Services messages.** Leads from Meta's own
-  forms are not read (the lead webhook takes them), and a Local Services
-  message lead arrives without the message's text.
-- **Restating a sent conversion.** A job's revenue that changes after it was
-  sent (a credit note, a second invoice) is not restated to the platform.
+  Meta, Meta instant forms, Microsoft Advertising, Google Analytics (both
+  directions), Search Console, Business Profile, Angi, Thumbtack, Yelp and Lob
+  adapters follow each platform's documented API and are exercised only
+  against fakes of it; the first real account is where a difference from the
+  documentation would show. Each needs the operator's own developer or partner
+  approval first, and Angi, Thumbtack and Yelp approve only partners they
+  choose.
+- **Microsoft Advertising is spend only.** Booked jobs are not sent back to
+  Microsoft (its offline conversion upload is not built), and the conversion
+  file covers Google and Meta only.
+- **The marketplaces' tokens.** Thumbtack's and Yelp's access tokens are read
+  from the secret store as they are; there is no sign in flow for either, and a
+  token the platform expires has to be replaced there. Angi has no reply API,
+  and a lead a marketplace credits back after a dispute is not taken out of the
+  spend by itself. Nextdoor has no API at all, so its leads come only from its
+  emails, and its emails often carry no phone number.
+- **Lead emails are read by their labels.** A platform that changes the words
+  it labels a field with, or drops the phone number from its email, gives an
+  email kept as unreadable for a person to act on. Attachments are not read.
+  The lead inbox needs an email provider that receives mail (Resend, with a
+  receiving domain); SMTP alone cannot receive.
+- **Meta instant forms' custom questions** are kept with the lead and not
+  mapped onto fields, and a Local Services message lead arrives without the
+  message's text.
+- **Restating.** Google Analytics is not restated, a decrease cannot be told
+  to Meta (it is written down instead), and a send is watched for ninety days.
   Google refuses a click older than ninety days and Meta an event older than
-  seven, so a job paid after that is told to nobody, and says so.
+  seven, so a job paid after that is told to nobody, and says so. A refused
+  adjustment is not retried by itself.
+- **Read back.** Search Console withholds rare queries, and sessions are
+  Google's count with its sampling and consent gaps; landing pages are not
+  read. Neither is matched to a person.
+- **Direct mail.** Lob is the only mail house. Where a piece is in the post is
+  not read back from Lob (its id and expected delivery are kept), the price per
+  piece is typed from Lob's price list because its API does not say, and
+  addresses are United States only. There is no do not mail list beyond a
+  customer marked do not service.
 - **Spend in another currency.** An ad account billing in a currency other
   than the company's is refused rather than converted.
 - **Google Analytics' silence.** The Measurement Protocol accepts a malformed
   event as readily as a good one, so a GA4 send marked sent means received.
-- **Direct mail.** Nothing sends or tracks a mailer beyond giving it its own
-  tracking number or a referral code, which measure it today.
 - **Voice on a live line.** A number bought here, or one already on the
   company's Twilio account and answered here, forwards, whispers, routes by
   hours, takes voicemail, and can be answered by a phone menu that rings

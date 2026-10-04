@@ -113,6 +113,12 @@ export const REDACTED: Record<string, Record<string, string>> = {
     token_hash: "The hash of a live unsubscribe link. The address and whether it was used are "
       + "exported; the link is not.",
   },
+  lead_inbox: {
+    token:
+      "A LIVE SECRET. It is the part of the lead inbox address that decides which company a forwarded "
+      + "lead email lands in, so whoever holds it can put leads on this company's board by email. "
+      + "A new inbox has a new address, and the forwarding rules are changed to it.",
+  },
   lead_source_connector: {
     webhook_token:
       "A LIVE SECRET, not a hash. Whoever holds this can post leads into this company as if they "
