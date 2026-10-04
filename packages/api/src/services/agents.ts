@@ -18,7 +18,7 @@ import "../ai/index";
  *
  * `ai.ts` is the seam: a company's own key, a bill, a ceiling, and a model
  * that is told about nothing its operator could not do. This file is what sits
- * on it: five agents, each with a short list of actions (`core/agents`), each
+ * on it: six agents, each with a short list of actions (`core/agents`), each
  * acting as a named person and never with more than that person may do, and
  * every one of them PROPOSING rather than changing anything until a person, or
  * the company's own standing choice, says yes.
@@ -166,6 +166,15 @@ export async function configure(ctx: ServiceContext, input: ConfigureInput) {
           `That person cannot read what this agent reads (${missing.join(", ")}). Choose somebody who can.`,
         );
       }
+    }
+
+    if (input.agent === "voice" && settings.voice.transferRingGroupId) {
+      const [group] = await tx.select({ id: schema.ringGroup.id }).from(schema.ringGroup)
+        .where(and(
+          eq(schema.ringGroup.organizationId, ctx.actor.organizationId),
+          eq(schema.ringGroup.id, settings.voice.transferRingGroupId),
+        )).limit(1);
+      if (!group) throw new ConflictError("The ring group the assistant puts callers through to no longer exists. Choose another, or voicemail.");
     }
 
     const [before] = await tx.select().from(schema.aiAgentSetting)

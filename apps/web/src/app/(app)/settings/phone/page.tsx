@@ -1,12 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { phoneMenus, phoneNumbers, transcription } from "@opentradesos/api/services";
+import { phoneMenus, phoneNumbers, transcription, callQueues, softphone, voiceAgent } from "@opentradesos/api/services";
 import { assertCan, can, voice, type telephony } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { PageHeader, Empty } from "@/components/Table";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import {
   saveMenu, saveRingGroup, deleteMenu, deleteRingGroup, setAnsweringPhone, setNumberMenu, answerHere, stopAnswering,
+  saveQueue, deleteQueue, setUpBrowserCalling,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ function encode(to: Destination | null | undefined): string {
     case "on_call_rota": return `on_call_rota:${to.id}`;
     case "voicemail": return "voicemail:main";
     case "forward": return "forward";
+    case "queue": return `queue:${to.id}`;
+    case "agent": return "agent";
     default: return "";
   }
 }
@@ -52,6 +55,14 @@ function Destinations({
         <select name={name} defaultValue={encode(value)} className={`mt-1 block ${FIELD}`}>
           {allowNone ? <option value="">{allowNone}</option> : null}
           <option value="voicemail:main">Voicemail</option>
+          {/*
+            Offered only while it can answer: a menu saved pointing at an
+            assistant that is switched off would be refused anyway, so the
+            option says where to turn it on instead of letting it be chosen.
+          */}
+          <option value="agent" disabled={!choices.assistant}>
+            {choices.assistant ? "The phone assistant" : "The phone assistant (turn it on under AI agents first)"}
+          </option>
           <optgroup label="A person">
             {choices.people.map((p) => (
               <option key={p.userId} value={`person:${p.userId}`}>
@@ -62,6 +73,11 @@ function Destinations({
           {choices.ringGroups.length > 0 ? (
             <optgroup label="A ring group">
               {choices.ringGroups.map((g) => <option key={g.id} value={`ring_group:${g.id}`}>{g.name}</option>)}
+            </optgroup>
+          ) : null}
+          {choices.queues.length > 0 ? (
+            <optgroup label="A waiting line">
+              {choices.queues.map((q) => <option key={q.id} value={`queue:${q.id}`}>{q.name}</option>)}
             </optgroup>
           ) : null}
           {choices.menus.length > 0 ? (
@@ -174,6 +190,36 @@ function RingGroupForm({ group, choices }: { group?: phoneMenus.RingGroupView | 
   );
 }
 
+const WAITS = [1, 2, 3, 5, 10, 15, 20, 30];
+
+function QueueForm({ queue, choices }: { queue?: callQueues.QueueView | undefined; choices: Choices }) {
+  return (
+    <ActionForm action={saveQueue} submit={queue ? "Save line" : "Make line"} done="Saved."
+                hidden={queue ? { id: queue.id } : {}} className="mt-3 space-y-4">
+      <TextField label="Name" name="name" required defaultValue={queue?.name ?? ""} placeholder="Service" />
+      <div className="flex flex-wrap gap-4">
+        <Select label="Answered by the ring group" name="ringGroupId" defaultValue={queue?.ringGroupId ?? ""}
+                options={[{ value: "", label: "Choose a group" }, ...choices.ringGroups.map((g) => ({ value: g.id, label: g.name }))]} />
+        <Select label="Longest a caller waits" name="maxWaitSeconds" defaultValue={String(queue?.maxWaitSeconds ?? 300)}
+                options={WAITS.map((m) => ({ value: String(m * 60), label: `${m} minute${m === 1 ? "" : "s"}` }))} />
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="announcePosition" defaultChecked={queue?.announcePosition ?? true} />
+        Tell callers their place in line each time the music comes round
+      </label>
+      <TextField label="Hold music, the address of an MP3 (leave empty for the phone company's own)" name="holdMusicUrl"
+                 defaultValue={queue?.holdMusicUrl ?? ""} placeholder="https://example.com/hold.mp3" />
+      <p className="text-xs text-ink-500">
+        Callers are told their place and the wait is checked each time the music finishes, so a short track of a
+        minute or two keeps both close to what you set.
+      </p>
+      <Destinations name="overflowTo" numberName="overflowNumber" choices={choices}
+                    label="After the longest wait, the caller goes to"
+                    value={queue?.overflowTo ?? { kind: "voicemail", box: "main" }} />
+    </ActionForm>
+  );
+}
+
 /**
  * PHONE MENUS, RING GROUPS AND WHO ANSWERS
  *
@@ -192,12 +238,15 @@ export default async function PhoneMenusPage() {
   const ctx = { actor: user.actor, db: getDb() };
   const writes = can(user.actor, "settings:write");
 
-  const [menus, groups, choices, numbers, transcripts] = await Promise.all([
+  const [menus, groups, choices, numbers, transcripts, queues, assistant, browser] = await Promise.all([
     phoneMenus.listMenus(ctx),
     phoneMenus.listRingGroups(ctx),
     phoneMenus.choices(ctx),
     phoneNumbers.list(ctx),
     transcription.status(ctx),
+    callQueues.listQueues(ctx),
+    voiceAgent.readiness(ctx),
+    can(user.actor, "call:place") ? softphone.status(ctx) : Promise.resolve(null),
   ]);
   const people = choices.people;
   const voiceNumbers = numbers.filter((n) => n.purpose === "main" || n.purpose === "tracking" || n.purpose === "user");
@@ -313,6 +362,93 @@ export default async function PhoneMenusPage() {
             <h3 className="font-medium">Make a ring group</h3>
             <RingGroupForm choices={choices} />
           </div>
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="lines">
+        <h2 id="lines" className="text-base font-semibold">Waiting lines</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          When everybody is on another call: the caller hears music and their place in line, the phones in a ring
+          group are rung until somebody is free to take them, and after the longest wait you allow they go to
+          voicemail. Send callers to a line from a menu option, like any other place a call can go.
+        </p>
+        <ul className="mt-3 space-y-4">
+          {queues.map((queue) => (
+            <li key={queue.id} className="rounded-md border border-steel-200 p-4">
+              <h3 className="font-medium">{queue.name}</h3>
+              <p className="mt-1 text-sm text-ink-700">
+                Answered by the {queue.ringGroupName ?? "deleted"} ring group. Callers wait up to{" "}
+                {Math.round(queue.maxWaitSeconds / 60)} minute{queue.maxWaitSeconds === 60 ? "" : "s"}
+                {queue.announcePosition ? ", told their place in line" : ""}.
+              </p>
+              {writes ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-sm underline underline-offset-4">Change it</summary>
+                  <QueueForm queue={queue} choices={choices} />
+                  <ActionForm action={deleteQueue} submit="Delete line" tone="danger" hidden={{ id: queue.id }} className="mt-4" />
+                </details>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+        {writes ? (
+          groups.length === 0 ? (
+            <p className="mt-3 text-sm text-ink-500">Make a ring group above first: a waiting line is answered by one.</p>
+          ) : (
+            <div className="mt-6 rounded-md border border-steel-200 p-4">
+              <h3 className="font-medium">Make a waiting line</h3>
+              <QueueForm choices={choices} />
+            </div>
+          )
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="assistant">
+        <h2 id="assistant" className="text-base font-semibold">The phone assistant</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          Your own AI model answering a call: it says first that it is automated and that the call is written down,
+          answers from your facts, takes a booking request or a message, and puts the caller through to a person when
+          they ask. Send callers to it from a menu option or after hours. It is set up on{" "}
+          <a href="/settings/agents" className="underline underline-offset-4">AI agents</a>.
+        </p>
+        <p className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <Chip tone={assistant.on ? "success" : "neutral"}>{assistant.on ? "On" : "Off"}</Chip>
+          {assistant.relay ? null : (
+            <span className="text-amber-700">
+              This installation has no voice relay running (VOICE_RELAY_URL is not set), so calls sent to the assistant
+              go where it puts callers through instead. See the self hosting guide for calls.
+            </span>
+          )}
+        </p>
+      </section>
+
+      <section className="mt-10" aria-labelledby="browser">
+        <h2 id="browser" className="text-base font-semibold">Calling from the browser</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          The office can ring customers from this app with your number showing, and take calls here: somebody in a
+          ring group with &quot;Take calls here&quot; switched on is rung in the browser instead of on their phone. It
+          needs an API key made in your Twilio console; put its secret in this installation&apos;s secrets and give
+          its name here, never the secret itself.
+        </p>
+        {browser ? (
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <Chip tone={browser.ready ? "success" : "neutral"}>{browser.ready ? "Set up" : "Not set up"}</Chip>
+            {browser.ready ? <span>Calls show <Phone value={browser.callerId ?? ""} />.</span> : <span className="text-ink-700">{browser.reason}</span>}
+          </p>
+        ) : null}
+        {writes && !voiceNumbers.some((n) => n.routedHere) ? (
+          <p className="mt-3 text-sm text-ink-500">Answer one of your numbers here first, above: browser calls show it.</p>
+        ) : null}
+        {writes && voiceNumbers.some((n) => n.routedHere) ? (
+          <ActionForm action={setUpBrowserCalling} submit="Set up browser calling" done="Set up." className="mt-3 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField label="API key SID" name="apiKeySid" required placeholder="SK..." autoComplete="off" />
+              <TextField label="Name of the secret holding its secret" name="apiKeySecretRef" required
+                         placeholder="TWILIO_API_KEY_SECRET" autoComplete="off" />
+            </div>
+            <Select label="Calls show the number" name="callerIdNumberId" className="block"
+                    options={voiceNumbers.filter((n) => n.routedHere).map((n) => ({ value: n.id, label: n.label ? `${n.e164}, ${n.label}` : n.e164 }))} />
+          </ActionForm>
         ) : null}
       </section>
 

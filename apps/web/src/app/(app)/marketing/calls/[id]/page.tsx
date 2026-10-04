@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { marketingReport, properties, NotFoundError } from "@opentradesos/api/services";
+import { marketingReport, properties, voiceAgent, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can } from "@opentradesos/core";
 import { Phone } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -46,6 +46,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
   const addresses = call.customerId
     ? (await properties.list(ctx, { limit: 50, customerId: call.customerId })).data
     : [];
+  const assistant = can(user.actor, "message:read") ? await voiceAgent.forCall(ctx, call.id) : null;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -93,12 +94,50 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       {/*
+        What the phone assistant heard, said and did, when it answered. Its
+        own words in the order they were said, with what the caller read out
+        of a card already taken out, and one line for each thing it did.
+      */}
+      {assistant ? (
+        <section className="mt-6" aria-label="The phone assistant">
+          <h2 className="text-sm font-medium">The phone assistant</h2>
+          {assistant.actions.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+              {assistant.actions.filter((a) => a.action !== "look_up").map((a, i) => <li key={i}>{a.detail}</li>)}
+            </ul>
+          ) : (
+            <p className="mt-1 text-sm text-ink-700">
+              {assistant.status === "waiting" ? "It was sent the call but never answered it." : "It answered and did nothing on the caller's behalf."}
+            </p>
+          )}
+          {Object.keys(assistant.redactions).length > 0 ? (
+            <p className="mt-1 text-sm text-ink-500">
+              Removed before it was stored: {Object.entries(assistant.redactions)
+                .map(([kind, n]) => `${n} ${REDACTED[kind] ?? kind.replace(/_/g, " ")}${n === 1 ? "" : "s"}`).join(", ")}.
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs text-ink-500">
+            What the caller said is what the speech to text heard, which the assistant acted on. It can mishear an
+            address or a number.
+          </p>
+          <ol className="mt-2 space-y-1.5 text-sm">
+            {assistant.turns.map((turn, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="w-20 shrink-0 text-ink-500">{turn.from === "caller" ? "Caller" : "Assistant"}</span>
+                <span className="whitespace-pre-wrap">{turn.text}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      {/*
         The words, already redacted: a card number read out on the call was
         removed before they were stored, and the screen says how many were.
         Said plainly when the speech to text was unsure, because a transcript
         reads as fact and a misheard address is a van at the wrong house.
       */}
-      {call.transcript.length > 0 || call.transcriptStatus || call.hasRecording || call.hasVoicemail ? (
+      {(call.transcript.length > 0 || call.transcriptStatus || call.hasRecording || call.hasVoicemail) && call.transcriptSource !== "assistant" ? (
         <section className="mt-6" aria-label="Transcript">
           <h2 className="text-sm font-medium">
             Transcript{call.transcriptSource === "voicemail" ? " of the voicemail" : call.transcriptSource === "recording" ? " of the recording" : ""}

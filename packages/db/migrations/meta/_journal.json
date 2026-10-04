@@ -610,6 +610,13 @@
       "when": 1791084482526,
       "tag": "0086_good_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1791102625262,
+      "tag": "0087_jittery_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

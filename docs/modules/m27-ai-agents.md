@@ -12,10 +12,10 @@ status: partial
 
 ## What it does
 
-Lets a company connect the model account it already pays for, and runs five
+Lets a company connect the model account it already pays for, and runs six
 agents on it: intake (texts, emails, call transcripts and web forms into
-booking drafts), a website and text chat, an estimate drafter, collections and
-a dispatch copilot. Each acts as a person the company chose, never with more
+booking drafts), a website and text chat, a phone assistant that answers calls
+live, an estimate drafter, collections and a dispatch copilot. Each acts as a person the company chose, never with more
 access than that person, proposes rather than commits anything that moves money
 or a customer's appointment unless the company lets it act on its own, and
 writes down every proposal, decision and refusal.
@@ -85,9 +85,9 @@ skills and time off checks refuse is dropped and said.
 **Propose, then decide.** Every answer becomes a proposal. A person approves it with
 one click, through the same service their click would call by hand, or the company
 sets an agent to act on its own, which applies it at once through that same service
-as the agent's person. The dispatch copilot and the chat agent cannot be set to act on
-their own: putting people on a day stays with a dispatcher, and a chat's booking is
-always a request the office confirms.
+as the agent's person. The dispatch copilot, the chat agent and the phone assistant
+cannot be set to act on their own: putting people on a day stays with a dispatcher, and
+a booking taken in a chat or on a call is always a request the office confirms.
 
 **The spend ceiling refuses, and what it promises is bounded rather than absolute.** It
 is checked before every call, agents included, against spend already recorded, and the
@@ -114,9 +114,15 @@ is work for the office, read by the people who could read the message it came fr
    Intake chooses what it reads (texts, emails, call transcripts, web forms). The chat
    agent takes a greeting, the company's own questions and answers, and the price book
    items whose price it may say out loud. Collections takes up to six steps by days past
-   the due date, each with how it should sound and whether it goes by email or text.
+   the due date, each with how it should sound and whether it goes by email or text. The
+   phone assistant takes what it says after its disclosure, its own questions and answers
+   and published prices, the most replies on one call, and the ring group it puts callers
+   through to (or voicemail).
 3. For the website chat, nothing else to paste: the website snippet from
    `/settings/website` shows the chat button once the chat agent is on.
+4. For the phone assistant, run the voice relay beside the web app and set
+   `VOICE_RELAY_URL` (`docs/self-hosting/voice.md`), then send calls to it from a phone
+   menu on `/settings/phone`.
 
 ## Using it
 
@@ -144,6 +150,39 @@ the conversation is marked unread in the inbox and a task goes on the queue. Ans
 the chat from the inbox reaches the visitor's open chat and stops the assistant. By
 text it answers only conversations nobody in the office has written in for twelve
 hours, never in quiet hours, and through the same consent gate as every text.
+
+### Phone assistant
+
+A call a phone menu, after hours, a ring group nobody answered or a waiting line sends to
+it is held by Twilio's ConversationRelay, which turns the caller's speech into text and
+sends it over a WebSocket to the voice relay, a small process beside the web app
+(`pnpm --filter @opentradesos/api voice-relay`). The relay checks the carrier's signature
+on the connection before it accepts it, and hands each thing the caller says to the
+assistant, one at a time.
+
+Before anything else, in words no model wrote and that the caller cannot talk over, it
+says it is an automated assistant, not a person, that the call is written down, and that
+saying "person" puts them through. Then, for each thing the caller says, one model turn:
+it answers from the chat's facts (services and their online booking prices, published
+price book items, service area, hours, its own questions and answers), with the caller's
+number and the customers it matches; it can look the caller up by a name or number they
+give (one extra turn, at most once each time they speak), offer the windows online booking
+would and take a booking request through the booking page's own service, take a message
+for the office (a task on the queue, on the customer when there is one), say goodbye, or
+put the caller through. It puts them through, decided in code before the model is asked,
+when they ask for a person or press 0, after it has used its replies on one call, when it
+has heard nothing three times, when its person can no longer do what it needs, when the
+spend ceiling or its runs a day stop it, when the model fails, and when an answer would
+have said a price the company has not published, which is never said. A caller put
+through goes to the ring group on its settings, or voicemail.
+
+Card numbers and security codes the caller reads out are removed before their words are
+written down or shown to the model. On the call screen it shows everything it heard and
+said, in order, and one line for each thing it did; the words become the call's
+transcript unless the call already has one, and the call log marks the call.
+`GET /v1/calls/{id}/assistant` is the same, for `message:read`. It runs as the person on
+its settings, who must hold `message:read`, `message:send`, `customer:read` and
+`booking:read`.
 
 ### Estimate drafter
 
@@ -208,6 +247,7 @@ applying the copilot's plan takes `visit:dispatch`. Asking intake to read a thre
 | `GET /v1/ai/agents` | `integration:read` |
 | `PUT /v1/ai/agents/{agent}` | `agent:configure` |
 | `GET /v1/ai/activity` | `integration:read` |
+| `GET /v1/calls/{id}/assistant` | `message:read` |
 | `GET /v1/ai/intake/drafts` | `booking:read` |
 | `POST /v1/ai/intake/drafts` | `message:read` |
 | `POST /v1/ai/intake/drafts/{id}/approve` | `booking:decide`, `visit:write` |
@@ -240,7 +280,8 @@ The settings screen shows each one's state.
 
 **Can an agent act on its own?** Only as somebody, and only where the company chose it:
 intake can book, collections can send and the estimate drafter can write the draft
-estimate on their own. The copilot and the chat never decide for a person. Everything
+estimate on their own. The copilot, the chat and the phone assistant never decide for a
+person. Everything
 done on its own says so in the log and on the proposal.
 
 **What stops a message written to trick the agent?** Not the prompt, though the prompt
@@ -254,8 +295,19 @@ this category has enough of those.
 
 ## What is not built
 
-No voice agent: calls are read from their transcripts after the fact, nothing answers
-a call live, and there is no LiveKit path. No field assistant for technicians. No
+The phone assistant has not been tried on a live phone line. It is built from Twilio's
+ConversationRelay documentation and tested against a WebSocket client playing the
+carrier's part, so the carrier's real timing, speech recognition and signature on the
+handshake are untested. It needs the voice relay deployed as its own process; with no
+relay, calls sent to it are put through instead, and a relay restarted mid call puts that
+caller through. Each answer is one whole model call with no streaming, so the caller hears
+nothing until the answer is complete, and it speaks and hears English only. It keeps what
+the caller said on the strength of the disclosure it opens with, not on a press 1 yes
+like a recording; a company whose advice says that is not enough for its callers should
+not send calls to it. Its part of the call is never recorded as audio. It cannot move a
+caller to a waiting line or another menu itself, only to its one ring group or voicemail,
+and it takes one booking request a call. There is no LiveKit path. No field assistant for
+technicians. No
 streaming: every model call is one request and one response, so the chat answers a
 message at a time. The intake agent books through online booking's services and
 windows only; a company with none set up gets the summary and books by hand, and an

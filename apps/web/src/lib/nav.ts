@@ -172,6 +172,12 @@ export const NAV: NavGroup[] = [
           { href: "/inbox/drafts", label: "Booking drafts" },
         ],
       },
+      /**
+       * Calls made and taken in the browser. Its own screen rather than a
+       * phone in every page's corner, because every link in the rail is a
+       * full page load and a call in progress would end with it.
+       */
+      { href: "/phone", label: "Phone", permission: "call:place", icon: "phone" },
     ],
   },
   {

@@ -323,6 +323,12 @@ describe("money routes are idempotent", () => {
       + "so a replay has nothing to return. A retry opens a second, empty chat "
       + "that nobody writes in; it is counted against the visitor's address like "
       + "the first, and the widget keeps whichever token it received.",
+    "/v1/softphone/token":
+      "The response is a pass the carrier's browser library signs in with, "
+      + "minted for the person asking and stored nowhere, so a replay has "
+      + "nothing to return. A retry mints a second pass for the same person "
+      + "that expires within the hour, and every call either places is checked "
+      + "again when it is made.",
     "/v1/field/sign-in/code":
       "The effect is a text or an email with a fresh code, which replaces the "
       + "one before it. A replay sends another and the newest is the one that "

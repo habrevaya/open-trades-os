@@ -142,6 +142,8 @@ const ORDER = [
   // Communications, in dependency order: a message points at a conversation
   // and a consent row, a call points at a number, a number points at a
   // campaign, a campaign points at a brand.
+  /** What the phone assistant did on a call points at the call and the booking request it took. */
+  "voice_agent_session",
   "message_attachment", "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
   // Nothing points at a recording policy: it is matched by jurisdiction
@@ -151,8 +153,11 @@ const ORDER = [
   /** A website visitor's lease on a pool number points at the number. */
   "dni_session",
   "phone_number",
-  /** A number points at the menu that answers it; menus and groups point at each other only by id in their options. */
-  "phone_menu", "ring_group", "answering_phone",
+  /**
+   * A number points at the menu that answers it; menus and groups point at each other only by id in their options.
+   * A waiting line points at the ring group that answers it, and a call at the line it waited in.
+   */
+  "phone_menu", "call_queue", "ring_group", "answering_phone", "softphone_presence",
   "messaging_campaign", "messaging_brand",
   /**
    * A saved card points at the customer's processor profile and at the sign

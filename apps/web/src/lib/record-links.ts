@@ -20,11 +20,13 @@ export const LINKS: Record<string, (id: string) => string> = {
   equipment: (id) => `/equipment/${id}`,
   /** Raised when somebody reports an incident, and by every follow up added to one. */
   incident_report: (id) => `/compliance/incidents/${id}`,
+  /** A message the phone assistant took from somebody who is not a customer yet opens the call it was taken on. */
+  call: (id) => `/marketing/calls/${id}`,
 };
 
 /** The words for a link to one, said the way the queue says them. */
 export const RECORD_NOUN: Record<string, string> = {
   job: "job", customer: "customer", invoice: "invoice", conversation: "conversation",
   estimate: "estimate", agreement: "agreement", task: "late task", incident_report: "incident report",
-  visit: "visit", equipment: "unit",
+  visit: "visit", equipment: "unit", call: "call",
 };

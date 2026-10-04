@@ -335,7 +335,7 @@ rather than refused. Every ratio is empty, never zero, when its denominator is.
   length, and the customer when matched, with "Create customer and job from
   this call". A search box finds calls by what was said on them (their
   redacted transcript) or by the caller's number, and shows the line that
-  matched.
+  matched. A call the phone assistant answered (M27) is marked so.
 - `Marketing > Lead offers` (`/marketing/leads`): offers from a connected lead
   source, with who to ring, accepted (a customer, a property and a job,
   credited to the marketplace that sold it) or declined with a reason from a
@@ -797,8 +797,9 @@ campaigns`, `Channels`, `Spend`, `Conversions`, `Ad platforms`, `Lead forms` and
 `Referrals`, and `Settings > Website`, are described above. The call screen (`/marketing/calls/{id}`) plays a kept
 recording and a voicemail, says why nothing was recorded when recording was
 asked for and refused, says what the caller pressed in a phone menu and where
-the call went, and shows the transcript of the recording or voicemail when one
-was written out. The send half is `Marketing >
+the call went, shows the transcript of the recording or voicemail when one
+was written out, and, for a call the phone assistant answered, what it heard,
+said and did. The send half is `Marketing >
 Texts and emails`, at `/marketing/campaigns`. Previewing is `campaign:read`; creating and sending is
 `campaign:write`, so a reader who holds only the first sees the campaigns and the
 results and no buttons. That is the right shape for a screen whose buttons spend
@@ -867,12 +868,14 @@ sample and therefore not a test of anything.
   event as readily as a good one, so a GA4 send marked sent means received.
 - **Direct mail.** Nothing sends or tracks a mailer beyond giving it its own
   tracking number or a referral code, which measure it today.
-- **Voice beyond menus and ring groups.** A number bought here, or one already
-  on the company's Twilio account and answered here, forwards, whispers,
-  routes by hours, takes voicemail, and can be answered by a phone menu that
-  rings people, ring groups and whoever is on call (M18, `/settings/phone`).
-  There is no waiting line and no call placed from the browser. Only Twilio
-  has a voice adapter. A number with another carrier is answered wherever
+- **Voice on a live line.** A number bought here, or one already on the
+  company's Twilio account and answered here, forwards, whispers, routes by
+  hours, takes voicemail, and can be answered by a phone menu that rings
+  people, ring groups, whoever is on call, a waiting line or the phone
+  assistant, and the office can call and be rung in the browser (M18,
+  `/settings/phone`, `/phone`). None of the waiting line, the assistant or the
+  browser phone has been tried on a live phone line yet: each is tested
+  against a fake carrier. Only Twilio has a voice adapter. A number with another carrier is answered wherever
   that carrier sends it, and its calls arrive here only through CallRail.
 - **Recording consent by keypress only.** A caller agrees by pressing 1. There
   is no spoken agreement, and no way to record a caller who says nothing, even

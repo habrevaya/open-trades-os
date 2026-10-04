@@ -51,6 +51,19 @@ export interface CollectionsStep {
 
 export interface CollectionsConfig { steps: CollectionsStep[] }
 
+/**
+ * The phone assistant's own settings. What it says after the disclosure, its
+ * questions and answers and the prices it may say are the `chat` ones on its
+ * own row, because they are the same kind of thing said a different way.
+ */
+export interface VoiceConfig {
+  /**
+   * The ring group a caller is put through to when they ask for a person or
+   * the assistant is unsure. Null puts them through to voicemail.
+   */
+  transferRingGroupId: string | null;
+}
+
 export interface AgentSettings {
   enabled: boolean;
   mode: AgentMode;
@@ -69,6 +82,7 @@ export interface AgentSettings {
   chat: ChatConfig;
   intake: IntakeConfig;
   collections: CollectionsConfig;
+  voice: VoiceConfig;
 }
 
 export const DEFAULT_TONE = "Friendly, plain and brief. No jargon.";
@@ -88,13 +102,22 @@ export function defaultSettings(kind: AgentKind): AgentSettings {
     provider: null,
     model: null,
     limits: {
-      runsPerDay: kind === "chat" ? 500 : 100,
-      maxOutputTokens: kind === "dispatch" || kind === "estimate" ? 4000 : 1500,
+      /**
+       * A call takes a run for every time the caller speaks, so the phone
+       * assistant's day is counted in turns rather than in calls.
+       */
+      runsPerDay: kind === "chat" || kind === "voice" ? 500 : 100,
+      /** A spoken answer is a sentence or two; a long one is a caller waiting in silence for it. */
+      maxOutputTokens: kind === "dispatch" || kind === "estimate" ? 4000 : kind === "voice" ? 600 : 1500,
       messagesPerChat: 20,
     },
-    chat: { greeting: "Hi! How can we help?", faq: [], publicPriceItemIds: [], web: true, text: false },
+    chat: {
+      greeting: kind === "voice" ? "How can I help you today?" : "Hi! How can we help?",
+      faq: [], publicPriceItemIds: [], web: true, text: false,
+    },
     intake: { texts: true, emails: true, calls: true, forms: true },
     collections: { steps: DEFAULT_STEPS.map((step) => ({ ...step })) },
+    voice: { transferRingGroupId: null },
   };
 }
 
@@ -137,6 +160,7 @@ export function readSettings(kind: AgentKind, raw: unknown): AgentSettings {
   const chat = obj(r["chat"]);
   const intake = obj(r["intake"]);
   const collections = obj(r["collections"]);
+  const voice = obj(r["voice"]);
   const clamp = (value: unknown, bounds: { min: number; max: number }, fallback: number) =>
     typeof value === "number" && Number.isInteger(value) ? Math.min(bounds.max, Math.max(bounds.min, value)) : fallback;
 
@@ -191,6 +215,10 @@ export function readSettings(kind: AgentKind, raw: unknown): AgentSettings {
       forms: bool(intake["forms"], base.intake.forms),
     },
     collections: { steps: steps.length > 0 ? steps : base.collections.steps },
+    voice: {
+      transferRingGroupId: typeof voice["transferRingGroupId"] === "string" && UUID.test(voice["transferRingGroupId"])
+        ? voice["transferRingGroupId"] : null,
+    },
   };
 }
 
@@ -247,6 +275,9 @@ export function checkSettings(kind: AgentKind, input: AgentSettings): SettingsVe
   if (new Set(days).size !== days.length) return { ok: false, reason: "Two steps start on the same day. Give each its own." };
   if (input.collections.steps.some((step) => step.tone.length > LIMIT_BOUNDS.stepTone)) {
     return { ok: false, reason: `Keep each step's tone under ${LIMIT_BOUNDS.stepTone} characters.` };
+  }
+  if (input.voice.transferRingGroupId !== null && !UUID.test(input.voice.transferRingGroupId)) {
+    return { ok: false, reason: "Choose a ring group for the assistant to put callers through to, or voicemail." };
   }
   return {
     ok: true,

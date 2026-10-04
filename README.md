@@ -70,11 +70,11 @@ is a separate process.
 ## Stack
 
 TypeScript end to end. Next.js, Postgres 16 with Drizzle, Stripe for
-payments, Twilio for texts, Resend or any SMTP server for email. The worker
-polls the event log in Postgres rather than a queue, so Redis is in the
+payments, Twilio for texts and calls, Resend or any SMTP server for email. The
+worker polls the event log in Postgres rather than a queue, so Redis is in the
 compose file and nothing uses it yet. The technician app is Expo, in
-`apps/mobile`, built and not yet run on a real phone; LiveKit for voice agents
-is planned, not built.
+`apps/mobile`, built and not yet run on a real phone. The phone assistant runs
+on Twilio's ConversationRelay through a small voice relay process, not LiveKit.
 
 Runs on plain Postgres or on your own Supabase project. Supabase is the
 recommended default, never a requirement.

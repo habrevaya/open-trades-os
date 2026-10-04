@@ -916,7 +916,9 @@ export type RoutingCondition =
   | { kind: "dialled_number"; oneOf: readonly string[] }
   | { kind: "emergency_selected"; is: boolean };
 
-export const DESTINATION_KINDS = ["ring_group", "queue", "voicemail", "forward", "ivr", "on_call_rota", "person"] as const;
+export const DESTINATION_KINDS = [
+  "ring_group", "queue", "voicemail", "forward", "ivr", "on_call_rota", "person", "agent",
+] as const;
 export type DestinationKind = (typeof DESTINATION_KINDS)[number];
 
 export type RoutingDestination =
@@ -934,7 +936,14 @@ export type RoutingDestination =
    * phones the menu follows them, and when they leave the company the
    * option stops ringing a stranger.
    */
-  | { kind: "person"; userId: string };
+  | { kind: "person"; userId: string }
+  /**
+   * The company's phone assistant: the voice agent, answering the call
+   * itself. No id, because a company has one, set up on the agents screen;
+   * when it is off or cannot be reached the call goes where the assistant
+   * hands calls over to, so this is never a dead end.
+   */
+  | { kind: "agent" };
 
 export interface RoutingRule {
   id: string;
@@ -1105,6 +1114,7 @@ export function describeDestination(destination: RoutingDestination): string {
     case "ivr": return `the ${destination.menu} menu`;
     case "on_call_rota": return `whoever is on the ${destination.id} rota`;
     case "person": return `the person ${destination.userId}`;
+    case "agent": return "the phone assistant";
     default: return "an unrecognised destination";
   }
 }

@@ -12,7 +12,7 @@ export type AcceptEstimateDraftInput = Record<string, unknown>;
 
 export interface AcceptEstimateDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -445,7 +445,7 @@ export interface ApplyDispatchPlanInput {
 
 export interface ApplyDispatchPlanOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -745,7 +745,7 @@ export interface ApproveIntakeDraftInput {
 
 export interface ApproveIntakeDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -1442,11 +1442,14 @@ export interface ConfigureAgentInput {
         channel: "email" | "text";
       }>;
     };
+    voice?: {
+      transferRingGroupId: string | null;
+    };
   };
 }
 
 export interface ConfigureAgentOutput {
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   settings: {
     enabled: boolean;
     mode: "propose" | "auto";
@@ -1481,6 +1484,9 @@ export interface ConfigureAgentOutput {
         tone: string;
         channel: "email" | "text";
       }>;
+    };
+    voice?: {
+      transferRingGroupId: string | null;
     };
   };
 }
@@ -1891,6 +1897,72 @@ export interface CreateCalendarFeedOutput {
   feedPath: string;
 }
 
+export interface CreateCallQueueInput {
+  name: string;
+  ringGroupId: string;
+  maxWaitSeconds?: number;
+  announcePosition?: boolean;
+  holdMusicUrl?: string | null;
+  overflowTo: {
+    kind: "person";
+    userId: string;
+  } | {
+    kind: "ring_group";
+    id: string;
+  } | {
+    kind: "ivr";
+    menu: string;
+  } | {
+    kind: "on_call_rota";
+    id: string;
+  } | {
+    kind: "voicemail";
+    box?: string;
+  } | {
+    kind: "forward";
+    e164: string;
+  } | {
+    kind: "queue";
+    id: string;
+  } | {
+    kind: "agent";
+  };
+}
+
+export interface CreateCallQueueOutput {
+  id: string;
+  name: string;
+  ringGroupId: string;
+  ringGroupName: string | null;
+  maxWaitSeconds: number;
+  announcePosition: boolean;
+  holdMusicUrl: string | null;
+  overflowTo: {
+    kind: "person";
+    userId: string;
+  } | {
+    kind: "ring_group";
+    id: string;
+  } | {
+    kind: "ivr";
+    menu: string;
+  } | {
+    kind: "on_call_rota";
+    id: string;
+  } | {
+    kind: "voicemail";
+    box?: string;
+  } | {
+    kind: "forward";
+    e164: string;
+  } | {
+    kind: "queue";
+    id: string;
+  } | {
+    kind: "agent";
+  };
+}
+
 export interface CreateCampaignInput {
   name: string;
   channel: "sms" | "email";
@@ -2146,7 +2218,7 @@ export interface CreateDispatchPlanInput {
 
 export interface CreateDispatchPlanOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -2169,7 +2241,7 @@ export interface CreateEstimateDraftInput {
 
 export interface CreateEstimateDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -2296,7 +2368,7 @@ export interface CreateIntakeDraftInput {
 
 export interface CreateIntakeDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -2655,6 +2727,8 @@ export interface CreatePhoneMenuInput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
   }>;
   noInputTo: {
@@ -2678,6 +2752,8 @@ export interface CreatePhoneMenuInput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
   afterHoursTo?: {
     kind: "person";
@@ -2700,6 +2776,8 @@ export interface CreatePhoneMenuInput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   } | null;
   timeoutSeconds?: number;
 }
@@ -2732,6 +2810,8 @@ export interface CreatePhoneMenuOutput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
   }>;
   noInputTo: {
@@ -2755,6 +2835,8 @@ export interface CreatePhoneMenuOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
   afterHoursTo: {
     kind: "person";
@@ -2777,6 +2859,8 @@ export interface CreatePhoneMenuOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   } | null;
   timeoutSeconds: number;
   prompt: string;
@@ -3094,6 +3178,8 @@ export interface CreateRingGroupInput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
 }
 
@@ -3128,6 +3214,8 @@ export interface CreateRingGroupOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
 }
 
@@ -3749,6 +3837,13 @@ export interface DefineServiceReportTemplateOutput {
   }>;
 }
 
+export type DeleteCallQueueInput = Record<string, unknown>;
+
+export interface DeleteCallQueueOutput {
+  id: string;
+  deleted: true;
+}
+
 export type DeleteCampaignInput = Record<string, unknown>;
 
 export interface DeleteCampaignOutput {
@@ -3955,7 +4050,7 @@ export interface DismissCollectionReminderInput {
 
 export interface DismissCollectionReminderOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -3990,7 +4085,7 @@ export interface DismissDispatchPlanInput {
 
 export interface DismissDispatchPlanOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -4013,7 +4108,7 @@ export interface DismissEstimateDraftInput {
 
 export interface DismissEstimateDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -4036,7 +4131,7 @@ export interface DismissIntakeDraftInput {
 
 export interface DismissIntakeDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -4718,6 +4813,26 @@ export interface GetBudgetReportOutput {
     actual: string;
   } | null;
   caveat: string;
+}
+
+export interface GetCallAssistantOutput {
+  status: "waiting" | "talking" | "transferred" | "ended" | "dropped";
+  turns: Array<{
+    from: "caller" | "assistant";
+    text: string;
+    at: string;
+  }>;
+  actions: Array<{
+    action: string;
+    detail: string;
+    at: string;
+  }>;
+  transferReason: string | null;
+  bookingRequestId: string | null;
+  messageTaken: boolean;
+  redactions: Record<string, number>;
+  connectedAt: string | null;
+  endedAt: string | null;
 }
 
 export interface GetCallOutput {
@@ -6780,6 +6895,8 @@ export interface GetPhoneMenuOutput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
   }>;
   noInputTo: {
@@ -6803,6 +6920,8 @@ export interface GetPhoneMenuOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
   afterHoursTo: {
     kind: "person";
@@ -6825,6 +6944,8 @@ export interface GetPhoneMenuOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   } | null;
   timeoutSeconds: number;
   prompt: string;
@@ -7737,6 +7858,13 @@ export interface GetSkillStandingOutput {
   }>;
 }
 
+export interface GetSoftphoneOutput {
+  ready: boolean;
+  reason: string | null;
+  callerId: string | null;
+  takingCalls: boolean;
+}
+
 export interface GetStatementScheduleOutput {
   enabled: boolean;
   dayOfMonth: number;
@@ -8485,7 +8613,7 @@ export interface ListAccountingRunsOutput {
 export interface ListAgentActivityOutput {
   entries: Array<{
     id: string;
-    agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
     kind: string;
     detail: string;
     proposalId: string | null;
@@ -8505,7 +8633,7 @@ export interface ListAgentToolsOutput {
 
 export interface ListAgentsOutput {
   agents: Array<{
-    agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
     label: string;
     description: string;
     autoAllowed: boolean;
@@ -8543,6 +8671,9 @@ export interface ListAgentsOutput {
           tone: string;
           channel: "email" | "text";
         }>;
+      };
+      voice?: {
+        transferRingGroupId: string | null;
       };
     };
     runAs: {
@@ -8857,6 +8988,42 @@ export interface ListCalendarFeedsOutput {
   }>;
 }
 
+export interface ListCallQueuesOutput {
+  queues: Array<{
+    id: string;
+    name: string;
+    ringGroupId: string;
+    ringGroupName: string | null;
+    maxWaitSeconds: number;
+    announcePosition: boolean;
+    holdMusicUrl: string | null;
+    overflowTo: {
+      kind: "person";
+      userId: string;
+    } | {
+      kind: "ring_group";
+      id: string;
+    } | {
+      kind: "ivr";
+      menu: string;
+    } | {
+      kind: "on_call_rota";
+      id: string;
+    } | {
+      kind: "voicemail";
+      box?: string;
+    } | {
+      kind: "forward";
+      e164: string;
+    } | {
+      kind: "queue";
+      id: string;
+    } | {
+      kind: "agent";
+    };
+  }>;
+}
+
 export interface ListCallsOutput {
   calls: Array<{
     id: string;
@@ -9049,7 +9216,7 @@ export interface ListClaimsOutput {
 export interface ListCollectionRemindersOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -9596,7 +9763,7 @@ export interface ListDevicesOutput {
 export interface ListDispatchPlansOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -9712,7 +9879,7 @@ export interface ListEstimateDeliveriesOutput {
 export interface ListEstimateDraftsOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -9936,7 +10103,7 @@ export interface ListInspectionsOutput {
 export interface ListIntakeDraftsOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -10630,6 +10797,8 @@ export interface ListPhoneMenusOutput {
       } | {
         kind: "queue";
         id: string;
+      } | {
+        kind: "agent";
       };
     }>;
     noInputTo: {
@@ -10653,6 +10822,8 @@ export interface ListPhoneMenusOutput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
     afterHoursTo: {
       kind: "person";
@@ -10675,6 +10846,8 @@ export interface ListPhoneMenusOutput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     } | null;
     timeoutSeconds: number;
     prompt: string;
@@ -11282,6 +11455,8 @@ export interface ListRingGroupsOutput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
   }>;
 }
@@ -12374,6 +12549,14 @@ export interface MethodNotAllowed {
   error: string;
   status: number;
   allowed: string[];
+}
+
+export type MintSoftphoneTokenInput = Record<string, unknown>;
+
+export interface MintSoftphoneTokenOutput {
+  token: string;
+  identity: string;
+  expiresAt: string;
 }
 
 export interface MoveEquipmentInput {
@@ -15365,7 +15548,7 @@ export interface SendCollectionReminderInput {
 
 export interface SendCollectionReminderOutput {
   id: string;
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -16334,6 +16517,14 @@ export interface SetServiceRouteStopActiveOutput {
   active: boolean;
 }
 
+export interface SetSoftphonePresenceInput {
+  available: boolean;
+}
+
+export interface SetSoftphonePresenceOutput {
+  takingCalls: boolean;
+}
+
 export interface SetStatementScheduleInput {
   enabled: boolean;
   dayOfMonth?: number;
@@ -16414,6 +16605,18 @@ export interface SetTruckMinimumOutput {
   locationId: string;
   minimum: string;
   target: string;
+}
+
+export interface SetUpSoftphoneInput {
+  apiKeySid: string;
+  apiKeySecretRef: string;
+  callerIdNumberId: string;
+}
+
+export interface SetUpSoftphoneOutput {
+  ready: true;
+  applicationSid: string;
+  callerId: string;
 }
 
 export interface SetVendorItemInput {
@@ -17224,6 +17427,72 @@ export interface UpdateBusinessUnitOutput {
   active: boolean;
 }
 
+export interface UpdateCallQueueInput {
+  name: string;
+  ringGroupId: string;
+  maxWaitSeconds?: number;
+  announcePosition?: boolean;
+  holdMusicUrl?: string | null;
+  overflowTo: {
+    kind: "person";
+    userId: string;
+  } | {
+    kind: "ring_group";
+    id: string;
+  } | {
+    kind: "ivr";
+    menu: string;
+  } | {
+    kind: "on_call_rota";
+    id: string;
+  } | {
+    kind: "voicemail";
+    box?: string;
+  } | {
+    kind: "forward";
+    e164: string;
+  } | {
+    kind: "queue";
+    id: string;
+  } | {
+    kind: "agent";
+  };
+}
+
+export interface UpdateCallQueueOutput {
+  id: string;
+  name: string;
+  ringGroupId: string;
+  ringGroupName: string | null;
+  maxWaitSeconds: number;
+  announcePosition: boolean;
+  holdMusicUrl: string | null;
+  overflowTo: {
+    kind: "person";
+    userId: string;
+  } | {
+    kind: "ring_group";
+    id: string;
+  } | {
+    kind: "ivr";
+    menu: string;
+  } | {
+    kind: "on_call_rota";
+    id: string;
+  } | {
+    kind: "voicemail";
+    box?: string;
+  } | {
+    kind: "forward";
+    e164: string;
+  } | {
+    kind: "queue";
+    id: string;
+  } | {
+    kind: "agent";
+  };
+}
+
 export interface UpdateCampaignInput {
   name?: string;
   audience?: Array<{
@@ -17817,6 +18086,8 @@ export interface UpdatePhoneMenuInput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
   }>;
   noInputTo: {
@@ -17840,6 +18111,8 @@ export interface UpdatePhoneMenuInput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
   afterHoursTo?: {
     kind: "person";
@@ -17862,6 +18135,8 @@ export interface UpdatePhoneMenuInput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   } | null;
   timeoutSeconds?: number;
 }
@@ -17894,6 +18169,8 @@ export interface UpdatePhoneMenuOutput {
     } | {
       kind: "queue";
       id: string;
+    } | {
+      kind: "agent";
     };
   }>;
   noInputTo: {
@@ -17917,6 +18194,8 @@ export interface UpdatePhoneMenuOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
   afterHoursTo: {
     kind: "person";
@@ -17939,6 +18218,8 @@ export interface UpdatePhoneMenuOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   } | null;
   timeoutSeconds: number;
   prompt: string;
@@ -18199,6 +18480,8 @@ export interface UpdateRingGroupInput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
 }
 
@@ -18233,6 +18516,8 @@ export interface UpdateRingGroupOutput {
   } | {
     kind: "queue";
     id: string;
+  } | {
+    kind: "agent";
   };
 }
 
@@ -19397,7 +19682,7 @@ export interface CompleteVisitParams {
 }
 
 export interface ConfigureAgentParams {
-  agent: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
 }
 
 export interface ConfigureBookableServiceParams {
@@ -19461,6 +19746,10 @@ export interface DeclineTimeOffParams {
 }
 
 export interface DeclineVisitChangeRequestParams {
+  id: string;
+}
+
+export interface DeleteCallQueueParams {
   id: string;
 }
 
@@ -19651,6 +19940,10 @@ export interface GetBudgetReportInput {
 }
 
 export interface GetCallInput {
+  id: string;
+}
+
+export interface GetCallAssistantInput {
   id: string;
 }
 
@@ -20067,6 +20360,8 @@ export interface GetServiceRouteDensityInput {
 
 export type GetSetupInput = Record<string, never>;
 
+export type GetSoftphoneInput = Record<string, never>;
+
 export type GetStatementScheduleInput = Record<string, never>;
 
 export interface GetTaskChecklistInput {
@@ -20189,7 +20484,7 @@ export interface ListAccountingRunsInput {
 }
 
 export interface ListAgentActivityInput {
-  agent?: "intake" | "chat" | "estimate" | "collections" | "dispatch";
+  agent?: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
   limit?: number;
 }
 
@@ -20259,6 +20554,8 @@ export type ListBranchOptionsInput = Record<string, never>;
 export type ListBusinessUnitsInput = Record<string, never>;
 
 export type ListCalendarFeedsInput = Record<string, never>;
+
+export type ListCallQueuesInput = Record<string, never>;
 
 export interface ListCallsInput {
   customerId?: string;
@@ -21700,6 +21997,10 @@ export interface UpdateBusinessUnitParams {
   id: string;
 }
 
+export interface UpdateCallQueueParams {
+  id: string;
+}
+
 export interface UpdateCampaignParams {
   id: string;
 }
@@ -21982,6 +22283,7 @@ export interface OperationTypes {
   createBookingRequest: { input: CreateBookingRequestInput; output: CreateBookingRequestOutput };
   createBusinessUnit: { input: CreateBusinessUnitInput; output: CreateBusinessUnitOutput };
   createCalendarFeed: { input: CreateCalendarFeedInput; output: CreateCalendarFeedOutput };
+  createCallQueue: { input: CreateCallQueueInput; output: CreateCallQueueOutput };
   createCampaign: { input: CreateCampaignInput; output: CreateCampaignOutput };
   createChannel: { input: CreateChannelInput; output: CreateChannelOutput };
   createContract: { input: CreateContractInput; output: CreateContractOutput };
@@ -22036,6 +22338,7 @@ export interface OperationTypes {
   defineCustomField: { input: DefineCustomFieldInput; output: DefineCustomFieldOutput };
   defineMessageTemplate: { input: DefineMessageTemplateInput; output: DefineMessageTemplateOutput };
   defineServiceReportTemplate: { input: DefineServiceReportTemplateInput; output: DefineServiceReportTemplateOutput };
+  deleteCallQueue: { input: DeleteCallQueueParams & DeleteCallQueueInput; output: DeleteCallQueueOutput };
   deleteCampaign: { input: DeleteCampaignParams & DeleteCampaignInput; output: DeleteCampaignOutput };
   deleteCreditNote: { input: DeleteCreditNoteParams & DeleteCreditNoteInput; output: DeleteCreditNoteOutput };
   deleteCustomField: { input: DeleteCustomFieldParams & DeleteCustomFieldInput; output: DeleteCustomFieldOutput };
@@ -22091,6 +22394,7 @@ export interface OperationTypes {
   getBranchOverview: { input: GetBranchOverviewInput; output: GetBranchOverviewOutput };
   getBudgetReport: { input: GetBudgetReportInput; output: GetBudgetReportOutput };
   getCall: { input: GetCallInput; output: GetCallOutput };
+  getCallAssistant: { input: GetCallAssistantInput; output: GetCallAssistantOutput };
   getCallTrackingConnection: { input: GetCallTrackingConnectionInput; output: GetCallTrackingConnectionOutput };
   getCampaign: { input: GetCampaignInput; output: GetCampaignOutput };
   getChangeOrder: { input: GetChangeOrderInput; output: GetChangeOrderOutput };
@@ -22191,6 +22495,7 @@ export interface OperationTypes {
   getServiceRouteDensity: { input: GetServiceRouteDensityInput; output: GetServiceRouteDensityOutput };
   getSetup: { input: GetSetupInput; output: GetSetupOutput };
   getSkillStanding: { input: GetSkillStandingInput; output: GetSkillStandingOutput };
+  getSoftphone: { input: GetSoftphoneInput; output: GetSoftphoneOutput };
   getStatementSchedule: { input: GetStatementScheduleInput; output: GetStatementScheduleOutput };
   getTaskChecklist: { input: GetTaskChecklistInput; output: GetTaskChecklistOutput };
   getTaskCounts: { input: GetTaskCountsInput; output: GetTaskCountsOutput };
@@ -22249,6 +22554,7 @@ export interface OperationTypes {
   listBranchOptions: { input: ListBranchOptionsInput; output: ListBranchOptionsOutput };
   listBusinessUnits: { input: ListBusinessUnitsInput; output: ListBusinessUnitsOutput };
   listCalendarFeeds: { input: ListCalendarFeedsInput; output: ListCalendarFeedsOutput };
+  listCallQueues: { input: ListCallQueuesInput; output: ListCallQueuesOutput };
   listCalls: { input: ListCallsInput; output: ListCallsOutput };
   listCampaigns: { input: ListCampaignsInput; output: ListCampaignsOutput };
   listCertificationTypes: { input: ListCertificationTypesInput; output: ListCertificationTypesOutput };
@@ -22433,6 +22739,7 @@ export interface OperationTypes {
   materialiseServiceRoute: { input: MaterialiseServiceRouteParams & MaterialiseServiceRouteInput; output: MaterialiseServiceRouteOutput };
   mergeCustomerTags: { input: MergeCustomerTagsInput; output: MergeCustomerTagsOutput };
   mergeCustomers: { input: MergeCustomersParams & MergeCustomersInput; output: MergeCustomersOutput };
+  mintSoftphoneToken: { input: MintSoftphoneTokenInput; output: MintSoftphoneTokenOutput };
   moveEquipment: { input: MoveEquipmentParams & MoveEquipmentInput; output: MoveEquipmentOutput };
   moveExternalWorkOrder: { input: MoveExternalWorkOrderParams & MoveExternalWorkOrderInput; output: MoveExternalWorkOrderOutput };
   moveProjectPhase: { input: MoveProjectPhaseParams & MoveProjectPhaseInput; output: MoveProjectPhaseOutput };
@@ -22641,12 +22948,14 @@ export interface OperationTypes {
   setReviewPlatform: { input: SetReviewPlatformInput; output: SetReviewPlatformOutput };
   setReviewPolicy: { input: SetReviewPolicyInput; output: SetReviewPolicyOutput };
   setServiceRouteStopActive: { input: SetServiceRouteStopActiveParams & SetServiceRouteStopActiveInput; output: SetServiceRouteStopActiveOutput };
+  setSoftphonePresence: { input: SetSoftphonePresenceInput; output: SetSoftphonePresenceOutput };
   setStatementSchedule: { input: SetStatementScheduleInput; output: SetStatementScheduleOutput };
   setStockTracking: { input: SetStockTrackingInput; output: SetStockTrackingOutput };
   setTechnicianMobile: { input: SetTechnicianMobileParams & SetTechnicianMobileInput; output: SetTechnicianMobileOutput };
   setTechnicianPhoto: { input: SetTechnicianPhotoParams & SetTechnicianPhotoInput; output: SetTechnicianPhotoOutput };
   setTravelSettings: { input: SetTravelSettingsInput; output: SetTravelSettingsOutput };
   setTruckMinimum: { input: SetTruckMinimumInput; output: SetTruckMinimumOutput };
+  setUpSoftphone: { input: SetUpSoftphoneInput; output: SetUpSoftphoneOutput };
   setVendorItem: { input: SetVendorItemInput; output: SetVendorItemOutput };
   setWageClassification: { input: SetWageClassificationInput; output: SetWageClassificationOutput };
   setWebsiteTracking: { input: SetWebsiteTrackingInput; output: SetWebsiteTrackingOutput };
@@ -22693,6 +23002,7 @@ export interface OperationTypes {
   updateApp: { input: UpdateAppParams & UpdateAppInput; output: UpdateAppOutput };
   updateAsset: { input: UpdateAssetParams & UpdateAssetInput; output: UpdateAssetOutput };
   updateBusinessUnit: { input: UpdateBusinessUnitParams & UpdateBusinessUnitInput; output: UpdateBusinessUnitOutput };
+  updateCallQueue: { input: UpdateCallQueueParams & UpdateCallQueueInput; output: UpdateCallQueueOutput };
   updateCampaign: { input: UpdateCampaignParams & UpdateCampaignInput; output: UpdateCampaignOutput };
   updateCertificationType: { input: UpdateCertificationTypeParams & UpdateCertificationTypeInput; output: UpdateCertificationTypeOutput };
   updateChangeOrder: { input: UpdateChangeOrderParams & UpdateChangeOrderInput; output: UpdateChangeOrderOutput };
@@ -22835,6 +23145,7 @@ export const OPERATIONS = {
   createBookingRequest: { method: "POST", path: "/v1/public/bookings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   createBusinessUnit: { method: "POST", path: "/v1/business-units", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createCalendarFeed: { method: "POST", path: "/v1/calendar-feeds", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  createCallQueue: { method: "POST", path: "/v1/call-queues", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createCampaign: { method: "POST", path: "/v1/campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   createChannel: { method: "POST", path: "/v1/marketing/channels", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   createContract: { method: "POST", path: "/v1/contracts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -22889,6 +23200,7 @@ export const OPERATIONS = {
   defineCustomField: { method: "POST", path: "/v1/custom-fields", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   defineMessageTemplate: { method: "POST", path: "/v1/message-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   defineServiceReportTemplate: { method: "POST", path: "/v1/service-report-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
+  deleteCallQueue: { method: "DELETE", path: "/v1/call-queues/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   deleteCampaign: { method: "DELETE", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   deleteCreditNote: { method: "DELETE", path: "/v1/credit-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   deleteCustomField: { method: "DELETE", path: "/v1/custom-fields/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customfield:write"] },
@@ -22944,6 +23256,7 @@ export const OPERATIONS = {
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getCall: { method: "GET", path: "/v1/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
+  getCallAssistant: { method: "GET", path: "/v1/calls/{id}/assistant", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getCampaign: { method: "GET", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   getChangeOrder: { method: "GET", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -23044,6 +23357,7 @@ export const OPERATIONS = {
   getServiceRouteDensity: { method: "GET", path: "/v1/service-routes/{id}/density", pathParams: ["id"], queryParams: ["addingStopOfMinutes"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getSetup: { method: "GET", path: "/v1/setup", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSkillStanding: { method: "POST", path: "/v1/people/skill-standing", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  getSoftphone: { method: "GET", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   getStatementSchedule: { method: "GET", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getTaskChecklist: { method: "GET", path: "/v1/tasks/{id}/checklist", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   getTaskCounts: { method: "GET", path: "/v1/tasks/counts", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -23102,6 +23416,7 @@ export const OPERATIONS = {
   listBranchOptions: { method: "GET", path: "/v1/branches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listBusinessUnits: { method: "GET", path: "/v1/business-units", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCalendarFeeds: { method: "GET", path: "/v1/calendar-feeds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  listCallQueues: { method: "GET", path: "/v1/call-queues", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCalls: { method: "GET", path: "/v1/calls", pathParams: [], queryParams: ["customerId","limit","q"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listCampaigns: { method: "GET", path: "/v1/campaigns", pathParams: [], queryParams: ["state","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   listCertificationTypes: { method: "GET", path: "/v1/certification-types", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -23286,6 +23601,7 @@ export const OPERATIONS = {
   materialiseServiceRoute: { method: "POST", path: "/v1/service-routes/{id}/materialise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   mergeCustomerTags: { method: "POST", path: "/v1/customer-tags/merge", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customer:write"] },
   mergeCustomers: { method: "POST", path: "/v1/customers/{keepId}/merge", pathParams: ["keepId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
+  mintSoftphoneToken: { method: "POST", path: "/v1/softphone/token", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   moveEquipment: { method: "POST", path: "/v1/equipment/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   moveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   moveProjectPhase: { method: "POST", path: "/v1/project-phases/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -23494,12 +23810,14 @@ export const OPERATIONS = {
   setReviewPlatform: { method: "POST", path: "/v1/reviews/platforms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReviewPolicy: { method: "PUT", path: "/v1/reviews/policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setServiceRouteStopActive: { method: "POST", path: "/v1/service-routes/stops/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setSoftphonePresence: { method: "PUT", path: "/v1/softphone/presence", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   setStatementSchedule: { method: "POST", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   setStockTracking: { method: "PUT", path: "/v1/stock-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   setTechnicianMobile: { method: "POST", path: "/v1/field/technicians/{id}/mobile", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTechnicianPhoto: { method: "POST", path: "/v1/technicians/{id}/photo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTravelSettings: { method: "PUT", path: "/v1/dispatch/travel", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setTruckMinimum: { method: "PUT", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  setUpSoftphone: { method: "PUT", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setVendorItem: { method: "PUT", path: "/v1/vendor-items", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   setWageClassification: { method: "POST", path: "/v1/payroll/classifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setWebsiteTracking: { method: "PATCH", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -23546,6 +23864,7 @@ export const OPERATIONS = {
   updateApp: { method: "PATCH", path: "/v1/apps/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   updateAsset: { method: "PATCH", path: "/v1/assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   updateBusinessUnit: { method: "PATCH", path: "/v1/business-units/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateCallQueue: { method: "PUT", path: "/v1/call-queues/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateCampaign: { method: "PATCH", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   updateCertificationType: { method: "PATCH", path: "/v1/certification-types/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   updateChangeOrder: { method: "PATCH", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
@@ -24373,6 +24692,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Make a waiting line.
+   *
+   * POST /v1/call-queues. Needs settings:write.
+   */
+  createCallQueue(input: CreateCallQueueInput, options?: CallOptions): Promise<CreateCallQueueOutput> {
+    return this.call("createCallQueue", input, options);
+  }
+
+  /**
    * Write a campaign to part of the customer list.
    *
    * POST /v1/campaigns. Needs campaign:write.
@@ -24856,6 +25184,15 @@ export abstract class GeneratedOperations {
    */
   defineServiceReportTemplate(input: DefineServiceReportTemplateInput, options?: CallOptions): Promise<DefineServiceReportTemplateOutput> {
     return this.call("defineServiceReportTemplate", input, options);
+  }
+
+  /**
+   * Delete a waiting line.
+   *
+   * DELETE /v1/call-queues/{id}. Needs settings:write.
+   */
+  deleteCallQueue(input: DeleteCallQueueParams & DeleteCallQueueInput, options?: CallOptions): Promise<DeleteCallQueueOutput> {
+    return this.call("deleteCallQueue", input, options);
   }
 
   /**
@@ -25351,6 +25688,15 @@ export abstract class GeneratedOperations {
    */
   getCall(input: GetCallInput, options?: CallOptions): Promise<GetCallOutput> {
     return this.call("getCall", input, options);
+  }
+
+  /**
+   * What the phone assistant heard, said and did on a call.
+   *
+   * GET /v1/calls/{id}/assistant. Needs message:read.
+   */
+  getCallAssistant(input: GetCallAssistantInput, options?: CallOptions): Promise<GetCallAssistantOutput> {
+    return this.call("getCallAssistant", input, options);
   }
 
   /**
@@ -26254,6 +26600,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Whether you can use the browser phone.
+   *
+   * GET /v1/softphone. Needs call:place.
+   */
+  getSoftphone(input: GetSoftphoneInput = {} as GetSoftphoneInput, options?: CallOptions): Promise<GetSoftphoneOutput> {
+    return this.call("getSoftphone", input, options);
+  }
+
+  /**
    * Whether customers with a balance get a statement every month.
    *
    * GET /v1/statement-schedule. Needs invoice:read.
@@ -26773,6 +27128,15 @@ export abstract class GeneratedOperations {
    */
   listCalendarFeeds(input: ListCalendarFeedsInput = {} as ListCalendarFeedsInput, options?: CallOptions): Promise<ListCalendarFeedsOutput> {
     return this.call("listCalendarFeeds", input, options);
+  }
+
+  /**
+   * The company's waiting lines.
+   *
+   * GET /v1/call-queues. Needs settings:read.
+   */
+  listCallQueues(input: ListCallQueuesInput = {} as ListCallQueuesInput, options?: CallOptions): Promise<ListCallQueuesOutput> {
+    return this.call("listCallQueues", input, options);
   }
 
   /**
@@ -28429,6 +28793,15 @@ export abstract class GeneratedOperations {
    */
   mergeCustomers(input: MergeCustomersParams & MergeCustomersInput, options?: CallOptions): Promise<MergeCustomersOutput> {
     return this.call("mergeCustomers", input, options);
+  }
+
+  /**
+   * A pass for your browser to make and take calls, good for an hour.
+   *
+   * POST /v1/softphone/token. Needs call:place.
+   */
+  mintSoftphoneToken(input: MintSoftphoneTokenInput = {} as MintSoftphoneTokenInput, options?: CallOptions): Promise<MintSoftphoneTokenOutput> {
+    return this.call("mintSoftphoneToken", input, options);
   }
 
   /**
@@ -30304,6 +30677,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take calls in this browser, or stop.
+   *
+   * PUT /v1/softphone/presence. Needs call:place.
+   */
+  setSoftphonePresence(input: SetSoftphonePresenceInput, options?: CallOptions): Promise<SetSoftphonePresenceOutput> {
+    return this.call("setSoftphonePresence", input, options);
+  }
+
+  /**
    * Turn monthly statements on or off.
    *
    * POST /v1/statement-schedule. Needs invoice:send.
@@ -30355,6 +30737,15 @@ export abstract class GeneratedOperations {
    */
   setTruckMinimum(input: SetTruckMinimumInput, options?: CallOptions): Promise<SetTruckMinimumOutput> {
     return this.call("setTruckMinimum", input, options);
+  }
+
+  /**
+   * Set up calling from the browser.
+   *
+   * PUT /v1/softphone. Needs settings:write.
+   */
+  setUpSoftphone(input: SetUpSoftphoneInput, options?: CallOptions): Promise<SetUpSoftphoneOutput> {
+    return this.call("setUpSoftphone", input, options);
   }
 
   /**
@@ -30769,6 +31160,15 @@ export abstract class GeneratedOperations {
    */
   updateBusinessUnit(input: UpdateBusinessUnitParams & UpdateBusinessUnitInput, options?: CallOptions): Promise<UpdateBusinessUnitOutput> {
     return this.call("updateBusinessUnit", input, options);
+  }
+
+  /**
+   * Change a waiting line.
+   *
+   * PUT /v1/call-queues/{id}. Needs settings:write.
+   */
+  updateCallQueue(input: UpdateCallQueueParams & UpdateCallQueueInput, options?: CallOptions): Promise<UpdateCallQueueOutput> {
+    return this.call("updateCallQueue", input, options);
   }
 
   /**

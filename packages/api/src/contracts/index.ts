@@ -76,6 +76,7 @@ import { portalAccessRoutes } from "./portal-access";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
 import { phoneMenuRoutes } from "./phone-menus";
+import { callHandlingRoutes } from "./call-handling";
 import { safetyRoutes } from "./safety";
 import { retentionRoutes } from "./retention";
 import { stockTrackingRoutes } from "./stock-tracking";
@@ -153,6 +154,7 @@ export * from "./portal-access";
 export * from "./setup";
 export * from "./branches";
 export * from "./phone-menus";
+export * from "./call-handling";
 export * from "./tasks";
 export * from "./ads";
 export * from "./stock-tracking";
@@ -227,6 +229,7 @@ export const routes = {
   ...callTrackingRoutes,
   ...trackingRoutes,
   ...phoneMenuRoutes,
+  ...callHandlingRoutes,
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,

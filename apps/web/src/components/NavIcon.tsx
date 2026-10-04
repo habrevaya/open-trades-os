@@ -17,7 +17,7 @@
  */
 export type IconName =
   | "day" | "today" | "schedule" | "jobs" | "tasks"
-  | "customers" | "inbox"
+  | "customers" | "inbox" | "phone"
   | "invoices" | "estimates" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
@@ -170,6 +170,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <rect x="3" y="5.5" width="18" height="13" rx="2" />
       <path d="m3.6 7 7.3 5.3a2 2 0 0 0 2.2 0L20.4 7" />
+    </>
+  ),
+  /** Phone: a handset, for calls made and taken in the browser. Not an envelope, which is the inbox. */
+  phone: (
+    <>
+      <path d="M6.6 3.8 9.4 4.4l1.2 3.9-2 1.4a11.5 11.5 0 0 0 5.7 5.7l1.4-2 3.9 1.2.6 2.8a2 2 0 0 1-2.1 2.4A16.6 16.6 0 0 1 4.2 5.9a2 2 0 0 1 2.4-2.1Z" />
     </>
   ),
   // A bill: a document, torn off at the bottom.
