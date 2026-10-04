@@ -12,6 +12,7 @@ import { render } from "../lib/render";
 import { REVENUE_SQL } from "./marketing";
 import { senderFor } from "./phone-numbers";
 import { within } from "./workflow-schedule";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * SENDING TO THE LIST THE COMPANY ALREADY OWNS
@@ -1089,7 +1090,7 @@ async function sendCampaignEmail(tx: Database, ctx: ServiceContext, input: {
  * silently does not work.
  */
 function baseUrl(): string {
-  return (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/+$/, "");
+  return trimTrailingSlashes((process.env["PUBLIC_BASE_URL"] ?? ""));
 }
 
 /**

@@ -456,3 +456,8 @@ export function testDb(url: string): Database {
   shared ??= createClient(url);
   return shared;
 }
+
+/** A string as a regular expression that matches it literally, every metacharacter and the backslash included. */
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

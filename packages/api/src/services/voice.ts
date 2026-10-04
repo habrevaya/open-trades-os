@@ -369,8 +369,12 @@ export async function handle(
   now: Date = new Date(),
 ): Promise<VoiceReply> {
   if (!connection.provider.verify(request)) return { status: 403, twiml: null };
-  const form: Record<string, string> = {};
-  for (const [key, value] of new URLSearchParams(request.body)) form[key] = value;
+  // The carrier's field names are not ours to trust: no prototype, and keys
+  // defined rather than assigned, so `__proto__` is just another field name.
+  const form: Record<string, string> = Object.assign(
+    Object.create(null) as Record<string, string>,
+    Object.fromEntries(new URLSearchParams(request.body)),
+  );
   const query = new URL(request.url).searchParams;
 
   const base = baseOf(deps);

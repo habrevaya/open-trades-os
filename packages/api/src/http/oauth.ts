@@ -3,6 +3,7 @@ import { TooManyRequestsError } from "../services/context";
 import {
   OAuthError, registerClient, exchange, revoke, introspect, authorizationServerMetadata, protectedResourceMetadata,
 } from "../services/oauth";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * THE OAUTH ENDPOINTS, AS REQUEST IN AND RESPONSE OUT
@@ -24,7 +25,7 @@ import {
  */
 export function publicOrigin(request: Request, env: Record<string, string | undefined> = process.env): string {
   const configured = env["PUBLIC_URL"] || env["AUTH_URL"];
-  if (configured) return configured.replace(/\/+$/, "");
+  if (configured) return trimTrailingSlashes(configured);
   return new URL(request.url).origin;
 }
 
@@ -111,17 +112,17 @@ export async function handleRegister(request: Request, db: Database): Promise<Re
 async function readForm(request: Request): Promise<Record<string, string | undefined> | Response> {
   if (request.method !== "POST") return jsonResponse({ error: "invalid_request", error_description: "POST only." }, 405);
   const text = await request.text();
-  const form: Record<string, string | undefined> = {};
+  let form: Record<string, string | undefined> = {};
   const type = request.headers.get("content-type") ?? "";
   if (type.includes("application/json")) {
     try {
       const parsed = JSON.parse(text) as Record<string, unknown>;
-      for (const [key, value] of Object.entries(parsed ?? {})) if (typeof value === "string") form[key] = value;
+      form = Object.fromEntries(Object.entries(parsed ?? {}).filter(([, value]) => typeof value === "string")) as Record<string, string>;
     } catch {
       return jsonResponse({ error: "invalid_request", error_description: "The body is not valid JSON." }, 400);
     }
   } else {
-    for (const [key, value] of new URLSearchParams(text)) form[key] = value;
+    form = Object.fromEntries(new URLSearchParams(text));
   }
   return form;
 }

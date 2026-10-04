@@ -1,4 +1,4 @@
-import type { geo } from "@opentradesos/core";
+import { trimTrailingSlashes, type geo } from "@opentradesos/core";
 import {
   registerGeocoder, pace, realClock, failureFrom, USER_AGENT,
   type GeocoderOptions, type GeocodingProvider,
@@ -69,9 +69,9 @@ export function nominatimGeocoder(options: GeocoderOptions): GeocodingProvider {
    * is the test suites: a company cannot point the server's requests, and its
    * customers' addresses, at a host of its choosing.
    */
-  const endpoint = String(
+  const endpoint = trimTrailingSlashes(String(
     settings["endpoint"] ?? (process.env["NOMINATIM_URL"]?.trim() || PUBLIC_ENDPOINT),
-  ).replace(/\/+$/, "");
+  ));
   const isPublic = new URL(endpoint).hostname === new URL(PUBLIC_ENDPOINT).hostname;
   const configured = typeof settings["minIntervalMs"] === "number" ? settings["minIntervalMs"] : 0;
   const minInterval = isPublic ? Math.max(PUBLIC_MIN_INTERVAL_MS, configured) : Math.max(0, configured);

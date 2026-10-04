@@ -22,6 +22,7 @@ import {
  */
 import "../financing/index";
 import { readerFor } from "../secrets/store";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * CONSUMER FINANCING
@@ -149,7 +150,7 @@ function termsFor(connection: Connection, deps: FinancingDeps): fin.FinancingTer
  */
 function callbackFor(connectionId: string, env: Record<string, string | undefined> = process.env): string | null {
   const base = env["PUBLIC_URL"] || env["AUTH_URL"];
-  return base ? `${base.replace(/\/+$/, "")}/api/webhooks/financing/${connectionId}` : null;
+  return base ? `${trimTrailingSlashes(base)}/api/webhooks/financing/${connectionId}` : null;
 }
 
 /* ------------------------------------------------------------ the offer */

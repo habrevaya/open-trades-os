@@ -5,7 +5,7 @@ import * as adPlatforms from "../src/services/ad-platforms";
 import * as reviewSync from "../src/services/review-sync";
 import * as reviews from "../src/services/reviews";
 import { type ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, escapeRegExp } from "./helpers";
 import { ENV, fakePlatform, formOf, readSecret, stateOf } from "./ads-fakes";
 
 /**
@@ -49,11 +49,11 @@ fake.on("GET", /^https:\/\/graph\.fb\.fake\/token\?/, (call) => {
   if (q.get("grant_type") === "fb_exchange_token") return { status: 200, body: { access_token: "fb-user-long", expires_in: 5_184_000 } };
   return { status: 200, body: { access_token: "fb-user-short", expires_in: 3600 } };
 });
-fake.on("GET", new RegExp(`^${GRAPH.replace(/\./g, "\\.")}/${PAGE}\\?fields=access_token$`), (call) => {
+fake.on("GET", new RegExp(`^${escapeRegExp(GRAPH)}/${PAGE}\\?fields=access_token$`), (call) => {
   expect(call.headers["Authorization"]).toBe("Bearer fb-user-long");
   return { status: 200, body: { access_token: "fb-page-token", id: PAGE } };
 });
-fake.on("GET", new RegExp(`^${GRAPH.replace(/\./g, "\\.")}/${PAGE}/ratings\\?`), (call) => {
+fake.on("GET", new RegExp(`^${escapeRegExp(GRAPH)}/${PAGE}/ratings\\?`), (call) => {
   expect(call.headers["Authorization"]).toBe("Bearer fb-page-token");
   if (notReviewed) {
     return { status: 403, body: { error: { message: "(#10) This endpoint requires the 'pages_read_user_content' permission.", code: 10 } } };
@@ -63,7 +63,7 @@ fake.on("GET", new RegExp(`^${GRAPH.replace(/\./g, "\\.")}/${PAGE}/ratings\\?`),
     ? { status: 200, body: { data: secondPage, paging: { cursors: { after: "cursor-3" } } } }
     : { status: 200, body: { data: firstPage, paging: { cursors: { after: "cursor-2" }, next: `${GRAPH}/${PAGE}/ratings?after=cursor-2` } } };
 });
-fake.on("POST", new RegExp(`^${GRAPH.replace(/\./g, "\\.")}/[0-9_]+/comments$`), (call) => {
+fake.on("POST", new RegExp(`^${escapeRegExp(GRAPH)}/[0-9_]+/comments$`), (call) => {
   expect(call.headers["Authorization"]).toBe("Bearer fb-page-token");
   const story = call.url.replace(`${GRAPH}/`, "").replace(/\/comments$/, "");
   comments.push({ story, message: formOf(call.body)["message"]! });

@@ -23,6 +23,13 @@ import type {
  *                   written for the person reading it.
  */
 
+/** Strips trailing slashes with a loop: `/\/+$/` is quadratic on a long run of them. */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
 /** The token was refused: expired, signed out elsewhere, or the phone was taken away. */
 export class SignedOutError extends OfflineError {
   readonly signedOut = true as const;
@@ -72,8 +79,7 @@ export function normalizeServerUrl(input: string):
    * `/api` under wherever the app is served, so anything after the app's own
    * root is dropped.
    */
-  const path = parsed.pathname
-    .replace(/\/+$/, "")
+  const path = trimTrailingSlashes(parsed.pathname)
     .replace(/\/(api|login|my-day|schedule)(\/.*)?$/, "");
   const url = `${parsed.protocol}//${parsed.host}${path}`;
   return { ok: true, url, insecure: parsed.protocol === "http:" };
@@ -97,7 +103,7 @@ export class FieldApi {
   private readonly timeoutMs: number;
 
   constructor(options: FieldApiOptions) {
-    this.base = `${options.serverUrl.replace(/\/+$/, "")}/api`;
+    this.base = `${trimTrailingSlashes(options.serverUrl)}/api`;
     this.token = options.token;
     this.fetcher = options.fetch ?? ((...args) => fetch(...args));
     this.timeoutMs = options.timeoutMs ?? 30_000;

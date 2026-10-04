@@ -3,6 +3,7 @@
 import { getDb } from "@/lib/db";
 import { booking } from "@opentradesos/api/services";
 import { ConflictError } from "@opentradesos/api/services";
+import { utmOf } from "@/lib/utm";
 
 export type Slot = {
   date: string;
@@ -33,26 +34,6 @@ export type Arrival = {
   sourceUrl?: string | undefined;
   visitorId?: string | undefined;
 };
-
-/**
- * The utm tags out of the landing query, for the `utm` field.
- *
- * The raw query goes as well and is what the touch is parsed from; this is
- * kept for whatever reads the request's own `utm` column, which a widget
- * sending an empty bag left blank on every booking.
- */
-function utmOf(query: string | undefined): Record<string, string> {
-  const utm: Record<string, string> = {};
-  if (!query) return utm;
-  try {
-    for (const [key, value] of new URLSearchParams(query)) {
-      if (key.startsWith("utm_") && value && !(key in utm)) utm[key] = value.slice(0, 200);
-    }
-  } catch {
-    // A query that will not parse still goes through as `landingQuery`.
-  }
-  return utm;
-}
 
 const clip = (value: string | undefined, max: number) =>
   value ? value.slice(0, max) : undefined;

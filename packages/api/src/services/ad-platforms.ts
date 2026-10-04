@@ -16,6 +16,7 @@ import {
 } from "../ads/index";
 import { readerFor } from "../secrets/store";
 import { adapterSettings } from "../secrets/endpoints";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * THE AD PLATFORMS: SIGNING IN, PULLING, AND KEEPING TRACK
@@ -150,7 +151,7 @@ export function signInReturnAddress(env: Record<string, string | undefined> = pr
       + "and it has to match the return address registered with the platform exactly.",
     );
   }
-  return `${base.replace(/\/+$/, "")}/settings/integrations/oauth`;
+  return `${trimTrailingSlashes(base)}/settings/integrations/oauth`;
 }
 
 const hashState = (state: string) => createHash("sha256").update(state).digest("hex");

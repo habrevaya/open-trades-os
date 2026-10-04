@@ -2,6 +2,7 @@ import {
   registerRouter, tableFrom, failureFrom, USER_AGENT, DAY_SECONDS,
   type RouterOptions, type RoutingProvider,
 } from "./provider";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * OSRM: THE ROUTING ENGINE A COMPANY CAN RUN ITSELF
@@ -27,7 +28,7 @@ export function osrmRouter(options: RouterOptions): RoutingProvider {
    * reaches here only where endpoint overrides are allowed, the test suites.
    */
   const configured = typeof settings["endpoint"] === "string" ? settings["endpoint"] : process.env["OSRM_URL"] ?? "";
-  const endpoint = configured.trim().replace(/\/+$/, "");
+  const endpoint = trimTrailingSlashes(configured.trim());
   const profile = typeof settings["profile"] === "string" && /^[a-z_-]+$/.test(settings["profile"]) ? settings["profile"] : "driving";
   const doFetch = options.fetch ?? fetch;
 
