@@ -574,8 +574,8 @@ re-triggering itself and not one looping inside a single run. A report sent to
 a customer can be on jobs, invoices, estimates or visits only, with the product's
 own columns that need no permission, and never with the company's own fields, a
 cost or a margin; it goes to the address on their record and nowhere else, and a
-copy to somebody in the company is a second step. There are four recommended
-automations and the list is code, not something a company or a trade pack can add
+copy to somebody in the company is a second step.
+There are four recommended automations and the list is code, not something a company or a trade pack can add
 to. `stop_unless` asks five questions, from a catalogue in core: there is none yet
 about an agreement, a task or one of the company's own records. The plain message
 step emails only transactional mail.

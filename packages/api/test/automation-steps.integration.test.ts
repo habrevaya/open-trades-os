@@ -305,7 +305,7 @@ run("the questions a run asks again after a wait", () => {
     await raw`update public.invoice set status = 'paid', balance = 0 where id = ${owing}`;
     const paid = await ask("invoice_unpaid", eventAbout("invoice", owing));
     expect(paid).toMatchObject({ ok: true, skipOffsets: [1, 2], output: { held: false } });
-    expect(String((paid as { output: { because: string } }).output.because)).toMatch(/is paid now/);
+    expect(paid).toMatchObject({ output: { because: expect.stringMatching(/is paid now/) } });
     const voided = await invoice(alice, "40.0000", "void");
     expect(await ask("invoice_unpaid", eventAbout("x", "y", { invoiceId: voided }))).toMatchObject({ output: { held: false } });
   });
