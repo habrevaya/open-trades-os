@@ -122,6 +122,29 @@ export interface AddContractSiteOutput {
   notToExceed: string | null;
 }
 
+export interface AddCustomerContactInput {
+  name: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  preferredChannel?: "sms" | "email" | "voice";
+  propertyId?: string | null;
+  isPrimary?: boolean;
+}
+
+export interface AddCustomerContactOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface AddEmergencyContactInput {
   name: string;
   relationship?: string | null;
@@ -10438,6 +10461,22 @@ export interface ListCustomRecordsOutput {
   hasMore: boolean;
 }
 
+export interface ListCustomerContactsOutput {
+  contacts: Array<{
+    id: string;
+    customerId: string | null;
+    propertyId: string | null;
+    name: string;
+    title: string | null;
+    email: string | null;
+    phone: string | null;
+    preferredChannel: string;
+    isPrimary: boolean;
+    portalAccess: boolean;
+    noticeRank: number;
+  }>;
+}
+
 export interface ListCustomerDuplicatePairsOutput {
   data: Array<{
     a: {
@@ -13314,6 +13353,21 @@ export interface LogContinuingEducationOutput {
   }>;
 }
 
+export type MakeContactPrimaryInput = Record<string, unknown>;
+
+export interface MakeContactPrimaryOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface MapPlatformCampaignInput {
   campaignId: string | null;
 }
@@ -14096,6 +14150,35 @@ export interface PreviewTradePackUpgradeOutput {
       name: string;
     }>;
     present: number;
+  };
+  setup: {
+    add: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      name: string;
+    }>;
+    update: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      id: string;
+      name: string;
+      changed: string[];
+    }>;
+    kept: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      id: string | null;
+      name: string;
+      reason: "edited" | "yours" | "removed" | "purging";
+      changed: string[];
+    }>;
+    unchanged: number;
+    dropped: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      id: string;
+      name: string;
+    }>;
   };
 }
 
@@ -15238,6 +15321,13 @@ export interface RemoveChangeOrderLineOutput {
     priceBookItemId: string | null;
     unitCost: string | null;
   }>;
+}
+
+export type RemoveContactInput = Record<string, unknown>;
+
+export interface RemoveContactOutput {
+  id: string;
+  removed: true;
 }
 
 export type RemoveContinuingEducationInput = Record<string, unknown>;
@@ -18796,6 +18886,28 @@ export interface UpdateCompanyDetailsOutput {
   postalCode: string | null;
 }
 
+export interface UpdateContactInput {
+  name?: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  preferredChannel?: "sms" | "email" | "voice";
+  propertyId?: string | null;
+}
+
+export interface UpdateContactOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface UpdateContractInput {
   name?: string;
   contractNumber?: string | null;
@@ -20020,6 +20132,12 @@ export interface UpgradeTradePackOutput {
   unchanged: number;
   dropped: number;
   jobTypesAdded: number;
+  setup: {
+    added: number;
+    updated: number;
+    kept: number;
+    dropped: number;
+  };
 }
 
 export interface UploadAttachmentInput {
@@ -20826,6 +20944,10 @@ export interface AddChangeOrderLineParams {
 
 export interface AddContractSiteParams {
   contractId: string;
+}
+
+export interface AddCustomerContactParams {
+  id: string;
 }
 
 export interface AddEmergencyContactParams {
@@ -22078,12 +22200,17 @@ export interface ListCustomRecordsInput {
   q?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
   customerId?: string;
   propertyId?: string;
   jobId?: string;
   equipmentId?: string;
   cursor?: string;
   limit?: number;
+}
+
+export interface ListCustomerContactsInput {
+  id: string;
 }
 
 export interface ListCustomerDuplicatePairsInput {
@@ -22108,6 +22235,7 @@ export interface ListCustomersInput {
   businessUnitId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
   includeInactive?: boolean;
   externalSource?: string;
   externalId?: string;
@@ -22190,6 +22318,7 @@ export interface ListEstimatesInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export interface ListExpiringCertificationsInput {
@@ -22254,6 +22383,7 @@ export interface ListInvoicesInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export type ListItemTaxInput = Record<string, never>;
@@ -22285,6 +22415,7 @@ export interface ListJobsInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export interface ListJournalInput {
@@ -22402,6 +22533,7 @@ export interface ListPeopleInput {
   email?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export type ListPeopleRosterInput = Record<string, never>;
@@ -22458,6 +22590,7 @@ export interface ListPropertiesInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export type ListProposalTemplatesInput = Record<string, never>;
@@ -22714,6 +22847,10 @@ export interface LogContinuingEducationParams {
   technicianId: string;
 }
 
+export interface MakeContactPrimaryParams {
+  id: string;
+}
+
 export interface MapPlatformCampaignParams {
   id: string;
 }
@@ -22958,6 +23095,10 @@ export interface RemoveBudgetLineParams {
 export interface RemoveChangeOrderLineParams {
   changeOrderId: string;
   lineId: string;
+}
+
+export interface RemoveContactParams {
+  id: string;
 }
 
 export interface RemoveContinuingEducationParams {
@@ -23504,6 +23645,10 @@ export interface UpdateChannelParams {
   id: string;
 }
 
+export interface UpdateContactParams {
+  id: string;
+}
+
 export interface UpdateContractParams {
   id: string;
 }
@@ -23720,6 +23865,7 @@ export interface OperationTypes {
   acceptLeadOffer: { input: AcceptLeadOfferParams & AcceptLeadOfferInput; output: AcceptLeadOfferOutput };
   addChangeOrderLine: { input: AddChangeOrderLineParams & AddChangeOrderLineInput; output: AddChangeOrderLineOutput };
   addContractSite: { input: AddContractSiteParams & AddContractSiteInput; output: AddContractSiteOutput };
+  addCustomerContact: { input: AddCustomerContactParams & AddCustomerContactInput; output: AddCustomerContactOutput };
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
@@ -24129,6 +24275,7 @@ export interface OperationTypes {
   listCustomFields: { input: ListCustomFieldsInput; output: ListCustomFieldsOutput };
   listCustomObjects: { input: ListCustomObjectsInput; output: ListCustomObjectsOutput };
   listCustomRecords: { input: ListCustomRecordsInput; output: ListCustomRecordsOutput };
+  listCustomerContacts: { input: ListCustomerContactsInput; output: ListCustomerContactsOutput };
   listCustomerDuplicatePairs: { input: ListCustomerDuplicatePairsInput; output: ListCustomerDuplicatePairsOutput };
   listCustomerPortalSessions: { input: ListCustomerPortalSessionsInput; output: ListCustomerPortalSessionsOutput };
   listCustomerTags: { input: ListCustomerTagsInput; output: ListCustomerTagsOutput };
@@ -24279,6 +24426,7 @@ export interface OperationTypes {
   lockVisit: { input: LockVisitParams & LockVisitInput; output: LockVisitOutput };
   logCall: { input: LogCallInput; output: LogCallOutput };
   logContinuingEducation: { input: LogContinuingEducationParams & LogContinuingEducationInput; output: LogContinuingEducationOutput };
+  makeContactPrimary: { input: MakeContactPrimaryParams & MakeContactPrimaryInput; output: MakeContactPrimaryOutput };
   mapPlatformCampaign: { input: MapPlatformCampaignParams & MapPlatformCampaignInput; output: MapPlatformCampaignOutput };
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
@@ -24369,6 +24517,7 @@ export interface OperationTypes {
   releaseStock: { input: ReleaseStockInput; output: ReleaseStockOutput };
   removeBudgetLine: { input: RemoveBudgetLineParams & RemoveBudgetLineInput; output: RemoveBudgetLineOutput };
   removeChangeOrderLine: { input: RemoveChangeOrderLineParams & RemoveChangeOrderLineInput; output: RemoveChangeOrderLineOutput };
+  removeContact: { input: RemoveContactParams & RemoveContactInput; output: RemoveContactOutput };
   removeContinuingEducation: { input: RemoveContinuingEducationParams & RemoveContinuingEducationInput; output: RemoveContinuingEducationOutput };
   removeCostingRate: { input: RemoveCostingRateParams & RemoveCostingRateInput; output: RemoveCostingRateOutput };
   removeCustomer: { input: RemoveCustomerParams & RemoveCustomerInput; output: RemoveCustomerOutput };
@@ -24573,6 +24722,7 @@ export interface OperationTypes {
   updateChangeOrder: { input: UpdateChangeOrderParams & UpdateChangeOrderInput; output: UpdateChangeOrderOutput };
   updateChannel: { input: UpdateChannelParams & UpdateChannelInput; output: UpdateChannelOutput };
   updateCompanyDetails: { input: UpdateCompanyDetailsInput; output: UpdateCompanyDetailsOutput };
+  updateContact: { input: UpdateContactParams & UpdateContactInput; output: UpdateContactOutput };
   updateContract: { input: UpdateContractParams & UpdateContractInput; output: UpdateContractOutput };
   updateCrew: { input: UpdateCrewParams & UpdateCrewInput; output: UpdateCrewOutput };
   updateCustomField: { input: UpdateCustomFieldParams & UpdateCustomFieldInput; output: UpdateCustomFieldOutput };
@@ -24639,6 +24789,7 @@ export const OPERATIONS = {
   acceptLeadOffer: { method: "POST", path: "/v1/lead-offers/{id}/accept", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","customer:write"] },
   addChangeOrderLine: { method: "POST", path: "/v1/project-change-orders/{changeOrderId}/lines", pathParams: ["changeOrderId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addContractSite: { method: "POST", path: "/v1/contracts/{contractId}/sites", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  addCustomerContact: { method: "POST", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
@@ -25047,11 +25198,12 @@ export const OPERATIONS = {
   listCrewsForJob: { method: "GET", path: "/v1/crews/for-job", pathParams: [], queryParams: ["jobId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listCustomFields: { method: "GET", path: "/v1/custom-fields", pathParams: [], queryParams: ["entityType"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCustomObjects: { method: "GET", path: "/v1/custom-objects", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read"] },
-  listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","customerId","propertyId","jobId","equipmentId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
+  listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","fields","customerId","propertyId","jobId","equipmentId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
+  listCustomerContacts: { method: "GET", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listCustomerTags: { method: "GET", path: "/v1/customer-tags", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
-  listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
+  listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","fields","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
   listDeclaredSubmissions: { method: "GET", path: "/v1/compliance/submissions/declared", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeficiencies: { method: "GET", path: "/v1/inspection-deficiencies", pathParams: [], queryParams: ["propertyId","customerId","includeSettled","now"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeliveries: { method: "GET", path: "/v1/deliveries", pathParams: [], queryParams: ["customerId","propertyId","equipmentId","product","from","to","partialOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -25065,7 +25217,7 @@ export const OPERATIONS = {
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
-  listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
+  listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listExternalWorkOrders: { method: "GET", path: "/v1/external-work-orders", pathParams: [], queryParams: ["state","sourceSystem","pendingPush","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listExternalWorkSources: { method: "GET", path: "/v1/external-work-sources", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
@@ -25078,12 +25230,12 @@ export const OPERATIONS = {
   listIntakeDrafts: { method: "GET", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: ["status","limit","sourceKind","sourceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   listInvoiceDeliveries: { method: "GET", path: "/v1/invoices/{invoiceId}/deliveries", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listInvoiceTips: { method: "GET", path: "/v1/invoices/{id}/tips", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
-  listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
+  listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
   listItemTax: { method: "GET", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
-  listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
+  listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
   listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listJournalEntries: { method: "GET", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listKnowledgeNotes: { method: "GET", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -25111,7 +25263,7 @@ export const OPERATIONS = {
   listPayrollExports: { method: "GET", path: "/v1/payroll/exports", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   listPendingExternalPushes: { method: "GET", path: "/v1/external-work-pushes", pathParams: [], queryParams: ["limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listPendingUploads: { method: "GET", path: "/v1/field/uploads", pathParams: [], queryParams: ["deviceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
-  listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPeopleRoster: { method: "GET", path: "/v1/roster", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -25123,7 +25275,7 @@ export const OPERATIONS = {
   listProjectApplications: { method: "GET", path: "/v1/projects/{projectId}/applications", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listProjectLienRecords: { method: "GET", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listProjects: { method: "GET", path: "/v1/projects", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
-  listProperties: { method: "GET", path: "/v1/properties", pathParams: [], queryParams: ["cursor","limit","q","customerId","territoryId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["property:read"] },
+  listProperties: { method: "GET", path: "/v1/properties", pathParams: [], queryParams: ["cursor","limit","q","customerId","territoryId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["property:read"] },
   listProposalTemplates: { method: "GET", path: "/v1/proposal-templates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listPurchaseApprovalRules: { method: "GET", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listPurchaseOrderSends: { method: "GET", path: "/v1/purchase-orders/{id}/sends", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
@@ -25198,6 +25350,7 @@ export const OPERATIONS = {
   lockVisit: { method: "POST", path: "/v1/visits/{id}/lock", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   logCall: { method: "POST", path: "/v1/calls", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   logContinuingEducation: { method: "POST", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  makeContactPrimary: { method: "POST", path: "/v1/contacts/{id}/primary", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   mapPlatformCampaign: { method: "PATCH", path: "/v1/marketing/platform-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -25288,6 +25441,7 @@ export const OPERATIONS = {
   releaseStock: { method: "POST", path: "/v1/stock/releases", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   removeBudgetLine: { method: "DELETE", path: "/v1/budgets/{year}/lines/{line}", pathParams: ["year","line"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeChangeOrderLine: { method: "DELETE", path: "/v1/project-change-orders/{changeOrderId}/lines/{lineId}", pathParams: ["changeOrderId","lineId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  removeContact: { method: "POST", path: "/v1/contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   removeContinuingEducation: { method: "POST", path: "/v1/continuing-education/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   removeCostingRate: { method: "DELETE", path: "/v1/costing/rates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeCustomer: { method: "POST", path: "/v1/customers/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:delete"] },
@@ -25492,6 +25646,7 @@ export const OPERATIONS = {
   updateChangeOrder: { method: "PATCH", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   updateChannel: { method: "PATCH", path: "/v1/marketing/channels/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   updateCompanyDetails: { method: "PATCH", path: "/v1/company", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateContact: { method: "PATCH", path: "/v1/contacts/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   updateContract: { method: "PATCH", path: "/v1/contracts/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   updateCrew: { method: "PATCH", path: "/v1/crews/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   updateCustomField: { method: "PATCH", path: "/v1/custom-fields/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
@@ -25616,6 +25771,15 @@ export abstract class GeneratedOperations {
    */
   addContractSite(input: AddContractSiteParams & AddContractSiteInput, options?: CallOptions): Promise<AddContractSiteOutput> {
     return this.call("addContractSite", input, options);
+  }
+
+  /**
+   * Add a person to a customer.
+   *
+   * POST /v1/customers/{id}/contacts. Needs customer:write.
+   */
+  addCustomerContact(input: AddCustomerContactParams & AddCustomerContactInput, options?: CallOptions): Promise<AddCustomerContactOutput> {
+    return this.call("addCustomerContact", input, options);
   }
 
   /**
@@ -29300,6 +29464,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The people at a customer.
+   *
+   * GET /v1/customers/{id}/contacts. Needs customer:read.
+   */
+  listCustomerContacts(input: ListCustomerContactsInput, options?: CallOptions): Promise<ListCustomerContactsOutput> {
+    return this.call("listCustomerContacts", input, options);
+  }
+
+  /**
    * Likely duplicates across every customer.
    *
    * GET /v1/customer-duplicates. Needs customer:merge.
@@ -30650,6 +30823,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Make a person the one told first.
+   *
+   * POST /v1/contacts/{id}/primary. Needs customer:write.
+   */
+  makeContactPrimary(input: MakeContactPrimaryParams & MakeContactPrimaryInput, options?: CallOptions): Promise<MakeContactPrimaryOutput> {
+    return this.call("makeContactPrimary", input, options);
+  }
+
+  /**
    * Say which tracking campaign a platform's campaign is, or that it is none.
    *
    * PATCH /v1/marketing/platform-campaigns/{id}. Needs adspend:write.
@@ -31457,6 +31639,15 @@ export abstract class GeneratedOperations {
    */
   removeChangeOrderLine(input: RemoveChangeOrderLineParams & RemoveChangeOrderLineInput, options?: CallOptions): Promise<RemoveChangeOrderLineOutput> {
     return this.call("removeChangeOrderLine", input, options);
+  }
+
+  /**
+   * Take a person off a customer.
+   *
+   * POST /v1/contacts/{id}/remove. Needs customer:write.
+   */
+  removeContact(input: RemoveContactParams & RemoveContactInput, options?: CallOptions): Promise<RemoveContactOutput> {
+    return this.call("removeContact", input, options);
   }
 
   /**
@@ -33293,6 +33484,15 @@ export abstract class GeneratedOperations {
    */
   updateCompanyDetails(input: UpdateCompanyDetailsInput, options?: CallOptions): Promise<UpdateCompanyDetailsOutput> {
     return this.call("updateCompanyDetails", input, options);
+  }
+
+  /**
+   * Change a person's details.
+   *
+   * PATCH /v1/contacts/{id}. Needs customer:write.
+   */
+  updateContact(input: UpdateContactParams & UpdateContactInput, options?: CallOptions): Promise<UpdateContactOutput> {
+    return this.call("updateContact", input, options);
   }
 
   /**

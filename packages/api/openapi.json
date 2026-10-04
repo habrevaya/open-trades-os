@@ -24017,6 +24017,135 @@
         ]
       }
     },
+    "/v1/contacts/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateContact",
+        "summary": "Change a person's details",
+        "description": "Only what is sent changes, and the result is checked as a whole: clearing the phone of somebody who prefers texts is refused. Who they belong to is not changed here, and neither is whether they are primary, which has its own route because it changes somebody else too.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a person's details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      }
+    },
     "/v1/contacts/{id}/portal-access": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -24153,6 +24282,282 @@
         "x-permissions": [
           "customer:write",
           "portal:revoke"
+        ]
+      }
+    },
+    "/v1/contacts/{id}/primary": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "makeContactPrimary",
+        "summary": "Make a person the one told first",
+        "description": "Primary for their customer, and for their address when they are tied to one; whoever was primary for either stops being. Sending it again changes nothing.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MakeContactPrimaryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Make a person the one told first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MakeContactPrimaryOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      }
+    },
+    "/v1/contacts/{id}/remove": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removeContact",
+        "summary": "Take a person off a customer",
+        "description": "Kept rather than deleted, so a text sent to them last spring still names who it went to, and they stop being anybody's primary. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a person off a customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
         ]
       }
     },
@@ -29536,7 +29941,7 @@
       "get": {
         "operationId": "listCustomRecords",
         "summary": "One kind's records, searched and filtered",
-        "description": "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does. The links narrow to one customer, address, job or unit.\n\nRequires a session holding: record:read.",
+        "description": "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job or unit.\n\nRequires a session holding: record:read.",
         "tags": [
           "M29"
         ],
@@ -29576,6 +29981,22 @@
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
             }
           },
           {
@@ -30956,6 +31377,22 @@
             }
           },
           {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+            }
+          },
+          {
             "name": "includeInactive",
             "in": "query",
             "required": false,
@@ -31532,6 +31969,248 @@
         "x-authorization": "session",
         "x-permissions": [
           "customer:write"
+        ]
+      }
+    },
+    "/v1/customers/{id}/contacts": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "addCustomerContact",
+        "summary": "Add a person to a customer",
+        "description": "A phone or an email is required, and the preferred channel has to be one they can be reached on: preferring texts with no phone number is refused rather than guessed at. An address has to be one of this customer's. `isPrimary` makes them the first person told, and whoever was primary before stops being. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCustomerContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a person to a customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddCustomerContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      },
+      "get": {
+        "operationId": "listCustomerContacts",
+        "summary": "The people at a customer",
+        "description": "Ordered the way the \"on the way\" text picks its recipient, primary first and texts before email, so the first one listed is the person who would be told. `noticeRank` is that order as a number.\n\nRequires a session holding: customer:read.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The people at a customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCustomerContactsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:read"
         ]
       }
     },
@@ -38552,6 +39231,22 @@
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
             }
           }
         ],
@@ -45872,6 +46567,22 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+            }
           }
         ],
         "responses": {
@@ -47973,6 +48684,22 @@
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
             }
           }
         ],
@@ -68408,6 +69135,22 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+            }
           }
         ],
         "responses": {
@@ -80290,6 +81033,22 @@
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
             }
           }
         ],
@@ -106478,7 +107237,7 @@
       "get": {
         "operationId": "previewTradePackUpgrade",
         "summary": "What a newer version of a trade pack would change",
-        "description": "Nothing is written. Items the company does not have are added; items still exactly as the older version seeded them take the new values; items somebody here changed, or made under the same code, are kept and listed with what the new version would have changed; items the new version dropped are kept and listed. Job types the company is missing are added. Costs are shown only to a caller who may read them.\n\nRequires a session holding: settings:read.",
+        "description": "Nothing is written. Items the company does not have are added; items still exactly as the older version seeded them take the new values; items somebody here changed, or made under the same code, are kept and listed with what the new version would have changed; items the new version dropped are kept and listed. Job types the company is missing are added. The service report template, inspection programmes, retention rules and portal layout are planned the same way under `setup`: what is new is set up, what is still as the older version set it up is updated, and what the company changed, removed or made under the same name is kept, as is a retention rule allowed to purge whose period the new version shortens. Costs are shown only to a caller who may read them.\n\nRequires a session holding: settings:read.",
         "tags": [
           "M02"
         ],
@@ -106581,7 +107340,7 @@
       "post": {
         "operationId": "upgradeTradePack",
         "summary": "Upgrade to the newer version of a trade pack",
-        "description": "Applies the plan the preview shows, worked out again inside the transaction so an item edited after the preview was looked at is kept rather than overwritten. An updated item gets a new version, as a price change by hand does, so documents that quoted the old one still say the old one. Nothing the company changed or made is touched, and nothing is deleted.\n\nRequires a session holding: settings:write.",
+        "description": "Applies the plan the preview shows, worked out again inside the transaction so an item edited after the preview was looked at is kept rather than overwritten. An updated item gets a new version, as a price change by hand does, so documents that quoted the old one still say the old one, and so does an updated template's readings or programme's checkpoints, so a report captured under the old questions still says which it answered. Nothing the company changed, removed or made is touched, and nothing is deleted.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M02"
         ],
@@ -113547,6 +114306,124 @@
           "id",
           "propertyId",
           "notToExceed"
+        ]
+      },
+      "AddCustomerContactInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 320,
+            "format": "email"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "preferredChannel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "email",
+              "voice"
+            ]
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "AddCustomerContactOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preferredChannel": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "portalAccess": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "propertyId",
+          "name",
+          "title",
+          "email",
+          "phone",
+          "preferredChannel",
+          "isPrimary",
+          "portalAccess"
         ]
       },
       "AddEmergencyContactInput": {
@@ -166650,6 +167527,86 @@
           "hasMore"
         ]
       },
+      "ListCustomerContactsOutput": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "propertyId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "phone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "preferredChannel": {
+                  "type": "string"
+                },
+                "isPrimary": {
+                  "type": "boolean"
+                },
+                "portalAccess": {
+                  "type": "boolean"
+                },
+                "noticeRank": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "propertyId",
+                "name",
+                "title",
+                "email",
+                "phone",
+                "preferredChannel",
+                "isPrimary",
+                "portalAccess",
+                "noticeRank"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      },
       "ListCustomerDuplicatePairsOutput": {
         "type": "object",
         "properties": {
@@ -181841,6 +182798,75 @@
           "progress"
         ]
       },
+      "MakeContactPrimaryInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "MakeContactPrimaryOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preferredChannel": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "portalAccess": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "propertyId",
+          "name",
+          "title",
+          "email",
+          "phone",
+          "preferredChannel",
+          "isPrimary",
+          "portalAccess"
+        ]
+      },
       "MapPlatformCampaignInput": {
         "type": "object",
         "properties": {
@@ -185559,6 +186585,175 @@
               "add",
               "present"
             ]
+          },
+          "setup": {
+            "type": "object",
+            "properties": {
+              "add": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "service_report",
+                        "inspection_program",
+                        "retention_rule",
+                        "portal_layout"
+                      ]
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name"
+                  ]
+                }
+              },
+              "update": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "service_report",
+                        "inspection_program",
+                        "retention_rule",
+                        "portal_layout"
+                      ]
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "id",
+                    "name",
+                    "changed"
+                  ]
+                }
+              },
+              "kept": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "service_report",
+                        "inspection_program",
+                        "retention_rule",
+                        "portal_layout"
+                      ]
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "edited",
+                        "yours",
+                        "removed",
+                        "purging"
+                      ]
+                    },
+                    "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "id",
+                    "name",
+                    "reason",
+                    "changed"
+                  ]
+                }
+              },
+              "unchanged": {
+                "type": "integer"
+              },
+              "dropped": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "service_report",
+                        "inspection_program",
+                        "retention_rule",
+                        "portal_layout"
+                      ]
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "id",
+                    "name"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "add",
+              "update",
+              "kept",
+              "unchanged",
+              "dropped"
+            ]
           }
         },
         "required": [
@@ -185571,7 +186766,8 @@
           "kept",
           "unchanged",
           "dropped",
-          "jobTypes"
+          "jobTypes",
+          "setup"
         ]
       },
       "PreviewVendorCatalogueInput": {
@@ -191336,6 +192532,29 @@
           "voidReason",
           "createdAt",
           "lines"
+        ]
+      },
+      "RemoveContactInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveContactOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
         ]
       },
       "RemoveContinuingEducationInput": {
@@ -207878,6 +209097,118 @@
           "postalCode"
         ]
       },
+      "UpdateContactInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 320,
+            "format": "email"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "preferredChannel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "email",
+              "voice"
+            ]
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "UpdateContactOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preferredChannel": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "portalAccess": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "propertyId",
+          "name",
+          "title",
+          "email",
+          "phone",
+          "preferredChannel",
+          "isPrimary",
+          "portalAccess"
+        ]
+      },
       "UpdateContractInput": {
         "type": "object",
         "properties": {
@@ -214420,6 +215751,29 @@
           },
           "jobTypesAdded": {
             "type": "integer"
+          },
+          "setup": {
+            "type": "object",
+            "properties": {
+              "added": {
+                "type": "integer"
+              },
+              "updated": {
+                "type": "integer"
+              },
+              "kept": {
+                "type": "integer"
+              },
+              "dropped": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "added",
+              "updated",
+              "kept",
+              "dropped"
+            ]
           }
         },
         "required": [
@@ -214431,7 +215785,8 @@
           "kept",
           "unchanged",
           "dropped",
-          "jobTypesAdded"
+          "jobTypesAdded",
+          "setup"
         ]
       },
       "UploadAttachmentInput": {
