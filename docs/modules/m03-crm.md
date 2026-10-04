@@ -122,9 +122,20 @@ On the API: `GET /v1/customers` takes `tags` (repeat it) and `tagMatch`
 (`any` or `all`), `GET /v1/customer-tags` is the list with counts,
 `POST /v1/customers/{id}/tags` adds and takes off, and
 `POST /v1/customer-tags/rename` and `POST /v1/customer-tags/merge` work across
-the book. Campaign audiences already had a tag rule (`tagged_any` in M19); it
-matches the spelling as stored, which the converging spelling above keeps
-consistent.
+the book. A campaign audience's tag rule (`tagged_any` in M19) compares the same
+way, so an audience of "vip" reaches the customers tagged "VIP".
+
+**A tag is a row as well as a word on the customer.** The customer's own list is
+still the record of what they carry, in the order it was written, and what the
+API returns. Beside it, `customer_tag` holds the same tags one per row with the
+case blind key next to each, under an index on that key, and the database keeps
+it equal to every live customer's list by a trigger, in the same statement as any
+change to the list: an import, a restore, a rename across the book, a merge. The
+filter, the counts and the campaign rule read the table, so finding the customers
+tagged "VIP" in a book of a million is a walk of an index rather than a read of a
+million lists. The migration that made the table carried every live customer's
+tags across exactly, spelling, order and odd spaces included, and a test runs that
+statement again and checks it against the lists.
 
 ### Find duplicates across the whole book
 
@@ -257,14 +268,11 @@ and `/customers` and `GET /v1/customers` filter by one field holding one value
 (`fieldKey` and `fieldValue`); nothing filters by two at once, and the report
 builder does not filter by one (M29).
 
-Tags live in a list on the customer row, not in a table of their own, so the
-tag filter and the counts read each customer's list rather than an index.
-That is milliseconds for a company of ten thousand customers and would not be
-for one of a million; a normalised tag table is the change that would fix it.
-The campaign rule `tagged_any` (M19, in the campaign service) compares tags as
-stored rather than without capitals; it was left alone because that service is
-being worked on elsewhere, and the spelling a new tag is given here keeps the
-book consistent enough for it to match.
+A merged or soft deleted customer keeps its tags on its own row and has none in
+`customer_tag`, so it is in no tag count and no tag filter; that is deliberate,
+and undoing a merge is not built anyway. The tag table is written only by the
+database, so a restore that loads `customer_tag` rows from an export as well as
+customers is loading them twice: the customers' own lists are what to restore.
 
 A pair marked "not the same person" cannot be unmarked from a screen or the API
 yet. The duplicate sweep has no count of how many pairs there are in total,

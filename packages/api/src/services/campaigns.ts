@@ -1,7 +1,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { campaign as cp, comms, resolveMembership, SYSTEM_USER_ID, type Actor, type Permission, type RoleId } from "@opentradesos/core";
+import { campaign as cp, comms, resolveMembership, tags as tagRules, SYSTEM_USER_ID, type Actor, type Permission, type RoleId } from "@opentradesos/core";
 import * as commsSend from "./comms-send";
 import * as email from "./email";
 import {
@@ -181,8 +181,17 @@ export function clauseFor(rule: cp.AudienceRule) {
       )`;
 
     case "tagged_any":
-      /** `?|` is jsonb's "any of these appears", which is what the column is. */
-      return sql`c.tags ?| ${sql.param(rule.tags.map((tag) => tag.trim()))}::text[]`;
+      /**
+       * Through `customer_tag`, compared by the case blind key, so "vip"
+       * reaches the customers tagged "VIP" exactly as the customer list's tag
+       * filter does. It used to be jsonb's `?|` on the list, which matched the
+       * spelling as typed and read every customer's list to do it; the key
+       * index answers this without reading anybody's list.
+       */
+      return sql`c.id in (
+        select ct.customer_id from public.customer_tag ct
+        where ct.tag_key = any(${sql.param([...new Set(rule.tags.map(tagRules.tagKey).filter((key) => key !== ""))])}::text[])
+      )`;
 
     case "open_deficiency":
       /**
