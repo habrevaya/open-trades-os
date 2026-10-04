@@ -1,5 +1,7 @@
 import { Money } from "@opentradesos/ui";
+import type { branding } from "@opentradesos/core";
 import { formatDay, formatIn } from "@/lib/dates";
+import { CompanyContact } from "./CompanyContact";
 
 /** What `proposals.proposal` and `proposals.proposalForToken` return. */
 export interface ProposalData {
@@ -7,6 +9,7 @@ export interface ProposalData {
     name: string; legalName: string | null;
     color: string | null; on: string | null; text: string | null;
     hasLogo: boolean; version: number; timezone: string;
+    contact: branding.CompanyContact;
   };
   number: number;
   title: string | null;
@@ -81,6 +84,7 @@ export function ProposalView({ proposal, logoSrc, timezone }: {
             {proposal.company.legalName && proposal.company.legalName !== proposal.company.name ? (
               <p className="text-xs text-ink-500">{proposal.company.legalName}</p>
             ) : null}
+            <CompanyContact contact={proposal.company.contact} className="mt-1 text-xs not-italic text-ink-500" />
           </div>
         </div>
         <dl className="text-right text-sm">

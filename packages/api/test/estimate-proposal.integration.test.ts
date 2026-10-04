@@ -311,6 +311,89 @@ run("sending it from the office", () => {
   });
 });
 
+run("sending it by email and text at once", () => {
+  it("sends both, carrying one link, as two attempts each with its own message", async () => {
+    const written = await estimates.create(owner(), threeOptions({ title: "Both ways" }));
+    const sentEvents = (await eventsNamed("estimate.sent")).length;
+    const sent = await estimates.send(office(), { id: written.id, channel: "both", expiresInDays: 30 });
+
+    expect(sent.estimate.status).toBe("sent");
+    expect(sent.deliveries.map((d) => [d.channel, d.destination, d.state])).toEqual([
+      ["email", "nina@example.test", "queued"],
+      ["sms", CUSTOMER_PHONE, "queued"],
+    ]);
+    expect(sent.delivery.id).toBe(sent.deliveries[0]!.id);
+
+    // The same link in both, so approving from either is approving the one document.
+    const bodies = await raw`select channel, body from public.message
+      where id in ${raw(sent.deliveries.map((d) => d.messageId!))}`;
+    expect(bodies).toHaveLength(2);
+    for (const body of bodies) expect(body.body).toContain(sent.approvalUrl!);
+    const grants = await raw`select distinct portal_grant_id from public.estimate_delivery where estimate_id = ${written.id}`;
+    expect(grants).toHaveLength(1);
+
+    // One send, so one event: the follow up's clock starts once.
+    expect((await eventsNamed("estimate.sent")).length).toBe(sentEvents + 1);
+    const [event] = await raw`select detail from public.portal_event
+      where estimate_id = ${written.id} and kind = 'estimate_sent'`;
+    expect(event!.detail).toBe(`By email to nina@example.test and by text to ${CUSTOMER_PHONE}`);
+  });
+
+  it("goes by email when the text is refused, and records the refused text beside it", async () => {
+    await raw`insert into public.suppression (organization_id, address, channel, reason)
+      values (${ORG}, ${CUSTOMER_PHONE}, 'sms', 'stop')`;
+    const written = await estimates.create(owner(), threeOptions());
+    const sent = await estimates.send(office(), { id: written.id, channel: "both", expiresInDays: 30 });
+
+    expect(sent.estimate.status).toBe("sent");
+    expect(sent.approvalUrl).toMatch(/\/e\//);
+    const [email, text] = sent.deliveries;
+    expect(email).toMatchObject({ channel: "email", state: "queued" });
+    expect(text).toMatchObject({ channel: "sms", state: "refused" });
+    expect(text!.error).toMatch(/STOP/);
+    // The link that went by email still works.
+    await expect(portal.viewEstimate(db(), { token: tokenOf(sent.approvalUrl) })).resolves.toBeDefined();
+  });
+
+  it("changes nothing when both are refused", async () => {
+    await raw`insert into public.suppression (organization_id, address, channel, reason)
+      values (${ORG}, ${CUSTOMER_PHONE}, 'sms', 'stop'), (${ORG}, 'nina@example.test', 'email', 'bounce')`;
+    const written = await estimates.create(owner(), threeOptions());
+    const sentEvents = (await eventsNamed("estimate.sent")).length;
+    const sent = await estimates.send(office(), { id: written.id, channel: "both", expiresInDays: 30 });
+
+    expect(sent.approvalUrl).toBeNull();
+    expect(sent.deliveries.map((d) => d.state)).toEqual(["refused", "refused"]);
+    expect(sent.estimate.status).toBe("draft");
+    expect((await eventsNamed("estimate.sent")).length).toBe(sentEvents);
+  });
+
+  it("refuses a typed address and a customer missing either, before anything is sent", async () => {
+    const written = await estimates.create(owner(), threeOptions());
+    await expect(estimates.send(office(), { id: written.id, channel: "both", to: "other@example.test", expiresInDays: 30 }))
+      .rejects.toBeInstanceOf(ConflictError);
+
+    const [c] = await raw`insert into public.customer (organization_id, name, email) values (${ORG}, 'Email Only', 'only@example.test') returning id`;
+    await raw`insert into public.customer_property (organization_id, customer_id, property_id)
+      values (${ORG}, ${c!.id}, ${propertyId})`;
+    const emailOnly = await estimates.create(owner(), threeOptions({ customerId: c!.id }));
+    await expect(estimates.send(office(), { id: emailOnly.id, channel: "both", expiresInDays: 30 }))
+      .rejects.toThrow(/no mobile number on file/);
+    expect(await estimates.deliveries(office(), { id: emailOnly.id })).toEqual([]);
+  });
+
+  it("answers a retried send with both of its attempts and sends nothing twice", async () => {
+    const written = await estimates.create(owner(), threeOptions());
+    const keyed = () => as(["office_manager"], { idempotencyKey: `both-${written.id}` });
+    const first = await estimates.send(keyed(), { id: written.id, channel: "both", expiresInDays: 30 });
+    const again = await estimates.send(keyed(), { id: written.id, channel: "both", expiresInDays: 30 });
+
+    expect(again.deliveries.map((d) => d.id)).toEqual(first.deliveries.map((d) => d.id));
+    expect(again.approvalUrl).toBeNull();
+    expect(await estimates.deliveries(office(), { id: written.id })).toHaveLength(2);
+  });
+});
+
 run("what the customer decided, as events", () => {
   it("emits estimate.approved from the portal, with what they chose and how", async () => {
     const written = await estimates.create(owner(), threeOptions());

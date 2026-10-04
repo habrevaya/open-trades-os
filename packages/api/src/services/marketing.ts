@@ -1,12 +1,29 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk, money as m, referrals } from "@opentradesos/core";
+import { marketing as mk, money as m, referrals, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
 import * as acquisition from "./acquisition";
 import { JOB_COSTING_SQL } from "./report-catalogue";
 
+
+/**
+ * A window of whole days in the company's zone, as the two instants a
+ * `between` needs: the first moment of the first day and the last of the
+ * last. Read as UTC days, a call at eight in the evening in Chicago on the
+ * 31st was the 1st's, and a month's return on spend lost its last evening to
+ * the next month.
+ */
+async function windowOf(
+  tx: Database, organizationId: string, input: { from: string; to: string },
+): Promise<{ from: Date; to: Date }> {
+  const zone = await timezoneOf(tx, organizationId);
+  return {
+    from: time.startOfDayIn(input.from, zone),
+    to: new Date(time.startOfDayIn(time.nextDay(input.to), zone).getTime() - 1),
+  };
+}
 /**
  * MARKETING
  *
@@ -1257,8 +1274,7 @@ export async function performance(
       spendBySource.set(row.source, m.add(current, m.money(row.amount, "USD")));
     }
 
-    const from = new Date(`${input.from}T00:00:00Z`);
-    const to = new Date(`${input.to}T23:59:59.999Z`);
+    const { from, to } = await windowOf(tx, ctx.actor.organizationId, input);
 
     /**
      * One row per source per PERSON, so the count below is of people rather
@@ -1555,8 +1571,7 @@ export async function conversions(
 ): Promise<ConversionRow[]> {
   return guardedRead(ctx, "adspend:read", async (tx) => {
     const model = input.model ?? "position_based";
-    const from = new Date(`${input.from}T00:00:00Z`);
-    const to = new Date(`${input.to}T23:59:59.999Z`);
+    const { from, to } = await windowOf(tx, ctx.actor.organizationId, input);
 
     /**
      * Jobs that were WON in the period, rather than touches that happened in

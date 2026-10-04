@@ -405,9 +405,22 @@ const branchDimension = (jobId: string): reporting.Dimension => ({
  * the drill being wrong. The company's own timezone, with the same fallback
  * the session resolver uses.
  */
-const localDate = (table: string, instant: string) =>
-  `to_char(${instant} at time zone coalesce((select o.timezone from public.organization o `
-  + `where o.id = ${table}.organization_id), 'America/Chicago'), 'YYYY-MM-DD')`;
+const zoneOf = (table: string) =>
+  `coalesce((select o.timezone from public.organization o where o.id = ${table}.organization_id), 'America/Chicago')`;
+const localDate = (table: string, instant: string) => `to_char(${instant} at time zone ${zoneOf(table)}, 'YYYY-MM-DD')`;
+
+/**
+ * The month and the day of the week an instant falls in, in the company's
+ * calendar, for a dimension. The same reasoning as a drilled date: grouped in
+ * the database session's zone, a job finished on the evening of the 31st in
+ * Chicago is counted in the next month, and a Saturday evening's drain call
+ * on a Sunday.
+ */
+const localMonth = (table: string, instant: string) => `to_char(${instant} at time zone ${zoneOf(table)}, 'YYYY-MM')`;
+const localWeekday = (table: string, instant: string) => `to_char(${instant} at time zone ${zoneOf(table)}, 'ID Dy')`;
+
+/** The company's own today, for an invoice row. */
+const TODAY_FOR_INVOICE = `(now() at time zone ${zoneOf("invoice")})::date`;
 
 /** The customer on a record, named and linked, because that is the next thing somebody opens. */
 const customerColumn = (table: string, column = "customer_id"): reporting.RecordColumn => ({
@@ -476,11 +489,11 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     },
     {
       key: "month", label: "Month", type: "date",
-      sql: "to_char(date_trunc('month', coalesce(job.completed_at, job.created_at)), 'YYYY-MM')",
+      sql: localMonth("job", "coalesce(job.completed_at, job.created_at)"),
     },
     {
       key: "day", label: "Day", type: "date",
-      sql: "to_char(coalesce(job.completed_at, job.created_at), 'YYYY-MM-DD')",
+      sql: localDate("job", "coalesce(job.completed_at, job.created_at)"),
     },
     {
       key: "weekday", label: "Day of week", type: "text", sortPrefix: true,
@@ -490,7 +503,7 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
        * number for the same reason the aging buckets are, because
        * alphabetically Friday opens the week.
        */
-      sql: "to_char(coalesce(job.completed_at, job.created_at), 'ID Dy')",
+      sql: localWeekday("job", "coalesce(job.completed_at, job.created_at)"),
     },
     {
       key: "job_type", label: "Job type", type: "text",
@@ -687,11 +700,11 @@ export const CALLS_DATASET: reporting.Dataset = {
   dimensions: [
     {
       key: "day", label: "Day", type: "date",
-      sql: "to_char(coalesce(call.started_at, call.created_at), 'YYYY-MM-DD')",
+      sql: localDate("call", "coalesce(call.started_at, call.created_at)"),
     },
     {
       key: "month", label: "Month", type: "date",
-      sql: "to_char(date_trunc('month', coalesce(call.started_at, call.created_at)), 'YYYY-MM')",
+      sql: localMonth("call", "coalesce(call.started_at, call.created_at)"),
     },
     {
       key: "channel", label: "Channel", type: "text",
@@ -779,9 +792,9 @@ export const CATALOGUE: reporting.Dataset[] = [
         key: "month", label: "Month", type: "date",
         // Truncated in the database rather than grouped in JavaScript, which
         // would mean fetching every row to count them.
-        sql: "to_char(date_trunc('month', job.created_at), 'YYYY-MM')",
+        sql: localMonth("job", "job.created_at"),
       },
-      { key: "day", label: "Day", sql: "to_char(job.created_at, 'YYYY-MM-DD')", type: "date" },
+      { key: "day", label: "Day", sql: localDate("job", "job.created_at"), type: "date" },
       {
         key: "customer", label: "Customer", type: "text",
         sql: "(select c.name from public.customer c where c.id = job.customer_id)",
@@ -808,6 +821,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     permission: "report.financial:read",
     scope: "invoice",
     dateColumn: "invoice.issued_on",
+    dateIsDay: true,
     /**
      * The invoices behind a receivables number. The payer is not a separate
      * column: the customer an invoice is grouped under is the one the report's
@@ -831,7 +845,7 @@ export const CATALOGUE: reporting.Dataset[] = [
       { key: "status", label: "Status", sql: "invoice.status::text", type: "status" },
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', invoice.issued_on), 'YYYY-MM')",
+        sql: "to_char(invoice.issued_on, 'YYYY-MM')",
       },
       {
         key: "customer", label: "Customer", type: "text",
@@ -844,13 +858,17 @@ export const CATALOGUE: reporting.Dataset[] = [
          * Without the numeric prefix "Over 90" lands between "1 to 30" and
          * "31 to 60" alphabetically, which makes the report look wrong to
          * the person who needs it most.
+         *
+         * Today is the company's today, not the database's: from seven in the
+         * evening in Austin `current_date` is already tomorrow, and an invoice
+         * due today read as a day late every evening.
          */
         sql: `case
           when invoice.balance = 0 then '0 Paid'
-          when invoice.due_on >= current_date then '1 Current'
-          when invoice.due_on >= current_date - 30 then '2 1 to 30 days'
-          when invoice.due_on >= current_date - 60 then '3 31 to 60 days'
-          when invoice.due_on >= current_date - 90 then '4 61 to 90 days'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} then '1 Current'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} - 30 then '2 1 to 30 days'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} - 60 then '3 31 to 60 days'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} - 90 then '4 61 to 90 days'
           else '5 Over 90 days'
         end`,
       },
@@ -889,7 +907,7 @@ export const CATALOGUE: reporting.Dataset[] = [
       branchDimension("estimate.job_id"),
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', estimate.created_at), 'YYYY-MM')",
+        sql: localMonth("estimate", "estimate.created_at"),
       },
       {
         key: "customer", label: "Customer", type: "text",
@@ -956,7 +974,7 @@ export const CATALOGUE: reporting.Dataset[] = [
       branchDimension("visit.job_id"),
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', visit.window_start), 'YYYY-MM')",
+        sql: localMonth("visit", "visit.window_start"),
       },
       {
         key: "technician", label: "Technician", type: "text",
@@ -1008,7 +1026,7 @@ export const CATALOGUE: reporting.Dataset[] = [
       },
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', task.created_at), 'YYYY-MM')",
+        sql: localMonth("task", "task.created_at"),
       },
     ],
     measures: [

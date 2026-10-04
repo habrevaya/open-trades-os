@@ -246,6 +246,13 @@ key: `GET /v1/public/portal/{organizationSlug}/branding` returns the name,
 the colour, the colours readable on it and whether there is a logo, and
 nothing else; `/portal/{slug}/logo` serves the logo.
 
+Every page a customer opens from a link or their sign in (the estimate, the
+job, the invoice, the account and its statement) carries the company's logo
+and, under it, the phone, email and postal address the company set in
+Settings (M02), the phone and email as links that ring and write. The sign in
+page by slug does not carry them: it is the public face, and what it returns is
+the name, the colour and the logo.
+
 ### Save a card and pay with it
 
 From the signed in account only. `POST /v1/portal/card-setup` starts Stripe's

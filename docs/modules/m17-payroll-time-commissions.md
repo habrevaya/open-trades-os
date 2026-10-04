@@ -230,9 +230,10 @@ could hold, which is worse than a coarse one.
 
 ## What is not built
 
-No payroll processing, by design. A wage scale's overtime multipliers, jurisdiction
-and apprentice ratio are taken by the API and not offered on the pay rules screen,
-and a scale cannot be corrected in place: a wrong one is retired and the right one
+No payroll processing, by design. A wage scale's own overtime multipliers and
+apprentice ratio are taken by the API and not offered on the pay rules screen,
+which loads a scale's classification, rates, authority, reference, jurisdiction
+and start date; and a scale cannot be corrected in place: a wrong one is retired and the right one
 loaded. Tips given through the portal are paid through payroll; a cash tip
 handed to a technician at the door is not recorded anywhere, and a tip is
 split evenly with no way to split it otherwise. Reimbursements and per diem

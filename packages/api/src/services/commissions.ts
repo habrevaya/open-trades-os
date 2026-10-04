@@ -1,8 +1,8 @@
-import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { labor, ledger, money as m } from "@opentradesos/core";
+import { labor, ledger, money as m, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, ConflictError, NotFoundError,
+  guardedRead, guardedWrite, audit, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import { writePosting } from "./ledger";
@@ -667,6 +667,12 @@ export async function earnings(
   input: { technicianId?: string | undefined; from?: string | undefined; to?: string | undefined } = {},
 ) {
   return guardedRead(ctx, "commission:read", async (tx) => {
+    /**
+     * Whole days in the company's zone. A sale at eight in the evening in
+     * Chicago on the last day of a pay period is that period's, and read as a
+     * UTC day it was paid in the next one.
+     */
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const rows = await tx.select({
       entry: schema.commissionEntry,
       technicianName: schema.technician.displayName,
@@ -679,8 +685,8 @@ export async function earnings(
       .where(and(
         eq(schema.commissionEntry.organizationId, ctx.actor.organizationId),
         ...(input.technicianId ? [eq(schema.commissionEntry.technicianId, input.technicianId)] : []),
-        ...(input.from ? [gte(schema.commissionEntry.occurredAt, new Date(`${input.from}T00:00:00.000Z`))] : []),
-        ...(input.to ? [lte(schema.commissionEntry.occurredAt, new Date(`${input.to}T23:59:59.999Z`))] : []),
+        ...(input.from ? [gte(schema.commissionEntry.occurredAt, time.startOfDayIn(input.from, zone))] : []),
+        ...(input.to ? [lt(schema.commissionEntry.occurredAt, time.startOfDayIn(time.nextDay(input.to), zone))] : []),
       ))
       .orderBy(asc(schema.commissionEntry.occurredAt));
 

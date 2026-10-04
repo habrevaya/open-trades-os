@@ -693,8 +693,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     // Whole local days, for the same reason the board is. A phone syncing
     // "today and tomorrow" at eight in the evening was being handed a window
     // that had already ended.
-    const { start: from, end: to } =
-      time.daysFrom(input.from, input.days, await timezoneOf(tx, ctx.actor.organizationId));
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const { start: from, end: to } = time.daysFrom(input.from, input.days, zone);
 
     const rows = await tx.select({
       visit: schema.visit,
@@ -778,7 +778,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       organizationId: ctx.actor.organizationId,
       deviceId: device.id,
       fromDate: input.from,
-      toDate: to.toISOString().slice(0, 10),
+      /** The company's date of the window's end. Read as UTC, a zone east of Greenwich got the day before. */
+      toDate: time.dateIn(to, zone),
       revision,
       visitCount: rows.length,
     });

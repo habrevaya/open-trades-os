@@ -201,8 +201,10 @@ everything naming it still resolves.
 
 ## What is not built
 
-Resolving coverage from an equipment warranty record is not wired to M32: the
-dates are here and that module does not read them. The serial match is the
+A job's coverage is read from its unit's parts and labour dates by M32
+(`POST /v1/jobs/{id}/coverage/from-equipment`), on the day of the first visit,
+and from nothing else about the warranty: the dates are all this register
+keeps of it. The serial match is the
 office's and the API's; the field app's own sync still matches only at the
 address it is standing in. A serial with no letters or digits in it matches
 nothing, and two units with no serial at all are never matched, which is the

@@ -181,6 +181,8 @@ export const WorkflowTemplateView = z.object({
   /** Why it cannot be turned on yet, in words. */
   blockedBy: z.string().nullable(),
   platforms: z.array(z.object({ platform: z.string(), displayName: z.string() })),
+  /** Installed and switched on when a company is created; switched off like any other. */
+  onForNewCompanies: z.boolean(),
 });
 
 export const listWorkflowTemplates = defineRoute({

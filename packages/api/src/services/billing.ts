@@ -1757,7 +1757,11 @@ async function allocate(
  */
 export async function arAging(ctx: ServiceContext, input: z.infer<typeof getArAging.input>) {
   return guardedRead(ctx, "invoice:read", async (tx) => {
-    const asOf = input.asOf ?? new Date().toISOString().slice(0, 10);
+    /**
+     * Today where the company is. UTC's date is tomorrow from seven in the
+     * evening in Austin, which aged every invoice a day early all evening.
+     */
+    const asOf = input.asOf ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
 
     const rows = await tx.execute<{
       payer_id: string | null; payer_name: string;

@@ -78,7 +78,8 @@ export const getAvailability = defineRoute({
   input: z.object({
     organizationSlug: z.string().min(1).max(100),
     bookableServiceId: Uuid,
-    from: z.string().date(),
+    /** Defaults to today where the company is, which is not UTC's today after seven in the evening in Austin. */
+    from: z.string().date().optional(),
     /** Capped server side at the service's own maxAdvanceDays. */
     days: z.number().int().min(1).max(90).default(14),
     postalCode: z.string().max(20).optional(),

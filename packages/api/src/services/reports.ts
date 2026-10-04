@@ -2,7 +2,7 @@ import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { permissionsFor, reporting } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, scopeOf, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, scopeOf, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
@@ -148,6 +148,7 @@ function conditionsFor(
   ctx: ServiceContext,
   dataset: reporting.Dataset,
   definition: reporting.ReportDefinition,
+  zone: string,
 ): SQL[] {
   const conditions: SQL[] = [];
   const scoped = scopeFilterFor(ctx, dataset);
@@ -180,13 +181,24 @@ function conditionsFor(
     conditions.push(narrow(definition.branchId));
   }
 
+  /**
+   * WHOLE DAYS IN THE COMPANY'S ZONE. `from::date` against an instant is
+   * midnight in UTC, which is seven in the evening the day before in Austin:
+   * a job finished at eight at night on the 31st landed in the next month's
+   * report. An instant column is compared with the instants that bound the
+   * company's days, which keeps an index on it usable; a date column is
+   * already a day and compares with the date.
+   */
+  const edge = (day: string) => dataset.dateIsDay
+    ? sql`${day}::date`
+    : sql`((${day}::date)::timestamp at time zone ${zone})`;
   if (definition.from) {
-    conditions.push(sql`${sql.raw(dataset.dateColumn)} >= ${definition.from}::date`);
+    conditions.push(sql`${sql.raw(dataset.dateColumn)} >= ${edge(definition.from)}`);
   }
   if (definition.to) {
     // Exclusive, so a range of one month does not silently include the
     // first moment of the next one.
-    conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${definition.to}::date`);
+    conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${edge(definition.to)}`);
   }
 
   for (const filter of definition.filters ?? []) {
@@ -246,7 +258,7 @@ export async function run(
       selects.push(sql`${sql.raw(wrapped)} as ${sql.raw(`"${m.key}"`)}`);
     }
 
-    const conditions = conditionsFor(ctx, dataset, definition);
+    const conditions = conditionsFor(ctx, dataset, definition, await timezoneOf(tx, ctx.actor.organizationId));
 
     const groupBy = dimensions.length > 0
       ? sql` group by ${sql.raw(dimensions.map((_, i) => String(i + 1)).join(", "))}`
@@ -400,7 +412,7 @@ export async function drill(
   const { dataset, pinned, measures, record } = decision;
 
   return guardedRead(ctx, dataset.permission, async (tx) => {
-    const conditions = conditionsFor(ctx, dataset, request.definition);
+    const conditions = conditionsFor(ctx, dataset, request.definition, await timezoneOf(tx, ctx.actor.organizationId));
     for (const pin of pinned) {
       // Bound as a parameter, like a filter value: it came off a URL.
       conditions.push(sql`(${sql.raw(pin.dimension.sql)})::text is not distinct from ${pin.value}::text`);

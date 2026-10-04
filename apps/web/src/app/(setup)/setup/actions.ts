@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
-import { attempt, field, type FormState } from "@/lib/actions";
+import { attempt, type FormState } from "@/lib/actions";
 import { setup as rules } from "@opentradesos/core";
 import { setup, tradePacks } from "@opentradesos/api/services";
 import { packById } from "@opentradesos/trade-packs";
@@ -75,15 +75,5 @@ export async function upgradePack(_previous: FormState, form: FormData): Promise
     };
   });
   revalidatePath("/setup/trade");
-  return result;
-}
-
-export async function saveCompany(_previous: FormState, form: FormData): Promise<FormState> {
-  const result = await attempt(form, async () => setup.updateDetails(await ctx(), {
-    name: field(form, "name") ?? "",
-    legalName: field(form, "legalName") ?? null,
-  }));
-  revalidatePath("/setup", "layout");
-  revalidatePath("/", "layout");
   return result;
 }

@@ -8,7 +8,7 @@ import * as properties from "../src/services/properties";
 import * as jobs from "../src/services/jobs";
 import * as billing from "../src/services/billing";
 import { ConflictError, type ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId, testDb } from "./helpers";
+import { seedOrg, fixtureId, testDb, companyToday } from "./helpers";
 
 /**
  * THE FORM WHOSE LOSSES WERE INVISIBLE
@@ -279,7 +279,8 @@ run("somebody fills it in", () => {
 });
 
 run("closing the loop back to the ad account", () => {
-  const today = () => new Date().toISOString().slice(0, 10);
+  /** The company's today: the window is whole days where the company is. */
+  const today = () => companyToday();
 
   const aBookedJob = async (clickIds: { source: string; clickId: string }[], total: string) => {
     const job = await jobs.create(owner(), {

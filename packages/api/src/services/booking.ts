@@ -113,7 +113,13 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
     )).limit(1);
   if (!service) throw new NotFoundError("Service");
 
-  return { slots: await openSlots(db, { organizationId: org.id, timezone: org.timezone, service, from: input.from, days: input.days }) };
+  /**
+   * From today where the company is, unless asked. The widget asked with the
+   * SERVER's today, which from seven in the evening in Austin is tomorrow, so
+   * an evening visitor was never offered what was left of today.
+   */
+  const from = input.from ?? time.dateIn(new Date(), org.timezone);
+  return { slots: await openSlots(db, { organizationId: org.id, timezone: org.timezone, service, from, days: input.days }) };
 }
 
 export interface OpenSlot {

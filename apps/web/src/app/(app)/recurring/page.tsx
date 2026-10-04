@@ -1,4 +1,5 @@
 import { requireSetupUser } from "@/lib/auth";
+import { todayIn } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { recurring } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
@@ -42,7 +43,8 @@ export default async function RecurringPage() {
   const user = await requireSetupUser();
   const schedules = await recurring.list({ actor: user.actor, db: getDb() });
 
-  const today = new Date().toISOString().slice(0, 10);
+  /** Overdue is against the company's today, not the server's. */
+  const today = todayIn(user.organizationTimezone);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">

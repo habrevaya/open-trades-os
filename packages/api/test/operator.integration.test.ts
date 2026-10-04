@@ -127,6 +127,12 @@ run("creating a company", () => {
       select role::text from public.membership
       where organization_id = ${body.organizationId} and user_id = ${body.ownerUserId}`;
     expect(member!.role).toBe("owner");
+
+    // Starts with the follow up on an unanswered estimate switched on, as a company made on the form does.
+    const flows = await raw<{ template_key: string; enabled: boolean; created_by_user_id: string }[]>`
+      select template_key, enabled, created_by_user_id from public.workflow
+      where organization_id = ${body.organizationId} and deleted_at is null`;
+    expect(flows).toEqual([{ template_key: "estimate_follow_up", enabled: true, created_by_user_id: body.ownerUserId }]);
   });
 
   it("is idempotent on the external reference, with a fresh link that retires the old one", async () => {

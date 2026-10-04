@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customerPortal as cp, money as m, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, inTenant,
+  guardedRead, guardedWrite, audit, inTenant, timezoneOf,
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
@@ -422,7 +422,8 @@ export async function intent(
       if (pending.length > 0) {
         throw new ConflictError(
           `A bank payment of ${m.format(usd(pending[0]!.amount))} for this invoice is already on its way, `
-          + "started " + pending[0]!.startedAt.toISOString().slice(0, 10) + ". Bank payments take a few "
+          + "started " + time.dateIn(pending[0]!.startedAt, await timezoneOf(tx, ctx.actor.organizationId))
+          + ". Bank payments take a few "
           + "business days to arrive. If it fails, the invoice can be paid another way then.",
         );
       }

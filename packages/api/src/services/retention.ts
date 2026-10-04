@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { retention as rules, SYSTEM_USER_ID, isSystem } from "@opentradesos/core";
+import { retention as rules, SYSTEM_USER_ID, isSystem, time } from "@opentradesos/core";
 import { packById } from "@opentradesos/trade-packs";
 import {
-  audit, guardedRead, guardedWrite, inTenant, NotFoundError, UnprocessableError,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, NotFoundError, UnprocessableError,
   type ServiceContext,
 } from "./context";
 
@@ -62,7 +62,8 @@ interface Adapter {
   label: string;
   /** How a record's kind is decided, said plainly; null when this type has no kinds. */
   kindRule: string | null;
-  candidates: (tx: Database, limit: number) => Promise<Candidate[]>;
+  /** `zone` is the company's, for the day a record is labelled with. */
+  candidates: (tx: Database, limit: number, zone: string) => Promise<Candidate[]>;
   /** Remove one record and everything that is only its own. Returns what the audit line keeps of it. */
   purge: (tx: Database, ctx: ServiceContext, id: string) => Promise<Record<string, unknown>>;
 }
@@ -115,7 +116,8 @@ async function unlinkTasks(tx: Database, entityType: string, entityId: string) {
   return rows.map((row) => row.id);
 }
 
-const day = (value: Date | null) => value?.toISOString().slice(0, 10) ?? "no date";
+/** The company's calendar day of an instant, for a label: a toolbox talk held at 7pm in Austin was held that day. */
+const day = (value: Date | null, zone: string) => (value ? time.dateIn(value, zone) : "no date");
 
 /** The trade pack's own code for an inspection programme, which is what a retention rule names it by. */
 function programCode(program: { name: string; tradePackId: string | null } | null): string | null {
@@ -128,12 +130,12 @@ export const ADAPTERS: Record<string, Adapter> = {
   incident_report: {
     label: "Incident reports",
     kindRule: "Its kind: injury, near_miss, property_damage, vehicle, environmental or other.",
-    candidates: async (tx, limit) => {
+    candidates: async (tx, limit, zone) => {
       const rows = await tx.select().from(schema.incidentReport)
         .orderBy(asc(schema.incidentReport.occurredAt)).limit(limit);
       return rows.map((row) => ({
         id: row.id,
-        label: `${row.kind.replace("_", " ")} on ${day(row.occurredAt)}`,
+        label: `${row.kind.replace("_", " ")} on ${day(row.occurredAt, zone)}`,
         kind: row.kind,
         facts: { createdAt: row.createdAt, recordDate: row.occurredAt, reportPreparedAt: row.closedAt },
         keep: row.status === "open" ? "Kept: the report is still open." : undefined,
@@ -151,11 +153,11 @@ export const ADAPTERS: Record<string, Adapter> = {
   safety_meeting: {
     label: "Toolbox talks",
     kindRule: null,
-    candidates: async (tx, limit) => {
+    candidates: async (tx, limit, zone) => {
       const rows = await tx.select().from(schema.safetyMeeting).orderBy(asc(schema.safetyMeeting.heldAt)).limit(limit);
       return rows.map((row) => ({
         id: row.id,
-        label: `"${row.topic}" on ${day(row.heldAt)}`,
+        label: `"${row.topic}" on ${day(row.heldAt, zone)}`,
         kind: null,
         facts: { createdAt: row.createdAt, recordDate: row.heldAt, reportPreparedAt: row.closedAt },
       }));
@@ -176,7 +178,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   service_report: {
     label: "Service reports",
     kindRule: "The code of the job type on its job, such as drain or panel.",
-    candidates: async (tx, limit) => {
+    candidates: async (tx, limit, zone) => {
       const rows = await tx.select({
         report: schema.serviceReport, completedAt: schema.job.completedAt, typeCode: schema.jobType.code,
       }).from(schema.serviceReport)
@@ -185,7 +187,7 @@ export const ADAPTERS: Record<string, Adapter> = {
         .orderBy(asc(schema.serviceReport.createdAt)).limit(limit);
       return rows.map(({ report, completedAt, typeCode }) => ({
         id: report.id,
-        label: `Report from ${day(report.createdAt)}${typeCode ? ` (${typeCode})` : ""}`,
+        label: `Report from ${day(report.createdAt, zone)}${typeCode ? ` (${typeCode})` : ""}`,
         kind: typeCode,
         facts: {
           createdAt: report.createdAt, recordDate: report.createdAt,
@@ -290,10 +292,10 @@ export interface RecordDecision {
  * Shared by the preview and the purge, which must never disagree.
  */
 async function decide(
-  tx: Database, entityType: string, policies: Policy[], now: Date,
+  tx: Database, entityType: string, policies: Policy[], now: Date, zone: string,
 ): Promise<{ decisions: RecordDecision[]; matchedBy: Map<string, string[]> }> {
   const adapter = ADAPTERS[entityType]!;
-  const candidates = await adapter.candidates(tx, CANDIDATE_LIMIT);
+  const candidates = await adapter.candidates(tx, CANDIDATE_LIMIT, zone);
   const holds = candidates.length === 0 ? [] : await tx.select({ entityId: schema.retentionHold.entityId })
     .from(schema.retentionHold)
     .where(and(
@@ -324,7 +326,7 @@ async function decide(
       policy,
       verdict: rules.judge(
         { clockStart: policy.clockStart as rules.ClockStart, retainMonths: policy.retainMonths },
-        candidate.facts, now, held.has(candidate.id),
+        candidate.facts, now, held.has(candidate.id), zone,
       ),
     }));
     /** The strictest verdict wins: no clock, then not yet (latest date), then held, then due. */
@@ -464,7 +466,8 @@ export async function preview(
     const byType = new Map<string, Awaited<ReturnType<typeof decide>>>();
     for (const type of new Set(shown.map((p) => p.entityType))) {
       if (!ADAPTERS[type]) continue;
-      byType.set(type, await decide(tx, type, all.filter((p) => p.entityType === type), now));
+      byType.set(type, await decide(tx, type, all.filter((p) => p.entityType === type), now,
+        await timezoneOf(tx, ctx.actor.organizationId)));
     }
 
     return shown.map((policy) => {
@@ -625,7 +628,8 @@ async function runIn(
   for (const type of new Set(policies.filter((p) => p.purgeAllowed).map((p) => p.entityType))) {
     const adapter = ADAPTERS[type];
     if (!adapter) continue;
-    const { decisions } = await decide(tx, type, policies.filter((p) => p.entityType === type), now);
+    const { decisions } = await decide(tx, type, policies.filter((p) => p.entityType === type), now,
+      await timezoneOf(tx, ctx.actor.organizationId));
     held += decisions.filter((d) => d.state === "held").length;
     for (const decision of decisions.filter((d) => d.state === "due")) {
       if (purged >= PURGE_LIMIT) break;

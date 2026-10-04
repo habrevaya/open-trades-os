@@ -57,6 +57,20 @@ export const organization = pgTable("organization", {
   currency: text("currency").notNull().default("USD"),
   logoUrl: text("logo_url"),
   brandColor: text("brand_color"),
+  /**
+   * How a customer reaches the company, printed on its proposals, invoices,
+   * statements and portal pages. All optional, all written only through
+   * `setup.updateDetails`, which normalises the phone to E.164 and refuses an
+   * address with no street or town. Without these every document went out
+   * with no way to call anybody.
+   */
+  phone: text("phone"),
+  email: text("email"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
   /** Trade pack applied at setup. Drives seeded price book, checklists, KPIs. */
   primaryTrade: text("primary_trade"),
   setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),

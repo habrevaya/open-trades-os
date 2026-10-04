@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, isSystem, safety as rules, type Actor } from "@opentradesos/core";
+import { assertCan, can, isSystem, safety as rules, time, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, UnprocessableError,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
 } from "./context";
 import { attach, decode, put } from "./files";
@@ -577,7 +577,7 @@ export async function addFollowUp(
     const [task] = await tx.insert(schema.task).values({
       organizationId: ctx.actor.organizationId,
       title,
-      body: `Follow up from the incident on ${row.occurredAt.toISOString().slice(0, 10)}.`,
+      body: `Follow up from the incident on ${time.dateIn(row.occurredAt, await timezoneOf(tx, ctx.actor.organizationId))}.`,
       entityType: "incident_report",
       entityId: input.id,
       queue: "safety",

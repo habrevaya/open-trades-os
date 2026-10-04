@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService,
+  people as peopleService, setup as setupService,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -12,6 +12,7 @@ import { Chip, Phone } from "@opentradesos/ui";
 import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Branding } from "./Branding";
+import { CompanyDetails } from "./CompanyDetails";
 import { Timezone } from "./Timezone";
 import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
@@ -37,6 +38,7 @@ export default async function SettingsPage() {
 
   const writes = can(user.actor, "settings:write");
   const brand = await brandingService.current(ctx).catch(() => null);
+  const details = writes ? await setupService.details(ctx) : null;
 
   /**
    * Through the service rather than the raw table, so the row knows which
@@ -73,8 +75,8 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Settings" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        {user.organizationName}. The look, the time zone, call recording and phone numbers are
-        changed here. People are invited and given roles on{" "}
+        {user.organizationName}. The company's details, the look, the time zone, call recording
+        and phone numbers are changed here. People are invited and given roles on{" "}
         <a href="/settings/team" className="underline underline-offset-4">Team</a>, and the setup list
         is still at <a href="/setup" className="underline underline-offset-4">Setup</a>, with what is
         done ticked off.
@@ -85,6 +87,8 @@ export default async function SettingsPage() {
         actually change, and a page that opens on four read only tables
         teaches people it is not worth visiting.
       */}
+      {details && <CompanyDetails details={details} />}
+
       {writes && brand && (
         <Branding
           color={brand.color} on={brand.on} text={brand.text}
