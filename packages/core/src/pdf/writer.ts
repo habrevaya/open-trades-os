@@ -1,31 +1,32 @@
 import type { PdfImage } from "./image.js";
+import { bundledFonts, type EmbeddedFont } from "./font.js";
 
 /**
  * A PDF, WRITTEN BY HAND
  *
  * Every document this product hands a customer or an accountant as a file is
  * text, ruled lines and filled boxes: an invoice, a proposal, a statement, a
- * report with its chart, and on a proposal the company's photographs, which
- * PDF takes as the JPEG or PNG data they already are (`image.ts`). None of it
- * needs an embedded font, an image decoder or a layout engine, and all of it has to be produced in two places that are
- * not a browser: a Next route handler and the worker that emails a report at
- * seven in the morning.
+ * report with its chart, the company's logo, and on a proposal the company's
+ * photographs, which PDF takes as the JPEG or PNG data they already are
+ * (`image.ts`). None of it needs a layout engine, and all of it has to be
+ * produced in two places that are not a browser: a Next route handler and the
+ * worker that emails a report at seven in the morning.
  *
  * WHY NOT A LIBRARY. The candidates were a headless browser (a hundred and
  * fifty megabytes of Chromium in a self hosted container, to draw a table),
  * pdfkit (reads its font metrics from files on disk at run time, which a
- * bundled Next server does not ship, and drags in a font engine for fonts
- * this never embeds) and pdf-lib (the closest fit, unmaintained since 2021,
- * and a megabyte of code whose useful part here is the same few hundred lines
- * as this file). PDF 1.4 with the standard Helvetica faces is a small,
- * stable format: the fonts are built into every reader, so nothing is
- * embedded, and the whole writer is the object table below. It is pure, it is
- * tested without a reader, and it cannot fail to bundle.
+ * bundled Next server does not ship) and pdf-lib (the closest fit,
+ * unmaintained since 2021, and a megabyte of code whose useful part here is
+ * the same few hundred lines as this file). PDF 1.4 is a small, stable format
+ * and the whole writer is the object table below. It is pure, it is tested
+ * without a reader, and it cannot fail to bundle.
  *
- * WHAT IT CANNOT DO, said rather than discovered. The standard fonts carry
- * the Western European characters (WinAnsi), so a name in Vietnamese or
- * Chinese prints its accents or its letters as "?". Embedding a Unicode font
- * is the fix and it is not built.
+ * THE FONT IS IN THE FILE. The standard fonts every reader carries know
+ * Western European letters only, so a customer named in Vietnamese, Czech,
+ * Greek or Russian had their name misprinted on their own invoice. Noto Sans
+ * is bundled (`font.ts`) and the glyphs each document uses are embedded in
+ * it; a script the bundle does not cover (Chinese, Arabic, Hebrew) still
+ * prints a letter as its base letter where it has one and "?" where not.
  *
  * Coordinates here are from the TOP LEFT in points (a point is 1/72 inch), the
  * way a person lays out a page; the writer turns them over to PDF's bottom
@@ -47,74 +48,36 @@ export function hex(color: string | null | undefined, fallback: Rgb = { r: 0, g:
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
 }
 
-/* ------------------------------------------------------------ the metrics */
+/* ------------------------------------------------------------ the fonts */
+
+const fontFor = (key: FontKey): EmbeddedFont => bundledFonts()[key];
 
 /**
- * Helvetica and Helvetica Bold advance widths for the printable ASCII range,
- * in thousandths of the font size, from Adobe's published AFM files. Wrapping
- * a line and right aligning a column of money both need them, and guessing a
- * width per character is how a total ends up printed over its own label.
+ * The glyphs a string prints as, each with the text it stands for. Line
+ * breaks are the caller's to split on.
+ *
+ * A character the font has prints as itself. One it lacks prints as its base
+ * letter when the accent comes off cleanly, and as "?" when even that is not
+ * there (a Chinese or Arabic name, which the bundled scripts do not cover),
+ * so a customer's name never prints as an empty box in the middle.
  */
-const REGULAR = [
-  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
-  556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
-  1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
-  667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
-  333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
-  556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
-];
-const BOLD = [
-  278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
-  556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
-  975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
-  667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
-  333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
-  611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
-];
-
-/**
- * Characters WinAnsi places outside Latin 1, by code point. Everything from
- * U+00A0 to U+00FF is the same byte in both, and printable ASCII is itself.
- */
-const WIN_ANSI: Record<number, number> = {
-  0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84, 0x2026: 0x85, 0x2020: 0x86,
-  0x2021: 0x87, 0x02c6: 0x88, 0x2030: 0x89, 0x0160: 0x8a, 0x2039: 0x8b, 0x0152: 0x8c,
-  0x017d: 0x8e, 0x2018: 0x91, 0x2019: 0x92, 0x201c: 0x93, 0x201d: 0x94, 0x2022: 0x95,
-  0x2013: 0x96, 0x2014: 0x97, 0x02dc: 0x98, 0x2122: 0x99, 0x0161: 0x9a, 0x203a: 0x9b,
-  0x0153: 0x9c, 0x017e: 0x9e, 0x0178: 0x9f,
-};
-
-/** The byte a character prints as, or `?` for one the standard fonts do not have. */
-function byteOf(char: string): number {
-  const code = char.codePointAt(0) ?? 63;
-  if (code === 9) return 32;
-  if (code >= 32 && code <= 126) return code;
-  if (code >= 0xa0 && code <= 0xff) return code;
-  return WIN_ANSI[code] ?? 63;
-}
-
-/** The bytes a string prints as. Line breaks are the caller's to split on. */
-export function encode(text: string): number[] {
-  return [...text.replace(/[\r\n]+/g, " ")].map((char) => {
-    const byte = byteOf(char);
-    if (byte !== 63 || char === "?") return byte;
-    /**
-     * A letter the fonts lack but whose accent comes off cleanly prints as
-     * its base letter: "\u1ee9" in a Vietnamese surname prints as "u" rather
-     * than as a question mark in the middle of a customer's name.
-     */
+export function glyphsOf(text: string, font: FontKey): Array<{ glyph: number; text: string }> {
+  const face = fontFor(font);
+  return [...text.replace(/[\r\n]+/g, " ").replace(/\t/g, " ")].map((char) => {
+    const code = char.codePointAt(0) ?? 63;
+    if (face.has(code)) return { glyph: face.glyphOf(code), text: char };
     const base = char.normalize("NFD")[0] ?? char;
-    return base !== char ? byteOf(base) : byte;
+    const baseCode = base.codePointAt(0) ?? 63;
+    if (base !== char && face.has(baseCode)) return { glyph: face.glyphOf(baseCode), text: base };
+    return { glyph: face.glyphOf(63), text: "?" };
   });
 }
 
-/** How wide a string sets, in points. */
+/** How wide a string sets, in points, from the font's own advance widths. */
 export function widthOf(text: string, font: FontKey, size: number): number {
-  const table = font === "bold" ? BOLD : REGULAR;
+  const face = fontFor(font);
   let units = 0;
-  for (const byte of encode(text)) {
-    units += byte >= 32 && byte <= 126 ? table[byte - 32]! : 556;
-  }
+  for (const { glyph } of glyphsOf(text, font)) units += face.width(glyph);
   return (units * size) / 1000;
 }
 
@@ -166,7 +129,14 @@ const num = (value: number): string => {
   return fixed.replace(/\.?0+$/, "") || "0";
 };
 const colour = (c: Rgb) => `${num(c.r)} ${num(c.g)} ${num(c.b)}`;
-const hexBytes = (bytes: number[]) => bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+const hexGlyphs = (glyphs: number[]) => glyphs.map((g) => g.toString(16).padStart(4, "0")).join("");
+/** A text string for the information dictionary: UTF-16 with its byte order mark, so any name survives. */
+const utf16 = (text: string) => `FEFF${[...text].flatMap((char) => {
+  const code = char.codePointAt(0)!;
+  if (code < 0x10000) return [code];
+  const v = code - 0x10000;
+  return [0xd800 + (v >> 10), 0xdc00 + (v & 0x3ff)];
+}).map((unit) => unit.toString(16).padStart(4, "0")).join("")}`;
 
 export class PdfPage {
   readonly width: number;
@@ -174,6 +144,8 @@ export class PdfPage {
   private readonly ops: string[] = [];
   /** The photographs this page draws, by the name its content stream calls each one. */
   readonly images: Array<{ name: string; image: PdfImage }> = [];
+  /** Every glyph drawn, per font, with the text it stands for: what the file's fonts keep and map back. */
+  readonly glyphs: Record<FontKey, Map<number, string>> = { regular: new Map(), bold: new Map() };
 
   constructor(size: { width: number; height: number } = LETTER) {
     this.width = size.width;
@@ -187,9 +159,11 @@ export class PdfPage {
     const size = options.size ?? 10;
     const width = widthOf(value, font, size);
     const left = options.align === "right" ? x - width : options.align === "center" ? x - width / 2 : x;
+    const drawn = glyphsOf(value, font);
+    for (const { glyph, text } of drawn) if (!this.glyphs[font].has(glyph)) this.glyphs[font].set(glyph, text);
     this.ops.push(
       `BT /${font === "bold" ? "F2" : "F1"} ${num(size)} Tf ${colour(options.color ?? { r: 0, g: 0, b: 0 })} rg `
-      + `1 0 0 1 ${num(left)} ${num(this.height - y)} Tm <${hexBytes(encode(value))}> Tj ET`,
+      + `1 0 0 1 ${num(left)} ${num(this.height - y)} Tm <${hexGlyphs(drawn.map((d) => d.glyph))}> Tj ET`,
     );
   }
 
@@ -274,8 +248,9 @@ function pdfDate(at: Date): string {
  *
  * Objects are numbered in a fixed order (catalogue, page tree, the two fonts,
  * the information dictionary, then a page and its content stream for each
- * page) and the cross reference table records where each one starts, which is
- * the whole of what a reader needs to open the file without repairing it.
+ * page, then the images, then what each font is made of) and the cross
+ * reference table records where each one starts, which is the whole of what a
+ * reader needs to open the file without repairing it.
  */
 export function renderPdf(pages: PdfPage[], meta: PdfMeta, options: RenderOptions = {}): Uint8Array {
   const list = pages.length > 0 ? pages : [new PdfPage()];
@@ -289,35 +264,52 @@ export function renderPdf(pages: PdfPage[], meta: PdfMeta, options: RenderOption
     for (const part of body) push(part);
     push(ascii("\nendobj\n"));
   };
+  const stream = (id: number, dictionary: string, plain: Uint8Array, compress = true) => {
+    const body = compress && options.deflate ? options.deflate(plain) : plain;
+    const filter = compress && options.deflate ? " /Filter /FlateDecode" : "";
+    object(id, [ascii(`<< ${dictionary}${dictionary ? " " : ""}/Length ${body.length}${filter} >>\nstream\n`), body, ascii("\nendstream")]);
+  };
 
   // The second line is four bytes over 127, which tells a transfer tool the file is binary.
-  push(ascii("%PDF-1.4\n%âãÏÓ\n"));
+  push(ascii("%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n"));
 
   const firstPage = 6;
   const kids = list.map((_, i) => `${firstPage + i * 2} 0 R`).join(" ");
-  object(1, [ascii("<< /Type /Catalog /Pages 2 0 R >>")]);
-  object(2, [ascii(`<< /Type /Pages /Kids [${kids}] /Count ${list.length} >>`)]);
-  object(3, [ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")]);
-  object(4, [ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")]);
-  const info = [
-    `/Title <${hexBytes(encode(meta.title))}>`,
-    `/Producer (OpenTradesOS)`,
-    ...(meta.author ? [`/Author <${hexBytes(encode(meta.author))}>`] : []),
-    `/CreationDate (${pdfDate(meta.createdAt ?? new Date())})`,
-  ].join(" ");
-  object(5, [ascii(`<< ${info} >>`)]);
 
   /**
-   * Photographs come after the pages, one object each however many pages
-   * draw them, so the numbering of everything before stays as it was.
+   * Images come after the pages, one object each however many pages draw
+   * them, and a transparent one's mask after it. Then four objects per font.
    */
   const imageIds = new Map<PdfImage, number>();
   let nextId = firstPage + list.length * 2;
   for (const page of list) {
     for (const { image } of page.images) {
-      if (!imageIds.has(image)) { imageIds.set(image, nextId); nextId += 1; }
+      if (imageIds.has(image)) continue;
+      imageIds.set(image, nextId);
+      nextId += image.mask ? 2 : 1;
     }
   }
+  const fontKeys: FontKey[] = ["regular", "bold"];
+  const fontIds = new Map<FontKey, number>();
+  for (const key of fontKeys) { fontIds.set(key, nextId); nextId += 4; }
+
+  object(1, [ascii("<< /Type /Catalog /Pages 2 0 R >>")]);
+  object(2, [ascii(`<< /Type /Pages /Kids [${kids}] /Count ${list.length} >>`)]);
+  for (const [i, key] of fontKeys.entries()) {
+    const face = fontFor(key);
+    const base = fontIds.get(key)!;
+    object(3 + i, [ascii(
+      `<< /Type /Font /Subtype /Type0 /BaseFont /${subsetTag(list, key)}+${face.postscriptName} `
+      + `/Encoding /Identity-H /DescendantFonts [${base} 0 R] /ToUnicode ${base + 3} 0 R >>`,
+    )]);
+  }
+  const info = [
+    `/Title <${utf16(meta.title)}>`,
+    `/Producer (OpenTradesOS)`,
+    ...(meta.author ? [`/Author <${utf16(meta.author)}>`] : []),
+    `/CreationDate (${pdfDate(meta.createdAt ?? new Date())})`,
+  ].join(" ");
+  object(5, [ascii(`<< ${info} >>`)]);
 
   list.forEach((page, i) => {
     const pageId = firstPage + i * 2;
@@ -329,25 +321,47 @@ export function renderPdf(pages: PdfPage[], meta: PdfMeta, options: RenderOption
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(page.width)} ${num(page.height)}] `
       + `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobjects} >> /Contents ${contentId} 0 R >>`,
     )]);
-    const plain = ascii(page.content());
-    const body = options.deflate ? options.deflate(plain) : plain;
-    object(contentId, [
-      ascii(`<< /Length ${body.length}${options.deflate ? " /Filter /FlateDecode" : ""} >>\nstream\n`),
-      body,
-      ascii("\nendstream"),
-    ]);
+    stream(contentId, "", ascii(page.content()));
   });
 
   for (const [image, id] of imageIds) {
-    object(id, [
+    const write = (target: PdfImage, at: number, extra: string) => object(at, [
       ascii(
-        `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} `
-        + `/ColorSpace /${image.colorSpace} /BitsPerComponent 8 /Filter /${image.filter}`
-        + `${image.extra ? ` ${image.extra}` : ""} /Length ${image.data.length} >>\nstream\n`,
+        `<< /Type /XObject /Subtype /Image /Width ${target.width} /Height ${target.height} `
+        + `/ColorSpace /${target.colorSpace} /BitsPerComponent 8 /Filter /${target.filter}`
+        + `${target.extra ? ` ${target.extra}` : ""}${extra} /Length ${target.data.length} >>\nstream\n`,
       ),
-      image.data,
+      target.data,
       ascii("\nendstream"),
     ]);
+    write(image, id, image.mask ? ` /SMask ${id + 1} 0 R` : "");
+    if (image.mask) write(image.mask, id + 1, "");
+  }
+
+  for (const key of fontKeys) {
+    const face = fontFor(key);
+    const base = fontIds.get(key)!;
+    const used = new Map<number, string>();
+    for (const page of list) for (const [glyph, text] of page.glyphs[key]) if (!used.has(glyph)) used.set(glyph, text);
+    const glyphs = [...used.keys()].sort((a, b) => a - b);
+    const scale = (v: number) => Math.round((v * 1000) / face.metrics.unitsPerEm);
+    const widths = glyphs.map((g) => `${g} [${face.width(g)}]`).join(" ");
+    const name = `${subsetTag(list, key)}+${face.postscriptName}`;
+    object(base, [ascii(
+      `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} `
+      + `/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> `
+      + `/FontDescriptor ${base + 1} 0 R /CIDToGIDMap /Identity /DW ${face.width(0)} /W [${widths}] >>`,
+    )]);
+    const [x1, y1, x2, y2] = face.metrics.bbox;
+    object(base + 1, [ascii(
+      `<< /Type /FontDescriptor /FontName /${name} /Flags 32 `
+      + `/FontBBox [${scale(x1)} ${scale(y1)} ${scale(x2)} ${scale(y2)}] /ItalicAngle 0 `
+      + `/Ascent ${scale(face.metrics.ascent)} /Descent ${scale(face.metrics.descent)} `
+      + `/CapHeight ${scale(face.metrics.capHeight)} /StemV ${key === "bold" ? 120 : 80} /FontFile2 ${base + 2} 0 R >>`,
+    )]);
+    const program = face.subset(glyphs);
+    stream(base + 2, `/Length1 ${program.length}`, program);
+    stream(base + 3, "", ascii(toUnicode(used)));
   }
 
   const count = nextId;
@@ -362,4 +376,48 @@ export function renderPdf(pages: PdfPage[], meta: PdfMeta, options: RenderOption
   let at = 0;
   for (const chunk of chunks) { out.set(chunk, at); at += chunk.length; }
   return out;
+}
+
+/**
+ * Six capital letters naming this subset of the font, as PDF asks of an
+ * embedded subset, from the glyphs it holds: the same pages give the same tag.
+ */
+function subsetTag(pages: PdfPage[], key: FontKey): string {
+  let hash = 2166136261;
+  for (const page of pages) {
+    for (const glyph of page.glyphs[key].keys()) hash = Math.imul(hash ^ glyph, 16777619) >>> 0;
+  }
+  let tag = "";
+  for (let i = 0; i < 6; i += 1) { tag += String.fromCharCode(65 + (hash % 26)); hash = Math.floor(hash / 26) + i * 7; }
+  return tag;
+}
+
+/**
+ * What each glyph means, as a CMap a reader uses to copy, search and read
+ * aloud the text, and `inspect.ts` uses to read it back.
+ */
+function toUnicode(used: Map<number, string>): string {
+  const entries = [...used.entries()].sort((a, b) => a[0] - b[0]);
+  const hexText = (text: string) => utf16(text).slice(4);
+  const blocks: string[] = [];
+  for (let i = 0; i < entries.length; i += 100) {
+    const block = entries.slice(i, i + 100);
+    blocks.push(`${block.length} beginbfchar\n${block.map(([g, t]) => `<${g.toString(16).padStart(4, "0")}> <${hexText(t)}>`).join("\n")}\nendbfchar`);
+  }
+  return [
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <FFFF>",
+    "endcodespacerange",
+    ...blocks,
+    "endcmap",
+    "CMapName currentdict /CMap defineresource pop",
+    "end",
+    "end",
+  ].join("\n");
 }

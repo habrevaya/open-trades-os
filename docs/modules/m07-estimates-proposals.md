@@ -335,13 +335,12 @@ themselves, which is what `estimate:present` allows.
 
 ## What is not built
 
-The PDF is set in the standard Helvetica faces, so a letter outside Western
-European alphabets prints as its base letter or "?", and it carries the
-company's name, colour and contact details but not its logo. A proposal layout
+The PDF's font covers Latin, Vietnamese, Greek and Cyrillic, so a letter outside
+them prints as its base letter or "?", and a logo that is an SVG or a WebP is left
+off it. A proposal layout
 is a closed set of section kinds, one cover photograph and photographs per
 option; there are no columns, fonts or per section colours, a layout cannot be
-changed on an estimate once it has been sent, and the PDF does not print a PNG
-with transparency. Sending by both channels at once goes only to the customer's
+changed on an estimate once it has been sent. Sending by both channels at once goes only to the customer's
 own email address and mobile number. The follow up is on from the start only for
 a company created since it was; an older company still turns it on. Nothing marks an estimate expired on its own: an
 expiry date stops it counting as open pipeline, and `expired` is a status only

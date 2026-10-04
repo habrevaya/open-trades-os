@@ -126,7 +126,7 @@ export const uploadProposalCover = defineRoute({
   path: "/v1/proposal-templates/{id}/cover",
   summary: "Put a photograph on a layout's cover",
   description:
-    "A JPEG or a PNG, base64, up to eight megabytes, decided from the bytes rather than from what the upload claims. The PDF prints a JPEG or a plain PNG; one with transparency is shown on the page and named in the file.",
+    "A JPEG or a PNG, base64, up to eight megabytes, decided from the bytes rather than from what the upload claims. The PDF prints a JPEG or an eight bit PNG, transparency included; a sixteen bit or interlaced PNG is shown on the page and named in the file.",
   module: "M07",
   permissions: ["settings:write"],
   idempotent: true,

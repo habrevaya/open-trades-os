@@ -208,8 +208,8 @@ how each lands in QuickBooks and Xero.
 
 ### Invoices and proposals as PDF
 
-**Download PDF** on an invoice's page saves it as a PDF: the company, the
-customer (and who pays, when somebody else does), the address, every line, the
+**Download PDF** on an invoice's page saves it as a PDF: the company with its
+logo, the customer (and who pays, when somebody else does), the address, every line, the
 totals, the payments made on it and the balance due. The customer gets the same
 file from the invoice link in their email and from each invoice on their account
 page, never a draft and never one billed to somebody else. An estimate's page and
@@ -218,6 +218,12 @@ and total and the terms, and so does the customer's estimate link. Both are buil
 from the same reader as the customer's screens, so no cost or margin is on them.
 The office's download follows the invoice and estimate lists' scope: a technician
 who sees invoices on their own work gets those and a not found for the rest.
+
+The invoice email attaches the customer's copy as a PDF beside the link to view
+and pay it, because a bookkeeper files the file. Names print as they are spelled:
+the PDFs carry their own font (Noto Sans, under the SIL Open Font License, bundled
+with its licence), cut down to the letters each document uses, so Nguyễn, Dvořák,
+Σωκράτης and Анна print as written rather than with their accents dropped.
 
 ### Statements
 
@@ -426,8 +432,9 @@ and the payment is dated when the funding was heard about rather than the
 lender's settlement date. "As low as" uses the plans entered on the connection
 and is not asked of the lender per customer.
 
-The PDFs carry the company's name, colour, phone, email and address (M02) and not
-its logo, and are set in the
-standard Helvetica faces, so a letter outside Western European alphabets prints as
-its base letter where it has one and as "?" where it does not. An invoice is not
-attached as a PDF to the invoice email, which still sends the link to pay it.
+The PDFs print the company's logo when it is a PNG or a JPEG (a PNG with
+transparency or a palette included); an SVG or WebP logo is left off and the name
+printed alone. The bundled font covers Latin with every extension, Vietnamese,
+Greek and Cyrillic; a letter outside those (Chinese, Japanese, Korean, Arabic,
+Hebrew, Thai and the scripts of India) prints as its base letter where it has one
+and as "?" where it does not.
