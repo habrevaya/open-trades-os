@@ -25,12 +25,16 @@ export default async function ProposalPage({ params }: { params: Promise<{ id: s
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6 print:max-w-none print:p-0">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Crumb href={`/estimates/${id}`}>Estimate {proposal.number}</Crumb>
-        <PrintButton label="Print or save as PDF" />
+        <div className="flex items-center gap-3">
+          <a href={`/estimates/${id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
+          <PrintButton label="Print" />
+        </div>
       </div>
       <ProposalView
         proposal={proposal}
         logoSrc={proposal.company.hasLogo ? `/brand/logo?v=${proposal.company.version}` : null}
         timezone={user.organizationTimezone}
+        photoSrc={(photoId) => `/estimates/${id}/proposal/photos/${photoId}`}
       />
     </div>
   );

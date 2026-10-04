@@ -67,10 +67,51 @@ export const REDACTED: Record<string, Record<string, string>> = {
     token_hash: "The hash of a live customer link. The links themselves cannot be reconstructed "
       + "and should not be: they are capabilities.",
   },
+  purchase_order_send: {
+    link_token_hash: "The hash of a live link a vendor opens an emailed purchase order with. The "
+      + "order and every send of it are exported; the link is a capability and is not.",
+  },
   portal_sign_in: {
     code_hash: "The salted hash of a customer's six digit sign in code. Six digits are a million "
       + "guesses away from it, which is why it is kept from the file even though every code is "
       + "dead within ten minutes. Who signed in, when and from where is exported.",
+  },
+  sealed_credential: {
+    sealed_token:
+      "An ad platform's live grant, sealed under this deployment's key. Useless anywhere without "
+      + "that key and dangerous anywhere with it, so it never leaves: sign in to each platform again "
+      + "in the new system. Which platform, what was granted and when are exported.",
+  },
+  oauth_authorization: {
+    state_hash: "The hash of a sign in's single use state. Dead within a quarter of an hour, and a "
+      + "cracking target for nothing.",
+  },
+  /**
+   * THESE WERE EXPORTED, on the strength of a comment calling `secret_ref` the
+   * NAME of a secret. It is not: the delivery code has to reproduce a signature
+   * on every delivery, so the column holds the signing secret itself (see the
+   * top of `services/webhooks.ts`), and an export carried every receiver's
+   * secret in a file. Found when rotation added a second one beside it.
+   */
+  webhook_endpoint: {
+    secret_ref: "A LIVE SECRET: the key every delivery to this endpoint is signed with. Whoever "
+      + "holds it can forge deliveries the receiver will trust. The endpoint's address and events "
+      + "are exported; give the receiver a new secret from the new system.",
+    previous_secret_ref: "The secret before the last rotation, which still signs until the overlap "
+      + "ends. A live secret for the same reason.",
+  },
+  connected_app: {
+    claim_hash: "The hash of the secret an app was given when it asked to be installed, which "
+      + "collects its credential once. A hash is a cracking target and is useless to you; who "
+      + "asked, for what, and what was decided is exported.",
+  },
+  oauth_code: {
+    code_hash: "The hash of a one time authorization code that lived ten minutes. Which client "
+      + "was approved, by whom and for what is exported.",
+  },
+  oauth_refresh_token: {
+    token_hash: "The hash of a live refresh token for a connected AI assistant. It connects again "
+      + "to the new system; a hash is a cracking target and is useless to you.",
   },
   calendar_feed: {
     token_hash: "The hash of a live calendar subscription URL. Reissue it; a technician's phone "
@@ -79,6 +120,12 @@ export const REDACTED: Record<string, Record<string, string>> = {
   unsubscribe_link: {
     token_hash: "The hash of a live unsubscribe link. The address and whether it was used are "
       + "exported; the link is not.",
+  },
+  lead_inbox: {
+    token:
+      "A LIVE SECRET. It is the part of the lead inbox address that decides which company a forwarded "
+      + "lead email lands in, so whoever holds it can put leads on this company's board by email. "
+      + "A new inbox has a new address, and the forwarding rules are changed to it.",
   },
   lead_source_connector: {
     webhook_token:
@@ -91,6 +138,14 @@ export const REDACTED: Record<string, Record<string, string>> = {
       "A LIVE SECRET. It is the part of an email thread's reply address that decides which "
       + "thread an incoming email lands in, so whoever holds it can put words into that "
       + "customer's conversation. A new system mints its own reply addresses.",
+  },
+  ai_chat_session: {
+    token_hash: "The hash of a website visitor's live chat link. The chat itself is exported with the "
+      + "conversation it belongs to; the link cannot be reconstructed and should not be.",
+  },
+  voice_agent_session: {
+    token_hash: "The hash of the address the carrier opened one phone assistant conversation on. "
+      + "It is dead once the call ends; what was said and done on the call is exported.",
   },
   device: {
     push_token:
@@ -116,9 +171,18 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   integration_secret: {
     key_id: "A fingerprint of which master key sealed the secret, not the key, and useless without it.",
   },
+  sealed_credential: {
+    key_fingerprint: "Twelve hex characters of a hash of the deployment's sealing key, which say which key "
+      + "sealed a grant and nothing about the key itself.",
+  },
   setup_step: {
     step_key: "Which setup step a row is about, such as payments or tax. A word from the "
       + "product's own list of steps, not a key to anything.",
+  },
+  travel_time: {
+    origin_key: "A point on the map rounded to four decimal places, which a cached drive time starts "
+      + "from. A key in the sense of a lookup, not a credential.",
+    destination_key: "The point the same cached drive time ends at, rounded the same way.",
   },
   property: {
     address_key: "The address itself, lower cased with its spacing tidied, which the geocoder "
@@ -138,9 +202,15 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
       + "company moving away needs it to know which secrets to go and find.",
   },
   webhook_endpoint: {
-    secret_ref: "A name in the deployment's secret store, as above, never the signing secret "
-      + "itself. A company rebuilding its webhooks elsewhere needs to know which secret each "
-      + "endpoint was signed with.",
+    previous_secret_expires_at: "A time: when the old secret stops signing. Not a credential.",
+    secret_rotated_at: "A time: when the current secret was made. Not a credential.",
+  },
+  oauth_code: {
+    issued_token_id: "The id of the app token an authorization produced, so a replayed code can "
+      + "revoke it. An id, not the token.",
+  },
+  oauth_refresh_token: {
+    access_token_id: "The id of the app token issued beside a refresh token. An id, not the token.",
   },
   portal_sign_in: {
     request_key: "The key a customer's browser sent with a press of Send me a code, so a double "
@@ -171,6 +241,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     document_hash: "A checksum of what was signed. It is the evidence the signature is about, and "
       + "removing it would make every exported signature unverifiable.",
   },
+  project_change_order: {
+    document_hash: "A checksum of the change order as it was sent and signed. The same evidence "
+      + "the signature record carries, and an export without it could not show what was agreed.",
+  },
   payment: {
     idempotency_key: "The caller's own retry key, which is how a repeated charge was prevented. "
       + "Not a credential, and worth keeping as the record of that.",
@@ -187,6 +261,9 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   workflow: {
     template_key: "The name of the recommended automation a workflow was installed from, such as "
       + "estimate_follow_up. A label in the product's own catalogue, not a credential.",
+  },
+  ai_agent_proposal: {
+    idempotency_key: "The retry key of the request that asked an agent for a draft. Not a credential.",
   },
   ai_usage: {
     idempotency_key: "A retry key the AI call chose. Not a credential.",
@@ -206,6 +283,9 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   },
   custom_field_definition: {
     key: "The field's own name in the API, which is configuration a company rebuilds elsewhere.",
+  },
+  custom_object_type: {
+    key: "The name a company's own kind of record goes by in the API, such as permit. Configuration.",
   },
   deficiency: {
     checkpoint_key: "Which checkpoint on the inspection programme the fault was found at.",
@@ -281,6 +361,12 @@ const OUTSIDE: { table: string; reason: string }[] = [
     table: "public_rate_limit",
     reason: "A count of requests to the public endpoints per key and minute, kept for a day. It "
       + "names no customer, holds nothing but a number, and is counted before any company is known.",
+  },
+  {
+    table: "oauth_client",
+    reason: "Remote AI assistants that registered themselves with this deployment before any "
+      + "company was chosen. A registration names no company and grants nothing; what this "
+      + "company approved is the connected app, which is exported.",
   },
   {
     table: "network",

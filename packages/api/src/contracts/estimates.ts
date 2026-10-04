@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup, CompanyContact } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 export const EstimateStatus = z.enum([
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -81,6 +82,8 @@ export const Estimate = z.object({
   /** Presented most expensive first, with any recommended option pulled up. */
   options: z.array(EstimateOption),
   externalRef: ExternalRef.nullable(),
+  /** The company's own fields (M29), by key. Saved with `PUT .../custom-fields`. */
+  customFields: z.record(z.unknown()).optional(),
 }).merge(Timestamps);
 
 const LineInput = z.object({
@@ -191,6 +194,7 @@ export const listEstimates = defineRoute({
     businessUnitId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Estimate.omit({ options: true, terms: true }).extend({
     customerName: z.string(),
@@ -229,13 +233,13 @@ export const sendEstimate = defineRoute({
   path: "/v1/estimates/{id}/send",
   summary: "Send an estimate to the customer",
   description:
-    "`email` and `sms` compose the message, with the approval link, and queue it through the same consent and suppression checks as every other message, into the customer's conversation thread. `link` only issues the link, for handing over another way. A send the transport refuses (they replied STOP, no consent, no sender connected) is recorded with the reason and changes nothing else: the estimate keeps its status, any link the customer already holds still works, and `approvalUrl` is null. A send that goes withdraws every earlier link.",
+    "`email` and `sms` compose the message, with the approval link, and queue it through the same consent and suppression checks as every other message, into the customer's conversation thread. `both` sends the email and the text at once, to the customer's own address and number, carrying one link; `to` is refused with it, and so is a customer missing either. `link` only issues the link, for handing over another way. Every attempt is a row in `deliveries`, one per channel, and `delivery` is the first of them. A send the transport refuses on every channel (they replied STOP, no consent, no sender connected) is recorded with the reason and changes nothing else: the estimate keeps its status, any link the customer already holds still works, and `approvalUrl` is null. By both at once, one channel refused and the other gone is a send that went, with the refusal recorded on its own row. A send that goes withdraws every earlier link.",
   module: "M07",
   permissions: ["estimate:send", "portal:grant"],
   idempotent: true,
   input: z.object({
     id: Uuid,
-    channel: z.enum(["email", "sms", "link"]).default("email"),
+    channel: z.enum(["email", "sms", "both", "link"]).default("email"),
     /** Defaults to the customer's own address or number. */
     to: z.string().max(320).optional(),
     /** A line from whoever is sending, above the link. */
@@ -251,7 +255,10 @@ export const sendEstimate = defineRoute({
      */
     approvalUrl: z.string().url().nullable(),
     expiresAt: z.string().datetime().nullable(),
+    /** The first attempt this send made. */
     delivery: EstimateDelivery,
+    /** Every attempt this send made: two for `both`, one otherwise. */
+    deliveries: z.array(EstimateDelivery),
   }),
 });
 
@@ -276,6 +283,7 @@ export const Proposal = z.object({
     hasLogo: z.boolean(),
     version: z.number().int(),
     timezone: z.string(),
+    contact: CompanyContact,
   }),
   id: Uuid,
   number: z.number().int(),
@@ -315,6 +323,29 @@ export const Proposal = z.object({
       isSelected: z.boolean(),
     })),
   })),
+  /**
+   * How it is laid out: the company's template as copied onto this estimate
+   * when one was applied, or the fixed layout, the options then the terms.
+   * Each section's words, the reviews the reviews section shows, and each
+   * option's photographs by id (`/estimates/{id}/proposal/photos/{photoId}`
+   * on the office's screen, `cover` for the cover).
+   */
+  layout: z.object({
+    templateName: z.string().nullable(),
+    cover: z.object({ headline: z.string(), intro: z.string().nullable(), photoKey: z.string().nullable() }).nullable(),
+    sections: z.array(z.object({
+      kind: z.enum(["options", "about", "warranty", "financing", "reviews", "terms", "custom"]),
+      title: z.string(),
+      body: z.string().nullable(),
+      minRating: z.number().int().optional(),
+      count: z.number().int().optional(),
+      reviews: z.array(z.object({
+        author: z.string().nullable(), rating: z.number().int(), body: z.string().nullable(), postedAt: z.string(),
+      })).optional(),
+    })),
+    showOptionPhotos: z.boolean(),
+    optionPhotos: z.record(z.array(z.object({ id: Uuid, storageKey: z.string(), contentType: z.string().nullable() }))),
+  }),
 });
 
 export const getEstimateProposal = defineRoute({

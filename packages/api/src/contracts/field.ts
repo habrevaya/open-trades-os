@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
 
 export const OperationKind = z.enum([
   "visit.en_route", "visit.arrive", "visit.start", "visit.complete",
@@ -10,6 +10,11 @@ export const OperationKind = z.enum([
   "visit.add_line", "equipment.record",
   "attachment.attach", "signature.capture",
   "payment.collect",
+  "inspection.record",
+  "estimate.create", "estimate.approve", "estimate.decline",
+  "invoice.raise",
+  "task.claim", "task.close",
+  "tip.record",
 ]);
 
 export const OperationStatus = z.enum([
@@ -43,6 +48,24 @@ export const FieldOperationInput = z.object({
   accuracyMeters: z.number().int().min(0).max(100_000).optional(),
 });
 
+/**
+ * Where the phone was, sent with the queue rather than queued in it.
+ *
+ * Not an operation, deliberately: a position is not a thing the technician
+ * did, it needs no sequence and no conflict rule, and one that never arrives
+ * costs nothing. The phone takes these only while its person is working,
+ * and the server judges each one again against its own record of the clock
+ * and the visits, dropping any that falls outside working time.
+ */
+export const PositionInput = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracyMeters: z.number().min(0).max(100_000).optional(),
+  heading: z.number().min(0).max(360).optional(),
+  speed: z.number().min(0).max(100).optional(),
+  recordedAt: z.string().datetime(),
+});
+
 export const OperationResult = z.object({
   clientId: Uuid,
   status: OperationStatus,
@@ -70,13 +93,15 @@ export const syncOperations = defineRoute({
   path: "/v1/field/sync",
   summary: "Submit queued field operations",
   description:
-    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`.",
+    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`. Positions ride along in `positions` and are kept only when the company shares locations, the person's sharing is on, and the server's own record puts the fix inside working time: clocked in, on the way to a visit or working one. Anything else is dropped and counted in the answer, never stored.",
   module: "M11",
   permissions: ["field:sync"],
   idempotent: true,
   input: z.object({
     deviceId: Uuid,
-    operations: z.array(FieldOperationInput).min(1).max(500),
+    /** May be empty when the phone has only positions to send. */
+    operations: z.array(FieldOperationInput).max(500),
+    positions: z.array(PositionInput).max(500).optional(),
     /**
      * Sequences this device numbered and will never send: the phone died
      * between numbering an operation and writing it, or the technician
@@ -93,6 +118,11 @@ export const syncOperations = defineRoute({
     /** Bumped when the device's slice of the schedule changed, so the client
      *  knows to pull rather than diffing what it already has. */
     snapshotRevision: z.number().int(),
+    /** What became of the positions: how many were kept, and why the rest were not. */
+    positions: z.object({
+      stored: z.number().int(),
+      dropped: z.record(z.number().int()),
+    }),
   }),
 });
 
@@ -118,6 +148,44 @@ export const registerDevice = defineRoute({
      *  and colliding with everything it already sent. */
     lastSequence: z.number().int(),
   }),
+});
+
+/**
+ * An estimate as the phone presents it to a customer: the options and their
+ * lines at the prices on the document, member discounts included, the terms,
+ * and how it was decided. Built from what a customer may see rather than by
+ * removing what they may not.
+ */
+export const FieldEstimate = z.object({
+  id: Uuid,
+  number: z.number().int(),
+  status: z.string(),
+  title: z.string().nullable(),
+  jobId: Uuid.nullable(),
+  selectedOptionId: Uuid.nullable(),
+  signerName: z.string().nullable(),
+  terms: z.string().nullable(),
+  options: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    description: z.string().nullable(),
+    isRecommended: z.boolean(),
+    total: MoneyString,
+    lines: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      description: z.string().nullable(),
+      quantity: MoneyString,
+      unitPrice: MoneyString,
+      /** Every discount on the line, the member's included. */
+      discountAmount: MoneyString,
+      memberDiscountAmount: MoneyString,
+      taxable: z.boolean(),
+      taxRate: RateString,
+      isOptional: z.boolean(),
+      isSelected: z.boolean(),
+    })),
+  })),
 });
 
 export const VisitForField = z.object({
@@ -199,6 +267,79 @@ export const VisitForField = z.object({
     name: z.string(),
     quantity: z.string(),
   })),
+  /**
+   * Inspections already filed against this visit, from any phone or the
+   * office, with the verdict the server drew. Empty for a caller who may
+   * not read compliance records.
+   */
+  inspections: z.array(z.object({
+    id: Uuid,
+    programId: Uuid.nullable(),
+    programName: z.string(),
+    result: z.string().nullable(),
+    performedOn: z.string().date().nullable(),
+  })),
+  /**
+   * The plan this customer is a member on at this address today, which the
+   * phone prices an estimate and an invoice with, the way the server will.
+   * Null for a customer who is not a member.
+   */
+  member: z.object({
+    planName: z.string(),
+    /** The discount as a fraction, "0.15". "0" for a plan that only waives a fee. */
+    rate: RateString,
+    waivesDiagnosticFee: z.boolean(),
+    waivesAfterHoursRate: z.boolean(),
+  }).nullable(),
+  /**
+   * Estimates the technician can show the customer: the ones on this visit's
+   * job, and the customer's undecided ones at this address that belong to no
+   * job yet. Prices only. No cost and no margin, because this is what is
+   * turned round to face the customer. Empty for a caller who may not read
+   * estimates.
+   */
+  estimates: z.array(FieldEstimate),
+  /** Parts and charges on the job not yet billed, which an invoice raised on site can bill. */
+  billable: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    quantity: MoneyString,
+    unitPrice: MoneyString,
+    taxable: z.boolean(),
+    /** The price book item's kind, which decides whether a member's rate touches it. */
+    itemKind: z.string().nullable(),
+    /** A fee a plan may waive: "diagnostic" or "after_hours". */
+    feeRole: z.string().nullable(),
+  })),
+  /** The job's invoices, other than void ones. Empty for a caller who may not read invoices. */
+  invoices: z.array(z.object({
+    id: Uuid,
+    number: z.number().int(),
+    status: z.string(),
+    total: MoneyString,
+    balance: MoneyString,
+  })),
+});
+
+/**
+ * An inspection programme as the phone runs it: the checkpoints in order,
+ * each a pass or fail or a reading with its unit and range, so a reading
+ * outside its range is said on the phone before it is saved. The verdict is
+ * still the server's.
+ */
+export const InspectionProgramForField = z.object({
+  id: Uuid,
+  name: z.string(),
+  standard: z.string().nullable(),
+  version: z.number().int(),
+  checkpoints: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    requiresReading: z.boolean(),
+    unit: z.string().nullable(),
+    min: z.number().nullable(),
+    max: z.number().nullable(),
+  })),
 });
 
 /**
@@ -234,12 +375,72 @@ export const getFieldSnapshot = defineRoute({
       name: z.string(),
       unitPrice: MoneyString,
       taxable: z.boolean(),
+      /** What the customer reads under the line on a proposal. */
+      description: z.string().nullable(),
+      /** service, material, equipment, labor, fee or discount: whether a member's rate touches it. */
+      kind: z.string(),
+      /** A fee a plan may waive: "diagnostic" or "after_hours". */
+      feeRole: z.string().nullable(),
+      /** What a kit includes, by name, so the technician can say what the price covers. */
+      components: z.array(z.object({ name: z.string(), quantity: z.number() })),
     })),
     openTimeEntry: z.object({
       id: Uuid,
       kind: z.string(),
       startedAt: z.string().datetime(),
     }).nullable(),
+    /**
+     * The programmes a technician can run an inspection against, only for one
+     * who may file inspections (`compliance:write`). Empty otherwise, so the
+     * phone offers nothing it would then refuse.
+     */
+    inspectionPrograms: z.array(InspectionProgramForField),
+    /**
+     * Whether this phone may share where its person is, so it can decide for
+     * itself offline and show them which it is. It still shares only while
+     * they are clocked in or on a visit.
+     */
+    locationSharing: z.object({
+      companyEnabled: z.boolean(),
+      personEnabled: z.boolean(),
+      intervalSeconds: z.number().int(),
+      retentionDays: z.number().int(),
+    }),
+    /**
+     * The office queue as the phone shows it: this person's tasks and the
+     * ones nobody has taken, open first by when they are due. Empty for
+     * somebody who may not read tasks.
+     */
+    tasks: z.array(z.object({
+      id: Uuid,
+      title: z.string(),
+      body: z.string().nullable(),
+      priority: z.string(),
+      status: z.string(),
+      /** Taken by this person, as opposed to waiting for somebody to take it. */
+      mine: z.boolean(),
+      dueAt: z.string().datetime().nullable(),
+      overdue: z.boolean(),
+      checklistTotal: z.number().int(),
+      checklistDone: z.number().int(),
+    })),
+    /**
+     * What this person may do on site, so the phone offers only what the
+     * server would accept, and what selling on site needs to know about the
+     * company: whether it takes tips with a payment (and the suggested
+     * percentages), whether a lender is connected, and whether the field
+     * assistant is on.
+     */
+    abilities: z.object({
+      writeEstimates: z.boolean(),
+      presentEstimates: z.boolean(),
+      raiseInvoices: z.boolean(),
+      takePayments: z.boolean(),
+      tasks: z.boolean(),
+      tipping: z.object({ enabled: z.boolean(), presets: z.array(z.number().int()) }),
+      financing: z.boolean(),
+      assistant: z.boolean(),
+    }),
   }),
 });
 
@@ -284,7 +485,51 @@ export const getDispatchBoard = defineRoute({
         /** Running late against its own window, computed once here rather
          *  than by every client that renders a board. */
         isLate: z.boolean(),
+        /** The service route this stop is on, for route work. */
+        routeName: z.string().nullable(),
+        /** Locked by the office: the rebalance and the optimiser leave it where it is. */
+        locked: z.boolean(),
       })),
+    })),
+    /**
+     * Crews with work on the day, each a lane of its own. Crew work used to
+     * land in the unassigned pile, because nobody is in its assignment list.
+     */
+    crews: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      color: z.string().nullable(),
+      leadName: z.string().nullable(),
+      memberNames: z.array(z.string()),
+      visits: z.array(z.object({
+        id: Uuid,
+        jobNumber: z.number().int(),
+        summary: z.string(),
+        status: z.string(),
+        windowStart: z.string().datetime().nullable(),
+        windowEnd: z.string().datetime().nullable(),
+        routeOrder: z.number().int().nullable(),
+        estimatedDurationMinutes: z.number().int(),
+        customerName: z.string(),
+        addressLine1: z.string(),
+        isLate: z.boolean(),
+        routeName: z.string().nullable(),
+        locked: z.boolean(),
+      })),
+    })),
+    /** Service routes with stops on the day, how many are done, and who runs each. */
+    routes: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      stops: z.number().int(),
+      done: z.number().int(),
+      runBy: z.string().nullable(),
+    })),
+    /** On call shifts overlapping the day, in order. Empty means nobody is on call. */
+    onCall: z.array(z.object({
+      technicianName: z.string(),
+      startsAt: z.string().datetime(),
+      endsAt: z.string().datetime(),
     })),
     /** Not yet assigned to anyone. The pile a dispatcher works from. */
     unassigned: z.array(z.object({
@@ -297,6 +542,8 @@ export const getDispatchBoard = defineRoute({
       customerName: z.string(),
       addressLine1: z.string(),
       postalCode: z.string(),
+      routeName: z.string().nullable(),
+      locked: z.boolean(),
       /**
        * The plan that promised this customer priority, when one covers this
        * job. The pile comes sorted with these first and is otherwise in the

@@ -73,10 +73,13 @@ async function completedJob(opts: {
   warranty?: boolean;
   parentJobId?: string | null;
   customer?: string;
+  /** The exact instant it was finished, for the tests about whose day that is. */
+  at?: string;
 }): Promise<string> {
   seq += 1;
   const typeId = await jobType(`t-${opts.revenueClass}`, opts.revenueClass);
   const day = opts.on ?? "2026-06-15";
+  const at = opts.at ?? `${day}T15:00:00Z`;
   const [job] = await raw<{ id: string }[]>`
     insert into public.job (
       organization_id, number, customer_id, property_id, job_type_id, status, summary,
@@ -84,7 +87,7 @@ async function completedJob(opts: {
     ) values (
       ${ORG}, ${seq}, ${opts.customer ?? customerId}, ${propertyId}, ${typeId}, 'completed',
       'Work', ${opts.warranty ?? false}, ${opts.parentJobId ?? null},
-      ${`${day}T15:00:00Z`}::timestamptz
+      ${at}::timestamptz
     ) returning id`;
 
   const amount = opts.revenue ?? "0";
@@ -99,7 +102,7 @@ async function completedJob(opts: {
       insert into public.ledger_entry (organization_id, transaction_id, occurred_at, direction,
                                        account_code, currency, amount, source_type, source_id,
                                        job_id)
-      select ${ORG}, t.id, ${`${day}T15:00:00Z`}::timestamptz, d.direction, d.code, 'USD',
+      select ${ORG}, t.id, ${at}::timestamptz, d.direction, d.code, 'USD',
              ${amount}, 'manual', t.id, ${job!.id}
       from (select gen_random_uuid() as id) t,
            (values ('debit'::ledger_direction, '1100'), ('credit'::ledger_direction, '4000'))
@@ -108,7 +111,7 @@ async function completedJob(opts: {
   return job!.id;
 }
 
-async function technicianDay(day: string, kind = "on_site", minutes = 480): Promise<void> {
+async function technicianDay(day: string, kind = "on_site", minutes = 480, startedAt?: string): Promise<void> {
   seq += 1;
   /**
    * A technician hangs off a membership, which hangs off a user: the roster is
@@ -126,8 +129,8 @@ async function technicianDay(day: string, kind = "on_site", minutes = 480): Prom
   await raw`
     insert into public.timeclock_entry (organization_id, technician_id, kind, started_at,
                                        ended_at, minutes)
-    values (${ORG}, ${tech!.id}, ${kind}::time_entry_kind, ${`${day}T13:00:00Z`}::timestamptz,
-            ${`${day}T21:00:00Z`}::timestamptz, ${minutes})`;
+    values (${ORG}, ${tech!.id}, ${kind}::time_entry_kind, ${startedAt ?? `${day}T13:00:00Z`}::timestamptz,
+            (${startedAt ?? `${day}T13:00:00Z`}::timestamptz + ${`${minutes} minutes`}::interval), ${minutes})`;
 }
 
 async function estimate(status: string, jobId: string | null, on = "2026-06-10"): Promise<void> {
@@ -272,8 +275,10 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     const computed = KEYS.filter((key) => CATALOGUE[key]!.state === "computed").sort();
     expect(computed).toEqual([
       "avg_ticket",
+      "backflow_recert",
       "callback_rate",
       "close_rate",
+      "drive_time_pct",
       "maint_attach",
       "not_out_rate",
       "oneoff_to_recurring",
@@ -294,11 +299,15 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     ]);
 
     /**
-     * Nineteen of forty seven answered. The rest each name a missing datum, and
-     * three of those data would unlock most of them: a coded cancellation reason,
-     * a cost posting, and a finer job type class than `revenue_class`.
+     * Twenty one of forty seven answered. `drive_time_pct` moved because the
+     * commute leg turned out to be where the definition says it is, before the
+     * first stop and after the last, and `backflow_recert` because M33's
+     * inspections give an assembly a typed test date. The rest each name a
+     * missing datum, and three of those data would unlock most of them: a coded
+     * cancellation reason, a cost posting, and a finer job type class than
+     * `revenue_class`.
      */
-    expect(computed.length + elsewhere.length).toBe(19);
+    expect(computed.length + elsewhere.length).toBe(21);
     expect(KEYS.length).toBe(47);
   });
 });
@@ -817,5 +826,50 @@ describe("the revenue class the packs now declare", () => {
 describe("refusal types", () => {
   it("uses ConflictError for a bad window rather than a missing row", () => {
     expect(new ConflictError("x")).toBeInstanceOf(Error);
+  });
+});
+
+/* ========================================== whose day a late evening is */
+
+run("a KPI dates its records by the company's day, not UTC's", () => {
+  /**
+   * The company is in America/Chicago, the column's default. 01:00 UTC on the
+   * 1st of July is eight in the evening on the 30th of June there, and an owner
+   * who finished a job then finished it in June. Read as a UTC day, which the
+   * older KPIs did, it moved into July's scorecard and out of June's.
+   */
+  it("counts a job finished at 01:00 UTC in the company's previous day, month and window", async () => {
+    await completedJob({ revenueClass: "service", revenue: "500.0000", at: "2026-07-01T01:00:00Z" });
+
+    const june = (await kpis.scorecard(owner(), WINDOW)).computed.find((row) => row.key === "avg_ticket")!;
+    expect(june.denominator).toBe("1");
+    expect(june.numerator).toBe("500.0000");
+
+    const july = (await kpis.scorecard(owner(), { from: "2026-07-01", to: "2026-07-31" }))
+      .computed.find((row) => row.key === "avg_ticket")!;
+    expect(july.denominator).toBe("0");
+
+    const drilled = await kpis.drill(owner(), { key: "avg_ticket", half: "denominator", ...WINDOW });
+    expect(drilled.records.map((r) => r.onDay)).toEqual(["2026-06-30"]);
+  });
+
+  it("leaves out a job finished late on the evening before the window starts", async () => {
+    /** 04:00 UTC on the 1st of June is eleven at night on the 31st of May in Chicago. */
+    await completedJob({ revenueClass: "service", revenue: "300.0000", at: "2026-06-01T04:00:00Z" });
+    await completedJob({ revenueClass: "service", revenue: "700.0000", at: "2026-06-01T06:00:00Z" });
+
+    const june = (await kpis.scorecard(owner(), WINDOW)).computed.find((row) => row.key === "avg_ticket")!;
+    expect(june.denominator).toBe("1");
+    expect(june.numerator).toBe("700.0000");
+  });
+
+  it("counts a technician's evening shift as the day it started where the company is", async () => {
+    /** Clocked on at 22:00 Chicago time on the 30th, which is 03:00 UTC on the 1st. */
+    await technicianDay("2026-06-30", "on_site", 120, "2026-07-01T03:00:00Z");
+    const drilled = await kpis.drill(owner(), { key: "revenue_per_tech", half: "denominator", ...WINDOW });
+    expect(drilled.records.map((r) => r.onDay)).toEqual(["2026-06-30"]);
+
+    const july = await kpis.drill(owner(), { key: "revenue_per_tech", half: "denominator", from: "2026-07-01", to: "2026-07-31" });
+    expect(july.count).toBe(0);
   });
 });

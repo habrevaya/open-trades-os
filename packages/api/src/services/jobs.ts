@@ -1,14 +1,15 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
+import { time } from "@opentradesos/core";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
-  withProvenance,
+  timezoneOf, withProvenance,
 } from "./context";
 import { admitInstant, requireImport } from "./history";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
-import { enforceWithin } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
@@ -17,7 +18,7 @@ import { emit } from "./events";
 import { announce, NEW_VISIT } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
-import { gate as qualificationGate } from "./qualification";
+import { gate as qualificationGate, workSkills } from "./qualification";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
@@ -53,7 +54,7 @@ type CreateInput = z.infer<typeof JobCreate>;
  */
 async function nextNumber(
   tx: Database, organizationId: string,
-  table: "job" | "invoice" | "estimate" | "purchase_order" | "credit_note",
+  table: "job" | "invoice" | "estimate" | "purchase_order" | "credit_note" | "journal_entry",
 ): Promise<number> {
   await tx.execute(sql`
     select pg_advisory_xact_lock(hashtext(${`number:${table}:${organizationId}`}))
@@ -148,6 +149,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.businessUnitId !== undefined
           ? jobBranchFilter(input.businessUnitId === "none" ? null : input.businessUnitId)
           : undefined,
+        await listFilter(tx, ctx.actor.organizationId, "job", input, sql`${schema.job.customFields}`),
         cursor ? lt(schema.job.createdAt, new Date(cursor)) : undefined,
         // Every scope, not just `own`. An unhandled one used to fall through
         // to no filter, which turned a role written to be limited into one
@@ -314,12 +316,16 @@ async function assertAvailable(
 async function assertQualified(
   ctx: ServiceContext, tx: Database, jobTypeId: string | null,
   technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
+  /** What this one job asks for beyond its type, checked with the type's. */
+  jobSkills: readonly string[] = [],
 ): Promise<void> {
-  if (!jobTypeId || technicianIds.length === 0) return;
-  const [type] = await tx.select({ skills: schema.jobType.requiredSkills })
-    .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1);
+  if ((!jobTypeId && jobSkills.length === 0) || technicianIds.length === 0) return;
+  const [type] = jobTypeId
+    ? await tx.select({ skills: schema.jobType.requiredSkills })
+      .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1)
+    : [];
   await qualificationGate(ctx, tx, {
-    technicianIds, skills: type?.skills ?? [], windowStart, windowEnd,
+    technicianIds, skills: workSkills(type?.skills, jobSkills), windowStart, windowEnd,
   });
 }
 
@@ -828,7 +834,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       );
       await assertQualified(
         ctx, tx, job.jobTypeId, input.technicianIds,
-        new Date(input.windowStart), new Date(input.windowEnd),
+        new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills,
       );
     }
 
@@ -947,7 +953,8 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
         dueAt: new Date(),
         consequence:
           "A technician completed work on a cancelled visit"
-          + (visit.windowStart ? ` from ${visit.windowStart.toISOString().slice(0, 10)}` : "")
+          + (visit.windowStart
+            ? ` from ${time.dateIn(visit.windowStart, await timezoneOf(tx, ctx.actor.organizationId))}` : "")
           + ". Confirm whether to bill it.",
       });
     }

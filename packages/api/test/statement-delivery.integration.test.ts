@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import type { Actor } from "@opentradesos/core";
+import { inflateSync } from "node:zlib";
+import { pdf, type Actor } from "@opentradesos/core";
 import * as customers from "../src/services/customers";
 import * as billing from "../src/services/billing";
 import * as statementDelivery from "../src/services/statement-delivery";
@@ -15,8 +16,9 @@ import { seedOrg, testDb, fixtureId } from "./helpers";
  * By hand, from the statement page, and once a month for everybody owing more
  * than the company thinks is worth chasing. The promises:
  *
- *   A LINK, NOT THE NUMBERS. The email opens the statement on the customer's
- *   own account page for the period, and carries no amounts of its own.
+ *   A LINK, AND A DATED COPY. The email opens the statement on the customer's
+ *   own account page for the period and carries no amounts in its text; the
+ *   statement as it stood that day is attached as a PDF.
  *
  *   ONCE A MONTH, PER CUSTOMER, whatever the worker does.
  *
@@ -110,6 +112,24 @@ run("emailing a statement from the office", () => {
     // The balance is on the page they open, read when they open it, and not here.
     expect(message!.body).not.toMatch(/\$|300/);
     expect(message!.body_html).not.toMatch(/\$|300/);
+  });
+
+  it("attaches the statement as a PDF, dated, saying what is owed", async () => {
+    const sent = await statementDelivery.emailStatement(owner(), { id: owes });
+    const files = await raw<{ file_name: string; content_type: string; content: Buffer }[]>`
+      select a.file_name, a.content_type, a.content from public.message_attachment a
+      join public.statement_delivery d on d.message_id = a.message_id
+      where d.id = ${sent.deliveryId}`;
+    expect(files).toHaveLength(1);
+    expect(files[0]!.file_name).toMatch(/^statement-olive-owens-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.pdf$/);
+    expect(files[0]!.content_type).toBe("application/pdf");
+    const read = pdf.inspectPdf(new Uint8Array(files[0]!.content), (b) => new Uint8Array(inflateSync(b)));
+    expect(read.problems).toEqual([]);
+    expect(read.text).toContain("Statement Co");
+    expect(read.text).toContain("Olive Owens");
+    expect(read.text).toContain("As of");
+    expect(read.text).toContain("Owed on invoices");
+    expect(read.text).toContain("$300.00");
   });
 
   it("opens on the period the email named", async () => {

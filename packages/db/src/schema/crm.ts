@@ -226,6 +226,16 @@ export const contact = pgTable("contact", {
    */
   smsConsentAt: timestamp("sms_consent_at", { withTimezone: true }),
   emailOptOutAt: timestamp("email_opt_out_at", { withTimezone: true }),
+  /**
+   * When the office let this person sign in to the customer's portal with
+   * their own email or mobile number. Null is the default and means they
+   * cannot: a contact is somebody the office talks to about an account,
+   * which is not the same as somebody who may see its bills and pay them,
+   * so the office says so person by person. What they reach once signed in
+   * is the customer's account, and everything they do there is recorded as
+   * them (`audit_log.actor_contact_id`).
+   */
+  portalAccessAt: timestamp("portal_access_at", { withTimezone: true }),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({ orgIdx: index("contact_org_idx").on(t.organizationId) }));
@@ -258,6 +268,11 @@ export const equipment = pgTable("equipment", {
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   active: boolean("active").notNull().default(true),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   propIdx: index("equipment_property_idx").on(t.propertyId),

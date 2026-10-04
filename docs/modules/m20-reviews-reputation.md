@@ -64,10 +64,21 @@ edited last week would quietly move a deadline that was already missed.
 **The work list is ordered the way somebody should work it.** Overdue first, most
 overdue at the top, then by deadline.
 
-**Reviews are entered by hand, and that is not a placeholder.** No platform
-connector is built, the catalogue says so, and a company with forty reviews and a
-work list telling them which three are owed a reply is better off than one waiting
-for an API.
+**Reviews are entered by hand or read from Google, and the hand path is not a
+placeholder.** A Google Business Profile listing is read by its connector; every
+other platform is typed in, and a company with forty reviews and a work list
+telling them which three are owed a reply is better off than one waiting for an
+API.
+
+**Who wrote a review is a suggestion until a person says so.** A reviewer chooses
+their own display name. The customer whose name fits and who had a job finished
+in the forty five days before the review is offered with the reason ("Signed
+Maria Lopez, and Maria Lopez had a job finished 3 days before the review"), a
+first name alone or two customers who fit equally suggest nobody, and nothing
+ties the review to a customer or a job until somebody presses "Yes" on the review
+screen (`POST /v1/reviews/{id}/match`). The wrong customer would put a
+stranger's one star on a technician's record and send a recovery call to
+somebody who never complained.
 
 ## Setup
 
@@ -75,6 +86,26 @@ for an API.
 `POST /v1/reviews/platforms` records what the operator says each platform allows.
 Both need `settings:write`, because they are standing decisions rather than daily
 work.
+
+## Google Business Profile
+
+Connected on `Settings > Integrations`, under Review listings: the listing's
+account id and location id and the name of the secret holding the OAuth client,
+then "Sign in with Google" as somebody who manages the listing. Google's
+approval for the Business Profile API is its own application, separate from
+the OAuth client, and until it is granted Google refuses every request, which
+is shown in Google's words. The connector is tested against a fake of the API,
+not against a live listing.
+
+Every hour, and from "Fetch from Google now" on `/reviews`
+(`POST /v1/reviews/sync`), the listing's reviews are read through the same
+`POST /v1/reviews` record a person uses, so the recovery clock and the work
+list are the module's own; a review read again is the same review. A reply
+already on Google comes in as the reply, so the work list does not ask for it
+again. A reply written here on a review read from Google is posted back to the
+listing by the next read, or at once from the button; Google refusing it is
+written on the review in Google's words and shown on the screen. Reading needs
+the review policy set, like recording any review.
 
 ## Using it
 
@@ -124,6 +155,8 @@ doing this grants it.
 | `GET /v1/reviews/requests/withheld` | `review:respond` |
 | `PUT /v1/reviews/policy` | `settings:write` |
 | `GET /v1/reviews/platforms` | `settings:read` |
+| `POST /v1/reviews/sync` | `review:respond` |
+| `POST /v1/reviews/{id}/match` | `review:respond` |
 
 ## Common questions
 
@@ -153,8 +186,12 @@ withdrew marketing consent is withheld by the decision itself.
 
 ## What is not built
 
-No connector to Google, Facebook or any other platform, in either direction: a
-review is typed in and a reply is posted on the platform by hand. There is no
+One connector, Google Business Profile, tested against a fake of its API and
+not against a live listing. Facebook, Yelp, Angi and every other platform are
+typed in and replied to on the platform by hand. A reply posted to Google is
+still moderated by Google, so one marked posted here can be absent there; the
+next hourly read shows what Google shows. Editing a reply already posted is
+done on Google. There is no
 sentiment analysis and deliberately no predicted rating. The ask is scheduled
 only by the recommended automation, which starts from a paid invoice: a job
 that is never invoiced, or paid by a credit note, is never asked about unless

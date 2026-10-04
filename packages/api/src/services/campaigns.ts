@@ -74,7 +74,7 @@ import { within } from "./workflow-schedule";
  * clauses, which is why none of them repeats `organization_id`: a clause that
  * looks like the protection is how the real protection stops being checked.
  */
-function clauseFor(rule: cp.AudienceRule) {
+export function clauseFor(rule: cp.AudienceRule) {
   switch (rule.kind) {
     case "no_job_since":
       /**
@@ -288,7 +288,7 @@ export const MAX_AUDIENCE = 25_000;
  * kind) must refuse rather than reach `clauseFor` and hit the `never` branch
  * as a 500.
  */
-function parseRules(raw: unknown): cp.AudienceRule[] {
+export function parseRules(raw: unknown): cp.AudienceRule[] {
   const list = Array.isArray(raw) ? raw : [];
   const verdict = cp.checkAudience(list as cp.AudienceRule[]);
   if (!verdict.ok) {

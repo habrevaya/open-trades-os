@@ -1,6 +1,7 @@
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { customerPortal as cp, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
   audit, inTenant, InvalidGrantError, NotFoundError, SignInRefusedError, UnprocessableError,
@@ -89,34 +90,66 @@ export interface SignInAccount {
   place: string | null;
 }
 
+/** An account an address reaches, and the contact it reaches it through when it is not the customer's own. */
+export interface SignInMatch extends SignInAccount {
+  contactId: string | null;
+}
+
+/** The address as a condition on an email column and a phone column, compared the way each is stored. */
+function addressMatch(
+  address: cp.SignInAddress,
+  columns: { email: AnyPgColumn; phone: AnyPgColumn },
+) {
+  if (address.channel === "email") return eq(sql`lower(trim(${columns.email}))`, address.address);
+  /**
+   * By the digits, because the record holds the number as it was typed
+   * and the address is E.164: "(512) 555-0192" on the record is
+   * "+15125550192" here.
+   */
+  const digits = address.address.replace(/\D/g, "");
+  const forms = digits.length === 11 && digits.startsWith("1") ? [digits, digits.slice(1)] : [digits];
+  return inArray(sql`regexp_replace(${columns.phone}, '[^0-9]', '', 'g')`, forms);
+}
+
 /**
  * The customers this address belongs to.
  *
- * The customer record's own email and phone, and nothing else: a contact on
- * a customer is somebody the office talks to about the account, which is not
- * the same as somebody who may pay its bills with a saved card. Merged and
- * deleted customers are left out, so a code never signs anybody in as a
- * record the office has retired.
+ * The customer record's own email and phone, and the contacts on a customer
+ * the office has let sign in (`contact.portal_access_at`). A contact the
+ * office has not chosen is somebody it talks to about the account, which
+ * is not the same as somebody who may pay its bills with a saved card, so
+ * their address finds nothing. Merged and deleted customers, and removed
+ * contacts, are left out, so a code never signs anybody in as a record the
+ * office has retired.
+ *
+ * The customer's own address wins over a contact's for the same account: a
+ * homeowner whose number is also on a contact is the homeowner.
  */
-export async function customersAt(tx: Database, address: cp.SignInAddress): Promise<SignInAccount[]> {
-  let match;
-  if (address.channel === "email") {
-    match = eq(sql`lower(trim(${schema.customer.email}))`, address.address);
-  } else {
-    /**
-     * By the digits, because the record holds the number as it was typed
-     * and the address is E.164: "(512) 555-0192" on the record is
-     * "+15125550192" here.
-     */
-    const digits = address.address.replace(/\D/g, "");
-    const forms = digits.length === 11 && digits.startsWith("1") ? [digits, digits.slice(1)] : [digits];
-    match = inArray(sql`regexp_replace(${schema.customer.phone}, '[^0-9]', '', 'g')`, forms);
-  }
-  const rows = await tx.select({ id: schema.customer.id, name: schema.customer.name })
+export async function customersAt(tx: Database, address: cp.SignInAddress): Promise<SignInMatch[]> {
+  const own = await tx.select({ id: schema.customer.id, name: schema.customer.name })
     .from(schema.customer)
-    .where(and(match, isNull(schema.customer.deletedAt)))
+    .where(and(addressMatch(address, schema.customer), isNull(schema.customer.deletedAt)))
     .orderBy(asc(schema.customer.name), asc(schema.customer.id))
     .limit(10);
+  const viaContact = await tx.select({
+    id: schema.customer.id, name: schema.customer.name, contactId: schema.contact.id,
+  })
+    .from(schema.contact)
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.contact.customerId))
+    .where(and(
+      addressMatch(address, schema.contact),
+      isNotNull(schema.contact.portalAccessAt),
+      isNull(schema.contact.deletedAt),
+      isNull(schema.customer.deletedAt),
+    ))
+    .orderBy(asc(schema.customer.name), asc(schema.contact.id))
+    .limit(10);
+
+  const rows: { id: string; name: string; contactId: string | null }[] = own.map((r) => ({ ...r, contactId: null }));
+  for (const row of viaContact) {
+    if (!rows.some((r) => r.id === row.id)) rows.push(row);
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   if (rows.length === 0) return [];
 
   const places = await tx.select({
@@ -127,8 +160,9 @@ export async function customersAt(tx: Database, address: cp.SignInAddress): Prom
     .innerJoin(schema.property, eq(schema.property.id, schema.customerProperty.propertyId))
     .where(inArray(schema.customerProperty.customerId, rows.map((r) => r.id)))
     .orderBy(desc(schema.customerProperty.isPrimary), asc(schema.property.addressLine1));
-  return rows.map((r) => ({
-    id: r.id, name: r.name, place: places.find((p) => p.customerId === r.id)?.line1 ?? null,
+  return rows.slice(0, 10).map((r) => ({
+    id: r.id, name: r.name, contactId: r.contactId,
+    place: places.find((p) => p.customerId === r.id)?.line1 ?? null,
   }));
 }
 
@@ -211,6 +245,7 @@ export async function requestCode(
       address: address.address,
       codeHash: customers.length > 0 ? codeHash(id, code) : null,
       expiresAt,
+      matchedCustomerIds: customers.map((c) => c.id),
       ...(customers.length === 0 ? { endedAt: now, endedReason: "no_customer" } : {}),
       requestKey: meta?.idempotencyKey?.slice(0, 200) ?? null,
       requestedIp: meta?.ip?.slice(0, 64) ?? null,
@@ -307,13 +342,15 @@ export async function verifyCode(
         .where(eq(schema.portalSignIn.id, row.id));
       return { status: "refused" };
     }
-    if (accounts.length > 1 && !input.customerId) return { status: "choose", accounts };
+    if (accounts.length > 1 && !input.customerId) {
+      return { status: "choose", accounts: accounts.map(({ contactId: _contact, ...account }) => account) };
+    }
     const chosen = input.customerId ? accounts.find((a) => a.id === input.customerId) : accounts[0];
     if (!chosen) return { status: "refused" };
 
     /** Spent in the same statement that checks it is unspent, so two presses cannot both sign in. */
     const spent = await tx.update(schema.portalSignIn).set({
-      endedAt: now, endedReason: "signed_in", customerId: chosen.id,
+      endedAt: now, endedReason: "signed_in", customerId: chosen.id, contactId: chosen.contactId,
       signedInIp: meta?.ip?.slice(0, 64) ?? null, updatedAt: now,
     }).where(and(eq(schema.portalSignIn.id, row.id), isNull(schema.portalSignIn.endedAt)))
       .returning({ id: schema.portalSignIn.id });
@@ -325,10 +362,12 @@ export async function verifyCode(
       scope: "customer",
       expiresInDays: cp.SESSION_DAYS,
       signInId: row.id,
+      contactId: chosen.contactId,
     });
-    await audit(tx, { ...ctx, portalGrantId: grant.id }, "portal.signed_in", "customer", chosen.id, null, {
-      channel: row.channel, signInId: row.id,
-    });
+    await audit(tx, { ...ctx, portalGrantId: grant.id, portalContactId: chosen.contactId },
+      "portal.signed_in", "customer", chosen.id, null, {
+        channel: row.channel, signInId: row.id, ...(chosen.contactId ? { contactId: chosen.contactId } : {}),
+      });
     return {
       status: "signed_in", token, expiresAt: grant.expiresAt.toISOString(), customerName: chosen.name,
     };
@@ -344,6 +383,8 @@ export interface PortalSession {
   grant: ResolvedGrant;
   customerId: string;
   customerName: string;
+  /** The contact signed in as the customer, when it is not the customer themselves. */
+  contact: { id: string; name: string } | null;
   organizationName: string;
   organizationSlug: string;
   expiresAt: string;
@@ -370,12 +411,32 @@ export async function sessionFor(db: Database, token: string): Promise<PortalSes
       .innerJoin(schema.customer, eq(schema.customer.id, schema.portalGrant.customerId))
       .where(eq(schema.portalGrant.id, grant.grantId)).limit(1);
     if (!row?.signInId || row.customerDeleted) throw new InvalidGrantError();
+    /**
+     * A contact's sign in ends the moment the office takes their access
+     * away or removes them. Taking access away also revokes the grant; this
+     * is the second lock, for a contact removed through a path that knows
+     * nothing about sign ins.
+     */
+    let contact: PortalSession["contact"] = null;
+    if (grant.contactId) {
+      const [person] = await tx.select({ id: schema.contact.id, name: schema.contact.name })
+        .from(schema.contact)
+        .where(and(
+          eq(schema.contact.id, grant.contactId),
+          eq(schema.contact.customerId, grant.customerId!),
+          isNotNull(schema.contact.portalAccessAt),
+          isNull(schema.contact.deletedAt),
+        )).limit(1);
+      if (!person) throw new InvalidGrantError();
+      contact = person;
+    }
     const [org] = await tx.select({ name: schema.organization.name, slug: schema.organization.slug })
       .from(schema.organization).where(eq(schema.organization.id, grant.organizationId)).limit(1);
     return {
       grant,
       customerId: grant.customerId!,
       customerName: row.customerName,
+      contact,
       organizationName: org?.name ?? "",
       organizationSlug: org?.slug ?? "",
       expiresAt: row.expiresAt.toISOString(),
@@ -401,7 +462,7 @@ export async function isSignedIn(tx: Database, grant: ResolvedGrant): Promise<bo
 export async function signOut(db: Database, input: { token: string }): Promise<{ ok: true }> {
   const session = await sessionFor(db, input.token);
   await inGrant(db, session.grant, async (tx, ctx) => {
-    await tx.update(schema.portalGrant).set({ revokedAt: new Date(), updatedAt: new Date() })
+    await tx.update(schema.portalGrant).set({ revokedAt: new Date(), revokedReason: "signed_out", updatedAt: new Date() })
       .where(and(eq(schema.portalGrant.id, session.grant.grantId), isNull(schema.portalGrant.revokedAt)));
     await audit(tx, ctx, "portal.signed_out", "customer", session.customerId, null, null);
   });
@@ -470,6 +531,8 @@ export async function openRecord(
       subjectId: input.id,
       expiresInDays: 1,
       maxUses,
+      /** A contact's narrower link is still theirs, so approving from it is recorded as them. */
+      contactId: session.grant.contactId,
     });
     await audit(tx, ctx, "portal.grant.issued", "portal_grant", minted.row.id, null, {
       scope: input.kind, subjectId: input.id, from: "sign_in",

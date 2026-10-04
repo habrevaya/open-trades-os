@@ -109,6 +109,23 @@ export const marketingTouch = pgTable("marketing_touch", {
 
   /** gclid, msclkid, fbclid. The thing an ads platform matches a conversion on. */
   clickId: text("click_id"),
+  /**
+   * Which parameter carried the click id: gclid, gbraid, wbraid, fbclid or
+   * msclkid. Google takes the three of its own in three different fields and
+   * refuses one sent in the wrong one, so a conversion cannot be sent back
+   * from the value alone.
+   */
+  clickIdParam: text("click_id_param"),
+  /**
+   * The browser's Google Analytics client id, read by the website snippet
+   * from the `_ga` cookie the company's own analytics tag set. It is what a
+   * lead or a purchase sent to Google Analytics is tied to, so the booked job
+   * lands on the visit in the company's own analytics rather than as a
+   * stranger.
+   */
+  gaClientId: text("ga_client_id"),
+  /** Meta's browser id, from the `_fbp` cookie its pixel sets on the company's site. */
+  metaBrowserId: text("meta_browser_id"),
   /** Lower case, without `www.`, and never one of our own hosts. */
   referrerHost: text("referrer_host"),
   landingPath: text("landing_path"),

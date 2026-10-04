@@ -35,7 +35,7 @@ export default async function NewReportPage({
 
   if (!can(user.actor, "report:build")) notFound();
 
-  const datasets = reports.available(ctx);
+  const datasets = await reports.available(ctx);
   const definition = definitionFrom(params);
   const dataset = datasets.find((d) => d.key === definition?.dataset);
 

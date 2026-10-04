@@ -11,6 +11,16 @@ import { recordSpend, removeSpend, uploadSpend } from "../actions";
 
 export const dynamic = "force-dynamic";
 
+/** Where a spend row came from, in words: typed, a file, or a connection that writes its own. */
+const ORIGIN: Record<string, string> = {
+  manual: "Typed",
+  google_ads: "Pulled from Google Ads",
+  meta_ads: "Pulled from Meta",
+  bing_ads: "Pulled from Microsoft Advertising",
+  lead_charge: "What a marketplace charged for a lead",
+  direct_mail: "A mailing's pieces",
+};
+
 /**
  * WHAT IT COST, A DAY AT A TIME
  *
@@ -82,7 +92,7 @@ export default async function SpendPage() {
               <Td className="tabular-nums">{row.spentOn}</Td>
               <Td>{row.channelName ?? row.source.replace(/_/g, " ")}</Td>
               <Td>{row.campaignName ?? row.label ?? ""}</Td>
-              <Td className="text-ink-700">{row.origin === "manual" ? "Typed" : "Imported"}</Td>
+              <Td className="text-ink-700">{ORIGIN[row.origin] ?? "Imported"}</Td>
               <Td><Money value={row.amount} /></Td>
               <Td>
                 {writes ? (

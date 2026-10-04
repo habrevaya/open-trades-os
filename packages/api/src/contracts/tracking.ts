@@ -128,7 +128,24 @@ export const recordPublicTouch = defineRoute({
   permissions: [],
   authorization: "public",
   idempotent: true,
-  input: z.object(VisitorInput),
+  input: z.object({
+    ...VisitorInput,
+    /**
+     * The `_ga` cookie the company's own Google Analytics tag set, and the
+     * `_fbp` cookie Meta's pixel set, read by the snippet on the company's own
+     * domain. Kept only when they are in those platforms' own shapes, and
+     * used for nothing but telling those platforms about a booked job.
+     */
+    ga: z.string().max(100).optional(),
+    fbp: z.string().max(100).optional(),
+    /**
+     * Fill those two onto the visitor's latest touch and record nothing new.
+     * The analytics tag usually sets its cookie after the snippet has already
+     * posted the arrival, so the snippet sends them again once the page has
+     * loaded.
+     */
+    identify: z.boolean().optional(),
+  }),
   output: z.object({ recorded: z.boolean(), touchId: Uuid.nullable() }),
 });
 

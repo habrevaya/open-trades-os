@@ -71,14 +71,15 @@ export const getAvailability = defineRoute({
   path: "/v1/public/availability",
   summary: "Real openings for a bookable service",
   description:
-    "Derived from business hours, time off, existing commitments and the per-window ceiling. Never a list that was typed in.",
+    "Derived from business hours, the technicians' own days (who is working, who is off, who is qualified for the work and how much of each window is already booked, with work still waiting for somebody taken off first) and the per-window ceiling, which stays the most the company will sell. Never a list that was typed in.",
   module: "M05",
   permissions: [],
   authorization: "public",
   input: z.object({
     organizationSlug: z.string().min(1).max(100),
     bookableServiceId: Uuid,
-    from: z.string().date(),
+    /** Defaults to today where the company is, which is not UTC's today after seven in the evening in Austin. */
+    from: z.string().date().optional(),
     /** Capped server side at the service's own maxAdvanceDays. */
     days: z.number().int().min(1).max(90).default(14),
     postalCode: z.string().max(20).optional(),
@@ -111,6 +112,8 @@ export const BookingRequest = z.object({
   sourceUrl: z.string().nullable(),
   referrer: z.string().nullable(),
   utm: z.record(z.string()),
+  /** The technician a returning customer asked for from their own account, when they asked for one. */
+  preferredTechnicianId: Uuid.nullable(),
   declineReason: z.string().nullable(),
   decidedAt: z.string().datetime().nullable(),
 }).merge(Timestamps);

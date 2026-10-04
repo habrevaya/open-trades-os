@@ -3,8 +3,10 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
+  claims as claimService, entitlements, financing, customFields, fieldSales,
 } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, claims, rates } from "@opentradesos/core";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
@@ -14,14 +16,16 @@ import { InvoiceActions } from "./Panels";
 import { actOnInvoice } from "../actions";
 import { startCardPayment } from "../../payments/actions";
 import { PayNow } from "../../../(portal)/PayNow";
-import { ActionForm, Select, TextArea } from "@/components/ActionForm";
+import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
+import { fileClaim } from "../claims/actions";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
 import { creditInvoice } from "../credit-notes/actions";
+import { FinancingPanel } from "@/components/FinancingPanel";
 
 export const dynamic = "force-dynamic";
 
 const DELIVERY_STATE: Record<string, string> = {
-  interrupted: "Interrupted", refused: "Refused", link_issued: "Link handed over", queued: "Queued",
+  interrupted: "Interrupted", refused: "Refused", link_issued: "Link handed over", exported: "In a file", queued: "Queued",
   sent: "Sent", delivered: "Delivered", bounced: "Bounced", failed: "Failed",
 };
 
@@ -43,6 +47,12 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
   /** Tips that came with payments on this invoice, and the technicians they are held for. */
   const tipped = (await tips.forInvoice(ctx, { invoiceId: id })).tips;
+  /** The customer's signature, when they signed for it on the technician's phone. */
+  const signed = await fieldSales.signatureOn(ctx, { subject: "invoice", subjectId: id });
+  /** A bank payment on its way, or one the bank refused this month, so nobody chases or charges twice. */
+  const bank = can(user.actor, "payment:read")
+    ? (await payments.bankPayments(ctx, { invoiceId: id })).bankPayments
+    : [];
   const memberIds = invoice.lines.map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
   const plans = memberIds.length > 0 && can(user.actor, "customer:read")
     ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
@@ -65,6 +75,17 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     ? (await payments.status(ctx)).connected
     : true);
   const zero = (v: string) => Number(v) === 0;
+  /** A claim on this invoice, or whether one could be filed: a third party's invoice on a covered job. */
+  const [claim] = can(user.actor, "invoice:read") && invoice.jobId
+    ? (await claimService.list(ctx, { jobId: invoice.jobId })).filter((c) => c.invoiceId === invoice.id)
+    : [];
+  const coveredBy = invoice.jobId && can(user.actor, "job:read")
+    ? await entitlements.forJob(ctx, { jobId: invoice.jobId })
+    : null;
+  /** Financing on this invoice: the monthly figure for the balance and every application. */
+  const loan = invoice.status === "draft" ? null : await financing.forInvoice(ctx, { invoiceId: id });
+  const claimable = !claim && can(user.actor, "invoice:write") && job !== null && coveredBy?.profile.billsAThirdParty === true
+    && invoice.customerId !== job.customerId && invoice.status !== "draft" && invoice.status !== "void";
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -73,7 +94,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <h1 className="text-xl font-semibold">
           Invoice <span className="font-mono tabular-nums">{invoice.number}</span>
         </h1>
-        <Chip tone={tone(INVOICE_TONE, invoice.status)}>{label(INVOICE_STATUS, invoice.status)}</Chip>
+        <div className="flex items-center gap-3">
+          <a href={`/invoices/${invoice.id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
+          <Chip tone={tone(INVOICE_TONE, invoice.status)}>{label(INVOICE_STATUS, invoice.status)}</Chip>
+        </div>
       </div>
 
       <Facts>
@@ -91,6 +115,16 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <Fact label="Credited">{zero(invoice.amountCredited ?? "0") ? null : <Money value={invoice.amountCredited ?? "0"} />}</Fact>
         <Fact label="Balance"><Money value={invoice.balance} /></Fact>
         <Fact label="Note">{invoice.memo}</Fact>
+        <Fact label="Signed for">
+          {signed ? (
+            <>
+              {signed.signerName}, {formatIn(signed.signedAt, tz)}{signed.onSite ? ", on the technician's phone" : ""}
+              {signed.imageKey
+                ? <> (<a href={`/files/${signed.imageKey}`} className="text-blue-600 underline underline-offset-4">signature</a>)</>
+                : signed.onSite ? " (the drawn signature has not arrived yet)" : null}
+            </>
+          ) : null}
+        </Fact>
       </Facts>
 
       <Table head={
@@ -116,6 +150,17 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                   : <Money value={line.memberDiscountAmount!} />
                 </p>
               ) : null}
+              {/*
+                Whose price it is, on every line that recorded one. The first
+                question a commercial client asks of a rejected invoice, and the
+                answer has to be on the document rather than in somebody's head.
+              */}
+              {line.priceAuthority ? (
+                <p className="mt-0.5 text-xs text-ink-500">
+                  Priced by {rates.authorityLabel(line.priceAuthority)}
+                  {line.priceNote ? `: ${line.priceNote}` : ""}
+                </p>
+              ) : null}
             </Td>
             <Td className="text-right font-mono tabular-nums">{Number(line.quantity)}</Td>
             <Td className="text-right"><Money value={line.unitPrice} /></Td>
@@ -133,6 +178,44 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <dt className="text-ink-500">Tax</dt><dd className="text-right"><Money value={invoice.taxTotal} /></dd>
         <dt className="font-medium">Total</dt><dd className="text-right font-medium"><Money value={invoice.total} /></dd>
       </dl>
+
+      {/*
+        THE CLAIM, for an invoice to a third party on a covered job. Filed
+        here because this invoice is the receivable the claim is about; once
+        filed, the claim is its own document with its own page.
+      */}
+      {claim ? (
+        <p className="mt-6 text-sm text-ink-700">
+          Claimed from {claim.payerName}
+          {claim.externalReference ? ` (${claim.externalReference})` : ""}:{" "}
+          <a href={`/invoices/claims/${claim.id}`} className="underline">{claims.CLAIM_STATUS_LABEL[claim.status].toLowerCase()}</a>.
+        </p>
+      ) : claimable ? (
+        <section aria-label="Claim" className="mt-6 rounded-md border border-steel-200 p-4">
+          <h2 className="text-base font-semibold">File the claim</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            This invoice is to whoever covers the work. Filing the claim records
+            their reference and meets the contract&rsquo;s claim deadline.
+          </p>
+          <ActionForm action={fileClaim} submit="File the claim" hidden={{ invoiceId: invoice.id }}
+                      className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Their claim or authorisation number" name="externalReference" />
+          </ActionForm>
+        </section>
+      ) : null}
+
+      {bank.length > 0 && (
+        <section aria-label="Bank payments" className="mt-6 space-y-2">
+          {bank.map((b) => (
+            <p key={b.id} role={b.status === "failed" ? "alert" : "status"}
+               className={`rounded-md border p-3 text-sm ${b.status === "failed" ? "border-red-600 bg-red-tint text-red-600" : "border-steel-200 bg-steel-100 text-ink-700"}`}>
+              {b.status === "pending"
+                ? <>A bank payment of <Money value={b.amount} /> from the customer is on its way, started {formatIn(b.startedAt, tz)}. Bank payments take a few business days; the invoice shows paid when the bank confirms it, and cannot be paid again until then.</>
+                : <>A bank payment of <Money value={b.amount} /> started {formatIn(b.startedAt, tz)} did not go through{b.reason ? `: ${b.reason}` : "."} Nothing was recorded as paid. Ask the customer for another way to pay.</>}
+            </p>
+          ))}
+        </section>
+      )}
 
       {collects && (
         <section aria-label="Take payment" className="mt-8 rounded-md border border-steel-200 p-4">
@@ -156,6 +239,21 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           )}
         </section>
       )}
+
+      {loan && (loan.connected ? (owed || loan.applications.length > 0) : collects) ? (
+        <FinancingPanel
+          subject={{ invoiceId: id }}
+          connected={loan.connected}
+          lender={loan.lender}
+          offers={[{
+            optionId: null, name: null, total: invoice.balance ?? "0",
+            sentence: loan.offer?.sentence ?? null, applicable: loan.applicable,
+          }]}
+          applications={loan.applications}
+          canSend={collects}
+          timezone={tz}
+        />
+      ) : null}
 
       <InvoiceActions
         action={actOnInvoice}
@@ -258,6 +356,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           </ul>
         </section>
       )}
+      <CustomFieldsPanel
+        entityType="invoice" id={id}
+        definitions={await customFields.formFields(ctx, "invoice")}
+        values={await customFields.valuesFor(ctx, { entityType: "invoice", id })}
+        canWrite={can(user.actor, "invoice:write")}
+        back={`/invoices/${id}`}
+      />
     </div>
   );
 }

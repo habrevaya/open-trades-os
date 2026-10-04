@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { invoiceDelivery } from "@opentradesos/api/services";
+import { financing, invoiceDelivery } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
 import { PayInvoice } from "../../PayInvoice";
 import { startPayment } from "./actions";
+import { PayOverTime } from "../../Financing";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,9 @@ export default async function InvoicePage({
    * usually a second or two later. The page says so rather than showing a
    * balance that looks as if the payment did not take.
    */
+  /** What the lender offers on this balance, if the company has a lender. Never a reason the page fails. */
+  const loan = await financing.portalInvoice(getDb(), { token }).catch(() => null);
+
   const returned = typeof query["redirect_status"] === "string" ? query["redirect_status"] : null;
 
   return (
@@ -72,6 +76,9 @@ export default async function InvoicePage({
           {invoice.issuedOn && <>Issued {day(invoice.issuedOn)}</>}
           {invoice.issuedOn && invoice.dueOn && " · "}
           {invoice.dueOn && <>Due {day(invoice.dueOn)}</>}
+        </p>
+        <p className="mt-2 text-sm">
+          <a href={`/i/${token}/pdf`} className="underline underline-offset-4">Download a PDF of this invoice</a>
         </p>
       </header>
 
@@ -100,6 +107,11 @@ export default async function InvoicePage({
           </div>
         )
       )}
+
+      {loan ? (
+        <PayOverTime token={token} lender={loan.lender} application={loan.application}
+                     options={[{ optionId: null, name: null, offer: loan.offer, applicable: true }]} />
+      ) : null}
 
       <Lines invoice={invoice} />
 

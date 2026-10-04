@@ -25,6 +25,13 @@ export const auditLog = pgTable("audit_log", {
    * this address, at this time" is the whole record of a customer decision.
    */
   actorPortalGrantId: uuid("actor_portal_grant_id"),
+  /**
+   * The contact who held that grant, when it was a contact signed in as the
+   * customer rather than the customer themselves. The grant says which
+   * account was used; this says which person used it, which is the question
+   * a landlord asks when the tenant's partner paid the wrong invoice.
+   */
+  actorContactId: uuid("actor_contact_id"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: uuid("entity_id"),
@@ -76,6 +83,20 @@ export const webhookEndpoint = pgTable("webhook_endpoint", {
   url: text("url").notNull(),
   /** HMAC signing secret. Stored encrypted, never returned to the client. */
   secretRef: text("secret_ref").notNull(),
+  /**
+   * THE SECRET BEFORE THE LAST ROTATION, WHILE THE OVERLAP LASTS.
+   *
+   * Rotating a secret the receiver still verifies with breaks every delivery
+   * the moment it happens, because the receiver is updated by a different
+   * person on a different day. So for an overlap the operator chose, every
+   * delivery is signed with both, and a receiver holding either accepts it.
+   * After `previous_secret_expires_at` the old one signs nothing, and the next
+   * rotation overwrites it.
+   */
+  previousSecretRef: text("previous_secret_ref"),
+  previousSecretExpiresAt: timestamp("previous_secret_expires_at", { withTimezone: true }),
+  /** When the current secret was made, by registration or by rotation. */
+  secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
   events: jsonb("events").$type<string[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true }),

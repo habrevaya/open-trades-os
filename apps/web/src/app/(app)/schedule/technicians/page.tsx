@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { company, dispatchMap } from "@opentradesos/api/services";
+import { company, dispatchMap, liveLocation, travelTimes } from "@opentradesos/api/services";
 import { can, geo } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { PinEditor } from "@/components/PinEditor";
@@ -39,10 +39,13 @@ export default async function TechniciansPage() {
   }
 
   const readsSettings = can(user.actor, "settings:read");
-  const [{ technicians, companyStart }, travel, locations] = await Promise.all([
+  const [{ technicians, companyStart }, travel, locations, workday, sharing, router] = await Promise.all([
     dispatchMap.technicians(ctx),
     dispatchMap.travelSettings(ctx),
     readsSettings ? company.listLocations(ctx) : Promise.resolve([]),
+    dispatchMap.workdaySettings(ctx),
+    liveLocation.sharing(ctx),
+    travelTimes.connectedRouter(ctx),
   ]);
   const edits = can(user.actor, "user:write");
   const editsSettings = can(user.actor, "settings:write");
@@ -97,8 +100,40 @@ export default async function TechniciansPage() {
                       <input name="color" type="color" defaultValue={t.color ?? "#64748B"}
                              aria-label={`Colour for ${t.displayName}`} className="h-8 w-12 rounded border border-steel-300" />
                     </label>
+                    <fieldset className="flex items-end gap-2">
+                      <legend className="text-xs font-medium text-ink-700">Their own hours (blank is the company&apos;s)</legend>
+                      <input name="startsAt" type="time" defaultValue={t.workday?.startsAt ?? ""}
+                             aria-label={`${t.displayName} starts at`} className={input} />
+                      <span className="pb-1 text-xs text-ink-500">to</span>
+                      <input name="endsAt" type="time" defaultValue={t.workday?.endsAt ?? ""}
+                             aria-label={`${t.displayName} finishes at`} className={input} />
+                    </fieldset>
+                    <label className="block">
+                      <span className="block text-xs font-medium text-ink-700">Share location while working</span>
+                      <select name="shareLocation" defaultValue={t.shareLocation ? "on" : "off"}
+                              aria-label={`Share ${t.displayName}'s location while working`} className={input}>
+                        <option value="on">On, when the company shares</option>
+                        <option value="off">Off for them</option>
+                      </select>
+                    </label>
                   </ActionForm>
-                ) : (
+                ) : null}
+                {edits && (
+                  <ActionForm op="photo" label={t.hasPhoto ? "Replace photo" : "Add photo"} quiet hidden={{ id: t.id }}
+                              className="mt-2 flex flex-wrap items-end gap-2">
+                    <label className="block">
+                      <span className="block text-xs font-medium text-ink-700">
+                        Photo on customers&apos; tracking links{t.hasPhoto ? " (one is set)" : ""}
+                      </span>
+                      <input name="photo" type="file" accept="image/jpeg,image/png,image/webp"
+                             aria-label={`Photo of ${t.displayName}`} className="text-xs" />
+                    </label>
+                  </ActionForm>
+                )}
+                {edits && t.hasPhoto && (
+                  <ActionForm op="photo" label="Take the photo down" quiet hidden={{ id: t.id, clear: "yes" }} className="mt-1" />
+                )}
+                {!edits && (
                   <p className="text-ink-700">
                     {t.skills.length > 0 ? t.skills.join(", ") : "Nothing recorded"}
                     <span className="text-ink-500">
@@ -113,11 +148,16 @@ export default async function TechniciansPage() {
       </table>
 
       <section className="mt-10">
-        <h2 className="text-base font-semibold">How drive time is estimated</h2>
+        <h2 className="text-base font-semibold">How drive time is worked out</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          A straight line between two addresses, stretched by the road factor, at the average speed. Wrong
+          {router
+            ? `By road, from the routing service connected under Settings, Integrations (${router}). When it does not answer, `
+            : "No routing service is connected, so "}
+          a straight line between two addresses, stretched by the road factor, at the average speed: wrong
           for any one drive and about right across a day. Two stops on the same route use the drive time
-          declared on the route instead.
+          declared on the route instead. {!router && (
+            <a href="/settings/integrations" className="underline">Connect a routing service</a>
+          )}
         </p>
         {editsSettings ? (
           <ActionForm op="travel" label="Save" className="mt-3 flex flex-wrap items-end gap-3">
@@ -139,6 +179,79 @@ export default async function TechniciansPage() {
           <p className="mt-2 text-sm text-ink-700">
             About {Math.round(travel.averageKmh / geo.KM_PER_MILE)} miles an hour, a road factor of {travel.roadFactor},
             and the day starting at {travel.dayStartsAt}.
+          </p>
+        )}
+      </section>
+
+      <section className="mt-10" aria-label="The working day">
+        <h2 className="text-base font-semibold">The working day</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          What rebalancing the day plans inside: when the day ends, the break and when it may start, and
+          how much overtime a plan may use. Somebody with their own hours above has those instead.
+        </p>
+        {editsSettings ? (
+          <ActionForm op="workday" label="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">The day ends at</span>
+              <input name="dayEndsAt" type="time" defaultValue={workday.dayEndsAt} className={input} />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">Break, minutes (0 for none)</span>
+              <input name="lunchMinutes" inputMode="numeric" defaultValue={String(workday.lunchMinutes)} className={`${input} w-20`} />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">Break starts no earlier than</span>
+              <input name="lunchEarliest" type="time" defaultValue={workday.lunchEarliest} className={input} />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">and no later than</span>
+              <input name="lunchLatest" type="time" defaultValue={workday.lunchLatest} className={input} />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">Overtime a plan may use, minutes</span>
+              <input name="maxOvertimeMinutes" inputMode="numeric" defaultValue={String(workday.maxOvertimeMinutes)} className={`${input} w-20`} />
+            </label>
+          </ActionForm>
+        ) : (
+          <p className="mt-2 text-sm text-ink-700">
+            The day ends at {workday.dayEndsAt}, a {workday.lunchMinutes} minute break between {workday.lunchEarliest} and{" "}
+            {workday.lunchLatest}, and up to {workday.maxOvertimeMinutes} minutes of overtime.
+          </p>
+        )}
+      </section>
+
+      <section className="mt-10" aria-label="Live location">
+        <h2 className="text-base font-semibold">Live location</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          When this is on, the phone app shares where a technician is with whoever dispatches, and with the
+          customer they are on the way to, only while they are clocked in, on the way to a visit or working
+          one. Never off the clock. The technician sees a line on their phone every time it is on. Positions
+          are kept for the days below and then deleted; turning this off deletes every one kept so far, and
+          turning it off for one person above deletes theirs.
+        </p>
+        {editsSettings ? (
+          <ActionForm op="sharing" label="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">Share technicians&apos; locations</span>
+              <select name="enabled" defaultValue={sharing.enabled ? "on" : "off"} className={input} aria-label="Share technicians' locations">
+                <option value="off">Off</option>
+                <option value="on">On, while they work</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">Keep positions for, days (1 to 30)</span>
+              <input name="retentionDays" inputMode="numeric" defaultValue={String(sharing.retentionDays)} className={`${input} w-20`} />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-ink-700">A position every, seconds</span>
+              <input name="intervalSeconds" inputMode="numeric" defaultValue={String(sharing.intervalSeconds)} className={`${input} w-20`} />
+            </label>
+          </ActionForm>
+        ) : (
+          <p className="mt-2 text-sm text-ink-700">
+            {sharing.enabled
+              ? `On, while technicians work. Positions are kept ${sharing.retentionDays} ${sharing.retentionDays === 1 ? "day" : "days"}.`
+              : "Off. Nobody's location is shared."}
           </p>
         )}
       </section>

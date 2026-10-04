@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef } from "./_shared";
 import { organization, technician, user } from "./tenancy";
 import { message } from "./comms";
@@ -376,4 +376,54 @@ export const signInCode = pgTable("sign_in_code", {
 }, (t) => ({
   /** The live code for a person, and how many they have asked for lately. */
   userIdx: index("sign_in_code_user_idx").on(t.userId, t.createdAt),
+}));
+
+/**
+ * WHY A POSITION WAS TAKEN. The same three reasons `packages/core/src/location`
+ * shares for, and nothing else, because nothing else is working time.
+ */
+export const positionReason = pgEnum("position_reason", ["on_the_way", "working", "on_the_clock"]);
+
+/**
+ * WHERE A TECHNICIAN WAS, WHILE THEY WERE WORKING
+ *
+ * One row per fix the phone sent and the server agreed fell inside working
+ * time: clocked in, on the way to a visit, or working one. A fix outside all
+ * three is dropped on arrival and never written, which is what makes "nothing
+ * is tracked off the clock" a property of this table rather than a promise
+ * about the phone.
+ *
+ * SHORT LIVED BY DESIGN. Deleted by the worker after the company's retention
+ * (three days unless it says otherwise, thirty at most), so this is where
+ * somebody is and was today, never a history of a person's movements.
+ *
+ * `visit_id` is the visit the fix belongs to when it was taken on the way to
+ * or at one. The customer's tracking link reads only fixes with its own
+ * visit's id, taken after the notice was sent, so a technician's drive to
+ * the job before is never shown to the customer after.
+ */
+export const technicianPosition = pgTable("technician_position", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").notNull().references(() => technician.id, { onDelete: "cascade" }),
+  deviceId: uuid("device_id").notNull().references(() => device.id, { onDelete: "cascade" }),
+  /** By the phone's clock, clamped to the server's: a fix from the future is refused, not stored. */
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  accuracyMeters: integer("accuracy_meters"),
+  /** Degrees clockwise from north, when the phone knows. */
+  heading: integer("heading"),
+  /** Metres a second, when the phone knows. */
+  speed: doublePrecision("speed"),
+  reason: positionReason("reason").notNull(),
+  visitId: uuid("visit_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** One row per fix: a batch resent after a dropped answer is the same fixes again. */
+  fixIdx: uniqueIndex("technician_position_fix_idx").on(t.deviceId, t.recordedAt),
+  latestIdx: index("technician_position_latest_idx").on(t.organizationId, t.technicianId, t.recordedAt),
+  visitIdx: index("technician_position_visit_idx").on(t.visitId, t.recordedAt),
+  purgeIdx: index("technician_position_purge_idx").on(t.recordedAt),
 }));

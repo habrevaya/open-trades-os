@@ -1,9 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { inventory as inv, money as m } from "@opentradesos/core";
+import { assertCan, can, inventory as inv, money as m, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import * as equipmentRegister from "./equipment";
+import * as approvals from "./purchase-approvals";
+import { sendsWithin } from "./purchase-order-email";
 import { refusingDuplicate } from "./duplicates";
 import { nextNumber } from "./jobs";
 import { inForceAt } from "./pricebook";
@@ -30,7 +33,7 @@ import * as once from "./once";
  */
 
 /** Everything that has ever moved for this organization, in order. */
-async function history(tx: Database, itemId?: string): Promise<inv.Movement[]> {
+export async function history(tx: Database, itemId?: string): Promise<inv.Movement[]> {
   const rows = await tx.select().from(schema.stockMovement)
     .where(itemId ? eq(schema.stockMovement.itemId, itemId) : undefined)
     .orderBy(schema.stockMovement.occurredAt, schema.stockMovement.sequence);
@@ -49,6 +52,7 @@ async function history(tx: Database, itemId?: string): Promise<inv.Movement[]> {
     ...(row.reasonCode ? { reasonCode: row.reasonCode } : {}),
     ...(row.purchaseOrderId ? { purchaseOrderId: row.purchaseOrderId } : {}),
     ...(row.purchaseOrderLineId ? { purchaseOrderLineId: row.purchaseOrderLineId } : {}),
+    ...(row.lotId ? { lotId: row.lotId } : {}),
   }));
 }
 
@@ -60,15 +64,21 @@ async function history(tx: Database, itemId?: string): Promise<inv.Movement[]> {
  * back write would leave a gap, and a gap in the one column that orders a
  * financial history is a question nobody can answer later.
  */
-async function nextSequence(tx: Database, organizationId: string): Promise<number> {
+export async function nextSequence(tx: Database, organizationId: string): Promise<number> {
   const [row] = await tx.select({ max: sql<number | null>`max(${schema.stockMovement.sequence})` })
     .from(schema.stockMovement)
     .where(eq(schema.stockMovement.organizationId, organizationId));
   return (row?.max ?? 0) + 1;
 }
 
-async function writeMovements(
-  tx: Database, ctx: ServiceContext, movements: readonly inv.Movement[],
+/**
+ * What a movement carries that core does not decide: the freight spread onto
+ * a receipt line, and the delivery it came on. Keyed by movement id.
+ */
+export type MovementExtras = ReadonlyMap<string, { landedCost?: string; receiptId?: string }>;
+
+export async function writeMovements(
+  tx: Database, ctx: ServiceContext, movements: readonly inv.Movement[], extras: MovementExtras = new Map(),
 ) {
   if (movements.length === 0) return [];
   return tx.insert(schema.stockMovement).values(movements.map((movement) => ({
@@ -83,6 +93,9 @@ async function writeMovements(
     reasonCode: movement.reasonCode ?? null,
     purchaseOrderId: movement.purchaseOrderId ?? null,
     purchaseOrderLineId: movement.purchaseOrderLineId ?? null,
+    lotId: movement.lotId ?? null,
+    landedCost: extras.get(movement.id)?.landedCost ?? null,
+    receiptId: extras.get(movement.id)?.receiptId ?? null,
     sequence: movement.sequence,
     occurredAt: movement.occurredAt,
     recordedByUserId: ctx.actor.userId,
@@ -481,6 +494,200 @@ function toCore(
   };
 }
 
+/* ------------------------------------------------- serial numbers and lots */
+
+/**
+ * WHICH UNITS MOVED, for an item tracked by serial or lot.
+ *
+ * `number` is the serial or the lot as printed. `quantity` is one for a
+ * serial and is left out; a lot moves part of itself and says how much (left
+ * out when one lot covers the whole movement). The equipment fields are read
+ * only when a serialised unit is issued to a job: the customer's unit it
+ * went into, or the record to make for it.
+ */
+export interface UnitInput {
+  number: string;
+  quantity?: string | undefined;
+  /** A lot's use by date, on a receipt. */
+  expiresOn?: string | undefined;
+  /** On an issue: the customer's equipment record this unit is, or went into. */
+  equipmentId?: string | undefined;
+  /** On an issue: record it as new equipment at the job's property. */
+  installAs?: InstallAs | undefined;
+}
+
+export interface InstallAs {
+  category: string;
+  tag?: string | undefined;
+  manufacturer?: string | undefined;
+  model?: string | undefined;
+  location?: string | undefined;
+}
+
+/** How this item is tracked, or null when it is counted only. */
+export async function trackingOf(tx: Database, itemId: string): Promise<inv.TrackingMode | null> {
+  const [row] = await tx.select({ mode: schema.stockTracking.mode }).from(schema.stockTracking)
+    .where(eq(schema.stockTracking.itemId, itemId)).limit(1);
+  return row?.mode ?? null;
+}
+
+/** An item as a person names it: the name in force, else the code. */
+async function itemLabel(tx: Database, itemId: string): Promise<string> {
+  const names = await itemNames(tx, [itemId]);
+  if (names.get(itemId)) return names.get(itemId)!;
+  const [row] = await tx.select({ code: schema.priceBookItem.code }).from(schema.priceBookItem)
+    .where(eq(schema.priceBookItem.id, itemId)).limit(1);
+  return row?.code ?? "That item";
+}
+
+async function placeLabel(tx: Database, locationId: string): Promise<string> {
+  const [row] = await tx.select({ name: schema.location.name }).from(schema.location)
+    .where(eq(schema.location.id, locationId)).limit(1);
+  return row?.name ?? "that location";
+}
+
+const unitRefusal = (refusal: inv.UnitRefusal) => new ConflictError(inv.explainUnitRefusal(refusal));
+
+/**
+ * The serials or lots ARRIVING, created where they are new.
+ *
+ * A serial that is already in stock or already on a job is refused with
+ * where it is: the same number arriving twice is a typo or a second unit with
+ * a label misread, and either way a person has to look. A serial that left
+ * (written off, returned) and comes back is the same unit, so its row is
+ * reused and its history continues. A lot that arrives again is the same
+ * batch, so it is reused too.
+ */
+async function arrivingUnits(
+  tx: Database, ctx: ServiceContext,
+  input: { itemId: string; mode: inv.TrackingMode; quantity: inv.Quantity; units: readonly UnitInput[]; movements: readonly inv.Movement[] },
+): Promise<inv.UnitPick[]> {
+  const label = await itemLabel(tx, input.itemId);
+  if (input.units.length === 0) throw unitRefusal({ ok: false, reason: "units_required", mode: input.mode, itemLabel: label });
+  const picks: inv.UnitPick[] = [];
+  const numbers = new Map<string, string>();
+  for (const unit of input.units) {
+    const number = unit.number.trim();
+    if (number === "") throw new ConflictError("A serial or lot number cannot be blank.");
+    const [found] = await tx.select().from(schema.stockLot)
+      .where(and(eq(schema.stockLot.itemId, input.itemId), sql`lower(${schema.stockLot.number}) = lower(${number})`))
+      .limit(1);
+    let lotId = found?.id;
+    if (found && input.mode === "serial") {
+      const state = inv.serialState(input.movements, found.id);
+      if (state.state === "in_stock") {
+        throw new ConflictError(`Serial ${found.number} of ${label} is already in stock at ${await placeLabel(tx, state.locationId)}. The same number twice is a misread label or a typo.`);
+      }
+      if (state.state === "used") {
+        throw new ConflictError(`Serial ${found.number} of ${label} was already used on a job. If it came back, record it as a return rather than a new receipt.`);
+      }
+    }
+    if (found && unit.expiresOn && !found.expiresOn) {
+      await tx.update(schema.stockLot).set({ expiresOn: unit.expiresOn, updatedAt: new Date() })
+        .where(eq(schema.stockLot.id, found.id));
+    }
+    if (!lotId) {
+      const [row] = await tx.insert(schema.stockLot).values({
+        organizationId: ctx.actor.organizationId,
+        itemId: input.itemId,
+        mode: input.mode,
+        number,
+        expiresOn: input.mode === "lot" ? unit.expiresOn ?? null : null,
+      }).returning({ id: schema.stockLot.id });
+      lotId = row!.id;
+    }
+    numbers.set(lotId, number);
+    picks.push({ lotId, quantity: unitQuantity(unit, input.mode, input.quantity, input.units.length) });
+  }
+  const check = inv.checkUnitPicks({ mode: input.mode, itemLabel: label, quantity: input.quantity, picks, numbers, from: null });
+  if (!check.ok) throw unitRefusal(check);
+  return picks;
+}
+
+/** One for a serial; for a lot, what was said, or the whole movement when one lot covers it. */
+function unitQuantity(unit: UnitInput, mode: inv.TrackingMode, total: inv.Quantity, count: number): inv.Quantity {
+  if (unit.quantity?.trim()) return inv.quantity(unit.quantity);
+  if (mode === "serial") return inv.quantity("1");
+  if (count === 1) return total;
+  throw new ConflictError(`Say how much of lot ${unit.number} moved. With more than one lot, each needs its own quantity.`);
+}
+
+/**
+ * The serials or lots LEAVING a location: each must exist for this item and
+ * be there in the quantity asked.
+ */
+async function leavingUnits(
+  tx: Database,
+  input: {
+    itemId: string; mode: inv.TrackingMode; quantity: inv.Quantity; locationId: string;
+    units: readonly UnitInput[]; movements: readonly inv.Movement[];
+  },
+): Promise<{ picks: inv.UnitPick[]; numbers: Map<string, string> }> {
+  const label = await itemLabel(tx, input.itemId);
+  if (input.units.length === 0) throw unitRefusal({ ok: false, reason: "units_required", mode: input.mode, itemLabel: label });
+  const picks: inv.UnitPick[] = [];
+  const numbers = new Map<string, string>();
+  for (const unit of input.units) {
+    const number = unit.number.trim();
+    const [found] = await tx.select({ id: schema.stockLot.id, number: schema.stockLot.number }).from(schema.stockLot)
+      .where(and(eq(schema.stockLot.itemId, input.itemId), sql`lower(${schema.stockLot.number}) = lower(${number})`))
+      .limit(1);
+    if (!found) {
+      throw new ConflictError(`No ${input.mode === "serial" ? "serial" : "lot"} ${number} of ${label} has ever been received. Check the number on the label.`);
+    }
+    numbers.set(found.id, found.number);
+    picks.push({ lotId: found.id, quantity: unitQuantity(unit, input.mode, input.quantity, input.units.length) });
+  }
+  const check = inv.checkUnitPicks({
+    mode: input.mode, itemLabel: label, quantity: input.quantity, picks, numbers,
+    from: {
+      locationId: input.locationId,
+      locationLabel: await placeLabel(tx, input.locationId),
+      levels: inv.deriveUnitLevels(input.movements),
+    },
+  });
+  if (!check.ok) throw unitRefusal(check);
+  return { picks, numbers };
+}
+
+/**
+ * A RETRIED MOVEMENT IS THE FIRST ONE, NOT A SECOND.
+ *
+ * Every stock route has said it was idempotent and none of them was: a
+ * technician's phone on one bar retrying an issue wrote it twice, and the
+ * van was a part short by the history's own arithmetic. The movements a
+ * write made are remembered against the caller's key, and a retry reads
+ * those same rows back.
+ */
+async function replayedMovements(tx: Database, ctx: ServiceContext, entity: string) {
+  const seen = await once.replayed<{ ids: string[] }>(tx, ctx, entity);
+  if (!seen) return null;
+  if (seen.ids.length === 0) return [];
+  return tx.select().from(schema.stockMovement)
+    .where(inArray(schema.stockMovement.id, seen.ids))
+    .orderBy(asc(schema.stockMovement.sequence));
+}
+
+async function rememberMovements(
+  tx: Database, ctx: ServiceContext, entity: string, rows: readonly { id: string }[],
+) {
+  await once.remember(tx, ctx, entity, rows[0]?.id ?? null, { ids: rows.map((r) => r.id) });
+}
+
+/** Fresh stamps from a starting sequence, one per movement, all at one instant. */
+const stampsFrom = (sequence: number, count: number, occurredAt: Date): inv.MovementStamp[] =>
+  Array.from({ length: count }, (_, i) => ({ id: crypto.randomUUID(), sequence: sequence + i, occurredAt }));
+
+/**
+ * Units named for an item that is not tracked, refused, rather than ignored:
+ * somebody believes they recorded serial numbers, and they did not.
+ */
+async function refuseUnitsOnUntracked(tx: Database, itemId: string, units: readonly UnitInput[] | undefined) {
+  if (units && units.length > 0) {
+    throw unitRefusal({ ok: false, reason: "untracked_given_units", itemLabel: await itemLabel(tx, itemId) });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
@@ -489,6 +696,13 @@ function toCore(
  * Every write takes the same shape: fold the history, ask core, write what it
  * said. The decision is never made here, so a refusal always carries the
  * sentence core wrote for it rather than one invented at the edge.
+ *
+ * A TRACKED ITEM goes through the same decision about the item as a whole
+ * (enough on the shelf, nobody else's reservation taken) and then the
+ * movement core returned is cut into one per serial or lot. `units` says what
+ * to do: `"refuse"` for a write that cannot name units (a count), a list for
+ * the units leaving, and `undefined` for a write that moves no stock (a
+ * reservation, which is of the item and not of a unit).
  */
 async function decide(
   ctx: ServiceContext,
@@ -501,26 +715,51 @@ async function decide(
   }) => inv.MovementDecision,
   where: { itemId: string; locationId: string },
   event: string,
+  units?: "refuse" | readonly UnitInput[],
 ) {
   return guardedWrite(ctx, permission, async (tx) => {
+    const again = await replayedMovements(tx, ctx, event);
+    if (again) return { rows: again, replayed: true };
+
     const movements = await history(tx, where.itemId);
     const level = inv.deriveLevel(movements, where.itemId, where.locationId);
     const sequence = await nextSequence(tx, ctx.actor.organizationId);
+    const occurredAt = new Date();
 
     const decision = plan({
       tx,
       level,
-      stamp: { id: crypto.randomUUID(), sequence, occurredAt: new Date() },
+      stamp: { id: crypto.randomUUID(), sequence, occurredAt },
       movements,
     });
     if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
 
-    const written = await writeMovements(tx, ctx, decision.movements);
+    let planned = decision.movements;
+    const mode = units === undefined ? null : await trackingOf(tx, where.itemId);
+    if (mode && units === "refuse") {
+      throw new ConflictError(
+        `${await itemLabel(tx, where.itemId)} is tracked by ${mode === "serial" ? "serial number" : "lot"}, so a count by number alone `
+        + "cannot say which units are missing or found. Write off the missing ones by number, and receive a found one with its number and cost.",
+      );
+    }
+    if (!mode && Array.isArray(units)) await refuseUnitsOnUntracked(tx, where.itemId, units);
+    if (mode && Array.isArray(units) && planned.length > 0) {
+      const leaving = planned[0]!;
+      const { picks } = await leavingUnits(tx, {
+        itemId: where.itemId, mode, quantity: leaving.quantity, locationId: where.locationId,
+        units, movements,
+      });
+      planned = inv.splitAcrossUnits(leaving, picks, stampsFrom(sequence, picks.length, occurredAt));
+    }
+
+    const written = await writeMovements(tx, ctx, planned);
     await audit(tx, ctx, event, "price_book_item", where.itemId, null, {
       locationId: where.locationId,
-      movements: decision.movements.map((mv) => mv.kind),
+      movements: planned.map((mv) => mv.kind),
+      ...(planned.some((mv) => mv.lotId) ? { units: planned.map((mv) => mv.lotId) } : {}),
     });
-    return written;
+    await rememberMovements(tx, ctx, event, written);
+    return { rows: written, replayed: false };
   });
 }
 
@@ -528,9 +767,9 @@ export async function reserve(
   ctx: ServiceContext,
   input: { itemId: string; locationId: string; jobId: string; quantity: string },
 ) {
-  return decide(ctx, "inventory:adjust", ({ level, stamp }) =>
+  return (await decide(ctx, "inventory:adjust", ({ level, stamp }) =>
     inv.planCommitment({ level, quantity: inv.quantity(input.quantity), jobId: input.jobId, stamp }),
-    input, "inventory.reserved");
+    input, "inventory.reserved")).rows;
 }
 
 /**
@@ -540,12 +779,19 @@ export async function reserve(
  * stock leaving the shelf for nobody, which is a real thing that happens and
  * is an ADJUSTMENT rather than an issue: the difference is whether anybody
  * can be told later what the part was for.
+ *
+ * A SERIALISED UNIT CAN SAY WHICH OF THE CUSTOMER'S UNITS IT IS. Linked to
+ * an equipment record at the job's property, or recorded as a new one there
+ * with its serial, which is what makes "which compressor is in my house" a
+ * lookup rather than an archaeology project. Recording a new one needs
+ * `equipment:write`, checked by the equipment register itself.
  */
 export async function issue(
   ctx: ServiceContext,
-  input: { itemId: string; locationId: string; quantity: string; jobId: string },
+  input: { itemId: string; locationId: string; quantity: string; jobId: string; units?: readonly UnitInput[] | undefined },
 ) {
-  return decide(ctx, "inventory:adjust", ({ level, stamp, movements }) =>
+  const units = input.units ?? [];
+  const outcome = await decide(ctx, "inventory:adjust", ({ level, stamp, movements }) =>
     inv.planIssue({
       level, quantity: inv.quantity(input.quantity), jobId: input.jobId, stamp,
       /**
@@ -556,7 +802,65 @@ export async function issue(
        */
       commitments: inv.deriveCommitments(movements),
     }),
-    input, "inventory.issued");
+    input, "inventory.issued", units);
+
+  const installing = units.filter((u) => u.equipmentId || u.installAs);
+  if (installing.length > 0 && !outcome.replayed) await installUnits(ctx, input.itemId, input.jobId, installing);
+  return outcome.rows;
+}
+
+/**
+ * THE TRACE FROM OUR SHELF TO THEIR BASEMENT.
+ *
+ * Written after the stock has moved and in its own transaction, so the
+ * equipment register's own checks (a serial already on file at the property,
+ * a category) run exactly as they do for a unit added by hand. A refusal
+ * there leaves the part issued and says what to fix, which is the right way
+ * round: the part is in the customer's unit whatever the register thinks.
+ */
+async function installUnits(ctx: ServiceContext, itemId: string, jobId: string, units: readonly UnitInput[]) {
+  await guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    const [job] = await tx.select({ propertyId: schema.job.propertyId }).from(schema.job)
+      .where(eq(schema.job.id, jobId)).limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+
+    for (const unit of units) {
+      const [lot] = await tx.select().from(schema.stockLot)
+        .where(and(eq(schema.stockLot.itemId, itemId), sql`lower(${schema.stockLot.number}) = lower(${unit.number.trim()})`))
+        .limit(1);
+      if (!lot) continue;
+      if (lot.mode !== "serial") {
+        throw new ConflictError(`Lot ${lot.number} is a batch, not one unit, so it cannot be a customer's equipment record.`);
+      }
+      let equipmentId = unit.equipmentId ?? null;
+      if (equipmentId) {
+        assertCan(ctx.actor, "equipment:read");
+        const [found] = await tx.select({ propertyId: schema.equipment.propertyId }).from(schema.equipment)
+          .where(and(eq(schema.equipment.id, equipmentId), isNull(schema.equipment.deletedAt))).limit(1);
+        if (!found) throw new NotFoundError("Equipment");
+        if (found.propertyId !== job.propertyId) {
+          throw new ConflictError(`That equipment is at a different address from the job, so serial ${lot.number} cannot have gone into it.`);
+        }
+      } else if (unit.installAs) {
+        const made = await equipmentRegister.register({ ...ctx, db: tx }, {
+          propertyId: job.propertyId,
+          category: unit.installAs.category,
+          tag: unit.installAs.tag ?? null,
+          manufacturer: unit.installAs.manufacturer ?? null,
+          model: unit.installAs.model ?? null,
+          location: unit.installAs.location ?? null,
+          serialNumber: lot.number,
+          installedOn: time.dateIn(new Date(), zone),
+          installedByUs: true,
+        });
+        equipmentId = made.id;
+      }
+      if (!equipmentId) continue;
+      await tx.update(schema.stockLot).set({ equipmentId, updatedAt: new Date() }).where(eq(schema.stockLot.id, lot.id));
+      await audit(tx, ctx, "stock_lot.installed", "stock_lot", lot.id, { equipmentId: lot.equipmentId }, { equipmentId, jobId });
+    }
+  });
 }
 
 /**
@@ -567,27 +871,43 @@ export async function issue(
  * system thinks. The one rule is that it carries what it COST, since a
  * receipt is the only movement that establishes a cost layer, and a receipt
  * with no cost is stock that will be issued at nothing and quietly overstate
- * every job's margin.
+ * every job's margin. A tracked item also carries its serial numbers or lot,
+ * and the cost is allocated across them.
  */
 export async function receive(
   ctx: ServiceContext,
-  input: { itemId: string; locationId: string; quantity: string; totalCost: string },
+  input: { itemId: string; locationId: string; quantity: string; totalCost: string; units?: readonly UnitInput[] | undefined },
 ) {
   const quantity = inv.quantity(input.quantity);
   if (quantity <= inv.ZERO_QUANTITY) throw new ConflictError("A receipt has to be for something.");
 
-  return decide(ctx, "inventory:adjust", ({ level, stamp }) => ({
-    ok: true,
-    movements: [{
-      ...stamp,
-      itemId: level.itemId,
-      locationId: level.locationId,
-      kind: "receipt" as const,
-      quantity,
-      totalCost: m.money(input.totalCost, "USD"),
-    }],
-  }),
-    input, "inventory.received");
+  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    const again = await replayedMovements(tx, ctx, "inventory.received");
+    if (again) return again;
+    const movements = await history(tx, input.itemId);
+    const sequence = await nextSequence(tx, ctx.actor.organizationId);
+    const occurredAt = new Date();
+    const receipt: inv.Movement = {
+      id: crypto.randomUUID(), sequence, occurredAt,
+      itemId: input.itemId, locationId: input.locationId,
+      kind: "receipt", quantity, totalCost: m.money(input.totalCost, "USD"),
+    };
+    const mode = await trackingOf(tx, input.itemId);
+    let planned: inv.Movement[] = [receipt];
+    if (mode) {
+      const picks = await arrivingUnits(tx, ctx, { itemId: input.itemId, mode, quantity, units: input.units ?? [], movements });
+      planned = inv.splitAcrossUnits(receipt, picks, stampsFrom(sequence, picks.length, occurredAt));
+    } else {
+      await refuseUnitsOnUntracked(tx, input.itemId, input.units);
+    }
+    const written = await writeMovements(tx, ctx, planned);
+    await audit(tx, ctx, "inventory.received", "price_book_item", input.itemId, null, {
+      locationId: input.locationId, quantity: input.quantity,
+      ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
+    });
+    await rememberMovements(tx, ctx, "inventory.received", written);
+    return written;
+  });
 }
 
 /**
@@ -596,13 +916,14 @@ export async function receive(
  * The counted number is not written anywhere. What is written is the
  * DIFFERENCE, as an adjustment with a reason, so the history still explains
  * every number it produces. A count that overwrote the level would be the one
- * write in this module that destroys evidence.
+ * write in this module that destroys evidence. Refused for a tracked item,
+ * whose missing and found units have numbers a count cannot give.
  */
 export async function count(
   ctx: ServiceContext,
   input: { itemId: string; locationId: string; counted: string; reasonCode?: string; foundAtCost?: string },
 ) {
-  return decide(ctx, "inventory:adjust", ({ level, stamp }) =>
+  return (await decide(ctx, "inventory:adjust", ({ level, stamp }) =>
     inv.reconcileCount({
       level,
       counted: inv.quantity(input.counted),
@@ -616,17 +937,27 @@ export async function count(
        */
       ...(input.foundAtCost ? { foundAtCost: m.money(input.foundAtCost, "USD") } : {}),
     }),
-    input, "inventory.counted");
+    input, "inventory.counted", "refuse")).rows;
 }
 
+/**
+ * Between the warehouse and a truck, or truck to truck. A tracked item says
+ * which units went, and each unit leaves and arrives as its own pair.
+ */
 export async function transfer(
   ctx: ServiceContext,
-  input: { itemId: string; fromLocationId: string; toLocationId: string; quantity: string },
+  input: {
+    itemId: string; fromLocationId: string; toLocationId: string; quantity: string;
+    units?: readonly UnitInput[] | undefined;
+  },
 ) {
   return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    const again = await replayedMovements(tx, ctx, "inventory.transferred");
+    if (again) return again;
     const movements = await history(tx, input.itemId);
     const from = inv.deriveLevel(movements, input.itemId, input.fromLocationId);
     const sequence = await nextSequence(tx, ctx.actor.organizationId);
+    const occurredAt = new Date();
 
     /**
      * Both halves or neither, and core returns them as one array so there is
@@ -637,16 +968,37 @@ export async function transfer(
       from,
       toLocationId: input.toLocationId,
       quantity: inv.quantity(input.quantity),
-      out: { id: crypto.randomUUID(), sequence, occurredAt: new Date() },
-      in: { id: crypto.randomUUID(), sequence: sequence + 1, occurredAt: new Date() },
+      out: { id: crypto.randomUUID(), sequence, occurredAt },
+      in: { id: crypto.randomUUID(), sequence: sequence + 1, occurredAt },
       transferId: crypto.randomUUID(),
     });
     if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
 
-    const written = await writeMovements(tx, ctx, decision.movements);
+    let planned = decision.movements;
+    const mode = await trackingOf(tx, input.itemId);
+    if (mode) {
+      const { picks } = await leavingUnits(tx, {
+        itemId: input.itemId, mode, quantity: inv.quantity(input.quantity), locationId: input.fromLocationId,
+        units: input.units ?? [], movements,
+      });
+      planned = inv.splitTransfer({
+        out: planned[0]!, in: planned[1]!, picks,
+        stamps: picks.map((_, i) => ({
+          out: { id: crypto.randomUUID(), sequence: sequence + i * 2, occurredAt },
+          in: { id: crypto.randomUUID(), sequence: sequence + i * 2 + 1, occurredAt },
+          transferId: crypto.randomUUID(),
+        })),
+      });
+    } else {
+      await refuseUnitsOnUntracked(tx, input.itemId, input.units);
+    }
+
+    const written = await writeMovements(tx, ctx, planned);
     await audit(tx, ctx, "inventory.transferred", "price_book_item", input.itemId, null, {
       from: input.fromLocationId, to: input.toLocationId, quantity: input.quantity,
+      ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
     });
+    await rememberMovements(tx, ctx, "inventory.transferred", written);
     return written;
   });
 }
@@ -701,11 +1053,40 @@ export async function purchaseOrders(ctx: ServiceContext) {
   });
 }
 
+export interface ReceiptChargeInput {
+  /** As the vendor's bill names it: "Freight", "Fuel surcharge", "Hazmat fee". */
+  description: string;
+  amount: string;
+}
+
+/**
+ * Receive a delivery against an order, with what came on the truck and what
+ * the truck cost.
+ *
+ * LANDED COST. Freight and fees on this delivery are spread over the lines
+ * that arrived on it, by value or by quantity, and folded into each line's
+ * cost layer, so a part bought for forty dollars with three dollars of
+ * freight on it is issued to the job at forty three. Each share is kept on
+ * its movement as well, so the receipt can still say what was the goods and
+ * what was the carrier. Only this delivery's lines carry this delivery's
+ * freight: the second drop of a split shipment paid its own.
+ *
+ * A TRACKED LINE names its serials or lots, and the line's landed cost is
+ * allocated across them.
+ */
 export async function receivePurchaseOrder(
   ctx: ServiceContext,
-  input: { purchaseOrderId: string; lines: { lineId: string; quantity: string }[] },
+  input: {
+    purchaseOrderId: string;
+    lines: { lineId: string; quantity: string; units?: readonly UnitInput[] | undefined }[];
+    charges?: readonly ReceiptChargeInput[] | undefined;
+    basis?: inv.LandedCostBasis | undefined;
+  },
 ) {
   return guardedWrite(ctx, "po:write", async (tx) => {
+    const seen = await once.replayed<{ status: string; receiptId: string; chargesTotal: string }>(tx, ctx, "purchase_order_receipt");
+    if (seen) return seen;
+
     const [order] = await tx.select().from(schema.purchaseOrder)
       .where(and(
         eq(schema.purchaseOrder.id, input.purchaseOrderId),
@@ -716,6 +1097,17 @@ export async function receivePurchaseOrder(
     const rows = await tx.select().from(schema.purchaseOrderLine)
       .where(eq(schema.purchaseOrderLine.purchaseOrderId, order.id));
 
+    const charges = (input.charges ?? []).map((charge) => ({
+      description: charge.description.trim(), amount: m.money(charge.amount, "USD"),
+    }));
+    for (const charge of charges) {
+      if (charge.description === "") throw new ConflictError("Say what each charge on the delivery is for, as the vendor's bill names it.");
+      if (m.isNegative(charge.amount)) {
+        throw new ConflictError("A charge on a delivery cannot be negative. A credit from the vendor is a return or a credit note, not freight.");
+      }
+    }
+    const chargesTotal = m.sum(charges.map((c) => c.amount), "USD");
+
     const sequence = await nextSequence(tx, ctx.actor.organizationId);
     const occurredAt = new Date();
 
@@ -723,7 +1115,8 @@ export async function receivePurchaseOrder(
      * Every receipt line carries its own stamp, because each one becomes a
      * movement and every movement needs its own place in the total order.
      * Sharing one stamp across a delivery would give three arriving parts the
-     * same sequence number and make the history unorderable.
+     * same sequence number and make the history unorderable. Restamped below
+     * when a tracked line is cut into one movement per unit.
      */
     const decision = inv.receivePurchaseOrder({
       purchaseOrder: toCore(order, rows),
@@ -736,7 +1129,71 @@ export async function receivePurchaseOrder(
     });
     if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
 
-    await writeMovements(tx, ctx, decision.movements);
+    const [receipt] = await tx.insert(schema.purchaseOrderReceipt).values({
+      organizationId: ctx.actor.organizationId,
+      purchaseOrderId: order.id,
+      receivedAt: occurredAt,
+      receivedByUserId: ctx.actor.userId,
+      basis: input.basis ?? "value",
+      chargesTotal: m.toString(chargesTotal),
+    }).returning({ id: schema.purchaseOrderReceipt.id });
+    if (charges.length > 0) {
+      await tx.insert(schema.purchaseOrderReceiptCharge).values(charges.map((charge) => ({
+        organizationId: ctx.actor.organizationId,
+        receiptId: receipt!.id,
+        description: charge.description,
+        amount: m.toString(charge.amount),
+      })));
+    }
+
+    /** The freight, spread over exactly the movements this delivery made. */
+    const shares = inv.allocateLandedCost(
+      chargesTotal,
+      decision.movements.map((mv) => ({ lineId: mv.id, value: mv.totalCost ?? m.zero("USD"), quantity: mv.quantity })),
+      input.basis ?? "value",
+    );
+    const shareOf = new Map(shares.map((s) => [s.lineId, s.share]));
+    const landed = decision.movements.map((mv) => ({
+      ...mv,
+      totalCost: m.add(mv.totalCost ?? m.zero("USD"), shareOf.get(mv.id) ?? m.zero("USD")),
+    }));
+
+    /** Tracked lines cut into one movement per unit, then the whole delivery restamped in order. */
+    const pieces: { movement: inv.Movement; landed: m.Money }[] = [];
+    const deliveredUnits = new Set<string>();
+    for (const movement of landed) {
+      const line = input.lines.find((l) => l.lineId === movement.purchaseOrderLineId);
+      const mode = await trackingOf(tx, movement.itemId);
+      const share = shareOf.get(movement.id) ?? m.zero("USD");
+      if (!mode) {
+        await refuseUnitsOnUntracked(tx, movement.itemId, line?.units);
+        pieces.push({ movement, landed: share });
+        continue;
+      }
+      const picks = await arrivingUnits(tx, ctx, {
+        itemId: movement.itemId, mode, quantity: movement.quantity, units: line?.units ?? [],
+        movements: await history(tx, movement.itemId),
+      });
+      for (const pick of picks) {
+        if (deliveredUnits.has(pick.lotId)) {
+          throw new ConflictError("The same serial number is on two lines of this delivery. Each unit arrives once.");
+        }
+        deliveredUnits.add(pick.lotId);
+      }
+      const split = inv.splitAcrossUnits(movement, picks, stampsFrom(0, picks.length, occurredAt));
+      const splitShares = m.allocate(share, picks.map((p) => inv.quantityToString(p.quantity)), 4);
+      split.forEach((piece, i) => pieces.push({ movement: piece, landed: splitShares[i] ?? m.zero("USD") }));
+    }
+    const stamped = pieces.map((piece, i) => ({
+      ...piece,
+      movement: { ...piece.movement, id: crypto.randomUUID(), sequence: sequence + i },
+    }));
+    const extras: MovementExtras = new Map(stamped.map((piece) => [piece.movement.id, {
+      receiptId: receipt!.id,
+      ...(m.isZero(piece.landed) ? {} : { landedCost: m.toString(piece.landed) }),
+    }]));
+
+    await writeMovements(tx, ctx, stamped.map((p) => p.movement), extras);
 
     /**
      * The received totals and the status are written from the order core
@@ -753,9 +1210,16 @@ export async function receivePurchaseOrder(
       .set({ status: decision.purchaseOrder.status, updatedAt: new Date() })
       .where(eq(schema.purchaseOrder.id, order.id));
 
-    await audit(tx, ctx, "purchase_order.received", "purchase_order", order.id, order,
-      { status: decision.purchaseOrder.status });
-    return { status: decision.purchaseOrder.status };
+    await audit(tx, ctx, "purchase_order.received", "purchase_order", order.id, order, {
+      status: decision.purchaseOrder.status, receiptId: receipt!.id, chargesTotal: m.toString(chargesTotal),
+    });
+    const answer = {
+      status: decision.purchaseOrder.status as string,
+      receiptId: receipt!.id,
+      chargesTotal: m.toString(m.round(chargesTotal, 2)),
+    };
+    await once.remember(tx, ctx, "purchase_order_receipt", receipt!.id, answer);
+    return answer;
   });
 }
 
@@ -983,6 +1447,31 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
     const total = m.sum(lines.map((l) =>
       m.multiply(m.money(l.line.unitPrice, "USD"), inv.quantityToString(inv.quantity(l.line.quantityOrdered)))), "USD");
 
+    /**
+     * What arrived, delivery by delivery, with the freight that came on each
+     * and the serials or lots each line brought. The freight spread onto a
+     * line is shown beside what the goods cost, because "the parts were four
+     * hundred and the truck was twelve" is what a buyer checks against the
+     * vendor's bill.
+     */
+    const receipts = await tx.select().from(schema.purchaseOrderReceipt)
+      .where(eq(schema.purchaseOrderReceipt.purchaseOrderId, input.id))
+      .orderBy(asc(schema.purchaseOrderReceipt.receivedAt));
+    const charges = receipts.length === 0 ? [] : await tx.select().from(schema.purchaseOrderReceiptCharge)
+      .where(inArray(schema.purchaseOrderReceiptCharge.receiptId, receipts.map((r) => r.id)));
+    const arrived = await tx.select({
+      lineId: schema.stockMovement.purchaseOrderLineId,
+      landedCost: schema.stockMovement.landedCost,
+      lotNumber: schema.stockLot.number,
+      lotId: schema.stockLot.id,
+    }).from(schema.stockMovement)
+      .leftJoin(schema.stockLot, eq(schema.stockLot.id, schema.stockMovement.lotId))
+      .where(and(eq(schema.stockMovement.purchaseOrderId, input.id), eq(schema.stockMovement.kind, "receipt")));
+    const tracked = lines.length === 0 ? [] : await tx.select({ itemId: schema.stockTracking.itemId, mode: schema.stockTracking.mode })
+      .from(schema.stockTracking)
+      .where(inArray(schema.stockTracking.itemId, lines.map((l) => l.line.itemId)));
+    const modeOf = new Map(tracked.map((t) => [t.itemId, t.mode]));
+
     return {
       id: order.order.id,
       number: order.order.number,
@@ -1005,7 +1494,23 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
         quantityOrdered: inv.quantityToString(inv.quantity(l.line.quantityOrdered)),
         quantityReceived: inv.quantityToString(inv.quantity(l.line.quantityReceived)),
         unitPrice: l.line.unitPrice,
+        tracking: modeOf.get(l.line.itemId) ?? null,
+        landedCost: m.toString(m.round(m.sum(arrived
+          .filter((a) => a.lineId === l.line.id && a.landedCost !== null)
+          .map((a) => m.money(a.landedCost!))), 2)),
+        units: arrived.filter((a) => a.lineId === l.line.id && a.lotId !== null)
+          .map((a) => ({ id: a.lotId!, number: a.lotNumber! })),
       })),
+      receipts: receipts.map((r) => ({
+        id: r.id,
+        receivedAt: r.receivedAt.toISOString(),
+        basis: r.basis,
+        chargesTotal: m.toString(m.round(m.money(r.chargesTotal), 2)),
+        charges: charges.filter((c) => c.receiptId === r.id)
+          .map((c) => ({ description: c.description, amount: m.toString(m.round(m.money(c.amount), 2)) })),
+      })),
+      approval: (await approvals.planWithin(tx, input.id)).view,
+      sends: await sendsWithin(tx, input.id),
     };
   });
 }
@@ -1033,17 +1538,21 @@ export async function setPurchaseOrderStatus(
   input: { id: string; status: inv.PurchaseOrderStatus },
 ) {
   /**
-   * SUBMITTING IS THE APPROVAL. Everything else on this function is
-   * bookkeeping about an order that already exists.
+   * SENDING IT TO THE VENDOR IS WHERE APPROVAL IS CHECKED. Everything else on
+   * this function is bookkeeping about an order that already exists.
    *
    * Guarding the whole transition on `po:approve` would stop a buyer
    * cancelling their own draft, which makes the permission something people
    * work around. Guarding it all on `po:write` would let anybody who can
    * type an order commit the company to paying for it, which is the thing
-   * `po:approve` exists to prevent and the reason the two are separate
-   * entries in the catalogue at all.
+   * approval exists to prevent.
+   *
+   * Where the company has declared approval steps and one applies to this
+   * order's total, the steps ARE the approval: once every one has said yes,
+   * the buyer who wrote it may send it. Where no step applies, it is the
+   * sender's own `po:approve`, as it always was. `submitWithin` decides which.
    */
-  const permission = input.status === "submitted" ? "po:approve" as const : "po:write" as const;
+  const permission = input.status === "submitted" && !can(ctx.actor, "po:write") ? "po:approve" as const : "po:write" as const;
   return guardedWrite(ctx, permission, async (tx) => {
     const [order] = await tx.select().from(schema.purchaseOrder)
       .where(eq(schema.purchaseOrder.id, input.id)).limit(1);
@@ -1058,24 +1567,60 @@ export async function setPurchaseOrderStatus(
         + `${inv.PURCHASE_ORDER_STATUS[input.status].label.toLowerCase()}.`,
       );
     }
+    if (input.status === "submitted") {
+      await submitWithin(tx, ctx, order);
+      return { id: order.id, status: "submitted" as const };
+    }
 
-    await tx.update(schema.purchaseOrder).set({
-      status: input.status,
-      /**
-       * Stamped once, when it actually goes out. The question a buyer asks a
-       * week later is "when did we send this", and a status alone cannot
-       * answer it.
-       */
-      ...(input.status === "submitted" && !order.submittedAt
-        ? { submittedAt: new Date() } : {}),
-      updatedAt: new Date(),
-    }).where(eq(schema.purchaseOrder.id, input.id));
-
+    await tx.update(schema.purchaseOrder).set({ status: input.status, updatedAt: new Date() })
+      .where(eq(schema.purchaseOrder.id, input.id));
     await audit(tx, ctx, "purchase_order.status", "purchase_order", input.id,
       { status: from }, { status: input.status });
-
     return { id: order.id, status: input.status };
   });
+}
+
+/**
+ * May this draft go to the vendor, and on whose say so. Refuses an order
+ * whose approval steps are waiting or rejected, and an order no step applies
+ * to unless the sender holds `po:approve`.
+ */
+export async function assertSubmittable(
+  tx: Database, ctx: ServiceContext, order: typeof schema.purchaseOrder.$inferSelect,
+): Promise<inv.ApprovalPlan> {
+  if (order.status !== "draft") {
+    throw new ConflictError(
+      `A ${inv.PURCHASE_ORDER_STATUS[order.status as inv.PurchaseOrderStatus].label.toLowerCase()} order has already gone to the vendor.`,
+    );
+  }
+  const { plan } = await approvals.planWithin(tx, order.id);
+  if (plan.state === "waiting" || plan.state === "rejected") throw new ConflictError(plan.sentence);
+  if (plan.state === "not_needed") assertCan(ctx.actor, "po:approve");
+  return plan;
+}
+
+/**
+ * A draft becomes an order the vendor has: approval checked, stamped as sent.
+ * Shared by the status call and by emailing, so the two cannot disagree about
+ * what approval means.
+ */
+export async function submitWithin(
+  tx: Database, ctx: ServiceContext, order: typeof schema.purchaseOrder.$inferSelect,
+): Promise<void> {
+  const plan = await assertSubmittable(tx, ctx, order);
+
+  await tx.update(schema.purchaseOrder).set({
+    status: "submitted",
+    /**
+     * Stamped once, when it actually goes out. The question a buyer asks a
+     * week later is "when did we send this", and a status alone cannot
+     * answer it.
+     */
+    ...(!order.submittedAt ? { submittedAt: new Date() } : {}),
+    updatedAt: new Date(),
+  }).where(eq(schema.purchaseOrder.id, order.id));
+  await audit(tx, ctx, "purchase_order.status", "purchase_order", order.id,
+    { status: order.status }, { status: "submitted", approval: plan.state });
 }
 
 /**
@@ -1097,7 +1642,7 @@ export async function release(
   ctx: ServiceContext,
   input: { itemId: string; locationId: string; jobId: string; quantity: string },
 ) {
-  return decide(ctx, "inventory:adjust", ({ level, stamp, movements }) => {
+  return (await decide(ctx, "inventory:adjust", ({ level, stamp, movements }) => {
     /**
      * Never more than the job is actually holding.
      *
@@ -1115,7 +1660,7 @@ export async function release(
     }
 
     return inv.planRelease({ level, quantity: want, jobId: input.jobId, stamp });
-  }, input, "inventory.released");
+  }, input, "inventory.released")).rows;
 }
 
 /**
@@ -1132,13 +1677,18 @@ export async function releaseAllFor(
     inv.deriveCommitments(await history(tx)).filter((c) => c.jobId === input.jobId));
 
   const released: Array<{ itemId: string; locationId: string; quantity: string }> = [];
+  /**
+   * Without the caller's idempotency key: one key across several releases
+   * would make the second one replay the first and free nothing.
+   */
+  const { idempotencyKey: _key, ...each } = ctx;
   for (const commitment of open) {
     /**
      * One at a time, each through the same path a person would use. Writing
      * the movements directly would be a second way to release stock, and the
      * second way written is the one that forgets the clamp above.
      */
-    await release(ctx, {
+    await release(each, {
       itemId: commitment.itemId,
       locationId: commitment.locationId,
       jobId: input.jobId,
@@ -1184,6 +1734,7 @@ export interface MovementOnTheWire {
   jobId: string | null;
   transferId: string | null;
   reasonCode: string | null;
+  lotId: string | null;
   sequence: number;
   occurredAt: Date;
 }
@@ -1199,6 +1750,7 @@ const onTheWire = (rows: readonly (typeof schema.stockMovement.$inferSelect)[]):
     jobId: row.jobId,
     transferId: row.transferId,
     reasonCode: row.reasonCode,
+    lotId: row.lotId,
     sequence: row.sequence,
     occurredAt: row.occurredAt,
   }));
@@ -1236,10 +1788,12 @@ export const handlers = {
 
   issueStock: async (ctx: ServiceContext, input: {
     itemId: string; locationId: string; jobId: string; quantity: string;
+    units?: readonly UnitInput[] | undefined;
   }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await issue(ctx, input)) }),
 
   receiveStock: async (ctx: ServiceContext, input: {
     itemId: string; locationId: string; quantity: string; totalCost: string;
+    units?: readonly UnitInput[] | undefined;
   }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await receive(ctx, input)) }),
 
   countStock: async (ctx: ServiceContext, input: {
@@ -1257,6 +1811,7 @@ export const handlers = {
 
   transferStock: async (ctx: ServiceContext, input: {
     itemId: string; fromLocationId: string; toLocationId: string; quantity: string;
+    units?: readonly UnitInput[] | undefined;
   }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await transfer(ctx, input)) }),
 
   listVendors: async (ctx: ServiceContext) => ({ vendors: await vendors(ctx) }),
@@ -1309,10 +1864,15 @@ export const handlers = {
   }): Promise<{ id: string; status: string }> => setPurchaseOrderStatus(ctx, input),
 
   receivePurchaseOrder: (ctx: ServiceContext, input: {
-    id: string; lines: readonly { lineId: string; quantity: string }[];
-  }): Promise<{ status: string }> => receivePurchaseOrder(ctx, {
+    id: string;
+    lines: readonly { lineId: string; quantity: string; units?: readonly UnitInput[] | undefined }[];
+    charges?: readonly ReceiptChargeInput[] | undefined;
+    basis?: "value" | "quantity" | undefined;
+  }): Promise<{ status: string; receiptId: string; chargesTotal: string }> => receivePurchaseOrder(ctx, {
     purchaseOrderId: input.id,
-    lines: input.lines.map((l) => ({ lineId: l.lineId, quantity: l.quantity })),
+    lines: input.lines.map((l) => ({ lineId: l.lineId, quantity: l.quantity, units: l.units })),
+    charges: input.charges,
+    basis: input.basis,
   }),
 
   listReorderPolicies: async (ctx: ServiceContext): Promise<{ policies: ReorderPolicyView[] }> =>

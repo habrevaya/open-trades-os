@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 /**
  * WHOSE PRICE GOVERNS.
@@ -62,6 +63,9 @@ export const Visit = z.object({
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
   technicianNotes: z.string().nullable(),
+  /** What the customer reads about the visit on their account, as the office chose to share it. */
+  customerNotes: z.string().nullable(),
+  customerNotesSharedAt: z.string().datetime().nullable(),
   externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
@@ -224,6 +228,7 @@ export const listJobs = defineRoute({
     businessUnitId: z.union([Uuid, z.literal("none")]).optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Job.omit({ visits: true }).extend({
     customerName: z.string(),

@@ -1,6 +1,7 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { marketingReport } from "@opentradesos/api/services";
+import { marketingReport, voiceAgent } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { formatIn, todayIn } from "@/lib/dates";
@@ -41,6 +42,10 @@ export default async function CallsPage(
     ...(campaignId ? { campaignId } : {}),
     ...(q ? { q } : {}),
   });
+  /** Which of these the phone assistant answered, marked so the owner can find what it did. */
+  const assisted = can(user.actor, "message:read")
+    ? await voiceAgent.answeredAmong(ctx, calls.map((c) => c.id))
+    : new Set<string>();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -99,7 +104,10 @@ export default async function CallsPage(
               </Td>
               <Td>{call.campaignName ?? <span className="text-ink-500">None</span>}</Td>
               <Td>{call.channelName ?? <span className="text-ink-500">Not placed</span>}</Td>
-              <Td><span title={call.outcomeWhy}><Chip tone={call.outcome === "booked" ? "success" : call.outcome === "missed" || call.outcome.startsWith("voicemail") || call.outcome.startsWith("abandoned") ? "warning" : "neutral"}>{call.outcomeLabel}</Chip></span></Td>
+              <Td>
+                <span title={call.outcomeWhy}><Chip tone={call.outcome === "booked" ? "success" : call.outcome === "missed" || call.outcome.startsWith("voicemail") || call.outcome.startsWith("abandoned") ? "warning" : "neutral"}>{call.outcomeLabel}</Chip></span>
+                {assisted.has(call.id) ? <span className="ml-1"><Chip tone="info">Phone assistant</Chip></span> : null}
+              </Td>
               <Td>{call.firstTimeCaller === true ? "First time" : call.firstTimeCaller === false ? "Called before" : "Not known"}</Td>
               <Td className="tabular-nums">{call.durationSeconds !== null ? `${Math.floor(call.durationSeconds / 60)}m ${call.durationSeconds % 60}s` : ""}</Td>
               <Td>

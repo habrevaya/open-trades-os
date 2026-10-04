@@ -76,11 +76,27 @@ export const PERMISSIONS = {
   "estimate:discount": "Apply a discount",
   "estimate.discount.unlimited": "Apply a discount above the configured cap",
   "estimate:approve": "Approve or decline an estimate on the customer's behalf",
+  /**
+   * The customer choosing and signing on the technician's own screen, at the
+   * kitchen table, rather than on their phone through a link. Narrower than
+   * `estimate:approve` and different in kind: the person holding it records
+   * nothing on the customer's behalf. The customer picks the option and
+   * draws the signature, and the phone only carries it, for a visit on the
+   * technician's own day. A technician holds this and not `estimate:approve`.
+   */
+  "estimate:present": "Show a customer an estimate on your screen and take their choice and signature",
   "booking:read": "View booking requests from the website",
   "booking:decide": "Confirm or decline a booking request",
   "booking:configure": "Choose what the public may book, and on what terms",
   "portal:grant": "Issue a customer a link to approve, pay or track without an account",
-  "portal:revoke": "Withdraw a customer link",
+  "portal:revoke": "Withdraw a customer link, end a customer's sign in, and choose which contacts may sign in",
+  /**
+   * Separate from `portal:grant` because a technician holds that one, to hand
+   * a customer a link on their own phone, and a technician has no business
+   * reading which addresses a customer signs in from or when somebody failed
+   * to. The person who answers "the code never came" is in the office.
+   */
+  "portal:read": "See customers' portal sign ins and failed sign in codes",
   "membership:read": "View memberships and agreements",
   "membership:write": "Sell and edit memberships",
   /**
@@ -95,6 +111,14 @@ export const PERMISSIONS = {
   // --- Money ---------------------------------------------------------------
   "invoice:read": "View invoices",
   "invoice:write": "Create and edit invoices",
+  /**
+   * Raising the bill for the work in front of you, on site, and nothing
+   * else. `invoice:write` raises, edits and issues any invoice for any job,
+   * which is the office's power; this raises and issues ONE invoice, from
+   * the work recorded on a visit on the holder's own day or the option the
+   * customer signed for, priced by the same rules the office's would be.
+   */
+  "invoice:raise_on_site": "Raise and issue the invoice for the work on your own visit",
   "invoice:send": "Send an invoice",
   "invoice:void": "Void an invoice",
   "invoice:writeoff": "Write off a balance",
@@ -110,6 +134,14 @@ export const PERMISSIONS = {
   "accounting:sync": "Run and configure the accounting sync",
   "accounting:close": "Close an accounting period",
   "report.financial:read": "View financial reports and P and L",
+  /**
+   * The rates that turn a direct margin into a fully loaded one (labour
+   * burden and overhead) and the company's yearly budget. Separate from
+   * `settings:write` because these change what every margin and every
+   * budget report says, which is finance's decision, and the accountant who
+   * makes it should not need the power to change the company's settings.
+   */
+  "finance:configure": "Set labour burden, overhead rates and the company budget",
 
   // --- Purchasing and inventory -------------------------------------------
   "vendor:read": "View vendors",
@@ -122,6 +154,13 @@ export const PERMISSIONS = {
 
   // --- Workforce -----------------------------------------------------------
   "field:sync": "Use the field app and submit work from it",
+  /**
+   * The company's own how-to notes (how this company bleeds a boiler, which
+   * filter the Johnsons' unit takes), which the field assistant answers from.
+   * Separate from settings because the person who knows the procedure is a
+   * lead technician or a service manager, not whoever runs the system.
+   */
+  "knowledge:write": "Write the company's how-to notes the field assistant answers from",
   "timeclock:own": "Clock in and out",
   "timesheet:read": "View timesheets",
   "timesheet:approve": "Approve timesheets",
@@ -140,6 +179,14 @@ export const PERMISSIONS = {
   // --- Grow ----------------------------------------------------------------
   "message:read": "View customer messages and call history",
   "message:send": "Send messages to customers",
+  /**
+   * Its own grant rather than part of sending messages, because a technician
+   * texts from the field and holds `message:send` for it, and ringing anybody
+   * from the browser as the company's number is a different thing: it puts the
+   * company's caller id on the call and the minutes on the company's bill. It
+   * is also what lets a browser ring when a customer calls.
+   */
+  "call:place": "Make and take calls from the company's numbers in the browser",
   "campaign:read": "View marketing campaigns",
   "campaign:write": "Create and send marketing campaigns",
   "adspend:read": "View ad spend and attribution",
@@ -156,6 +203,19 @@ export const PERMISSIONS = {
   "document:write": "Manage company documents",
   "compliance:read": "View licences, insurance and compliance records",
   "compliance:write": "Manage licences, insurance and compliance records",
+  /**
+   * SAFETY RECORDS ARE THEIR OWN GRANT, and the reason is what is in them. An
+   * incident report names who was hurt and how, which is a narrower audience
+   * than the company's insurance certificate, and a toolbox talk sign in sheet
+   * is run by a foreman who has no business in the filings.
+   *
+   * Reporting is separate from reading on purpose. Everybody should be able
+   * to report the ladder that nearly slipped, and a form that also shows them
+   * every injury their colleagues ever had is a form nobody may be given.
+   */
+  "safety:read": "View toolbox talks and incident reports",
+  "safety:write": "Hold toolbox talks and follow up incident reports",
+  "safety:report": "Report an incident or a near miss",
 
   // --- Administration ------------------------------------------------------
   "user:read": "View users",
@@ -196,6 +256,21 @@ export const PERMISSIONS = {
    */
   "audit:read": "View the audit log",
   "customfield:write": "Define custom fields and objects",
+  /**
+   * THE COMPANY'S OWN KINDS OF RECORD: permits, warranty registrations, truck
+   * inspections. The defaults each kind starts with; a kind can name any
+   * other permission instead, so "only the office sees permits" and
+   * "technicians file the truck inspection" are a choice on the definition
+   * rather than a new role.
+   */
+  "record:read": "View the company's own kinds of record, like permits",
+  "record:write": "Add and change the company's own kinds of record",
+  /**
+   * A practice copy of the company's settings, and copying chosen settings
+   * back. Its own permission because the copy back changes how the real
+   * company runs, in one press, from somewhere nobody else is looking.
+   */
+  "sandbox:manage": "Make a practice copy of the company's settings and copy chosen settings back",
   /**
    * Seeing what is automated is a different question from being able to
    * change it. An owner asking "why did this customer get that text" needs

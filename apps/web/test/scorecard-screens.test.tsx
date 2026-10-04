@@ -67,6 +67,25 @@ describe("the trade scorecard", () => {
     expect(duration).toContain("1.75 hrs");
   });
 
+  it("opens each half onto the records behind it", () => {
+    /**
+     * Every number on a report is a link, and the scorecard's two halves are
+     * too: "$186,000 over 300 jobs" opens on the jobs, and the list adds up to
+     * the half that was clicked.
+     */
+    const html = renderToStaticMarkup(<Figure
+      kpi={{
+        ...base, format: "money", value: "620.0000",
+        numerator: "186000.0000", denominator: "300",
+        numeratorLabel: "revenue on completed jobs", denominatorLabel: "completed jobs",
+      }}
+      records={(half) => `/reports/scorecard/records?key=avg_ticket&half=${half}&from=2026-06-01&to=2026-06-30`}
+    />);
+    expect(html).toContain('href="/reports/scorecard/records?key=avg_ticket&amp;half=numerator&amp;from=2026-06-01&amp;to=2026-06-30"');
+    expect(html).toContain('href="/reports/scorecard/records?key=avg_ticket&amp;half=denominator&amp;from=2026-06-01&amp;to=2026-06-30"');
+    expect(html).toMatch(/>\$186,000\.00<\/span> revenue on completed jobs<\/a>|\$186,000\.00.*revenue on completed jobs<\/a>/);
+  });
+
   it("names the one missing datum rather than saying not built", () => {
     /**
      * The bottom half of the screen is the other half of the answer. Six real

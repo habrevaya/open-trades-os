@@ -225,3 +225,88 @@ run("what it will and will not wait on", () => {
     expect(ours(await dwell.sweep(db(), { only: [ORG] }))).toHaveLength(0);
   });
 });
+
+/* ============================================== a warranty about to run out */
+
+run("a warranty about to run out", () => {
+  const ahead = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
+
+  async function unit(tag: string, parts: string | null, labour: string | null, retired = false): Promise<string> {
+    const [row] = await raw<{ id: string }[]>`
+      insert into public.equipment (organization_id, property_id, category, tag,
+                                    warranty_parts_expires_on, warranty_labor_expires_on, active, deleted_at)
+      values (${ORG}, ${propertyId}, 'furnace', ${tag}, ${parts}, ${labour}, ${!retired}, ${retired ? new Date() : null})
+      returning id`;
+    return row!.id;
+  }
+
+  async function defineWarranty(days: number): Promise<string> {
+    const flow = await workflows.create(owner(), {
+      name: "Ring before cover ends",
+      triggerKind: "dwell",
+      dwell: { shape: "warranty_lapsing", afterDays: days },
+      steps: [{ kind: "create_task", config: { title: "Warranty ends {{ until }}: offer a plan", queue: "office" } }],
+    });
+    await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
+    return flow.id;
+  }
+
+  beforeEach(async () => {
+    if (!url) return;
+    await raw`update public.organization set timezone = 'America/Chicago' where id = ${ORG}`;
+    await raw`delete from public.equipment where organization_id = ${ORG}`;
+  });
+
+  it("raises a follow up about each unit whose next cover ends inside the window, about the unit, naming the date", async () => {
+    /**
+     *   Soon    parts end in 10 days                               fires
+     *   Later   parts end in 60 days                               not yet
+     *   Split   labour ended last year, parts end in 20 days       fires, on the parts date
+     *   Gone    parts end in 5 days, taken off the register        nobody's call: no
+     */
+    await defineWarranty(30);
+    const soon = await unit("Soon", ahead(10), null);
+    await unit("Later", ahead(60), null);
+    const split = await unit("Split", ahead(20), ahead(-300));
+    await unit("Gone", ahead(5), null, true);
+
+    const [result] = ours(await dwell.sweep(db()));
+    expect(result!.shape).toBe("warranty_lapsing");
+    expect(result!.matched).toBe(2);
+    expect(result!.runs.every((r) => r.status === "succeeded")).toBe(true);
+
+    const tasks = await raw<{ title: string; entity_type: string; entity_id: string }[]>`
+      select title, entity_type, entity_id from public.task where organization_id = ${ORG} order by title`;
+    expect(tasks.map((t) => [t.entity_type, t.entity_id, t.title]).sort()).toEqual([
+      ["equipment", soon, `Warranty ends ${ahead(10)}: offer a plan`],
+      ["equipment", split, `Warranty ends ${ahead(20)}: offer a plan`],
+    ].sort());
+
+    const [event] = await raw<{ payload: Record<string, unknown> }[]>`
+      select payload from public.domain_event where organization_id = ${ORG}
+        and name = 'equipment.warranty_lapsing' and entity_id = ${soon}`;
+    expect(event!.payload).toMatchObject({
+      shape: "warranty_lapsing", daysBefore: 30, until: ahead(10),
+      equipment: { id: soon, customerId },
+    });
+  });
+
+  it("raises it once per date, and again when the cover is extended to a new one", async () => {
+    await defineWarranty(30);
+    const soon = await unit("Soon", ahead(10), null);
+    await dwell.sweep(db());
+    await dwell.sweep(db());
+    expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(1);
+
+    /** The customer bought an extended warranty; its new end date is a new call to make. */
+    await raw`update public.equipment set warranty_parts_expires_on = ${ahead(25)} where id = ${soon}`;
+    await dwell.sweep(db());
+    expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(2);
+  });
+
+  it("says what it is waiting on, counting the days back from the date", async () => {
+    const id = await defineWarranty(30);
+    const [summary] = (await workflows.list(owner())).filter((f) => f.id === id);
+    expect(summary!.dwellText).toBe("A unit's warranty about to run out, 30 days before");
+  });
+});

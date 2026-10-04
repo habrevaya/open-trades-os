@@ -9,9 +9,15 @@ import * as payments from "./payments";
 import { inGrant } from "./portal";
 import { sessionFor, type PortalSession } from "./portal-sign-in";
 import { payerContext, processorConnected } from "./invoice-delivery";
+import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 
 /**
- * A CUSTOMER'S SAVED CARDS
+ * A CUSTOMER'S SAVED CARDS, AND BANK ACCOUNTS
+ *
+ * A bank account is saved and paid with exactly as a card is, through the
+ * processor's own setup flow, with two differences said where they bite: it
+ * is offered only when the company has turned bank payments on, and paying
+ * with one is pending for days (see `payments.failed` for when it fails).
  *
  * Saved, listed, removed and paid with, by the customer, from their own
  * signed in account and from nowhere else (see `saved_payment_method` for
@@ -37,6 +43,9 @@ const SETUP_EVENT = "card.setup";
 
 export interface SavedCard {
   id: string;
+  /** `card`, or `bank_account` for a bank account saved the same way. */
+  kind: "card" | "bank_account";
+  /** The card brand, or the bank's name for a bank account. */
   brand: string | null;
   last4: string | null;
   expMonth: number | null;
@@ -46,6 +55,7 @@ export interface SavedCard {
 
 const shape = (row: typeof schema.savedPaymentMethod.$inferSelect): SavedCard => ({
   id: row.id,
+  kind: row.kind === "bank_account" ? "bank_account" : "card",
   brand: row.brand,
   last4: row.last4,
   expMonth: row.expMonth,
@@ -53,8 +63,14 @@ const shape = (row: typeof schema.savedPaymentMethod.$inferSelect): SavedCard =>
   savedAt: row.createdAt.toISOString(),
 });
 
-/** The cards this customer has saved, newest first, and whether they could save one now. */
-export async function list(db: Database, input: { token: string }): Promise<{ cards: SavedCard[]; canSave: boolean }> {
+/**
+ * The cards and bank accounts this customer has saved, newest first, and
+ * whether they could save one of each now. A bank account only when the
+ * company has turned bank payments on.
+ */
+export async function list(
+  db: Database, input: { token: string },
+): Promise<{ cards: SavedCard[]; canSave: boolean; canSaveBank: boolean }> {
   const session = await sessionFor(db, input.token);
   return inGrant(db, session.grant, async (tx) => {
     const rows = await tx.select().from(schema.savedPaymentMethod)
@@ -63,7 +79,9 @@ export async function list(db: Database, input: { token: string }): Promise<{ ca
         isNull(schema.savedPaymentMethod.removedAt),
       ))
       .orderBy(desc(schema.savedPaymentMethod.createdAt));
-    return { cards: rows.map(shape), canSave: await processorConnected(tx) };
+    const connected = await processorConnected(tx);
+    const settings = await portalSettingsWithin(tx, session.grant.organizationId);
+    return { cards: rows.map(shape), canSave: connected, canSaveBank: connected && settings.bankAccounts };
   });
 }
 
@@ -121,10 +139,15 @@ export interface CardSetupStart {
 
 /** Begin saving a card: what the processor's element needs to collect it in the browser. */
 export async function startSave(
-  db: Database, input: { token: string }, meta?: RequestMeta, deps?: payments.PaymentDeps,
+  db: Database, input: { token: string; kind?: "card" | "bank_account" | undefined },
+  meta?: RequestMeta, deps?: payments.PaymentDeps,
 ): Promise<CardSetupStart> {
   const session = await sessionFor(db, input.token);
+  const kind = input.kind ?? "card";
   return inGrant(db, session.grant, async (tx, ctx) => {
+    if (kind === "bank_account" && !(await portalSettingsWithin(tx, session.grant.organizationId)).bankAccounts) {
+      throw new ConflictError("This company does not take bank payments online. Save a card instead.");
+    }
     const { connection, provider } = await payments.processorFor(tx, session.grant.organizationId, deps);
     if (!provider.cards) {
       throw new ConflictError("This company's card processor does not keep cards. Pay with a card each time instead.");
@@ -133,6 +156,7 @@ export async function startSave(
     const started = await provider.cards.startSetup({
       customerRef: profile.externalRef,
       idempotencyKey: meta?.idempotencyKey ?? randomUUID(),
+      kind,
       metadata: {
         otos_customer: session.customerId,
         otos_organization: session.grant.organizationId,
@@ -156,11 +180,11 @@ export async function startSave(
       status: "pending",
       entityType: "customer",
       entityId: session.customerId,
-      requestPayload: { profileId: profile.id, connectionId: connection.id },
+      requestPayload: { profileId: profile.id, connectionId: connection.id, kind },
       responsePayload: { setupId: started.value.setupId },
     });
     await audit(tx, ctx, "portal.card.setup_started", "customer", session.customerId, null, {
-      setupId: started.value.setupId,
+      setupId: started.value.setupId, kind,
     });
     return {
       setupId: started.value.setupId,
@@ -206,30 +230,34 @@ export async function confirmSave(
     const read = await provider.cards.readSetup(input.setupId);
     if (!read.ok) throw new ConflictError(read.message);
     const setup = read.value;
-    if (setup.status !== "succeeded" || !setup.card) {
+    const bank = setup.bankAccount ?? null;
+    const what = bank ? "bank account" : "card";
+    if (setup.status !== "succeeded" || (!setup.card && !bank)) {
       throw new ConflictError(setup.status === "processing"
-        ? "Your bank is still checking the card. Refresh this page in a minute."
-        : "The card was not saved. Nothing was charged. Try adding it again.");
+        ? `Your bank is still checking the ${what}. Refresh this page in a minute.`
+        : `The ${what} was not saved. Nothing was charged. Try adding it again.`);
     }
     /** The processor's customer has to be the one made for this customer, or it is somebody else's card. */
     if (setup.customerRef !== profile.externalRef) throw new NotFoundError("Card setup");
+    const ref = bank ? bank.ref : setup.card!.ref;
 
     await tx.insert(schema.savedPaymentMethod).values({
       organizationId: session.grant.organizationId,
       customerId: session.customerId,
       profileId: profile.id,
       provider: connection.provider,
-      externalRef: setup.card.ref,
-      brand: setup.card.brand,
-      last4: setup.card.last4,
-      expMonth: setup.card.expMonth,
-      expYear: setup.card.expYear,
+      kind: bank ? "bank_account" : "card",
+      externalRef: ref,
+      brand: bank ? bank.bankName : setup.card!.brand,
+      last4: bank ? bank.last4 : setup.card!.last4,
+      expMonth: bank ? null : setup.card!.expMonth,
+      expYear: bank ? null : setup.card!.expYear,
       savedByGrantId: session.grant.grantId,
     }).onConflictDoNothing();
 
     const [saved] = await tx.select().from(schema.savedPaymentMethod)
       .where(and(
-        eq(schema.savedPaymentMethod.externalRef, setup.card.ref),
+        eq(schema.savedPaymentMethod.externalRef, ref),
         eq(schema.savedPaymentMethod.customerId, session.customerId),
         isNull(schema.savedPaymentMethod.removedAt),
       )).limit(1);
@@ -240,7 +268,7 @@ export async function confirmSave(
         status: "succeeded", completedAt: new Date(), updatedAt: new Date(),
       }).where(eq(schema.integrationEvent.id, attempt.id));
       await audit(tx, ctx, "portal.card.saved", "customer", session.customerId, null, {
-        cardId: saved.id, brand: saved.brand, last4: saved.last4,
+        cardId: saved.id, kind: saved.kind, brand: saved.brand, last4: saved.last4,
       });
     }
     return shape(saved);
@@ -279,7 +307,11 @@ export async function remove(
 
 export interface SavedCardPayment {
   intentId: string;
-  /** `succeeded`, `processing`, or `requires_action` when the bank wants to check it is them. */
+  /**
+   * `succeeded`, `processing`, or `requires_action` when the bank wants to
+   * check it is them. A bank account always answers `processing`: the money
+   * is on its way, and arrives in a few business days or fails.
+   */
   status: string;
   clientSecret: string;
   publishableKey: string | null;
@@ -338,6 +370,7 @@ export async function pay(
     description: `Invoice ${invoice.number}`,
     savedCardId: input.cardId,
     ...(input.tip !== undefined ? { tip: input.tip } : {}),
+    acceptance: { ip: meta?.ip, userAgent: meta?.userAgent },
   }, deps);
 
   return {
@@ -353,7 +386,9 @@ export async function pay(
 
 export const handlers = {
   listPortalCards: (db: Database, input: { token: string }) => list(db, input),
-  startPortalCardSetup: (db: Database, input: { token: string }, meta?: RequestMeta) => startSave(db, input, meta),
+  startPortalCardSetup: (
+    db: Database, input: { token: string; kind?: "card" | "bank_account" | undefined }, meta?: RequestMeta,
+  ) => startSave(db, input, meta),
   confirmPortalCardSetup: (db: Database, input: { token: string; setupId: string }) => confirmSave(db, input),
   removePortalCard: (db: Database, input: { token: string; cardId: string }, meta?: RequestMeta) =>
     remove(db, input, meta),

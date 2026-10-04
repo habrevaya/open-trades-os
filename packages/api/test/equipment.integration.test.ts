@@ -113,9 +113,42 @@ run("the register", () => {
     await expect(furnace({ tag: "F-2" })).rejects.toThrow(/already on file/i);
   });
 
-  it("allows the same serial at a different address, since units move", async () => {
+  it("warns before the same serial goes on at a different address, and adds it once somebody says it is another unit", async () => {
     await furnace();
-    await expect(furnace({ propertyId: rentalId })).resolves.toBeTruthy();
+    /**
+     * Units move, so this is not refused outright. But a furnace that moved
+     * with a landlord is a move on the existing row, and adding it again
+     * splits its history; the person adding it has to say which it is.
+     */
+    await expect(furnace({ propertyId: rentalId })).rejects.toThrow(/already on file: F-1 Carrier 59SC5A at 11 Furnace Ln, Austin/);
+    await expect(furnace({ propertyId: rentalId, serialElsewhereConfirmed: true })).resolves.toBeTruthy();
+  });
+
+  it("matches a serial however it was typed", async () => {
+    await furnace({ serialNumber: "ab-1234 x" });
+    const matches = await equipment.matchSerial(owner(), { serialNumber: "AB1234X" });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      tag: "F-1", address: "11 Furnace Ln, Austin", retired: false,
+      customer: { id: customerId, name: "Rita Rental" },
+    });
+    // The same address is still refused outright, under any spelling.
+    await expect(furnace({ tag: "F-2", serialNumber: "AB 1234X", serialElsewhereConfirmed: true }))
+      .rejects.toThrow(/already on file at this property/);
+  });
+
+  it("finds a unit taken off the register too, and says so", async () => {
+    const old = await furnace();
+    await equipment.retire(owner(), { id: old.id, reason: "Pulled out, cracked heat exchanger" });
+    const matches = await equipment.matchSerial(owner(), { serialNumber: "SN-0001" });
+    expect(matches).toEqual([expect.objectContaining({ id: old.id, retired: true })]);
+    await expect(furnace()).rejects.toThrow(/taken off the register/);
+    await expect(furnace({ serialElsewhereConfirmed: true })).resolves.toBeTruthy();
+  });
+
+  it("finds nothing for a serial of only punctuation, rather than everything", async () => {
+    await furnace();
+    expect(await equipment.matchSerial(owner(), { serialNumber: " -- " })).toEqual([]);
   });
 
   it("refuses a unit with no category", async () => {
@@ -165,6 +198,18 @@ run("warranty", () => {
     /** Installed 2018-03-01, read on 2026-06-15. Nobody says a furnace is eight and a bit. */
     expect((await equipment.get(owner(), { id: unit.id, on: TODAY })).ageYears).toBe(8);
     expect((await equipment.get(owner(), { id: unit.id, on: "2026-02-28" })).ageYears).toBe(7);
+  });
+
+  it("lists any window by its two dates, and refuses one that ends before it starts", async () => {
+    await furnace({ tag: "A", serialNumber: "W-A", warrantyPartsExpiresOn: "2026-09-10", warrantyLaborExpiresOn: null });
+    await furnace({ tag: "B", serialNumber: "W-B", warrantyPartsExpiresOn: "2027-02-01", warrantyLaborExpiresOn: null });
+    await furnace({ tag: "C", serialNumber: "W-C", warrantyPartsExpiresOn: "2025-07-04", warrantyLaborExpiresOn: null });
+    const autumn = await equipment.warrantyWatch(owner(), { on: TODAY, from: "2026-09-01", to: "2026-12-31" });
+    expect(autumn.map((u) => u.tag)).toEqual(["A"]);
+    const lastSummer = await equipment.warrantyWatch(owner(), { on: TODAY, from: "2025-06-01", to: "2025-08-31" });
+    expect(lastSummer.map((u) => u.tag)).toEqual(["C"]);
+    await expect(equipment.warrantyWatch(owner(), { on: TODAY, from: "2026-12-31", to: "2026-09-01" }))
+      .rejects.toBeInstanceOf(ConflictError);
   });
 
   it("lists what lapses soon and what lapsed recently", async () => {
@@ -386,6 +431,52 @@ run("what we did to it", () => {
     expect(past.jobs.map((j) => j.number)).toEqual([4101]);
     expect(past.inspected[0]).toMatchObject({ outcome: "fail" });
     expect(past.deficiencies[0]).toMatchObject({ severity: "critical", code: "HX-CRACK" });
+  });
+
+  it("gathers the readings, inspections and photographs taken of it, and nobody else's", async () => {
+    const unit = await furnace();
+    const other = await furnace({ tag: "F-9", serialNumber: "SN-0009" });
+    const [job] = await raw<{ id: string }[]>`insert into public.job
+      (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG}, 4102, ${customerId}, ${houseId}, 'completed', 'Tune up') returning id`;
+    const [visit] = await raw<{ id: string }[]>`insert into public.visit
+      (organization_id, job_id, status) values (${ORG}, ${job!.id}, 'completed') returning id`;
+    const [report] = await raw<{ id: string }[]>`insert into public.service_report
+      (organization_id, visit_id, job_id, customer_id, property_id)
+      values (${ORG}, ${visit!.id}, ${job!.id}, ${customerId}, ${houseId}) returning id`;
+    await raw`insert into public.service_report_field
+      (organization_id, report_id, property_id, equipment_id, key, label, kind, value_numeric, unit, out_of_range, recorded_at)
+      values (${ORG}, ${report!.id}, ${houseId}, ${unit.id}, 'gas_pressure', 'Gas pressure', 'numeric', '3.5000', 'in wc', true, '2026-06-01T15:00:00Z'),
+             (${ORG}, ${report!.id}, ${houseId}, ${other.id}, 'gas_pressure', 'Gas pressure', 'numeric', '7.0000', 'in wc', false, '2026-06-01T15:00:00Z')`;
+    await raw`insert into public.field_upload (organization_id, client_id, subject_type, content_type, storage_key, status)
+      values (${ORG}, 'photo-of-f1', 'inspection', 'image/jpeg', 'org/photo-of-f1.jpg', 'stored'),
+             (${ORG}, 'photo-of-f9', 'inspection', 'image/jpeg', 'org/photo-of-f9.jpg', 'stored')`;
+    const answers = [
+      { itemKey: "burner", value: { kind: "pass" }, at: "2026-06-01T15:00:00Z", by: "Tess", equipmentId: unit.id, photoIds: ["photo-of-f1"] },
+      { itemKey: "burner", value: { kind: "pass" }, at: "2026-06-01T15:00:00Z", by: "Tess", equipmentId: other.id, photoIds: ["photo-of-f9"] },
+    ];
+    const [inspection] = await raw<{ id: string }[]>`insert into public.inspection
+      (organization_id, property_id, customer_id, visit_id, performed_on, result, answers)
+      values (${ORG}, ${houseId}, ${customerId}, ${visit!.id}, '2026-06-01', 'pass', ${raw.json(answers)}) returning id`;
+
+    const past = await equipment.history(owner(), { id: unit.id });
+    expect(past.readings).toEqual([expect.objectContaining({
+      label: "Gas pressure", valueNumeric: "3.5000", unit: "in wc", outOfRange: true, visitId: visit!.id,
+    })]);
+    expect(past.inspections).toEqual([expect.objectContaining({ id: inspection!.id, result: "pass", performedOn: "2026-06-01" })]);
+    expect(past.photos.map((p) => p.storageKey)).toEqual(["org/photo-of-f1.jpg"]);
+  });
+
+  it("says where it is, who to ring and what it is part of", async () => {
+    const riser = await furnace({ tag: "R-1", category: "riser", serialNumber: "SN-R" });
+    const valve = await furnace({ tag: "V-1", category: "valve", serialNumber: "SN-V", parentEquipmentId: riser.id });
+    const read = await equipment.get(owner(), { id: valve.id, on: TODAY });
+    expect(read.address).toBe("11 Furnace Ln, Austin, TX 78701");
+    expect(read.customer).toEqual({ id: customerId, name: "Rita Rental" });
+    expect(read.parent).toMatchObject({ id: riser.id, tag: "R-1" });
+    expect((await equipment.get(owner(), { id: riser.id, on: TODAY })).children).toEqual([
+      expect.objectContaining({ id: valve.id, tag: "V-1" }),
+    ]);
   });
 
   it("still answers for a retired unit", async () => {

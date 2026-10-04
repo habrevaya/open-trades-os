@@ -67,7 +67,8 @@ export async function RunView({
     ...(view.measure ? { measure: view.measure } : {}),
   });
   const toggle = (kind: string) => withParams(current, { chart: kind });
-  const dataset = reports.CATALOGUE.find((d) => d.key === definition.dataset);
+  /** The company's own catalogue, so a report on a custom field or a kind of record finds its labels. */
+  const dataset = (await reports.datasetFor(ctx, definition.dataset)) ?? undefined;
 
   return (
     <div className="mt-6">

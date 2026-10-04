@@ -113,7 +113,8 @@ test("an estimate is sent from the office, the refusal is recorded, the customer
   await expect(proposal.getByLabel("System", { exact: true })).toContainText("Best");
   await expect(proposal.getByLabel("Repair", { exact: true })).toContainText("Good");
   await expect(proposal).toContainText(name);
-  await expect(owner.getByRole("button", { name: "Print or save as PDF" })).toBeVisible();
+  await expect(owner.getByRole("button", { name: "Print", exact: true })).toBeVisible();
+  await expect(owner.getByRole("link", { name: "Download PDF" })).toHaveAttribute("href", /^\/estimates\/[0-9a-f-]{36}\/pdf$/);
 
   /*
     Emailed. The seeded company has connected no mail provider, so the send is

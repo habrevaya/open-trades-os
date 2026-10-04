@@ -29,9 +29,14 @@ test("a new company runs every setup step and the wizard remembers each one", as
   await page.getByRole("link", { name: "Start with Company details" }).click();
   await expect(page).toHaveURL(/\/setup\/company$/);
   await page.getByLabel("Legal name, if different (optional)").fill(`${company} LLC`);
-  await page.getByRole("button", { name: "Save the names" }).click();
+  await page.getByLabel("Phone customers call").fill("(512) 555-0143");
+  await page.getByLabel("Street address").fill("1200 Industrial Blvd");
+  await page.getByLabel("Town or city").fill("Austin");
+  await page.getByRole("button", { name: "Save company details" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
   await expect(page.getByText(`legally ${company} LLC`)).toBeVisible();
+  // What every proposal, invoice and statement will now print under the name.
+  await expect(page.getByText("Documents print 1200 Industrial Blvd, Austin, (512) 555-0143.")).toBeVisible();
   await page.getByRole("button", { name: "This step is done, next step" }).click();
 
   // 2. The trade, which loads the price book and marks itself done.

@@ -55,6 +55,8 @@ const EquipmentFields = {
   installedByUs: z.boolean(),
   location: z.string().nullable(),
   attributes: z.record(z.unknown()),
+  /** The company's own fields (M29), by key. Saved with `PUT .../custom-fields`. */
+  customFields: z.record(z.unknown()).optional(),
   active: z.boolean(),
   retired: z.boolean(),
   /** Whole years, floor. Nobody says a furnace is eleven and a half. */
@@ -118,7 +120,17 @@ export const getEquipment = defineRoute({
   module: "M04",
   permissions: ["equipment:read"],
   input: z.object({ id: Uuid, on: IsoDate.optional() }),
-  output: z.object({ ...EquipmentFields, moves: z.array(EquipmentMove) }),
+  output: z.object({
+    ...EquipmentFields,
+    moves: z.array(EquipmentMove),
+    /** Where it is now, in words. */
+    address: z.string(),
+    /** Who to ask about it: the customer linked to that address now. */
+    customer: z.object({ id: Uuid, name: z.string() }).nullable(),
+    /** What it is nested in, and what is nested in it, one level each way. */
+    parent: z.object({ id: Uuid, tag: z.string().nullable(), category: z.string() }).nullable(),
+    children: z.array(z.object({ id: Uuid, tag: z.string().nullable(), category: z.string() })),
+  }),
 });
 
 export const getEquipmentHistory = defineRoute({
@@ -153,6 +165,34 @@ export const getEquipmentHistory = defineRoute({
       code: z.string().nullable(),
       createdAt: z.string(),
     })),
+    /** Readings the service reports took on this unit, newest first. */
+    readings: z.array(z.object({
+      id: Uuid,
+      key: z.string(),
+      label: z.string(),
+      valueNumeric: z.string().nullable(),
+      valueText: z.string().nullable(),
+      valueBoolean: z.boolean().nullable(),
+      unit: z.string().nullable(),
+      outOfRange: z.boolean(),
+      recordedAt: z.string(),
+      visitId: Uuid,
+    })),
+    /** Inspections with a checkpoint answered against this unit. */
+    inspections: z.array(z.object({
+      id: Uuid,
+      performedOn: z.string().nullable(),
+      result: z.string().nullable(),
+      programme: z.string().nullable(),
+      visitId: Uuid.nullable(),
+      jobId: Uuid.nullable(),
+    })),
+    /** Photographs of it: from checkpoints about it, faults found on it, and files kept against it. */
+    photos: z.array(z.object({
+      storageKey: z.string(),
+      contentType: z.string().nullable(),
+      at: z.string(),
+    })),
   }),
 });
 
@@ -177,6 +217,9 @@ export const getWarrantyWatch = defineRoute({
   input: z.object({
     withinDays: z.number().int().min(1).max(730).optional(),
     on: IsoDate.optional(),
+    /** Any window, by its two dates, instead of `withinDays` either side of today. */
+    from: IsoDate.optional(),
+    to: IsoDate.optional(),
   }),
   output: z.object({
     units: z.array(z.object({
@@ -214,8 +257,40 @@ export const registerEquipment = defineRoute({
     location: z.string().max(200).nullish(),
     parentEquipmentId: Uuid.nullish(),
     attributes: z.record(z.unknown()).optional(),
+    /**
+     * The caller has seen that the serial is on file elsewhere in the company
+     * (`GET /v1/equipment-serial-matches`) and says this is a different unit.
+     * Without it, a serial on file anywhere is refused, naming where.
+     */
+    serialElsewhereConfirmed: z.boolean().optional(),
   }),
   output: z.object({ id: Uuid }),
+});
+
+export const listEquipmentSerialMatches = defineRoute({
+  method: "get",
+  /** Flat, for the reason `/v1/equipment-warranties` is: a literal beside `/v1/equipment/{id}` is ambiguous. */
+  path: "/v1/equipment-serial-matches",
+  summary: "Units already on file with this serial",
+  description:
+    "Every unit in the company whose serial has the same letters and digits, ignoring case, spaces and dashes, at any address and including ones taken off a register, with the customer linked to each address. Asked before adding a unit, so a furnace that moved with a landlord or came back from a warranty swap is moved rather than added a second time with half its history.",
+  module: "M04",
+  permissions: ["equipment:read"],
+  input: z.object({ serialNumber: z.string().min(1).max(120), excludeId: Uuid.optional() }),
+  output: z.object({
+    matches: z.array(z.object({
+      id: Uuid,
+      propertyId: Uuid,
+      address: z.string(),
+      category: z.string(),
+      tag: z.string().nullable(),
+      manufacturer: z.string().nullable(),
+      model: z.string().nullable(),
+      serialNumber: z.string(),
+      retired: z.boolean(),
+      customer: z.object({ id: Uuid, name: z.string() }).nullable(),
+    })),
+  }),
 });
 
 export const updateEquipment = defineRoute({
@@ -286,6 +361,6 @@ export const retireEquipment = defineRoute({
 });
 
 export const equipmentRoutes = {
-  listEquipment, getEquipment, getEquipmentHistory, getWarrantyWatch,
+  listEquipment, getEquipment, getEquipmentHistory, getWarrantyWatch, listEquipmentSerialMatches,
   registerEquipment, updateEquipment, moveEquipment, retireEquipment,
 } as const;

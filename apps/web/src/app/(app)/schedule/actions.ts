@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { dispatch, dispatchMap } from "@opentradesos/api/services";
+import { dispatch, dispatchMap, liveLocation } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { refusalOf } from "@/lib/actions";
 
@@ -109,4 +109,35 @@ export async function reorderDay(input: {
 
   revalidatePath("/schedule");
   return { ok: true };
+}
+
+/**
+ * Lock a visit to whoever has it, or let it go. The rebalance and the route
+ * optimiser leave a locked visit where it is.
+ */
+export async function lockVisit(input: { visitId: string; locked: boolean }): Promise<{ ok: true } | { ok: false; message: string }> {
+  const user = await requireSetupUser();
+  try {
+    await dispatchMap.lockVisit({ actor: user.actor, db: getDb() }, { id: input.visitId, locked: input.locked });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? "The lock did not save. Reload the board." };
+  }
+  revalidatePath("/schedule");
+  return { ok: true };
+}
+
+/**
+ * Where people are now, for the map's live pins, asked every half minute by
+ * the map while it is open. Only somebody who dispatches is answered.
+ */
+export async function livePositions(): Promise<
+  | { ok: true; live: Awaited<ReturnType<typeof liveLocation.latest>> }
+  | { ok: false; message: string }
+> {
+  const user = await requireSetupUser();
+  try {
+    return { ok: true, live: await liveLocation.latest({ actor: user.actor, db: getDb() }) };
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? "Where people are could not be read." };
+  }
 }

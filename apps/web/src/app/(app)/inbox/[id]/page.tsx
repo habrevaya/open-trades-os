@@ -1,13 +1,16 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { comms, consent, NotFoundError } from "@opentradesos/api/services";
+import { comms, consent, agents, agentIntake, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Phone } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Crumb } from "@/components/Detail";
 import { ReplyBox } from "./ReplyBox";
 import { ConsentSummary } from "./ConsentSummary";
+import { IntakeDraft } from "../drafts/IntakeDraft";
+import { draftFromThread } from "../drafts/actions";
+import { ActionForm } from "@/components/ActionForm";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +35,28 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
   await comms.markRead(ctx, { id });
   const consentRows = await consent.history(ctx, { address: thread.conversation.externalAddress });
   const byEmail = thread.conversation.channel === "email";
+  const byChat = thread.conversation.channel === "webchat";
+
+  /**
+   * The intake agent's draft for this thread, beside the messages it was read
+   * from, so the office books it without leaving the conversation. The button
+   * to ask for one is offered only when the agent is on; the service refuses
+   * otherwise anyway.
+   */
+  const drafts = can(user.actor, "booking:read") && !byChat
+    ? (await agentIntake.drafts(ctx, { sourceKind: "conversation", sourceId: id, status: ["proposed", "applied"], limit: 1 })).drafts
+    : [];
+  const intakeOn = !byChat && can(user.actor, "message:read") && await agents.isOn(ctx, "intake");
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 lg:px-6">
       <Crumb href="/inbox">Inbox</Crumb>
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-xl font-semibold">
-          {thread.customer?.name ?? (byEmail ? thread.conversation.externalAddress : "Unknown number")}
+          {thread.customer?.name ?? (byChat ? "Website visitor" : byEmail ? thread.conversation.externalAddress : "Unknown number")}
         </h1>
         <span className="text-sm text-ink-500">
-          {byEmail ? `Email, ${thread.conversation.externalAddress}` : <Phone value={thread.conversation.externalAddress} />}
+          {byChat ? "Website chat" : byEmail ? `Email, ${thread.conversation.externalAddress}` : <Phone value={thread.conversation.externalAddress} />}
         </span>
       </div>
       {thread.customer && (
@@ -52,11 +67,23 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
         </p>
       )}
 
-      <ConsentSummary
+      {byChat ? null : <ConsentSummary
         entries={consentRows}
         suppressed={thread.blockedReason === "suppressed"}
         customerId={thread.conversation.customerId}
-      />
+      />}
+
+      {drafts[0] ? (
+        <div className="mt-6">
+          <IntakeDraft proposal={drafts[0]} conversationId={id}
+                       canDecide={can(user.actor, "booking:decide") && can(user.actor, "visit:write")} />
+        </div>
+      ) : null}
+      {intakeOn && drafts[0]?.status !== "proposed" ? (
+        <ActionForm action={draftFromThread} submit="Draft a booking from this" tone="quiet"
+                    hidden={{ sourceKind: "conversation", sourceId: id, conversationId: id, ...(drafts[0] ? { fresh: "yes" } : {}) }}
+                    className="mt-4" />
+      ) : null}
 
       <ol className="mt-8 space-y-4">
         {thread.messages.map((raw) => {
@@ -99,6 +126,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
                   */}
                   {outbound && message.status === "queued" ? " · queued" : ""}
                   {outbound && message.status === "failed" ? " · failed to send" : ""}
+                  {outbound && byChat && !(message as { sentByUserId?: string | null }).sentByUserId ? " · automated assistant" : ""}
                 </p>
               </div>
             </li>

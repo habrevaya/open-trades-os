@@ -189,6 +189,17 @@ export const job = pgTable("job", {
   /** Generated from a membership or recurring schedule rather than booked ad hoc. */
   agreementId: uuid("agreement_id"),
   priority: integer("priority").notNull().default(0),
+  /**
+   * SKILLS THIS ONE JOB NEEDS BEYOND ITS JOB TYPE.
+   *
+   * A job type says what its work ordinarily needs. One unusual job (a
+   * service call on a unit that turns out to need a confined space entry, a
+   * repair on a roof that needs a lift ticket) needs something its type does
+   * not, and before this column the only place to say so was a note nobody's
+   * assignment check read. Added to the type's list wherever a person is
+   * checked for the work, never instead of it.
+   */
+  requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
   total: money("total"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
@@ -226,6 +237,12 @@ export const visit = pgTable("visit", {
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
   /** Ordering within a technician's day, set by the dispatch board and route pass. */
   routeOrder: integer("route_order"),
+  /**
+   * Locked by the office: the rebalance and the route optimiser leave this
+   * visit with whoever has it, in its place. For the customer who was
+   * promised "Ray, first thing", which no arrival window can say.
+   */
+  dispatchLocked: boolean("dispatch_locked").notNull().default(false),
 
   /**
    * Exactly one of these is set, determined by the job type's capacity model.
@@ -242,9 +259,25 @@ export const visit = pgTable("visit", {
   arrivedAt: timestamp("arrived_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   technicianNotes: text("technician_notes"),
+  /**
+   * What the customer reads about this visit, chosen by the office.
+   *
+   * A copy rather than a switch on `technician_notes`, because those notes
+   * keep growing from the phone after the visit and a customer must read
+   * the words somebody in the office approved, not whatever was appended at
+   * the next sync. Null means nothing is shown. Set with
+   * `servicereport:publish`, the same decision as publishing a report.
+   */
+  customerNotes: text("customer_notes"),
+  customerNotesSharedAt: timestamp("customer_notes_shared_at", { withTimezone: true }),
   checklist: jsonb("checklist").$type<Array<{ id: string; label: string; required: boolean; doneAt: string | null }>>().notNull().default([]),
   signatureUrl: text("signature_url"),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("visit_source_ref_idx", t),

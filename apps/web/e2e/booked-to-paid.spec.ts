@@ -74,7 +74,8 @@ test("the owner books a job from a new customer through to paid, and the report 
   await owner.getByLabel("What was done on visit 1").fill("Dual run capacitor failed. Replaced, verified cooling.");
   await owner.getByRole("button", { name: "Complete visit 1" }).click();
   await expect(owner.getByRole("heading", { level: 1 }).locator("..").getByText("Completed")).toBeVisible();
-  await expect(owner.getByText("Dual run capacitor failed.")).toBeVisible();
+  /** The note as written, not the box the office uses to share it with the customer. */
+  await expect(owner.getByRole("paragraph").filter({ hasText: "Dual run capacitor failed." })).toBeVisible();
   await expect(owner.getByRole("button", { name: "Reopen job" })).toBeVisible();
 
   // Invoiced from the job: two lines, one at an odd price, so a rounding slip shows.

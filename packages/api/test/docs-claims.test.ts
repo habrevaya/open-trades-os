@@ -3,7 +3,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { allTools } from "../src/mcp/tools";
 import { routes } from "../src/contracts";
-import { PERMISSIONS } from "@opentradesos/core";
+import { PERMISSIONS, automation, connectors } from "@opentradesos/core";
+import { CATALOGUE, KEYS } from "../src/services/kpi-catalogue";
+import { ADAPTERS } from "../src/services/retention";
 
 /**
  * THE DOCUMENTATION IS CHECKED AGAINST THE CODE
@@ -293,5 +295,78 @@ describe("every module doc", () => {
       if (!TEMPLATE_MARKERS.some((marker) => text.includes(marker))) lying.push(file);
     }
     expect(lying, "docs calling themselves a stub with nothing left to fill in").toEqual([]);
+  });
+});
+
+/**
+ * A COUNT WRITTEN IN WORDS IS A CLAIM THAT GOES STALE
+ *
+ * The commonest stale sentence a sweep of these docs found was not a missing
+ * feature but a number: "twenty three entries are built" after three more
+ * were, "three recommended automations" the week a fourth lands. Each is
+ * true the day it is written and wrong the day somebody adds one, and the
+ * person adding one is reading the code, not the doc. So the counts a reader
+ * would quote are checked against the thing they count.
+ *
+ * Written as numbers in words because that is how the docs write them; the
+ * pattern is anchored on the sentence, so rewording the sentence fails here
+ * rather than passing by matching nothing.
+ */
+const WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+};
+
+/** "twenty six" is 26, "Five" is 5, a numeral is itself. */
+function wordNumber(text: string): number {
+  if (/^\d+$/.test(text)) return Number(text);
+  return text.toLowerCase().split(/[\s-]+/).reduce((total, word) => {
+    const value = WORDS[word];
+    if (value === undefined) throw new Error(`Not a number in words: ${text}`);
+    return total + value;
+  }, 0);
+}
+
+const NUMBER = "(\\d+|[A-Za-z]+(?:[ -][a-z]+)?)";
+
+function countIn(file: string, pattern: string): number[] {
+  const text = readFileSync(join(DOCS, file), "utf8");
+  const found = new RegExp(pattern).exec(text);
+  if (!found) throw new Error(`${file} no longer says: ${pattern}`);
+  return found.slice(1).map((group) => wordNumber(group!));
+}
+
+describe("the counts the docs state", () => {
+  it("M25 counts the connectors the catalogue holds, built and declared", () => {
+    const built = connectors.CONNECTORS.filter((c) => c.state === "built").length;
+    const declared = connectors.CONNECTORS.filter((c) => c.state === "declared").length;
+    expect(countIn("m25-integrations-provider-framework.md",
+      `${NUMBER} entries are built today and ${NUMBER} (?:is|are) declared`)).toEqual([built, declared]);
+    /** Singular or plural, so the sentence stays English when the count reaches one. */
+    expect(countIn("m25-integrations-provider-framework.md",
+      `${NUMBER} catalogue (?:entry is declared and has|entries are declared and have) no adapter`)).toEqual([declared]);
+  });
+
+  it("M29 counts the recommended automations", () => {
+    expect(countIn("m29-custom-fields-objects-workflow-builder.md",
+      `There are ${NUMBER} recommended automations`)).toEqual([automation.TEMPLATES.length]);
+  });
+
+  it("M23 counts the kinds of record the retention purge acts on", () => {
+    expect(countIn("m23-documents-compliance-safety.md",
+      `The purge acts on ${NUMBER} kinds of record`)).toEqual([Object.keys(ADAPTERS).length]);
+  });
+
+  it("M28 counts the routes that offer a dry run", () => {
+    const offered = Object.values(routes).filter((route) => (route as { dryRun?: boolean }).dryRun === true).length;
+    expect(countIn("m28-developer-agent-platform.md",
+      `A dry run is offered on ${NUMBER} bulk routes`)).toEqual([offered]);
+  });
+
+  it("M21 counts the KPIs it cannot compute out of those declared", () => {
+    const needs = Object.values(CATALOGUE).filter((entry) => entry.state === "needs").length;
+    expect(countIn("m21-reporting-business-intelligence.md",
+      `${NUMBER} of the ${NUMBER} declared KPIs cannot be computed`)).toEqual([needs, KEYS.length]);
   });
 });

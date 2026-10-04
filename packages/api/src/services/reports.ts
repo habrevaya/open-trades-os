@@ -2,17 +2,20 @@ import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { permissionsFor, reporting } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, scopeOf, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, scopeOf, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { assertCan } from "@opentradesos/core";
 import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
+import { catalogueFor, OBJECT_DATASET_PREFIX } from "./report-company";
+import { recordVisibility } from "./custom-objects";
 import {
   jobScopeFilter, invoiceScopeFilter, estimateScopeFilter, jobVisibility,
   jobBranchFilter, invoiceBranchFilter, estimateBranchFilter, branchOfJob,
 } from "./scope";
 import { BUILT_IN } from "./report-built-in";
 
-export { CATALOGUE, BUILT_IN };
+export { CATALOGUE, BUILT_IN, catalogueFor };
 
 /**
  * RUNNING A REPORT
@@ -126,6 +129,11 @@ export const BRANCH_FILTERS: Record<string, (businessUnitId: string) => SQL> = {
 };
 
 export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset): SQL | undefined {
+  /**
+   * A company's own kind of record is read through the same visibility its
+   * list uses, so a report counts exactly the permits that list shows.
+   */
+  if (dataset.key.startsWith(OBJECT_DATASET_PREFIX)) return recordVisibility(ctx);
   const filter = SCOPE_FILTERS[dataset.key];
   /**
    * A dataset in the catalogue with no filter here would otherwise be
@@ -148,8 +156,11 @@ function conditionsFor(
   ctx: ServiceContext,
   dataset: reporting.Dataset,
   definition: reporting.ReportDefinition,
+  zone: string,
 ): SQL[] {
   const conditions: SQL[] = [];
+  /** The rows of `from` that are this dataset's at all, written by us in the catalogue. */
+  if (dataset.where) conditions.push(sql.raw(`(${dataset.where})`));
   const scoped = scopeFilterFor(ctx, dataset);
   if (scoped) conditions.push(scoped);
 
@@ -180,13 +191,24 @@ function conditionsFor(
     conditions.push(narrow(definition.branchId));
   }
 
+  /**
+   * WHOLE DAYS IN THE COMPANY'S ZONE. `from::date` against an instant is
+   * midnight in UTC, which is seven in the evening the day before in Austin:
+   * a job finished at eight at night on the 31st landed in the next month's
+   * report. An instant column is compared with the instants that bound the
+   * company's days, which keeps an index on it usable; a date column is
+   * already a day and compares with the date.
+   */
+  const edge = (day: string) => dataset.dateIsDay
+    ? sql`${day}::date`
+    : sql`((${day}::date)::timestamp at time zone ${zone})`;
   if (definition.from) {
-    conditions.push(sql`${sql.raw(dataset.dateColumn)} >= ${definition.from}::date`);
+    conditions.push(sql`${sql.raw(dataset.dateColumn)} >= ${edge(definition.from)}`);
   }
   if (definition.to) {
     // Exclusive, so a range of one month does not silently include the
     // first moment of the next one.
-    conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${definition.to}::date`);
+    conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${edge(definition.to)}`);
   }
 
   for (const filter of definition.filters ?? []) {
@@ -211,12 +233,17 @@ export async function run(
   definition: reporting.ReportDefinition,
 ): Promise<ReportResult> {
   const held = permissionsFor(ctx.actor);
-  const decision = reporting.resolveReport(definition, CATALOGUE, held);
-  if (!decision.ok) throw new ConflictError(reporting.explainRefusal(decision));
+  /**
+   * Resolved against THIS company's catalogue, which is the product's with
+   * the company's own fields and kinds of record added, read inside the
+   * transaction the report then runs in.
+   */
+  return inTenant(ctx, async (tx) => {
+    const decision = reporting.resolveReport(definition, await catalogueFor(tx, ctx.actor.organizationId), held);
+    if (!decision.ok) throw new ConflictError(reporting.explainRefusal(decision));
+    const { dataset, dimensions, measures } = decision;
+    assertCan(ctx.actor, dataset.permission);
 
-  const { dataset, dimensions, measures } = decision;
-
-  return guardedRead(ctx, dataset.permission, async (tx) => {
     const selects: SQL[] = [];
     for (const d of dimensions) {
       selects.push(sql`${sql.raw(d.sql)} as ${sql.raw(`"${d.key}"`)}`);
@@ -246,7 +273,7 @@ export async function run(
       selects.push(sql`${sql.raw(wrapped)} as ${sql.raw(`"${m.key}"`)}`);
     }
 
-    const conditions = conditionsFor(ctx, dataset, definition);
+    const conditions = conditionsFor(ctx, dataset, definition, await timezoneOf(tx, ctx.actor.organizationId));
 
     const groupBy = dimensions.length > 0
       ? sql` group by ${sql.raw(dimensions.map((_, i) => String(i + 1)).join(", "))}`
@@ -394,13 +421,13 @@ export async function drill(
   request: reporting.DrillRequest,
 ): Promise<DrillResult> {
   const held = permissionsFor(ctx.actor);
-  const decision = reporting.resolveDrill(request, CATALOGUE, held);
-  if (!decision.ok) throw new ConflictError(reporting.explainRefusal(decision));
+  return inTenant(ctx, async (tx) => {
+    const decision = reporting.resolveDrill(request, await catalogueFor(tx, ctx.actor.organizationId), held);
+    if (!decision.ok) throw new ConflictError(reporting.explainRefusal(decision));
+    const { dataset, pinned, measures, record } = decision;
+    assertCan(ctx.actor, dataset.permission);
 
-  const { dataset, pinned, measures, record } = decision;
-
-  return guardedRead(ctx, dataset.permission, async (tx) => {
-    const conditions = conditionsFor(ctx, dataset, request.definition);
+    const conditions = conditionsFor(ctx, dataset, request.definition, await timezoneOf(tx, ctx.actor.organizationId));
     for (const pin of pinned) {
       // Bound as a parameter, like a filter value: it came off a URL.
       conditions.push(sql`(${sql.raw(pin.dimension.sql)})::text is not distinct from ${pin.value}::text`);
@@ -503,10 +530,20 @@ export async function drill(
   });
 }
 
-/** What a reader may pick from, given what they hold. */
-export function available(ctx: ServiceContext) {
+/**
+ * The dataset a definition names, from this company's catalogue, for a
+ * screen that needs its labels. Null for one it does not have.
+ */
+export async function datasetFor(ctx: ServiceContext, key: string): Promise<reporting.Dataset | null> {
+  return inTenant(ctx, async (tx) =>
+    (await catalogueFor(tx, ctx.actor.organizationId)).find((d) => d.key === key) ?? null);
+}
+
+/** What a reader may pick from, given what they hold, with the company's own fields and kinds in it. */
+export async function available(ctx: ServiceContext) {
   const held = permissionsFor(ctx.actor);
-  return CATALOGUE
+  const catalogue = await inTenant(ctx, (tx) => catalogueFor(tx, ctx.actor.organizationId));
+  return catalogue
     .filter((d) => held.has(d.permission))
     .map((d) => ({
       key: d.key,
@@ -562,7 +599,9 @@ export async function save(
      * somebody with more permissions to run later without ever seeing what is
      * in it.
      */
-    const decision = reporting.resolveReport(input.definition, CATALOGUE, permissionsFor(ctx.actor));
+    const decision = reporting.resolveReport(
+      input.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor),
+    );
     if (!decision.ok) throw new ConflictError(reporting.explainRefusal(decision));
 
     if (input.id) {

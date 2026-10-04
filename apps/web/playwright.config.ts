@@ -90,15 +90,15 @@ export default defineConfig({
      * Configured the way .env.example says to, and no further. The links a
      * customer is sent are built from PUBLIC_URL, and setting anything more
      * here than a deployment would is how a suite passes against a setup
-     * nobody runs. The Stripe, CallRail and Twilio secrets are under the
-     * seeded company's own prefix, as .env.example says, holding values that
-     * are not keys: the suite points the company's Stripe connection at a
-     * local fake and signs its own webhook with the second (e2e/stripe.ts);
-     * the CallRail pair is the same arrangement for call tracking
-     * (e2e/callrail-env.ts) and the Twilio token for the voice webhooks
-     * (e2e/twilio-env.ts). Pointing a connection at a fake is what
-     * ALLOW_PROVIDER_BASE_URL allows, and the only thing set here that a
-     * deployment never sets (e2e/stripe-env.ts).
+     * nobody runs. Every provider secret the specs name (Stripe, CallRail,
+     * Twilio, the ad platforms, the model key, the lender, the lead
+     * marketplaces and the mail house) is under the seeded company's own
+     * prefix, as .env.example says, holding values that are not keys; the
+     * specs point those connections at local fakes, which is what
+     * ALLOW_PROVIDER_BASE_URL allows and the only thing set here that a
+     * deployment never sets. The ad platforms' sealing key and the voice
+     * relay's address are the deployment's own settings and are set as
+     * .env.example names them (e2e/stripe-env.ts).
      */
     env: { PUBLIC_URL: BASE, ...E2E_SERVER_ENV },
     stdout: "pipe",

@@ -1,0 +1,30 @@
+{
+  "name": "@opentradesos/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "A typed TypeScript client for the OpenTradesOS API, generated from its OpenAPI document, with webhook verification and an MCP bridge for desktop clients.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./webhooks": "./src/webhooks.ts"
+  },
+  "bin": {
+    "opentradesos-mcp": "./bin/opentradesos-mcp.mjs"
+  },
+  "scripts": {
+    "generate": "tsx codegen/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@opentradesos/api": "workspace:*",
+    "@opentradesos/core": "workspace:*",
+    "@opentradesos/db": "workspace:*",
+    "@types/node": "^22.10.1",
+    "postgres": "^3.4.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

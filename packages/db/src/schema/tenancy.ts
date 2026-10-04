@@ -57,6 +57,20 @@ export const organization = pgTable("organization", {
   currency: text("currency").notNull().default("USD"),
   logoUrl: text("logo_url"),
   brandColor: text("brand_color"),
+  /**
+   * How a customer reaches the company, printed on its proposals, invoices,
+   * statements and portal pages. All optional, all written only through
+   * `setup.updateDetails`, which normalises the phone to E.164 and refuses an
+   * address with no street or town. Without these every document went out
+   * with no way to call anybody.
+   */
+  phone: text("phone"),
+  email: text("email"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
   /** Trade pack applied at setup. Drives seeded price book, checklists, KPIs. */
   primaryTrade: text("primary_trade"),
   setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
@@ -108,6 +122,25 @@ export const organization = pgTable("organization", {
    * could also unmark the demo.
    */
   demoUserId: uuid("demo_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
+  /**
+   * A SANDBOX: a practice copy of a company's configuration, set on the copy
+   * and naming the company it was copied from.
+   *
+   * A real tenant rather than a flag on records, so everything row level
+   * security already guarantees about two companies is what keeps practice
+   * data out of the real one: nothing tried in a sandbox can reach a real
+   * customer's record, because no query in the sandbox can see one. See
+   * `services/sandbox.ts`.
+   */
+  sandboxOfOrganizationId: uuid("sandbox_of_organization_id").references((): AnyPgColumn => organization.id, { onDelete: "set null" }),
+  /**
+   * On the real company, its current sandbox. Kept on this side too because
+   * row level security hides the sandbox's own row from the real company,
+   * and "open my sandbox" has to find it from here.
+   */
+  sandboxOrganizationId: uuid("sandbox_organization_id").references((): AnyPgColumn => organization.id, { onDelete: "set null" }),
+  /** When the sandbox was thrown away. Its people are signed out of it and it is never opened again. */
+  sandboxDiscardedAt: timestamp("sandbox_discarded_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("organization_slug_idx").on(t.slug),
@@ -397,6 +430,26 @@ export const technician = pgTable("technician", {
   licenses: jsonb("licenses").$type<Array<{ type: string; number: string; expiresOn: string }>>().notNull().default([]),
   homeLocationId: uuid("home_location_id").references(() => location.id, { onDelete: "set null" }),
   /**
+   * The hours of this person's working day, local time, when they are not
+   * the company's. The rebalance plans their day inside these and counts
+   * anything past `endsAt` as overtime. Null is the company's day.
+   */
+  workday: jsonb("workday").$type<{ startsAt: string; endsAt: string } | null>(),
+  /**
+   * Whether this person's phone shares where they are while they work, when
+   * the company shares locations at all. On by default once the company
+   * turns sharing on; the office turns it off for somebody, and the person
+   * sees which it is on their own phone. Never shared off the clock either
+   * way: see `packages/core/src/location`.
+   */
+  shareLocation: boolean("share_location").notNull().default(true),
+  /**
+   * The photograph a customer sees on their tracking link, a `stored_file`
+   * id. No foreign key, because `stored_file` is declared in a file that
+   * imports this one; a photo whose file has gone is simply not shown.
+   */
+  photoFileId: uuid("photo_file_id"),
+  /**
    * The wage classification this person is normally paid at.
    *
    * It is a name rather than a foreign key to `wage_scale`, because a scale
@@ -420,5 +473,10 @@ export const technician = pgTable("technician", {
    */
   mobilePhone: text("mobile_phone"),
   active: boolean("active").notNull().default(true),
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({ orgIdx: index("technician_org_idx").on(t.organizationId) }));

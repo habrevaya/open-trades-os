@@ -254,8 +254,11 @@ its checklist, and `/tasks` and the task's own page offer "Done" to its assignee
 Dismissing, "we decided not to", is a judgement about whether the work was worth
 raising, so it stays with `task:write`, as does closing anybody else's task. The rule
 is in `tasks.close` rather than a wider grant, so nothing else a technician could do
-changed. The phone app does not show tasks; a technician finishes one on `/tasks` in
-a browser.
+changed. On the phone and on `/my-day` a technician sees their own tasks and the ones
+nobody has taken, takes one and finishes their own, through the field queue (M11), so it
+works with no signal and the second of two people taking the same task is told somebody
+else has it. A task with a checklist is ticked and finished on its own page in a browser,
+not on the phone.
 
 Escalation counts hours, not working hours: a task due Friday at five escalates
 on Saturday morning under a twelve hour rule, and a company without weekend
@@ -270,9 +273,12 @@ A change to a template applies to the tasks it raises from then on, and a missed
 occurrence is not backfilled, deliberately.
 
 Reporting lines are recorded only for escalation, on the escalation screen;
-nothing else in the product reads them, and there is no people screen they
-belong on yet.
+nothing else in the product reads them, and the person's own page at
+`/people/{membershipId}` (M24) does not show who they report to.
 
-The obligation primitive has one writer, so the SLA clocks, acknowledge by and
-claim windows the schema describes are a shape waiting for the modules that would
-use it.
+Obligations are raised by work finished on a cancelled visit, by a contract's
+clocks on a job (respond by, on site by, finished by, invoice by and claim by,
+M31), by an invoice carrying an item the customer's rate card does not price or
+going over a contract's not to exceed amount, and by compliance documents running out and filings falling due
+(M23). A warranty registration deadline, which the obligation kinds name, is
+raised by nothing.

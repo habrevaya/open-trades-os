@@ -303,13 +303,21 @@ var out=[];for(var j=0;j<order.length;j++){out.push(order[j]+"="+encodeURICompon
  *      visit.
  *   4. Links to this app's booking page and hosted forms get the visitor id
  *      and the arrival appended; forms on the page get hidden fields.
- *   5. The number swap: the page's numbers matching the company's main or
+ *   5. The browser's own analytics and Meta ids, from the `_ga` and `_fbp`
+ *      cookies the company's own tags set, sent with the arrival and once
+ *      more after the page has loaded (those tags usually set them after
+ *      this runs), so a booked job can be told to Google Analytics and Meta
+ *      against the visit that led to it.
+ *   6. The number swap: the page's numbers matching the company's main or
  *      tracking numbers are replaced with the visitor's pool number, written
  *      the way the original was, in text and in `tel:` links. A number a
  *      page builder split across several text nodes (React does, with comment
  *      markers between them) is matched on its element's whole text. The page asks
  *      again every few minutes while it is open, which is what keeps the
  *      lease alive, and stops when it is hidden.
+ *   6. The website chat, when the company has turned its chat agent on: the
+ *      snippet asks whether it is on and only then loads `chat.js`, so a
+ *      company without it costs every visitor one small read and nothing else.
  */
 export function snippetSource(input: { apiBase: string; appBase: string; companyKey: string }): string {
   const config = JSON.stringify({ api: input.apiBase, app: input.appBase, key: input.companyKey });
@@ -326,7 +334,11 @@ var stored=null;try{stored=JSON.parse(sessionStorage.getItem("ot_arrival")||"nul
 var fresh=q!==""||(ref&&!own);var arrival=fresh||!stored?{q:q,r:own?"":ref,p:location.pathname}:stored;
 try{sessionStorage.setItem("ot_arrival",JSON.stringify(arrival));}catch(e){}
 function post(path,body){try{var x=new XMLHttpRequest();x.open("POST",C.api+path,true);x.setRequestHeader("Content-Type","application/json");x.send(JSON.stringify(body));}catch(e){}}
-if(fresh||first){post("/v1/public/touches",{companyKey:C.key,visitorId:vid,page:location.pathname+(arrival.q?"?"+arrival.q:""),query:arrival.q,referrer:arrival.r||undefined});}
+function ids(){return {ga:cookie("_ga")||undefined,fbp:cookie("_fbp")||undefined};}
+var sentIds=ids();
+if(fresh||first){post("/v1/public/touches",{companyKey:C.key,visitorId:vid,page:location.pathname+(arrival.q?"?"+arrival.q:""),query:arrival.q,referrer:arrival.r||undefined,ga:sentIds.ga,fbp:sentIds.fbp});}
+function identify(){var now=ids();if((now.ga&&now.ga!==sentIds.ga)||(now.fbp&&now.fbp!==sentIds.fbp)){var seen=null;try{seen=sessionStorage.getItem("ot_ids");}catch(e){}var key=(now.ga||"")+"|"+(now.fbp||"");if(seen===key)return;
+try{sessionStorage.setItem("ot_ids",key);}catch(e){}post("/v1/public/touches",{companyKey:C.key,visitorId:vid,ga:now.ga,fbp:now.fbp,identify:true});}}
 function decorate(url){var sep=url.indexOf("?")===-1?"?":"&";return url+sep+"otv="+encodeURIComponent(vid)+(arrival.q?"&"+arrival.q:"");}
 function links(){var as=document.getElementsByTagName("a");for(var i=0;i<as.length;i++){var h=as[i].getAttribute("href")||"";
 if(h.indexOf(C.app+"/book/")===0||h.indexOf(C.app+"/f/")===0){if(h.indexOf("otv=")===-1){as[i].setAttribute("href",decorate(h));}}}
@@ -344,7 +356,10 @@ function ask(){var x=new XMLHttpRequest();x.open("GET",C.api+"/v1/public/dni?com
 x.onload=function(){if(x.status!==200)return;var d;try{d=JSON.parse(x.responseText);}catch(e){return;}
 targets=[];for(var i=0;i<(d.targets||[]).length;i++){targets.push(otNational(d.targets[i]));}
 if(d.number){var was=shown;if(was){targets.push(otNational(was));}shown=d.number;if(was!==shown)walk(document.body);}};x.send();}
-function start(){links();ask();setInterval(function(){if(!document.hidden)ask();},180000);}
+function chat(){if(document.getElementById("ot-chat-loader"))return;var x=new XMLHttpRequest();x.open("GET",C.api+"/v1/public/chat?companyKey="+encodeURIComponent(C.key),true);
+x.onload=function(){if(x.status!==200)return;var d;try{d=JSON.parse(x.responseText);}catch(e){return;}if(!d.enabled)return;
+var s=document.createElement("script");s.id="ot-chat-loader";s.async=true;s.src=C.app+"/chat.js?c="+encodeURIComponent(C.key);document.body.appendChild(s);};x.send();}
+function start(){links();identify();ask();chat();setInterval(function(){if(!document.hidden)ask();},180000);}
 function later(){var go=function(){if(window.requestIdleCallback){window.requestIdleCallback(start,{timeout:2000});}else{setTimeout(start,1);}};if(document.readyState==="complete"){go();}else{window.addEventListener("load",go);}}
 later();
 })();

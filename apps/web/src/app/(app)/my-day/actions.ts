@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { fieldOps, dispatch, fieldPayments } from "@opentradesos/api/services";
+import { fieldOps, dispatch, fieldPayments, agentField } from "@opentradesos/api/services";
 import type { syncOperations } from "@opentradesos/api/contracts";
 import type { z } from "zod";
 import { refusalOf } from "@/lib/actions";
@@ -117,5 +117,50 @@ export async function paymentLink(input: { visitId: string; text: boolean }): Pr
     const refusal = refusalOf(error);
     if (refusal === null) console.error("payment link failed", error);
     return { ok: false, message: refusal ?? "The link could not be made. Take cash or a check, or ask the office." };
+  }
+}
+
+/**
+ * The lender's application link for the job, there and then or not at all,
+ * like the card link: offered with the customer stood there, so they apply
+ * on their own phone.
+ */
+export async function financingLink(input: { visitId: string; text: boolean }): Promise<
+  | { ok: true; url: string; texted: boolean; message: string | null; amount: string; lender: string }
+  | { ok: false; message: string }
+> {
+  const user = await requireSetupUser();
+  try {
+    const result = await fieldPayments.financingLink(
+      { actor: user.actor, db: getDb() },
+      { id: input.visitId, text: input.text },
+    );
+    return { ok: true, url: result.url, texted: result.texted, message: result.reason, amount: result.amount, lender: result.lender };
+  } catch (error) {
+    const refusal = refusalOf(error);
+    if (refusal === null) console.error("financing link failed", error);
+    return { ok: false, message: refusal ?? "The financing link could not be made. Take a card, cash or a check." };
+  }
+}
+
+/**
+ * A question for the field assistant, answered from the company's own
+ * records as the person asking. Needs a signal; nothing is queued.
+ */
+export async function askAssistant(input: { question: string; visitId: string | null }): Promise<
+  | { ok: true; answered: boolean; text: string; sources: Array<{ kind: string; title: string }> }
+  | { ok: false; message: string }
+> {
+  const user = await requireSetupUser();
+  try {
+    const answer = await agentField.ask(
+      { actor: user.actor, db: getDb() },
+      { question: input.question.slice(0, 1000), ...(input.visitId ? { visitId: input.visitId } : {}) },
+    );
+    return { ok: true, ...answer };
+  } catch (error) {
+    const refusal = refusalOf(error);
+    if (refusal === null) console.error("field assistant failed", error);
+    return { ok: false, message: refusal ?? "The assistant could not answer. Try again, or ask the office." };
   }
 }

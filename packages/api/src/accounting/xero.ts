@@ -3,7 +3,7 @@ import {
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
   type ExternalCreditApplication, type ExternalCreditNote, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
-  type ExternalPayment, type ExternalRef, type HttpTransport,
+  type ExternalJournal, type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
 
@@ -161,6 +161,12 @@ const KEY_FIELD: Record<Exclude<AccountingEntityKind, "credit_note_application">
   },
   /** The invoice that reverses a voided credit note. See `pushOutbound` in the sync. */
   credit_note_void: { path: "Invoices", collection: "Invoices", field: "InvoiceNumber", id: "InvoiceID" },
+  /**
+   * A manual journal. It has no number or reference field at all, so the key
+   * opens the narration and `findPushed` searches for a narration starting
+   * with it (see there).
+   */
+  journal: { path: "ManualJournals", collection: "ManualJournals", field: "Narration", id: "ManualJournalID" },
   /**
    * `credit_note_application` is absent, and on purpose: an Allocation has
    * no reference field and no endpoint of its own to search. It is found by
@@ -678,7 +684,9 @@ export function createXeroProvider(
     const target = KEY_FIELD[kind];
     let filter: string;
     try {
-      filter = `${target.field}==${whereValue(idempotencyKey)}`;
+      filter = kind === "journal"
+        ? `${target.field}.StartsWith(${whereValue(`${idempotencyKey}:`)})`
+        : `${target.field}==${whereValue(idempotencyKey)}`;
     } catch (error) {
       /**
        * A key that cannot be expressed as a filter is reported as a failure
@@ -1026,6 +1034,28 @@ export function createXeroProvider(
           LineItems: [line],
         }],
       }, refund.idempotencyKey, "&unitdp=4");
+    },
+
+    /**
+     * A manual journal, posted. Xero takes one signed amount per line,
+     * positive for a debit and negative for a credit, and the lines must sum
+     * to zero, which the ledger guarantees. The account is sent by id, as
+     * every other line this adapter writes is.
+     */
+    async pushJournal(journal: ExternalJournal): Promise<PushResult> {
+      return create(KEY_FIELD.journal, {
+        ManualJournals: [{
+          Narration: `${journal.idempotencyKey}: Journal ${journal.number}, ${journal.memo}`.slice(0, 4000),
+          Date: journal.postedOn,
+          Status: "POSTED",
+          LineAmountTypes: "NoTax",
+          JournalLines: journal.lines.map((line) => ({
+            LineAmount: line.direction === "debit" ? lineAmount(line.amount) : -lineAmount(line.amount),
+            AccountID: line.accountExternalId,
+            Description: (line.description ?? journal.memo).slice(0, 4000),
+          })),
+        }],
+      }, journal.idempotencyKey);
     },
 
     heldMoneyReachesBooks: false,

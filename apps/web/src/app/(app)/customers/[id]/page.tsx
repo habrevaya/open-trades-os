@@ -1,4 +1,5 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -20,6 +21,8 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { Referral } from "./Referral";
+import { PortalSignIns } from "./PortalSignIns";
+import { AdData } from "./AdData";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
@@ -233,6 +236,7 @@ export default async function CustomerPage({
       <Contacts
         customerId={id}
         contacts={people}
+        portalControl={can(user.actor, "customer:write") && can(user.actor, "portal:revoke")}
         properties={addresses.map((property) => ({
           id: property.id,
           label: [property.addressLine1, property.city].filter(Boolean).join(", "),
@@ -240,6 +244,7 @@ export default async function CustomerPage({
       />
 
       <Referral ctx={ctx} customerId={id} />
+      <AdData ctx={ctx} customerId={id} zone={user.organizationTimezone} />
 
       {(removable || mergeable.length > 0) && (
         <Lifecycle
@@ -318,6 +323,8 @@ export default async function CustomerPage({
                       hidden={{ customerId: id }} className="mt-2 space-y-2" />
         </section>
       )}
+
+      <PortalSignIns ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
 
       {quotes && (
         <section aria-label="Estimates">
@@ -442,6 +449,7 @@ export default async function CustomerPage({
         values={(customer.customFields ?? {}) as Record<string, unknown>}
         canWrite={can(user.actor, "customer:write")}
       />
+      <RecordsPanel ctx={ctx} link="customer" id={id} back={`/customers/${id}`} />
     </div>
   );
 }

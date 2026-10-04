@@ -16,7 +16,7 @@
  * secrets service, encrypted, under `connectors.defaultSecretName`, and the
  * setting holds that name, exactly as it would hold a name typed here.
  */
-export type FieldKind = "text" | "secret_name" | "number" | "select" | "list";
+export type FieldKind = "text" | "secret_name" | "number" | "select" | "list" | "yesno";
 
 export interface Field {
   key: string;
@@ -39,7 +39,29 @@ export interface ProviderForm {
   via?: "ai" | "call_tracking";
   /** No form at all, with the reason shown instead. */
   noForm?: string;
+  /**
+   * Whose consent screen a person signs in on after the settings are saved:
+   * the ad platforms, whose access is granted by a person on the platform's
+   * own screen rather than pasted from a vendor dashboard.
+   */
+  signIn?: "Google" | "Meta" | "Microsoft";
 }
+
+/** What the company lets go to an ad platform about its customers. Mirrors core's three modes. */
+const PERSONAL_DATA: Field = {
+  key: "personalData", label: "Customers' email and phone, hashed", kind: "select",
+  options: ["consented", "unless_refused", "never"],
+  hint: "consented: only for customers who said yes. unless_refused: for everybody who did not say no, which your privacy notice has to cover. never: click ids only. A customer who said no is never sent anything.",
+};
+const SEND_CONVERSIONS: Field = {
+  key: "sendConversions", label: "Send booked and paid jobs back", kind: "yesno",
+  hint: "Yes by default once connected. Each job is sent once, and only to the platform whose click it came from.",
+};
+const OAUTH_CLIENT: Field = {
+  key: "oauthClientRef", label: "OAuth client, as the name of the secret holding clientId and clientSecret as one JSON value",
+  kind: "secret_name", secretLabel: "OAuth client: clientId and clientSecret as one JSON value", placeholder: "GOOGLE_OAUTH_CLIENT",
+};
+const OWN_TOKEN = "A refresh token kept in your own secret store, as its name (leave empty and sign in below instead)";
 
 export const FORMS: Record<string, ProviderForm> = {
   stripe: {
@@ -51,6 +73,22 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name",
         secretLabel: "Webhook signing secret",
         hint: "Without it cards are taken and no payment is ever recorded." },
+    ],
+  },
+  wisetack: {
+    credential: "API token, as the name of the secret holding it",
+    credentialSecret: "API token",
+    fields: [
+      { key: "merchantId", label: "Merchant id", kind: "text", hint: "From your Wisetack merchant account." },
+      { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name", secretLabel: "Webhook signing secret",
+        hint: "Without it no application's status is ever heard, and a funded loan never reaches the invoice." },
+      { key: "plans", label: "Plans on your Wisetack agreement, as months@APR, comma separated", kind: "list",
+        placeholder: "12@0, 60@17.9",
+        hint: "What \"as low as\" is worked out from. Leave empty and customers can still apply, with no monthly figure shown." },
+      { key: "minAmount", label: "Smallest amount Wisetack finances for you", kind: "text", placeholder: "500" },
+      { key: "maxAmount", label: "Largest amount Wisetack finances for you", kind: "text", placeholder: "25000" },
+      { key: "showMonthly", label: "Show the monthly figure on estimates and invoices", kind: "yesno",
+        hint: "Always shown with \"subject to approval\" beside it. No hides the figure and keeps the apply button." },
     ],
   },
   quickbooks: {
@@ -158,6 +196,154 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "countryCodes", label: "Countries you work in, comma separated (optional)", kind: "list", placeholder: "us" },
     ],
   },
+  osrm: {
+    credential: null,
+    fields: [
+      { key: "endpoint", label: "Your OSRM server's address", kind: "text",
+        placeholder: "https://osrm.yourcompany.com",
+        hint: "Where your own OSRM server answers. There is no public one to fall back on." },
+      { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving" },
+    ],
+  },
+  mapbox_directions: {
+    credential: "Access token, as the name of the secret holding it",
+    credentialSecret: "Access token",
+    fields: [
+      { key: "profile", label: "Profile", kind: "select", options: ["driving", "driving-traffic"],
+        hint: "With traffic is ten points a request rather than twenty five, so a big day costs more requests." },
+    ],
+  },
+  openrouteservice: {
+    credential: "API key, as the name of the secret holding it (not needed for your own server)",
+    credentialSecret: "API key",
+    fields: [
+      { key: "endpoint", label: "Your own server (optional)", kind: "text",
+        placeholder: "https://api.openrouteservice.org",
+        hint: "Leave blank for the hosted service, which needs a key." },
+      { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving-car" },
+    ],
+  },
+  spend_csv: {
+    credential: null,
+    fields: [],
+    noForm: "Nothing to connect: upload the file on Marketing, Spend.",
+  },
+  google_ads: {
+    credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
+    signIn: "Google",
+    fields: [
+      { key: "customerId", label: "Customer id", kind: "text", placeholder: "123-456-7890",
+        hint: "The ten digits at the top of the Google Ads screen." },
+      { key: "loginCustomerId", label: "Manager account id (optional)", kind: "text",
+        hint: "Only when the account is reached through a manager account." },
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name", secretLabel: "Developer token",
+        placeholder: "GOOGLE_ADS_DEVELOPER_TOKEN", hint: "An application to Google from a manager account. Until it is approved it works on test accounts only." },
+      OAUTH_CLIENT,
+      { key: "conversionActionId", label: "Conversion action id for booked jobs", kind: "text",
+        hint: "An import conversion action in the Ads account. Without one, no jobs are sent." },
+      PERSONAL_DATA,
+      SEND_CONVERSIONS,
+    ],
+  },
+  google_lsa: {
+    credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
+    signIn: "Google",
+    fields: [
+      { key: "customerId", label: "Local Services customer id", kind: "text", placeholder: "123-456-7890" },
+      { key: "loginCustomerId", label: "Manager account id (optional)", kind: "text" },
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name", secretLabel: "Developer token",
+        placeholder: "GOOGLE_ADS_DEVELOPER_TOKEN" },
+      OAUTH_CLIENT,
+    ],
+  },
+  meta_ads: {
+    credential: "A system user token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "System user token",
+    signIn: "Meta",
+    fields: [
+      { key: "adAccountId", label: "Ad account id", kind: "text", placeholder: "act_1234567890" },
+      { key: "pixelId", label: "Pixel id the Conversions API sends to", kind: "text" },
+      { ...OAUTH_CLIENT, label: "Meta app, as the name of the secret holding its id and secret as clientId and clientSecret", placeholder: "META_OAUTH_CLIENT" },
+      PERSONAL_DATA,
+      SEND_CONVERSIONS,
+      { key: "testEventCode", label: "Test event code (optional)", kind: "text",
+        hint: "From Events Manager, to watch events arrive there before trusting them. Remove it when you have." },
+    ],
+  },
+  ga4: {
+    credential: "Measurement Protocol API secret, as the name of the secret holding it",
+    credentialSecret: "Measurement Protocol API secret",
+    fields: [
+      { key: "measurementId", label: "Measurement id of the website's data stream", kind: "text", placeholder: "G-XXXXXXX" },
+      { ...PERSONAL_DATA, hint: "Only decides what Google Analytics is told about consent. No email or phone is ever sent to it." },
+      SEND_CONVERSIONS,
+    ],
+  },
+  google_business_profile: {
+    credential: null,
+    signIn: "Google",
+    fields: [
+      { key: "accountId", label: "Account id", kind: "text", placeholder: "accounts/1234567890" },
+      { key: "locationId", label: "Location id", kind: "text", placeholder: "locations/9876543210" },
+      { key: "platform", label: "Review site name in your review policy (optional)", kind: "text", placeholder: "google",
+        hint: "The platform key the reviews are recorded under. Leave empty for google." },
+      OAUTH_CLIENT,
+    ],
+  },
+  bing_ads: {
+    credential: "A refresh token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "Refresh token",
+    signIn: "Microsoft",
+    fields: [
+      { key: "customerId", label: "Customer id", kind: "text", hint: "From the top of the Microsoft Advertising screen, or the cid in its address." },
+      { key: "accountId", label: "Account id", kind: "text", hint: "The account the campaigns are in: the aid in the address." },
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name", secretLabel: "Developer token",
+        placeholder: "MICROSOFT_ADS_DEVELOPER_TOKEN", hint: "From the Microsoft Advertising Developer Portal." },
+      { ...OAUTH_CLIENT, label: "App registered in Microsoft Entra, as the name of the secret holding clientId and clientSecret as one JSON value", placeholder: "MICROSOFT_OAUTH_CLIENT" },
+    ],
+  },
+  meta_lead_ads: {
+    credential: "A Page access token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "Page access token",
+    signIn: "Meta",
+    fields: [
+      { key: "pageId", label: "Facebook Page id", kind: "text", hint: "The Page your instant forms run on, from its About section." },
+      { ...OAUTH_CLIENT, label: "Meta app, as the name of the secret holding its id and secret as clientId and clientSecret", placeholder: "META_OAUTH_CLIENT",
+        hint: "The same app's secret signs every lead Meta posts, which is how a post is known to be Meta's." },
+    ],
+  },
+  search_console: {
+    credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
+    signIn: "Google",
+    fields: [
+      { key: "siteUrl", label: "Search Console property", kind: "text", placeholder: "sc-domain:yourcompany.com",
+        hint: "Exactly as Search Console names it: sc-domain: and the domain, or the https address of a URL property." },
+      OAUTH_CLIENT,
+    ],
+  },
+  ga4_data: {
+    credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
+    signIn: "Google",
+    fields: [
+      { key: "propertyId", label: "Property id", kind: "text", placeholder: "123456789",
+        hint: "In Analytics, Admin, Property details. Not the G- measurement id." },
+      OAUTH_CLIENT,
+    ],
+  },
+  lob: {
+    credential: "Lob secret API key, as the name of the secret holding it",
+    credentialSecret: "Lob secret API key",
+    fields: [],
+  },
+  angi: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address and password are made." },
+  thumbtack: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address and password are made." },
+  yelp: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address is made." },
+  nextdoor: { credential: null, fields: [], noForm: "Nothing to connect: forward Nextdoor's emails to the lead inbox address on Marketing, Lead offers, Lead sources." },
+  lead_email: { credential: null, fields: [], noForm: "The address is on Marketing, Lead offers, Lead sources." },
   ics_feed: {
     credential: null,
     fields: [],
@@ -176,7 +362,9 @@ export function settingsFrom(form: ProviderForm, data: FormData): Record<string,
   for (const field of form.fields) {
     const raw = String(data.get(`setting:${field.key}`) ?? "").trim();
     if (raw === "") continue;
-    if (field.kind === "number") {
+    if (field.kind === "yesno") {
+      out[field.key] = raw === "yes";
+    } else if (field.kind === "number") {
       const n = Number(raw);
       if (Number.isFinite(n)) out[field.key] = n;
     } else if (field.kind === "list") {

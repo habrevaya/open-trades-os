@@ -4,7 +4,7 @@ import { portalSettings } from "@opentradesos/api/services";
 import { can, assertCan } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { saveJobPhotos, saveTipping } from "./actions";
+import { saveBankPayments, saveJobPhotos, saveTipping } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,13 +36,23 @@ export default async function PortalSettingsPage() {
       </pre>
       <p className="mt-2 max-w-2xl text-sm text-ink-500">
         A customer with no email address or mobile number on their record cannot be sent a code.
-        The links you send (an estimate, an invoice, their account) keep working without signing in.
+        A contact on a customer can sign in as them once you turn that on for the contact, on the
+        customer&apos;s page. The links you send (an estimate, an invoice, their account) keep
+        working without signing in. The sign in page shows your logo and colour.
       </p>
+      {can(user.actor, "portal:read") && (
+        <p className="mt-2 text-sm">
+          <a href="/settings/portal/sign-ins" className="text-blue-600 underline underline-offset-4">
+            See who signed in, and codes that did not work
+          </a>
+        </p>
+      )}
 
       <section className="mt-8">
         <h2 className="text-base font-semibold">Tips</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          When this is on, a customer paying an invoice online can add a tip. It is split evenly
+          When this is on, a customer paying an invoice online can add a tip, and so can one paying
+          your technician cash or a check on site, with the same suggestions. It is split evenly
           between the technicians on the job&apos;s visits, held for them (it is not your income),
           and shows on their pay register and payroll export for the period it arrived in. Pay it
           out from the pay period once it is closed.
@@ -64,6 +74,27 @@ export default async function PortalSettingsPage() {
           <p className="mt-3 text-sm">
             {settings.tipping.enabled ? `On, suggesting ${settings.tipping.presets.join("%, ")}%.` : "Off."}
           </p>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-base font-semibold">Bank payments</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          When this is on, a signed in customer can save a bank account (they sign in to their bank
+          to check it) and pay from it. Turn on ACH Direct Debit in your Stripe account too. A bank
+          payment takes a few business days to arrive: the invoice shows it on its way and cannot be
+          paid twice meanwhile, and if the bank refuses it the invoice stays open and your office
+          queue gets a task saying why.
+        </p>
+        {writes ? (
+          <ActionForm action={saveBankPayments} submit="Save bank payments" className="mt-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="bankAccounts" defaultChecked={settings.bankAccounts} />
+              Let customers pay from a bank account
+            </label>
+          </ActionForm>
+        ) : (
+          <p className="mt-3 text-sm">{settings.bankAccounts ? "On." : "Off."}</p>
         )}
       </section>
 

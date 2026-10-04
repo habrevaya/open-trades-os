@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, isNotNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { labor, money as m } from "@opentradesos/core";
+import { labor, money as m, time } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
@@ -544,7 +544,8 @@ export async function setClassification(
 export async function crewRates(ctx: ServiceContext, input: { on?: Date } = {}) {
   return guardedRead(ctx, "timesheet:read", async (tx) => {
     const on = input.on ?? new Date();
-    const day = on.toISOString().slice(0, 10);
+    /** Today where the company is: a scale that starts tomorrow does not cover anybody tonight. */
+    const day = time.dateIn(on, await timezoneOf(tx, ctx.actor.organizationId));
 
     const rows = await tx.select({
       id: schema.technician.id,

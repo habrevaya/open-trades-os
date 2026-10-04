@@ -42,6 +42,8 @@ export const AuditRow = z.object({
   /** Set when a model acted, which is a different fact from a person acting. */
   actorAgentId: z.string().nullable(),
   actorPortalGrantId: Uuid.nullable(),
+  /** The contact on the customer who held that grant, when a contact signed in as the customer. */
+  actorContactId: Uuid.nullable(),
   action: z.string(),
   entityType: z.string(),
   entityId: Uuid.nullable(),

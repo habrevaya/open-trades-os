@@ -318,10 +318,10 @@ export const WITHHOLDING_RULES: readonly WithholdingRule[] = frozenRules([
   {
     reason: "already_asked_for_this_job",
     clearsOnItsOwn: false,
-    applies: (facts) => {
+    applies: (facts, policy) => {
       const sent = facts.requests.find((request) => request.jobId === facts.jobId);
       return sent
-        ? `A request for this job already went out on ${sent.sentAt.toISOString().slice(0, 10)}. One job gets one ask, and a second one is a nudge the platforms treat as pressure.`
+        ? `A request for this job already went out on ${dateIn(sent.sentAt, policy.timeZone)}. One job gets one ask, and a second one is a nudge the platforms treat as pressure.`
         : false;
     },
   },
@@ -386,7 +386,7 @@ export const WITHHOLDING_RULES: readonly WithholdingRule[] = frozenRules([
         .filter((request) => request.sentAt.getTime() >= cutoff)
         .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime())[0];
       return recent
-        ? `We asked this customer on ${recent.sentAt.toISOString().slice(0, 10)}, inside the ${policy.customerCooldownDays} day gap. Somebody who gives us four jobs a month is not four people to ask.`
+        ? `We asked this customer on ${dateIn(recent.sentAt, policy.timeZone)}, inside the ${policy.customerCooldownDays} day gap. Somebody who gives us four jobs a month is not four people to ask.`
         : false;
     },
   },

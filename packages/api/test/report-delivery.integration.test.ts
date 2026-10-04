@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import type { Actor } from "@opentradesos/core";
+import { inflateSync } from "node:zlib";
+import { pdf, type Actor } from "@opentradesos/core";
 import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import * as jobs from "../src/services/jobs";
@@ -195,7 +196,7 @@ run("a delivery", () => {
     expect(await deliveriesOf(scheduleId)).toHaveLength(0);
   });
 
-  it("goes to everybody it is for, with the report in the body and every row attached", async () => {
+  it("goes to everybody it is for, with the report in the body, every row attached, and a PDF with its chart", async () => {
     await due(scheduleId, MONDAY);
     const tick = await schedules.deliverOne(db(), ORG, scheduleId, new Date());
     expect(tick).toMatchObject({ action: "delivered", queued: true, report: { status: "queued" } });
@@ -214,11 +215,28 @@ run("a delivery", () => {
     expect(toOwner!.body).toContain("Status: Lead, Jobs: 2");
     expect(toOwner!.body).toContain("jobs-by-status.csv");
 
+    expect(toOwner!.body).toContain("with its chart in jobs-by-status.pdf");
+
     const files = await raw<{ file_name: string; content_type: string; content: Buffer }[]>`
-      select file_name, content_type, content from public.message_attachment where message_id = ${toOwner!.id}`;
-    expect(files).toHaveLength(1);
-    expect(files[0]!.file_name).toBe("jobs-by-status.csv");
+      select file_name, content_type, content from public.message_attachment where message_id = ${toOwner!.id}
+      order by file_name`;
+    expect(files.map((f) => f.file_name)).toEqual(["jobs-by-status.csv", "jobs-by-status.pdf"]);
     expect(files[0]!.content.toString("utf8")).toBe("Status,Jobs\r\nLead,2\r\n");
+
+    /**
+     * A PDF a reader can open, saying what the CSV says, with the chart: the
+     * bar for the one status is labelled with its count, and the page says
+     * whose run it is.
+     */
+    expect(files[1]!.content_type).toBe("application/pdf");
+    const read = pdf.inspectPdf(new Uint8Array(files[1]!.content), (b) => new Uint8Array(inflateSync(b)));
+    expect(read.problems).toEqual([]);
+    expect(read.title).toBe("Jobs by status, Everything to date");
+    expect(read.text).toContain("Delivery Co");
+    expect(read.text).toContain("Jobs by status");
+    expect(read.text).toContain("As seen by");
+    expect(read.pages[0]).toContain("Lead");
+    expect(read.pages[0]!.filter((t) => t === "2").length).toBeGreaterThanOrEqual(2);
   });
 
   it("moves the clock on to the next occurrence and records when it went", async () => {
@@ -256,9 +274,12 @@ run("a delivery", () => {
     const provider = fakeProvider();
     await email.flush(db(), ORG, { provider });
     const report = provider.sent.find((m) => m.to === ACCOUNTANT)!;
-    expect(report.attachments).toHaveLength(1);
-    expect(report.attachments![0]!.filename).toBe("jobs-by-status.csv");
-    expect(report.attachments![0]!.content.toString("utf8")).toContain("Status,Jobs");
+    expect(report.attachments!.map((a) => a.filename).sort()).toEqual(["jobs-by-status.csv", "jobs-by-status.pdf"]);
+    const csv = report.attachments!.find((a) => a.filename.endsWith(".csv"))!;
+    expect(csv.content.toString("utf8")).toContain("Status,Jobs");
+    const printed = report.attachments!.find((a) => a.filename.endsWith(".pdf"))!;
+    expect(printed.contentType).toBe("application/pdf");
+    expect(pdf.inspectPdf(new Uint8Array(printed.content), (b) => new Uint8Array(inflateSync(b))).problems).toEqual([]);
     // The accountant has no login, so there is no link for them to be refused at.
     expect(report.text).not.toContain("http");
   });

@@ -313,13 +313,22 @@ run("every built-in report opens onto records that add up to it", () => {
     expect(drilled.pinned).toEqual([{ key: "customer", label: "Customer", type: "text", value: "Ada Archer" }]);
   });
 
-  it("opens a visit on its job, because a visit has no screen of its own", async () => {
+  it("opens a visit on its own screen, not on its job", async () => {
     const definition = BUILT_IN.find((r) => r.slug === "visits-by-technician")!.definition;
     const result = await reports.run(owner(), definition);
     const unassigned = result.rows.find((row) => row["technician"] === "Unassigned")!;
     const drilled = await reports.drill(owner(), { definition, match: reporting.matchFor(definition, unassigned) });
     expect(drilled.rows.length).toBeGreaterThan(0);
-    for (const record of drilled.rows) expect(record.href).toMatch(/^\/jobs\/[0-9a-f-]{36}$/);
+    for (const record of drilled.rows) expect(record.href).toBe(`/visits/${record.id}`);
+  });
+
+  it("opens a task on its own page, not on the queue", async () => {
+    await raw`insert into public.task (organization_id, title) values (${ORG}, 'Ring the supplier')`;
+    const definition: reporting.ReportDefinition = { dataset: "tasks", dimensions: ["status"], measures: ["count"], filters: [] };
+    const result = await reports.run(owner(), definition);
+    const drilled = await reports.drill(owner(), { definition, match: reporting.matchFor(definition, result.rows[0]!) });
+    expect(drilled.rows.length).toBeGreaterThan(0);
+    for (const record of drilled.rows) expect(record.href).toBe(`/tasks/${record.id}`);
   });
 });
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { attempt, type FormState } from "@/lib/actions";
+import { attempt, field, type FormState } from "@/lib/actions";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customFields, customers, jobs, properties } from "@opentradesos/api/services";
@@ -44,6 +44,20 @@ export async function saveCustomFields(_previous: FormState, form: FormData): Pr
         });
         break;
       }
+      /**
+       * The five that grew a column later save through one write of their
+       * own, under that record's write permission and scope, built on what
+       * is stored so nothing the form does not draw is lost.
+       */
+      case "invoice":
+      case "estimate":
+      case "visit":
+      case "equipment":
+      case "technician": {
+        const before = await customFields.valuesFor(ctx, { entityType, id });
+        await customFields.setValues(ctx, { entityType, id, values: customFieldsFrom(form, definitions, before) });
+        break;
+      }
       default:
         throw new Error(`Unknown entity: ${entityType}`);
     }
@@ -51,6 +65,8 @@ export async function saveCustomFields(_previous: FormState, form: FormData): Pr
   });
 
   if (state?.done) {
+    const back = field(form, "back");
+    if (back && back.startsWith("/") && !back.startsWith("//")) revalidatePath(back);
     const base = entityType === "customer" ? "/customers" : entityType === "property" ? "/properties" : "/jobs";
     revalidatePath(`${base}/${id}`);
   }

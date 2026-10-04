@@ -1,12 +1,14 @@
 # Calls on your own Twilio account
 
 Tracking numbers can be bought on the settings screen and answered by this
-installation: the call is recorded and credited to its campaign, the person
-answering hears where it came from, calls outside business hours go where you
-say, the caller is asked before anything is recorded, and an unanswered call
-leaves a voicemail and can be texted back. All of it runs through the Twilio
-account you already text through. There is no second account and no second
-credential.
+installation, by a phone menu, a ring group, a waiting line, the phone
+assistant, or a person in their browser: the call is recorded and credited to
+its campaign, the person answering hears where it came from, calls outside
+business hours go where you say, the caller is asked before anything is
+recorded, and an unanswered call leaves a voicemail and can be texted back.
+All of it runs through the Twilio account you already text through. There is
+no second account, and the only second credential is the API key the browser
+phone signs its passes with.
 
 ## What you need first
 
@@ -75,6 +77,82 @@ between at most eight destinations before it goes to voicemail, whatever the
 settings say, so no combination of menus and groups can keep a caller going
 round. People are rung on the number kept for them on that screen.
 
+## Waiting lines
+
+Made on Settings, Phone menus, and reached from a menu option like any other
+destination. A caller sent to one is put in a Twilio queue named after the
+line, and Twilio asks this installation what to play each time the music
+finishes (`/queue-wait` beneath the voice URL): the caller's place, then the
+music, which is the line's own MP3 or Twilio's hold music. Each of those
+requests is also when the line's ring group is rung: this installation places
+an outbound call from the company's number, through the same Twilio account,
+to each phone (or browser) in the round, and whoever answers is put through
+to the caller at the front. Those calls are on the company's Twilio bill like
+any other. Pick a hold track of a minute or two: the longest wait is checked
+only between plays, so a ten minute track lets a caller wait ten minutes past
+the limit.
+
+## The phone assistant and the voice relay
+
+The phone assistant (M27) is the company's own model answering a call. Twilio
+holds the call with ConversationRelay, turns the caller's speech into text and
+sends it over a WebSocket; the answer goes back as text and Twilio reads it
+aloud. The web app cannot hold a WebSocket open (a Next.js route handler
+answers a request and is done), so the conversations go to the **voice
+relay**, a small process of its own:
+
+```
+pnpm --filter @opentradesos/api voice-relay
+```
+
+or, with Docker, `docker compose -f deploy/docker/docker-compose.yml --profile voice up`.
+
+It needs, in its own environment:
+
+- `DATABASE_URL`, the same role the web app uses: it writes what the carrier's
+  webhooks write.
+- `VOICE_RELAY_URL`, the public `wss://` address Twilio reaches it on, for
+  example `wss://relay.example.com`. The **web app needs the same value**: it
+  is what the web app hands Twilio when a call is sent to the assistant, and
+  Twilio signs the WebSocket handshake over that exact address, which the relay
+  checks with the account's auth token before it accepts the connection.
+- `VOICE_RELAY_PORT`, where it listens, 3300 when unset. Put it behind
+  whatever terminates TLS for the web app; Twilio will only open `wss://`.
+- The secrets the Twilio and model connections name, the same as the web app
+  and the worker.
+
+Without `VOICE_RELAY_URL` on the web app, a call sent to the assistant goes
+where the assistant puts callers through (its ring group, or voicemail), and
+"Where it went" on the call says why. If the relay is down when a call
+arrives, Twilio cannot open the conversation and the caller is put through the
+same way. Restarting the relay cuts off conversations in progress, and those
+callers are put through too. `GET /healthz` on the relay's port answers `ok`.
+
+Nothing in the relay decides anything about a call: it checks who is
+connecting and hands each message to the same services the webhooks use.
+
+## Calling from the browser
+
+The browser phone at `/phone` uses Twilio's Voice JavaScript SDK, which
+registers each browser with Twilio using a short lived pass this
+installation signs with an API key on your account:
+
+1. In the Twilio console, make an API key (Standard is enough). Put its secret
+   in this installation's secret store, for example
+   `TWILIO_API_KEY_SECRET=...` in `.env`, on the web app.
+2. On Settings, Phone menus, under "Calling from the browser", give the key's
+   SID (`SK...`), the secret's name, and the number calls should show. The
+   number must be one answered here, because Twilio only shows a number on a
+   call when it is on the same account.
+3. Saving makes a TwiML application on your account, "OpenTradesOS browser
+   phone", whose voice URL is `/softphone` beneath the voice URL above. Saving
+   again points the same application again rather than making another.
+
+Browsers need a microphone and the page open over https. Calls from the
+browser are logged like every call; on a number set to record calls the
+person called is asked to press 1 first, and recording is started through
+Twilio's API only on their yes.
+
 ## Transcripts
 
 Connect speech to text under Settings, Integrations, Call transcripts. It
@@ -137,3 +215,22 @@ at Twilio (released in their console) is released here too.
 - **Nothing is ever recorded.** Recording is off for the number, the callers
   are not pressing 1, or your recording declarations do not pass their own
   check. The call screen says which, under "Not recorded".
+- **Calls sent to the phone assistant go straight to a person.** The web app
+  has no `VOICE_RELAY_URL`, the relay is not running or not reachable at it
+  over `wss://`, or the assistant is switched off; "Where it went" says which.
+  A relay that refuses every connection with 403 has a `VOICE_RELAY_URL` that
+  differs from the address Twilio connected to.
+- **Callers wait in a line and nobody is rung.** The line's ring group has
+  nobody with a number (or a browser taking calls), which the call says, or
+  Twilio refused the outbound calls, which the call also says.
+- **The browser phone says it is not set up, or will not switch on.** The API
+  key's secret is not in this installation's environment under the name given,
+  or the number it shows is no longer answered here.
+
+## What has not been tried
+
+The waiting line, the phone assistant and the browser phone are built from
+Twilio's documentation and tested against a fake Twilio: signed webhooks, a
+fake REST API, and a WebSocket client playing ConversationRelay's part. None
+of the three has been tried on a live phone line. Try each on a number of your
+own before sending customers to it.

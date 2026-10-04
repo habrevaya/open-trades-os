@@ -7,9 +7,10 @@ import { ConflictError, type ServiceContext } from "./context";
 import * as email from "./email";
 import { memberActor } from "./session";
 import { run, type ReportResult } from "./reports";
-import { CATALOGUE } from "./report-catalogue";
+import { catalogueFor } from "./report-company";
 import { BUILT_IN } from "./report-built-in";
 import { publicBaseUrl } from "./setup-tokens";
+import { companyOf, reportFile } from "./documents";
 
 /**
  * A REPORT, RUN AND EMAILED
@@ -144,7 +145,7 @@ export async function mayReceive(
   if (!actor) return "is no longer an active member of the company";
   const held = permissionsFor(actor);
   if (!held.has("report:read")) return "may not read reports";
-  const decision = reporting.resolveReport(definition, CATALOGUE, held);
+  const decision = reporting.resolveReport(definition, await catalogueFor(tx, organizationId), held);
   return decision.ok ? null : `may not see this report (${reporting.explainRefusal(decision)})`;
 }
 
@@ -279,6 +280,23 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
   }
 
   const filename = `${slugify(named.name)}${range.from ? `-${range.from}` : ""}.csv`;
+  /**
+   * THE SAME RUN AS A PDF, WITH ITS CHART, beside the CSV. The CSV is for the
+   * accountant's spreadsheet and the PDF is for everybody else, who wanted
+   * the picture the screen draws and would never open a CSV. Both are made
+   * from the run each recipient is sent, so a technician's PDF is their own
+   * jobs exactly as their CSV is.
+   */
+  const pdfName = filename.replace(/\.csv$/, ".pdf");
+  const company = await companyOf(tx, input.organizationId);
+  const dataset = (await catalogueFor(tx, input.organizationId)).find((d) => d.key === definition.dataset);
+  const kinds = new Map((dataset?.measures ?? []).map((measure) => [measure.key, measure.kind]));
+  const additive = (key: string) => kinds.get(key) === "count" || kinds.get(key) === "sum";
+  /** A person by name, or by their address when they have not set one. */
+  const nameOf = (userId: string | null | undefined) => {
+    const person = userId ? people.get(userId) : undefined;
+    return person ? person.name ?? person.email : null;
+  };
   const base = publicBaseUrl();
   const query = new URLSearchParams();
   if (definition.from) query.set("from", definition.from);
@@ -299,15 +317,29 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
       // handed a sign in page they have no account for is a support call.
       link: recipient.userId ? link : null,
       filename,
+      pdfName,
     });
     const csv = reporting.toCsv(theirs.columns, theirs.rows);
+    const printed = reportFile({
+      company,
+      name: named.name,
+      question: named.question,
+      period: range.label,
+      ranAs: nameOf(recipient.userId ?? input.ownerUserId),
+      result: theirs,
+      additive,
+      filename: pdfName,
+    });
     const outcome = await email.queue(sender, {
       to: recipient.address,
       subject: composed.subject,
       text: composed.text,
       html: composed.html,
       purpose: "transactional",
-      attachments: [{ filename, contentType: "text/csv; charset=utf-8", content: Buffer.from(csv, "utf8") }],
+      attachments: [
+        { filename, contentType: "text/csv; charset=utf-8", content: Buffer.from(csv, "utf8") },
+        { filename: pdfName, contentType: "application/pdf", content: Buffer.from(printed.bytes) },
+      ],
     });
     if (outcome.queued) recipient.messageId = outcome.messageId;
     else recipient.refused = outcome.explanation;
@@ -376,6 +408,8 @@ export function composeReportEmail(input: {
   result: ReportResult;
   link: string | null;
   filename: string;
+  /** The PDF beside the CSV, with the chart, when one is attached. */
+  pdfName?: string | undefined;
 }): { subject: string; text: string; html: string } {
   const { result } = input;
   const shownRows = result.rows.slice(0, SUMMARY_ROWS);
@@ -383,11 +417,12 @@ export function composeReportEmail(input: {
   const subject = `${input.name}: ${input.period}`;
 
   const empty = result.rows.length === 0;
+  const files = input.pdfName ? `${input.filename}, and with its chart in ${input.pdfName}` : input.filename;
   const tail = empty
     ? "Nothing fell inside this report for these dates."
     : more > 0
-      ? `The first ${shownRows.length} of ${result.rows.length} rows. Every row is in the attached file, ${input.filename}.`
-      : `Every row is also in the attached file, ${input.filename}.`;
+      ? `The first ${shownRows.length} of ${result.rows.length} rows. Every row is in the attached file, ${files}.`
+      : `Every row is also in the attached file, ${files}.`;
 
   const text = [
     input.name,
@@ -467,7 +502,7 @@ export async function checkReportStep(
   if (!step.source) return "Pick the report this step emails.";
   const named = await sourceOf(tx, step.source);
   if (!named) return "The report this step emails does not exist.";
-  const decision = reporting.resolveReport(named.definition, CATALOGUE, permissionsFor(ctx.actor));
+  const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
   if (!decision.ok) return `You cannot email a report you cannot run yourself. ${reporting.explainRefusal(decision)}`;
   let addresses: string[];
   try {

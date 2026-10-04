@@ -102,6 +102,28 @@ contractor makes differently and has to be able to see and argue with. Without i
 every finding came out of the proposal builder unmapped: real, shown, and with no
 work behind it, which is a backlog that turns into a list somebody stops reading.
 
+**An inspection keeps what was asked and what was said.** The checkpoints as
+they stood when it was filed, and every answer with who gave it and when, are
+kept on the inspection. The report is rendered from those, so a report printed a
+year later after the programme was revised still prints the prompts and ranges
+the technician was shown. The verdict on each checkpoint is core's, drawn again
+from the kept answers, so the report and the backlog cannot disagree about a
+reading.
+
+**The phone files answers, never a verdict.** A technician runs the programme's
+checkpoints on the visit, offline if need be, and the whole inspection goes as
+one operation; the server draws pass, fail or not finished from the programme,
+against the visit's own customer and address. Only somebody the company lets file
+inspections (`compliance:write`) is offered a programme on the phone, and a
+filing from anybody else is refused in words.
+
+**A finding becomes a quote in one action, and never without evidence.** The
+repairs the checkpoint declared, frozen on the finding, become the lines of a new
+estimate priced from the price book by item code, with what was seen, by whom and
+when on it. A finding with no observation is refused, as is a repair whose code
+is not in the price book; a finding whose checkpoint declares no repair needs the
+price for correcting it.
+
 ## Setup
 
 A trade pack declares the inspection programmes for its trade, with the standard
@@ -131,11 +153,26 @@ The backlog is everything found and not yet put right, worst and most overdue
 first. `/inspections` is the screen. Moving a finding along needs a reason when the
 move ends it.
 
+### Run one in the field
+
+On a visit, on the phone app or on `/my-day`, "Run an inspection" offers the
+programmes. Pass or fail, a reading with its range beside it (a reading outside
+it is said before it is saved), not applicable with a reason, a photo and a note
+per checkpoint, the inspector's name and licence, and a signature. Checkpoints
+left unanswered are named first, and filing anyway files it as not finished.
+
+### Print the report
+
+`GET /v1/inspections/{id}/report` is the report's data, and
+`/inspections/{id}/report` prints it. `GET /v1/inspections` lists those filed.
+
 ### Sell the remedy
 
 The proposal for a property prices the open findings from the remedies the
 checkpoints declared, against the contractor's own price book, and refuses to price
-anything with no evidence behind it.
+anything with no evidence behind it. "Quote it" on a backlog row, or
+`POST /v1/inspection-deficiencies/{id}/quote`, writes the estimate for one finding
+and moves it to quoted; pressing it again opens the same estimate.
 
 ## Permissions
 
@@ -159,6 +196,9 @@ inspection work grants them to the people who do it.
 | `POST /v1/inspections` | `compliance:write` |
 | `GET /v1/inspection-deficiencies` | `compliance:read` |
 | `POST /v1/inspection-deficiencies/{id}/status` | `compliance:write` |
+| `GET /v1/inspections` | `compliance:read` |
+| `GET /v1/inspections/{id}/report` | `compliance:read` |
+| `POST /v1/inspection-deficiencies/{id}/quote` | `compliance:write`, `estimate:write` |
 
 Filing an inspection sends ANSWERS and gets the verdict back. The outcome is not an
 input, which is the one thing this surface must not allow: accepting one would let a
@@ -170,9 +210,9 @@ run for a month end says the same thing every time it is run.
 
 ## Common questions
 
-**Can a technician file an inspection from the field app?** Not yet. The field app
-records readings against a visit; an inspection against a programme is an office
-screen.
+**Can a technician file an inspection from the field app?** Yes, when the company
+grants them `compliance:write`, which the technician preset does not hold. The
+phone app and `/my-day` both run one against the visit and file it offline.
 
 **Does this file anything with an authority?** No. The submission is tracked in
 M23 and there is no per authority formatter, so the filing itself is done by a
@@ -185,9 +225,12 @@ idea with no compliance obligation and no third party reader.
 
 Defining or revising a programme is not on the API: a programme comes from a trade
 pack, and publishing one is content rather than an integration. Neither is the
-proposal, whose shape is core's own decision union and would freeze an internal type
-into a published contract. No statutory report document: the data that a fire
-marshal's form needs is held and nothing renders the form, which is the gap the
-problem statement at the top is about. Nothing files a submission. The field app
-cannot run an inspection. Resolving a deficiency does not automatically create the
-job that fixes it: the proposal is built and converting it is M07's path.
+proposal for a whole property, whose shape is core's own decision union and would
+freeze an internal type into a published contract; one finding is quoted through
+the API. The report is this product's own document with everything an
+authority's form asks for; no authority's own form is rendered, and nothing files
+a submission. Inspections filed before the checkpoints were kept print the
+programme's current prompts and say so. A drawn signature is taken on the phone
+app; on `/my-day` the inspector signs by typing their name. Resolving a
+deficiency does not automatically create the job that fixes it: the estimate is
+written and converting it is M07's path.

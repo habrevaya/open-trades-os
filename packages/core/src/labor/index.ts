@@ -1446,7 +1446,7 @@ export function checkPeriod(period: PayPeriod, policy: OvertimePolicy): PolicyVe
 
 export type StatementLineKind =
   | "regular" | "overtime" | "double_time" | "on_call"
-  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward" | "tip";
+  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward" | "tip" | "cash_tip";
 
 export interface StatementLine {
   kind: StatementLineKind;
@@ -1515,6 +1515,14 @@ export interface StatementInput {
    * history would otherwise pay all of it every period.
    */
   tips?: readonly { tipId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
+  /**
+   * Cash a customer handed this person for themselves, which they kept and
+   * recorded on the phone. Already in their pocket, so the company pays none
+   * of it; it is on the statement because a tip a person keeps is still pay
+   * the company has to report, and a payroll bureau taxes it from the
+   * `cash_tip` category without paying it out again.
+   */
+  cashTips?: readonly { tipId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
   currency?: string | undefined;
   now: Date;
 }
@@ -1782,6 +1790,34 @@ export function buildStatement(input: StatementInput): StatementVerdict {
       kind: "tip",
       label: tip.label,
       explanation: `${moneyToString(tip.amount)} a customer added for the technicians when they paid, on ${dateIn(tip.occurredAt, policy.timeZone)}. The company held it for you and passes it on whole.`,
+      amount: round(tip.amount, 2),
+    });
+    gross = add(gross, round(tip.amount, 2));
+  }
+
+  /**
+   * Cash tips the person kept. On the statement and in the gross, because
+   * that is how pay is reported and taxed, and said plainly to be already in
+   * their hand: the bureau reading the `cash_tip` category withholds on it
+   * and pays none of it out a second time.
+   */
+  for (const tip of input.cashTips ?? []) {
+    if (tip.personId !== personId) continue;
+    if (!inPeriod(tip.occurredAt)) continue;
+    if (isZero(tip.amount)) continue;
+    if (tip.amount.currency !== currency) {
+      return {
+        ok: false,
+        refusals: [{
+          code: "currency_mismatch",
+          message: `Cash tip ${tip.tipId} is in ${tip.amount.currency} and this statement is in ${currency}. Converting it here would bake a rate nobody chose into somebody's tips.`,
+        }],
+      };
+    }
+    lines.push({
+      kind: "cash_tip",
+      label: tip.label,
+      explanation: `${moneyToString(tip.amount)} in cash a customer handed you on ${dateIn(tip.occurredAt, policy.timeZone)}, which you kept. It is already in your hand; it is here because it is reported as pay.`,
       amount: round(tip.amount, 2),
     });
     gross = add(gross, round(tip.amount, 2));

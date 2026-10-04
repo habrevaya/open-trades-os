@@ -1,8 +1,8 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, money as m, type Actor } from "@opentradesos/core";
+import { branding as brand, money as m, time, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import * as email from "./email";
@@ -86,6 +86,8 @@ export type DeliveryState =
   | "refused"
   /** A link was minted and given to the operator. Nothing more is knowable. */
   | "link_issued"
+  /** The invoice went out in a file for the payer's own system. See services/payer-delivery.ts. */
+  | "exported"
   /** In the outbox. No provider has seen it yet. */
   | "queued"
   /** A provider accepted it. On an SMTP relay this is the last thing ever known. */
@@ -137,6 +139,9 @@ export function stateOf(row: DeliveryRowShape): DeliveryState {
   if (row.error !== null) return "refused";
   if (row.channel === "portal_link") {
     return row.submittedAt === null ? "interrupted" : "link_issued";
+  }
+  if (row.channel === "manual") {
+    return row.submittedAt === null ? "interrupted" : "exported";
   }
   /**
    * No message and no error means `send` wrote the attempt and then did not
@@ -517,7 +522,7 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
       const last = live[live.length - 1]!;
       throw new ConflictError(
         `Invoice ${invoice.number} was already sent to ${last.destination ?? "a link"} on `
-        + `${last.createdAt.toISOString().slice(0, 10)} and the send is `
+        + `${time.dateIn(last.createdAt, await timezoneOf(tx, ctx.actor.organizationId))} and the send is `
         + `${last.state}. Pass resend to send it again.`,
       );
     }

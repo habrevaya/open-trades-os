@@ -4,6 +4,7 @@ import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { ConflictError, NotFoundError } from "./context";
 import { createOrganization, createUser, isUniqueViolation } from "./organizations";
 import { applyTradePack } from "./trade-pack";
+import { installStarters } from "./workflows";
 import * as setupTokens from "./setup-tokens";
 
 /**
@@ -221,6 +222,15 @@ export async function create(
         externalRef: input.externalRef,
         ownerUserId,
       });
+
+      /**
+       * The recommended automations a new company starts with switched on,
+       * installed by its owner exactly as sign up installs them, so a company
+       * made here and one made on the form start the same. Through the service
+       * layer like the trade pack below, so the role is put back after it.
+       */
+      await installStarters({ actor: { userId: ownerUserId, organizationId, roles: ["owner"] }, db: tx });
+      await enterOperator(tx, organizationId);
 
       if (input.tradePack) {
         /**

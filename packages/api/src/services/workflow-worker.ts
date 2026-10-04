@@ -5,13 +5,20 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { clockPass } from "./contract-clocks";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
+import { adsPass } from "./ads";
+import type { AdsDeps } from "./ad-platforms";
+import { mailPass, type MailDeps } from "./direct-mail";
 import { deliverDue } from "./delivery-schedules";
+import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
+import { purgePass } from "./retention";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
+import { purgePositions } from "./location";
 import type { PushProvider } from "../push/provider";
 
 /**
@@ -207,6 +214,12 @@ export interface PassOptions {
    */
   schedules?: boolean;
   /**
+   * The AI agents' own pass, inside the clock. On by default; a deployment
+   * that wants no agent to run in the background turns it off here, and an
+   * agent nobody turned on costs a single read either way.
+   */
+  agents?: boolean;
+  /**
    * Whether this pass also puts a few addresses on the map, and with what.
    *
    * On by default, for companies that have connected a geocoder and nobody
@@ -216,6 +229,17 @@ export interface PassOptions {
    * which is how a test supplies a fake one.
    */
   geocoding?: false | { deps?: GeocodeDeps; budgetMs?: number };
+  /**
+   * Whether this pass also visits the connected ad platforms, analytics and
+   * review listings: spend every six hours, Local Services leads every ten
+   * minutes, reviews hourly, conversions every quarter hour, each by its own
+   * clock. On by default, for companies with one connected and nobody else.
+   * `false` turns it off; an object passes the platforms' dependencies, which
+   * is how a test supplies fakes.
+   */
+  ads?: false | { deps?: AdsDeps };
+  /** Mailings left half sent, finished a batch at a time. False turns it off; deps point it at a fake mail house. */
+  mail?: false | { deps?: MailDeps };
   /**
    * Runs after each drain, for the organizations that had events.
    *
@@ -258,7 +282,17 @@ export interface PassOptions {
    * network.
    */
   push?: false | { provider?: PushProvider };
+  /**
+   * Whether this pass also deletes technicians' positions past their
+   * company's retention, and drive times past their provider's expiry. At
+   * most every ten minutes, because nothing about a three day retention
+   * needs a delete every five seconds.
+   */
+  positions?: false;
 }
+
+let positionsPurgedAt = 0;
+const POSITION_PURGE_INTERVAL_MS = 10 * 60_000;
 
 /**
  * ONE PASS: the clock, then the log, then whatever the drain left to send.
@@ -333,6 +367,35 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       console.error("[worker] tasks:", (error as Error).message);
     }
     /**
+     * Contract clocks: SLA, invoicing and claim deadlines reconciled against
+     * what has happened, and a task raised for any about to breach. Its own
+     * try, for the reason the task pass has one. The tasks it raises go to
+     * the queue, where the task pass above escalates them if nobody acts.
+     */
+    try {
+      for (const result of await clockPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] contract clocks ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] contract clocks:", (error as Error).message);
+    }
+    /**
+     * Records past their retention, for the companies that switched purging
+     * on for a rule, once a day each. Its own try, because a purge that
+     * fails must not hold up anything else, and nothing else may hold it up
+     * either: a hold placed this morning is read by this pass, not cached.
+     */
+    try {
+      for (const result of await purgePass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] retention ${result.organizationId}: ${result.error}`);
+        else if (result.run && result.run.failed > 0) {
+          console.warn(`[worker] retention ${result.organizationId}: ${result.run.failed} records could not be removed; the reasons are on the pass.`);
+        }
+      }
+    } catch (error) {
+      console.error("[worker] retention:", (error as Error).message);
+    }
+    /**
      * Reports and statements on a clock. Its own try, so a broken workflow
      * schedule cannot hold up the Monday reports, and the other way round.
      */
@@ -342,6 +405,36 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] deliveries:", (error as Error).message);
+    }
+    /**
+     * The AI agents a company left running on their own (intake, text chat,
+     * collections). Its own try, and each company's failure is kept to that
+     * company inside it. A reply or reminder it queued goes out on this pass.
+     */
+    if (options.agents !== false) {
+      try {
+        for (const result of await agentPass(options.db, stop ? { shouldStop: stop } : {})) {
+          if (result.queued) delivered.add(result.organizationId);
+          for (const failure of result.failed) console.error(`[worker] agents ${result.organizationId}: ${failure}`);
+        }
+      } catch (error) {
+        console.error("[worker] agents:", (error as Error).message);
+      }
+    }
+  }
+
+  /**
+   * Where technicians were, deleted on time. Its own try, like everything
+   * here: a purge that fails is tried again on a later pass, and must not
+   * hold up a text. A worker that has not purged recently (a restart) purges
+   * on its first pass.
+   */
+  if (options.positions !== false && Date.now() - positionsPurgedAt >= POSITION_PURGE_INTERVAL_MS) {
+    try {
+      await purgePositions(options.db);
+      positionsPurgedAt = Date.now();
+    } catch (error) {
+      console.error("[worker] positions:", (error as Error).message);
     }
   }
 
@@ -360,6 +453,37 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] geocoding:", (error as Error).message);
+    }
+  }
+
+  /**
+   * The ad platforms, before the log for the same reason: a pull that books a
+   * Local Services lead writes its touch now and the drain carries it. Its
+   * own try, because Google being down must not hold up a text.
+   */
+  if (options.ads !== false) {
+    try {
+      await adsPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.ads?.deps ? { deps: options.ads.deps } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] ad platforms:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Mailings larger than one send's batch, a batch per company per pass. Its
+   * own try, because a mail house that is down must not hold up a text.
+   */
+  if (options.mail !== false) {
+    try {
+      await mailPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.mail?.deps ? { deps: options.mail.deps } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] direct mail:", (error as Error).message);
     }
   }
 

@@ -102,16 +102,39 @@ later and the receiver cannot tell, because everything they check still matches.
 **A signing secret is stored in plaintext and an app token is not, and the asymmetry
 is the point.** A token is presented to us, so a one way hash is enough to check it. A
 signing secret goes the other way: we hold it and have to reproduce a signature with
-it on every delivery, which a hash cannot do. So the secret is returned exactly once,
-at registration, and the single function that shapes a row for output does not read
-that column, so a list, a read or an update cannot leak it even by accident.
+it on every delivery, which a hash cannot do. So a secret is returned exactly once,
+when it is made (at registration or at a rotation), and the single function that
+shapes a row for output reads neither secret column, so a list, a read or an update
+cannot leak one even by accident.
+
+**A rotation overlaps, because two people are involved.** The person who rotates a
+secret and the person who updates the receiver rarely act in the same minute. For an
+overlap the operator chooses (a day unless they say, up to a week) every delivery is
+signed with both secrets, the signature header carrying two signatures separated by
+a comma, newest first, and the receiver accepts a delivery when either matches the
+secret it holds. With no overlap the old secret stops at once, which is the answer
+when it leaked. A second rotation during an overlap retires the oldest, so at most
+two ever sign.
+
+**Asking grants nothing.** A third party can ask to be installed without holding any
+credential, and what it asks for is written as a `pending` app that resolves no token
+and can be issued none. Somebody at the company reads the request in the catalogue's
+own words and approves exactly that list, through the same authority check as an
+install by hand, or refuses it. Only then can the app collect its credential, once,
+with a claim secret it was given when it asked and that only it holds.
+
+**The SDK is generated, never written.** The contracts produce the OpenAPI document,
+and the document produces the TypeScript client, in the same command; a test fails
+when the client and the document disagree, so an operation cannot exist in one and
+not the other.
 
 ## Using it
 
 ### Call the API
 
 Everything is under `/api/v1`, with the generated reference in
-`packages/api/openapi.json`: 471 paths and 573 operations. A session or an app token
+`packages/api/openapi.json`, which counts its own paths and operations when it is
+written, and the TypeScript SDK generated from it. A session or an app token
 authenticates; the permissions each route needs are in the spec.
 
 ### The open routes
@@ -124,7 +147,9 @@ page (M19), and since the website snippet and hosted forms (M19) these:
 Each resolves the company from a public key (its slug, or a form's own key),
 returns nothing about anybody, and the website and form routes count their
 callers per key and per address and answer 429 with `Retry-After` past a
-ceiling. The open routes, and only they, answer a browser's preflight and mark
+ceiling. Two more are for a third party with no credential yet: an app asking to
+be installed and coming back for its credential (below), both counted per address.
+The open routes, and only they, answer a browser's preflight and mark
 their answers readable from any origin, which is safe because they read no
 cookie and hold no session for another page to borrow.
 
@@ -149,10 +174,54 @@ Settings > Webhooks (`/settings/webhooks`) registers endpoints, switches them on
 off, and shows the history with a filter by what happened and a send again button on
 every attempt.
 
+### Rotate a signing secret
+
+`POST /v1/webhooks/endpoints/{id}/secret` makes a new secret and returns it once, with
+`overlapHours` (0 to 168, 24 unless you say) for how long the old one also signs.
+Settings > Webhooks has the same as **Make a new secret** under each endpoint, and the
+endpoint list says until when the old secret still signs. A receiver must treat
+`x-otos-signature` as a comma separated list and accept the delivery when any one
+matches; outside an overlap it holds exactly one, as it always has.
+
 ### Be an app
 
 `GET /v1/apps/me` tells a connected application what it is and what it holds. It
 takes no permission because the token is the identity.
+
+### Ask to be installed
+
+An app with no credential posts what it wants to `POST /v1/public/app-requests`,
+naming the company by its public slug: its name, who makes it, a description in its
+own words, the permissions it needs and the record scope on each resource, and
+optionally an https `redirectUri` and a `state`. The answer carries `decisionUrl`,
+the page to send somebody at the company to, and `claimSecret`, shown once.
+
+The page is `/settings/apps/requests/{id}`, and the Applications screen lists every
+request waiting. It shows each permission in plain words, marks the ones that expose
+money and the ones the person looking does not hold, and offers **Approve** and
+**Refuse** (with a reason the app is told). Nobody can approve what they do not hold
+themselves, and a request cannot be edited before it is answered. After the decision
+the person is offered a link back to the app's `redirectUri` with `request`, `status`
+and `state` added.
+
+The app then calls `POST /v1/public/app-requests/{id}/claim` with its claim secret:
+`pending` until somebody decides, `refused` or `expired` for no, and `approved` with
+the token, once. A second collection answers `claimed` and hands nothing over. A
+request nobody answers expires after seven days, a company holds at most twenty
+waiting, and both routes are counted per network address. The operator side is on
+the API too: `GET /v1/apps/{id}/request`, `POST /v1/apps/{id}/approve` and
+`POST /v1/apps/{id}/refuse`.
+
+### Use the TypeScript SDK
+
+`packages/sdk` is a typed client for every operation, generated from
+`packages/api/openapi.json` by `pnpm --filter @opentradesos/api run openapi`. It
+authenticates with an app token, puts an idempotency key on every write that takes
+one (made per call and reused on its own retries), retries a dropped connection, a
+429 or a 5xx only where that is safe, pages a list with `paginate`, dry runs a bulk
+change with `dryRun`, and raises the server's own refusal with its field issues.
+`verifyWebhook` checks a delivery's signature and timestamp with Web Crypto, and
+accepts either secret during a rotation. Its README says how.
 
 ### Talk to it as an agent
 
@@ -186,7 +255,13 @@ particular.
 | `GET /v1/webhooks/deliveries` | `integration:read` |
 | `POST /v1/webhooks/endpoints/{id}/replays` | `integration:write` |
 | `GET /v1/webhooks/endpoints/{id}/replays` | `integration:read` |
+| `POST /v1/webhooks/endpoints/{id}/secret` | `integration:write` |
 | `GET /v1/apps/me` | nothing: the token is the identity |
+| `POST /v1/public/app-requests` | nothing: counted per address, at most twenty waiting per company |
+| `POST /v1/public/app-requests/{id}/claim` | nothing: the claim secret is the proof |
+| `GET /v1/apps/{id}/request` | `settings:read` |
+| `POST /v1/apps/{id}/approve` | `integration:write`, and holding everything it asks for |
+| `POST /v1/apps/{id}/refuse` | `integration:write` |
 | `POST /v1/public/touches` | nothing: counted per company, address and visitor |
 | `GET /v1/public/dni` | nothing: counted per company and address |
 
@@ -206,17 +281,21 @@ to retry.
 
 ## What is not built
 
-There is no SDK in any language, despite the module's name: what exists is the
-OpenAPI document a generator can be pointed at.
+The SDK is TypeScript only, and it is not published to a package registry: it is
+used from this repository, and its package is marked private until the licensing
+exception in `docs/project/licensing-and-hosting.md` is settled. There is no client
+in any other language; the OpenAPI document is what a generator for one is pointed
+at.
 
-An app cannot ask to be installed. Installing and approving are one call made by
-the operator, and the pending status the schema carries is written by nothing, so
-there is no consent flow where a third party requests a grant and somebody
-approves it. That is the half of `docs/concepts/connected-apps.md` that is still
-a design.
+An approval is all or nothing: the person deciding cannot approve part of what an app
+asked for, and an app asking for something they do not hold has to ask again for
+less, or be approved by somebody who holds it. A request's claim secret cannot be
+handed out again, so a retried request leaves a second request waiting rather than
+returning the first. A request does not notify anybody by email or text; the app
+sends the person to the page, and the Applications screen lists what is waiting.
 
 Delivery history is kept for thirty days and a thousand attempts per endpoint and
 not longer; an older answer is gone. A replay cannot reach further back than the
 event log does, covers only the events the endpoint subscribes to now, and cannot be
-cancelled once queued. Rotating an endpoint's signing secret is still not possible:
-register a new endpoint.
+cancelled once queued. A receiver that compares the whole signature header against
+one value refuses deliveries for the length of a rotation's overlap.

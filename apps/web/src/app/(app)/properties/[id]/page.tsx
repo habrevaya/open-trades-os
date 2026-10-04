@@ -1,4 +1,5 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -126,6 +127,7 @@ export default async function PropertyPage({
         values={(property.customFields ?? {}) as Record<string, unknown>}
         canWrite={can(user.actor, "property:write")}
       />
+      <RecordsPanel ctx={ctx} link="property" id={id} back={`/properties/${id}`} />
     </div>
   );
 }

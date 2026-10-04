@@ -544,15 +544,113 @@
     {
       "idx": 77,
       "version": "7",
-      "when": 1791035731367,
-      "tag": "0077_mighty_sprite",
+      "when": 1791037572682,
+      "tag": "0077_curious_ted_forrester",
       "breakpoints": true
     },
     {
       "idx": 78,
       "version": "7",
-      "when": 1791035732367,
-      "tag": "0078_lean_wendell_rand",
+      "when": 1791052643002,
+      "tag": "0078_massive_toro",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1791052938511,
+      "tag": "0079_fat_rumiko_fujikawa",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1791053233094,
+      "tag": "0080_lame_rachel_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1791053482438,
+      "tag": "0081_parched_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1791066467934,
+      "tag": "0082_luxuriant_pixie",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1791071122187,
+      "tag": "0083_real_tigra",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791071808355,
+      "tag": "0084_acoustic_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1791072197602,
+      "tag": "0085_tired_jasper_sitwell",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1791084482526,
+      "tag": "0086_good_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1791102625262,
+      "tag": "0087_jittery_roland_deschain",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1791103349231,
+      "tag": "0088_sudden_cerise",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1791104581159,
+      "tag": "0089_gorgeous_spacker_dave",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1791105599447,
+      "tag": "0090_secret_jack_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1791105600447,
+      "tag": "0091_mighty_sprite",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1791105601447,
+      "tag": "0092_lean_wendell_rand",
       "breakpoints": true
     }
   ]

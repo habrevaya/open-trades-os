@@ -134,13 +134,19 @@ whatever you like to it.
 1. ~~The publishable flag on price book items.~~ Not needed:
    `bookable_service` already is that subset. See above.
 2. The app registry and scoped tokens, reusing `canDefineRole`. **Built.**
-3. The consent screen. Still to do: the registry records what was approved
-   and by whom, and an operator approving an install still does it through
-   the API rather than a screen that names the permissions in plain words.
+3. The consent screen. **Built.** An app asks through
+   `POST /v1/public/app-requests` with nothing but the company's public slug,
+   and is written as a pending app that can do nothing. Somebody at the company
+   opens `/settings/apps/requests/{id}`, reads every permission in the words the
+   catalogue uses, with the ones that expose money marked and the ones they do
+   not hold named, and approves that exact list or refuses it. The app then
+   collects its credential once with the claim secret it was given when it
+   asked. A remote AI assistant asks the same question through OAuth, on
+   `/oauth/authorize`. See `docs/modules/m26-public-api-webhooks-sdks.md` and
+   `docs/modules/m28-developer-agent-platform.md`.
 4. The first integration, against the same public API any other partner gets.
 
-None of it is scheduled yet. The licensing decision gates step four and only
-step four, so the first three can proceed while that is being settled.
+The licensing decision gates step four and only step four.
 
 ## An app that loads history
 

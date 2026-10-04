@@ -86,6 +86,30 @@ describe("the party form", () => {
     // it, the form posts twenty-two fields nothing reads and every save
     // clears the whole cast without saying so.
     expect(fieldNames("bill_to"))
-      .toEqual({ who: "who_bill_to", name: "name_bill_to", reference: "ref_bill_to" });
+      .toEqual({ who: "who_bill_to", name: "name_bill_to", reference: "ref_bill_to", share: "share_bill_to" });
+  });
+});
+
+describe("a payer account and its share", () => {
+  /**
+   * A warranty company or a client with a contract is a customer record of
+   * its own, chosen from the accounts, never typed as a name: a payer with no
+   * record has no receivable to age against.
+   */
+  it("attaches the account's record", () => {
+    const rows = partiesFromForm(form({ who_payer: "account:warranty-co" }), "cust-1");
+    expect(rows).toEqual([{ role: "payer", customerId: "warranty-co" }]);
+  });
+
+  it("reads a share with a per cent sign as a fraction, and a bare number as an amount", () => {
+    expect(partiesFromForm(form({ who_payer: "account:owner", share_payer: "70%" }), "c")[0])
+      .toEqual({ role: "payer", customerId: "owner", sharePercent: "0.7000" });
+    expect(partiesFromForm(form({ who_payer: "account:owner", share_payer: "$150.00" }), "c")[0])
+      .toEqual({ role: "payer", customerId: "owner", shareAmount: "150.00" });
+  });
+
+  it("takes a share only for the payer", () => {
+    expect(partiesFromForm(form({ who_bill_to: "account:owner", share_bill_to: "70%" }), "c")[0])
+      .toEqual({ role: "bill_to", customerId: "owner" });
   });
 });

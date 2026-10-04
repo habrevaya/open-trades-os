@@ -43,7 +43,41 @@ import { sql, type SQL } from "drizzle-orm";
 export type Format = "percent" | "money" | "number" | "duration";
 
 /**
- * A measure is two scalars and how to combine them.
+ * ONE HALF OF A KPI IS A LIST OF RECORDS, AND THE NUMBER IS THEIR SUM.
+ *
+ * Each half is written as the records it counts, one row each, with what that
+ * record adds: a completed job adds one to a count, or its ledger revenue to a
+ * sum; a technician day adds one; a drive adds its minutes. The scorecard's
+ * number is the sum of the rows, and the drill under it lists the same rows.
+ * So "$186,000 over 300 jobs" opens onto three hundred jobs whose revenue adds
+ * up to $186,000, by construction rather than by a second query somebody has to
+ * keep in step with the first. This is the report drill's rule, "every number
+ * opens onto the records behind it and they add up to it", applied here.
+ *
+ * Every records query returns the same six columns:
+ *
+ *   kind     job, estimate, agreement, visit, customer, technician_day, time,
+ *            deficiency or equipment: what the row is, which decides who may
+ *            see it listed
+ *   id       the record's id, as text
+ *   label    what to call it on a list
+ *   on_day   the date it falls on in the window, as YYYY-MM-DD
+ *   value    what it adds to the half
+ *   href     the screen it opens
+ *
+ * Written by us and never assembled from input, like every SQL fragment in the
+ * reporting code. The window and the company's timezone are parameters.
+ */
+export type Records = (from: string, to: string, zone: string) => SQL;
+
+export interface Half {
+  /** What the half is called on screen. */
+  label: string;
+  records: Records;
+}
+
+/**
+ * A measure is two halves and how to combine them.
  *
  * Always two, even for a money figure, because the pair is what makes it
  * checkable: "$620" is an assertion and "$186,000 over 300 jobs" is an
@@ -52,19 +86,19 @@ export type Format = "percent" | "money" | "number" | "duration";
  * countable things is usually a KPI nobody can reproduce.
  */
 export interface Measure {
-  /** The top half. A count, a sum of money, or minutes. */
-  numerator: (from: string, to: string) => SQL;
-  /** The bottom half. */
-  denominator: (from: string, to: string) => SQL;
-  /** What the numerator is called on screen. */
-  numeratorLabel: string;
-  denominatorLabel: string;
+  numerator: Half;
+  denominator: Half;
 }
 
 export type Entry =
   | { state: "computed"; format: Format; measure: Measure }
   | { state: "elsewhere"; format: Format; endpoint: string; why: string }
   | { state: "needs"; format: Format; needs: string };
+
+/** The half as one number: the sum of what its records add. */
+export const total = (records: SQL): SQL => sql`
+  select coalesce(sum(r.value), 0)::numeric as value from (${records}) as r
+`;
 
 /* ----------------------------------------------------------- the fragments */
 
@@ -85,6 +119,26 @@ const REVENUE_ON_JOB = `(
   where le.job_id = j.id and le.account_code in ('4000', '4100', '4900')
 )`;
 
+/** A job as a row of a records query, adding `value`, dated by the company's calendar. */
+const jobRow = (value: string, zone: string) => sql`
+  'job'::text as kind, j.id::text as id, concat('#', j.number, ' ', j.summary) as label,
+  to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+  (${sql.raw(value)})::numeric as value, '/jobs/' || j.id as href`;
+
+/**
+ * THE WINDOW'S EDGES, IN THE COMPANY'S CALENDAR.
+ *
+ * A window is whole days where the company is, so a job finished at eight in
+ * the evening in Chicago on the 31st, which is 01:00 UTC on the 1st, belongs
+ * to the 31st. Compared against `${from}::date` it fell into the next day, the
+ * next month and the next scorecard, which is how a good month ended a job
+ * short. Instants are compared with the instants these return, so an index on
+ * the column still serves the comparison; a date column needs neither and
+ * keeps comparing with the date.
+ */
+const dayStart = (day: string, zone: string) => sql`((${day}::date)::timestamp at time zone ${zone})`;
+const dayAfter = (day: string, zone: string) => sql`((${day}::date + 1)::timestamp at time zone ${zone})`;
+
 /**
  * Jobs completed in the window, of these revenue classes.
  *
@@ -92,25 +146,25 @@ const REVENUE_ON_JOB = `(
  * made a third of these computable. Without it "install revenue" and "completed
  * service calls" are phrases with no query behind them.
  */
-const completed = (classes: readonly string[]) => (from: string, to: string) => sql`
-  select count(*)::numeric as value
+const completed = (classes: readonly string[]): Records => (from, to, zone) => sql`
+  select ${jobRow("1", zone)}
   from public.job j
   join public.job_type jt on jt.id = j.job_type_id
   where j.deleted_at is null
     and j.completed_at is not null
-    and j.completed_at >= ${from}::date
-    and j.completed_at < (${to}::date + 1)
+    and j.completed_at >= ${dayStart(from, zone)}
+    and j.completed_at < ${dayAfter(to, zone)}
     and jt.revenue_class::text = any(${sql.param([...classes])}::text[])
 `;
 
-const revenueOf = (classes: readonly string[]) => (from: string, to: string) => sql`
-  select coalesce(sum(${sql.raw(REVENUE_ON_JOB)}), 0) as value
+const revenueOf = (classes: readonly string[]): Records => (from, to, zone) => sql`
+  select ${jobRow(REVENUE_ON_JOB, zone)}
   from public.job j
   join public.job_type jt on jt.id = j.job_type_id
   where j.deleted_at is null
     and j.completed_at is not null
-    and j.completed_at >= ${from}::date
-    and j.completed_at < (${to}::date + 1)
+    and j.completed_at >= ${dayStart(from, zone)}
+    and j.completed_at < ${dayAfter(to, zone)}
     and jt.revenue_class::text = any(${sql.param([...classes])}::text[])
 `;
 
@@ -123,17 +177,162 @@ const revenueOf = (classes: readonly string[]) => (from: string, to: string) => 
  * number is for.
  *
  * `pto`, `holiday`, `training` and `unpaid_break` are excluded; `travel`,
- * `on_site`, `shop`, `paid_break` and `on_call` are a day worked.
+ * `on_site`, `shop`, `paid_break` and `on_call` are a day worked. One row per
+ * person per day, which opens on that week's timesheets.
  */
-const technicianDays = () => (from: string, to: string) => sql`
-  select count(*)::numeric as value from (
-    select distinct te.technician_id, (te.started_at at time zone 'UTC')::date as d
+const technicianDays = (): Records => (from, to, zone) => sql`
+  select 'technician_day'::text as kind,
+         concat(days.technician_id, ':', days.d) as id,
+         concat(t.display_name, ', ', to_char(days.d, 'Mon FMDD')) as label,
+         to_char(days.d, 'YYYY-MM-DD') as on_day,
+         1::numeric as value,
+         '/timesheets?week=' || to_char(days.d, 'YYYY-MM-DD') as href
+  from (
+    select distinct te.technician_id, (te.started_at at time zone ${zone})::date as d
     from public.timeclock_entry te
     where te.deleted_at is null
       and te.kind not in ('pto', 'holiday', 'training', 'unpaid_break')
-      and te.started_at >= ${from}::date
-      and te.started_at < (${to}::date + 1)
+      and te.started_at >= ${dayStart(from, zone)}
+      and te.started_at < ${dayAfter(to, zone)}
   ) as days
+  join public.technician t on t.id = days.technician_id
+`;
+
+/** An agreement as a row: the plan, for whom, from when. */
+const agreementRow = `
+  'agreement'::text as kind, a.id::text as id,
+  concat((select p.name from public.agreement_plan p where p.id = a.plan_id), ' for ',
+         (select c.name from public.customer c where c.id = a.customer_id)) as label,
+  a.started_on::text as on_day, 1::numeric as value, '/agreements/' || a.id as href`;
+
+/** Plans sold in the window: a first term, not a renewal. */
+const plansSold = (): Records => (from, to) => sql`
+  select ${sql.raw(agreementRow)}
+  from public.agreement a
+  where a.deleted_at is null
+    and a.started_on >= ${from}::date and a.started_on <= ${to}::date
+    and a.renewal_count = 0
+`;
+
+/**
+ * Presentations of an estimate, one per job (or per estimate with no job), in
+ * these statuses. See `close_rate`.
+ */
+const presentations = (statuses: readonly string[]): Records => (from, to) => sql`
+  select distinct on (coalesce(e.job_id, e.id))
+         case when e.job_id is null then 'estimate' else 'job' end as kind,
+         coalesce(e.job_id, e.id)::text as id,
+         case when e.job_id is null then concat('Estimate ', e.number)
+              else (select concat('#', j.number, ' ', j.summary) from public.job j where j.id = e.job_id) end as label,
+         e.issued_on::text as on_day,
+         1::numeric as value,
+         case when e.job_id is null then '/estimates/' || e.id else '/jobs/' || e.job_id end as href
+  from public.estimate e
+  where e.deleted_at is null
+    and e.status::text = any(${sql.param([...statuses])}::text[])
+    and e.issued_on >= ${from}::date and e.issued_on <= ${to}::date
+  order by coalesce(e.job_id, e.id), e.issued_on, e.number
+`;
+
+/**
+ * Completed calls of these classes to customers holding no plan at the time
+ * of the call, which is the opportunity a plan is sold on.
+ */
+const callsToNonMembers = (classes: readonly string[]): Records => (from, to, zone) => sql`
+  select ${jobRow("1", zone)}
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and jt.revenue_class::text = any(${sql.param([...classes])}::text[])
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and not exists (
+      select 1 from public.agreement a
+      where a.customer_id = j.customer_id and a.deleted_at is null
+        and a.started_on <= (j.completed_at at time zone ${zone})::date
+        and (a.ends_on is null or a.ends_on >= (j.completed_at at time zone ${zone})::date)
+    )
+`;
+
+/** Declined recommendations on live units over twelve years old. See `replace_pipeline`. */
+const declinedOnOldUnits = (value: string): Records => (from, to, zone) => sql`
+  select 'deficiency'::text as kind, d.id::text as id,
+         concat(coalesce(e.tag || ' ', ''), e.category, ': ', d.description) as label,
+         d.declined_on::text as on_day,
+         (${sql.raw(value)})::numeric as value,
+         '/equipment/' || e.id as href
+  from public.deficiency d
+  join public.equipment e on e.id = d.equipment_id
+  where d.deleted_at is null
+    and d.declined_on is not null
+    and d.declined_on >= ${from}::date and d.declined_on <= ${to}::date
+    and d.quoted_amount is not null
+    and e.active = true
+    and e.installed_on is not null
+    and e.installed_on < (now() at time zone ${zone})::date - interval '12 years'
+`;
+
+/** Attempted bin stops, or only the ones where the bin was not out. See `not_out_rate`. */
+const binStops = (notOutOnly: boolean): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, va.id::text as id,
+         concat('#', j.number, ' visit ', v.sequence, ', ', e.category, coalesce(' ' || e.tag, '')) as label,
+         to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit_asset va
+  join public.visit v on v.id = va.visit_id
+  join public.job j on j.id = v.job_id
+  join public.equipment e on e.id = va.equipment_id
+  where va.deleted_at is null and v.deleted_at is null
+    and ${notOutOnly ? sql`va.outcome = 'no_access'` : sql`va.outcome is not null`}
+    and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+`;
+
+/**
+ * Backflow assemblies due a retest by the end of the window, or only those
+ * retested in it. See `backflow_recert` for what counts as a test and as due.
+ *
+ * A test is found through the checkpoint it answered: the inspection's own
+ * frozen copy of its checkpoints, or its programme's for an inspection filed
+ * before the copy was kept, and the checkpoint has to be about a
+ * `backflow-assembly`. An answer naming a unit on any other checkpoint (a
+ * water heater checked on the same visit) is not a backflow test of it.
+ */
+const backflowDue = (retestedOnly: boolean): Records => (from, to) => sql`
+  with tests as (
+    select distinct a->>'equipmentId' as equipment_id, i.performed_on
+    from public.inspection i
+    cross join lateral jsonb_array_elements(i.answers) as a
+    where i.performed_on is not null
+      and i.result in ('pass', 'pass_with_deficiencies', 'fail')
+      and a->>'equipmentId' is not null
+      and exists (
+        select 1
+        from jsonb_array_elements(coalesce(
+          i.checkpoints,
+          (select p.checkpoints from public.inspection_program p where p.id = i.program_id),
+          '[]'::jsonb
+        )) as c
+        where c->>'key' = a->>'itemKey' and c->>'assetCategory' = 'backflow-assembly'
+      )
+  ),
+  due as (
+    select t.equipment_id, max(t.performed_on) as last_test
+    from tests t
+    where t.performed_on < ${from}::date
+    group by t.equipment_id
+    having max(t.performed_on) <= (${to}::date - interval '1 year')::date
+  )
+  select 'equipment'::text as kind, e.id::text as id,
+         concat(coalesce(e.tag || ' ', ''), e.category, coalesce(', serial ' || e.serial_number, '')) as label,
+         d.last_test::text as on_day,
+         1::numeric as value,
+         '/equipment/' || e.id as href
+  from due d
+  join public.equipment e on e.id::text = d.equipment_id
+  where e.deleted_at is null and e.active = true
+    ${retestedOnly ? sql`and exists (
+      select 1 from tests t where t.equipment_id = d.equipment_id
+        and t.performed_on >= ${from}::date and t.performed_on <= ${to}::date
+    )` : sql``}
 `;
 
 /* ------------------------------------------------------------- the entries */
@@ -146,8 +345,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "money",
     measure: {
-      numeratorLabel: "revenue on completed jobs",
-      denominatorLabel: "completed jobs",
       /**
        * "Excludes warranty returns and zero revenue plan visits, which
        * otherwise drag the number down and make a good month look bad."
@@ -158,22 +355,28 @@ export const CATALOGUE: Record<string, Entry> = {
        * right behaviour: an average ticket over jobs that billed nothing is not
        * an average ticket.
        */
-      numerator: (from, to) => sql`
-        select coalesce(sum(${sql.raw(REVENUE_ON_JOB)}), 0) as value
-        from public.job j
-        where j.deleted_at is null and j.completed_at is not null
-          and j.is_warranty = false
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and ${sql.raw(REVENUE_ON_JOB)} <> 0
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.job j
-        where j.deleted_at is null and j.completed_at is not null
-          and j.is_warranty = false
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and ${sql.raw(REVENUE_ON_JOB)} <> 0
-      `,
+      numerator: {
+        label: "revenue on completed jobs",
+        records: (from, to, zone) => sql`
+          select ${jobRow(REVENUE_ON_JOB, zone)}
+          from public.job j
+          where j.deleted_at is null and j.completed_at is not null
+            and j.is_warranty = false
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and ${sql.raw(REVENUE_ON_JOB)} <> 0
+        `,
+      },
+      denominator: {
+        label: "completed jobs",
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
+          from public.job j
+          where j.deleted_at is null and j.completed_at is not null
+            and j.is_warranty = false
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and ${sql.raw(REVENUE_ON_JOB)} <> 0
+        `,
+      },
     },
   },
 
@@ -181,8 +384,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "jobs with an approved estimate",
-      denominatorLabel: "jobs an estimate was presented on",
       /**
        * "Counts an estimate as presented only once per job, so a three option
        * proposal is one presentation and not three."
@@ -191,22 +392,15 @@ export const CATALOGUE: Record<string, Entry> = {
        * sentence asks for and is the whole difference between a close rate of
        * forty five per cent and one of fifteen. An estimate with no job is
        * counted on its own id, because a quote to somebody who never became a
-       * job is exactly the kind of loss this measures.
+       * job is exactly the kind of loss this measures. One row per
+       * presentation, which opens on the job, or on the estimate when there is
+       * no job.
        */
-      numerator: (from, to) => sql`
-        select count(distinct coalesce(e.job_id, e.id))::numeric as value
-        from public.estimate e
-        where e.deleted_at is null
-          and e.status in ('approved', 'converted')
-          and e.issued_on >= ${from}::date and e.issued_on <= ${to}::date
-      `,
-      denominator: (from, to) => sql`
-        select count(distinct coalesce(e.job_id, e.id))::numeric as value
-        from public.estimate e
-        where e.deleted_at is null
-          and e.status in ('sent', 'viewed', 'approved', 'declined', 'expired', 'converted')
-          and e.issued_on >= ${from}::date and e.issued_on <= ${to}::date
-      `,
+      numerator: { label: "jobs with an approved estimate", records: presentations(["approved", "converted"]) },
+      denominator: {
+        label: "jobs an estimate was presented on",
+        records: presentations(["sent", "viewed", "approved", "declined", "expired", "converted"]),
+      },
     },
   },
 
@@ -214,8 +408,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "warranty returns inside thirty days",
-      denominatorLabel: "completed jobs",
       /**
        * "Warranty jobs linked to a parent job within thirty days, divided by
        * completed jobs. Excludes jobs the customer booked again for different
@@ -235,17 +427,20 @@ export const CATALOGUE: Record<string, Entry> = {
        * nothing to catch. The warranty flag and the thirty day window each have
        * one, because each of those changes the answer on its own.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.job j
-        join public.job parent on parent.id = j.parent_job_id
-        where j.deleted_at is null and j.completed_at is not null
-          and j.is_warranty = true
-          and parent.completed_at is not null
-          and j.completed_at <= parent.completed_at + interval '30 days'
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-      `,
-      denominator: completed(["install", "service", "recurring", "project"]),
+      numerator: {
+        label: "warranty returns inside thirty days",
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
+          from public.job j
+          join public.job parent on parent.id = j.parent_job_id
+          where j.deleted_at is null and j.completed_at is not null
+            and j.is_warranty = true
+            and parent.completed_at is not null
+            and j.completed_at <= parent.completed_at + interval '30 days'
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+        `,
+      },
+      denominator: { label: "completed jobs", records: completed(["install", "service", "recurring", "project"]) },
     },
   },
 
@@ -253,32 +448,96 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "money",
     measure: {
-      numeratorLabel: "revenue on completed jobs",
-      denominatorLabel: "technician days on the clock",
-      numerator: revenueOf(["install", "service", "recurring", "project"]),
-      denominator: technicianDays(),
+      numerator: { label: "revenue on completed jobs", records: revenueOf(["install", "service", "recurring", "project"]) },
+      denominator: { label: "technician days on the clock", records: technicianDays() },
     },
   },
 
   drive_time_pct: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A travel entry that says whether it is the commute leg. The definition "
-      + "EXCLUDES the drive from home to the first stop and from the last stop "
-      + "home, 'which is commute and not route inefficiency', and "
-      + "`timeclock_entry.kind` has one value for all travel. Published without "
-      + "that exclusion the number would be about where people live rather than "
-      + "about how the route was built, and a company in a sprawling metro would "
-      + "read it as a dispatch problem.",
+    measure: {
+      /**
+       * "Drive minutes between stops divided by total clocked minutes.
+       * EXCLUDES the drive from home or office to the first stop and from the
+       * last stop home, which is commute and not route inefficiency."
+       *
+       * This was listed as needing a travel entry that says it is the commute
+       * leg. It does not need one, because the definition says WHERE the
+       * commute leg is: before the first stop of a person's day and after the
+       * last. A drive is between stops when the same person has a stop
+       * (`on_site` time) that ended before it started and another that started
+       * after it ended, on the same day in the COMPANY's calendar; a drive with
+       * no stop before it is the way out, and one with no stop after it is the
+       * way home. Both are left out, exactly as defined, and a midday run back
+       * to the shop for a part sits between two stops and counts, which is the
+       * route inefficiency the number exists to show.
+       *
+       * The denominator is the working day on the clock: travel, on site, shop
+       * and paid breaks. Leave, standby and unpaid breaks are not the day the
+       * share is of.
+       *
+       * ONLY DAYS THAT RECORD BOTH A STOP AND A DRIVE COUNT, in both halves. A
+       * company whose people do not clock their driving would otherwise read
+       * nought per cent drive time, which is the most flattering possible
+       * misreading of "we did not record it"; a day with no stop has no route
+       * to be inefficient about. Those days are absent rather than zero, and a
+       * month with none reads "not this window".
+       */
+      numerator: {
+        label: "minutes driving between stops",
+        records: (from, to, zone) => sql`
+          with entries as (
+            select te.*, (te.started_at at time zone ${zone})::date as day
+            from public.timeclock_entry te
+            where te.deleted_at is null
+              and te.started_at >= ((${from}::date)::timestamp at time zone ${zone})
+              and te.started_at < ((${to}::date + 1)::timestamp at time zone ${zone})
+          )
+          select 'time'::text as kind, d.id::text as id,
+                 concat(t.display_name, ', driving between stops') as label,
+                 to_char(d.day, 'YYYY-MM-DD') as on_day,
+                 coalesce(d.minutes, 0)::numeric as value,
+                 '/timesheets?week=' || to_char(d.day, 'YYYY-MM-DD') as href
+          from entries d
+          join public.technician t on t.id = d.technician_id
+          where d.kind = 'travel' and d.ended_at is not null
+            and exists (select 1 from entries s where s.technician_id = d.technician_id and s.day = d.day
+                          and s.kind = 'on_site' and s.ended_at is not null and s.ended_at <= d.started_at)
+            and exists (select 1 from entries s where s.technician_id = d.technician_id and s.day = d.day
+                          and s.kind = 'on_site' and s.started_at >= d.ended_at)
+        `,
+      },
+      denominator: {
+        label: "minutes on the clock on days with a stop and a drive",
+        records: (from, to, zone) => sql`
+          with entries as (
+            select te.*, (te.started_at at time zone ${zone})::date as day
+            from public.timeclock_entry te
+            where te.deleted_at is null
+              and te.started_at >= ((${from}::date)::timestamp at time zone ${zone})
+              and te.started_at < ((${to}::date + 1)::timestamp at time zone ${zone})
+          )
+          select 'time'::text as kind, e.id::text as id,
+                 concat(t.display_name, ', ', replace(e.kind::text, '_', ' ')) as label,
+                 to_char(e.day, 'YYYY-MM-DD') as on_day,
+                 coalesce(e.minutes, 0)::numeric as value,
+                 '/timesheets?week=' || to_char(e.day, 'YYYY-MM-DD') as href
+          from entries e
+          join public.technician t on t.id = e.technician_id
+          where e.kind in ('travel', 'on_site', 'shop', 'paid_break')
+            and e.ended_at is not null
+            and exists (select 1 from entries s where s.technician_id = e.technician_id and s.day = e.day and s.kind = 'on_site')
+            and exists (select 1 from entries s where s.technician_id = e.technician_id and s.day = e.day and s.kind = 'travel')
+        `,
+      },
+    },
   },
 
   maint_attach: {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "plans sold",
-      denominatorLabel: "service calls to customers with no plan",
       /**
        * "New plans sold divided by completed service calls to non members."
        *
@@ -289,27 +548,8 @@ export const CATALOGUE: Record<string, Entry> = {
        * gets. "At the time of the call" is what the NOT EXISTS clause says,
        * through the agreement's own start date.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.agreement a
-        where a.deleted_at is null
-          and a.started_on >= ${from}::date and a.started_on <= ${to}::date
-          and a.renewal_count = 0
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.job j
-        join public.job_type jt on jt.id = j.job_type_id
-        where j.deleted_at is null and j.completed_at is not null
-          and jt.revenue_class = 'service'
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and not exists (
-            select 1 from public.agreement a
-            where a.customer_id = j.customer_id and a.deleted_at is null
-              and a.started_on <= (j.completed_at at time zone 'UTC')::date
-              and (a.ends_on is null or a.ends_on >= (j.completed_at at time zone 'UTC')::date)
-          )
-      `,
+      numerator: { label: "plans sold", records: plansSold() },
+      denominator: { label: "service calls to customers with no plan", records: callsToNonMembers(["service"]) },
     },
   },
 
@@ -317,8 +557,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "programmes sold",
-      denominatorLabel: "one off and initial services to customers not on a programme",
       /**
        * The pest control wording of `maint_attach`: "Recurring programs sold
        * divided by completed one off and initial services to customers not
@@ -326,27 +564,11 @@ export const CATALOGUE: Record<string, Entry> = {
        * `project` as well as `service`, because an initial service and a one off
        * treatment are both the call where the programme gets sold.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.agreement a
-        where a.deleted_at is null
-          and a.started_on >= ${from}::date and a.started_on <= ${to}::date
-          and a.renewal_count = 0
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.job j
-        join public.job_type jt on jt.id = j.job_type_id
-        where j.deleted_at is null and j.completed_at is not null
-          and jt.revenue_class in ('service', 'project')
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and not exists (
-            select 1 from public.agreement a
-            where a.customer_id = j.customer_id and a.deleted_at is null
-              and a.started_on <= (j.completed_at at time zone 'UTC')::date
-              and (a.ends_on is null or a.ends_on >= (j.completed_at at time zone 'UTC')::date)
-          )
-      `,
+      numerator: { label: "programmes sold", records: plansSold() },
+      denominator: {
+        label: "one off and initial services to customers not on a programme",
+        records: callsToNonMembers(["service", "project"]),
+      },
     },
   },
 
@@ -356,19 +578,20 @@ export const CATALOGUE: Record<string, Entry> = {
     needs:
       "A cost posting. The definition is install revenue less material, "
       + "subcontract, disposal and crew burdened labour, and `ACCOUNTS.COGS` is "
-      + "declared in core while no code path debits it: as `report-catalogue.ts` "
-      + "says, cost is read from `job_line.unit_cost` and the timeclock instead. "
-      + "Those two cover material and labour and NOT subcontract or disposal, so "
-      + "a margin computed from them would be too high on exactly the installs "
-      + "that used a subcontractor, which are the ones an owner is checking.",
+      + "declared in core while no code path debits it, so cost is read from "
+      + "`job_line.unit_cost` and the timeclock instead. `job_line` does have "
+      + "subcontract and disposal kinds, and job costing reads them, but the only "
+      + "thing that writes one is a line sent from a technician's phone: an office "
+      + "holding a subcontractor's bill or a tip receipt has nowhere to put it "
+      + "against the job. A margin computed from what is recorded would be too high "
+      + "on exactly the installs that used a subcontractor, which are the ones an "
+      + "owner is checking.",
   },
 
   revenue_per_stop: {
     state: "computed",
     format: "money",
     measure: {
-      numeratorLabel: "revenue on recurring stops",
-      denominatorLabel: "completed recurring stops",
       /**
        * "Program revenue is recognised per service, not per billing month",
        * which is what reading the ledger gives: `postAgreementRecognition`
@@ -376,8 +599,8 @@ export const CATALOGUE: Record<string, Entry> = {
        * recurring job is what that visit earned rather than a twelfth of the
        * plan.
        */
-      numerator: revenueOf(["recurring"]),
-      denominator: completed(["recurring"]),
+      numerator: { label: "revenue on recurring stops", records: revenueOf(["recurring"]) },
+      denominator: { label: "completed recurring stops", records: completed(["recurring"]) },
     },
   },
 
@@ -385,8 +608,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "number",
     measure: {
-      numeratorLabel: "completed recurring stops",
-      denominatorLabel: "technician days on the clock",
       /**
        * "EXCLUDES deep cleans, move outs and post construction, which are all
        * day jobs and would pull the recurring route average down to nothing."
@@ -395,8 +616,8 @@ export const CATALOGUE: Record<string, Entry> = {
        * obviously needed for: all three of those are `project` in the cleaning
        * pack, and the route stops are `recurring`.
        */
-      numerator: completed(["recurring"]),
-      denominator: technicianDays(),
+      numerator: { label: "completed recurring stops", records: completed(["recurring"]) },
+      denominator: { label: "technician days on the clock", records: technicianDays() },
     },
   },
 
@@ -404,8 +625,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "zero revenue return visits",
-      denominatorLabel: "completed visits",
       /**
        * "Zero revenue return visits to fix a complaint divided by completed
        * visits. EXCLUDES return visits to finish work that was cut short
@@ -418,20 +637,30 @@ export const CATALOGUE: Record<string, Entry> = {
        * zero revenue return job, so the overlap is small and the number is
        * slightly conservative rather than wrong in the flattering direction.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.job j
-        where j.deleted_at is null and j.completed_at is not null
-          and j.parent_job_id is not null
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and ${sql.raw(REVENUE_ON_JOB)} = 0
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.visit v
-        where v.deleted_at is null and v.status = 'completed'
-          and v.completed_at >= ${from}::date and v.completed_at < (${to}::date + 1)
-      `,
+      numerator: {
+        label: "zero revenue return visits",
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
+          from public.job j
+          where j.deleted_at is null and j.completed_at is not null
+            and j.parent_job_id is not null
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and ${sql.raw(REVENUE_ON_JOB)} = 0
+        `,
+      },
+      denominator: {
+        label: "completed visits",
+        records: (from, to, zone) => sql`
+          select 'visit'::text as kind, v.id::text as id,
+                 concat('#', j.number, ' visit ', v.sequence) as label,
+                 to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+                 1::numeric as value, '/visits/' || v.id as href
+          from public.visit v
+          join public.job j on j.id = v.job_id
+          where v.deleted_at is null and v.status = 'completed'
+            and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+        `,
+      },
     },
   },
 
@@ -439,8 +668,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "zero revenue calls inside a programme",
-      denominatorLabel: "programme applications completed",
       /**
        * "Zero revenue service calls inside a programme divided by programme
        * applications completed. EXCLUDES calls where the customer asked for an
@@ -449,16 +676,19 @@ export const CATALOGUE: Record<string, Entry> = {
        * The exclusion rides on the same thing as the numerator: a call for an
        * unrelated extra is billed, so it has revenue and is already out.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.job j
-        join public.job_type jt on jt.id = j.job_type_id
-        where j.deleted_at is null and j.completed_at is not null
-          and jt.revenue_class = 'recurring'
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and ${sql.raw(REVENUE_ON_JOB)} = 0
-      `,
-      denominator: completed(["recurring"]),
+      numerator: {
+        label: "zero revenue calls inside a programme",
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
+          from public.job j
+          join public.job_type jt on jt.id = j.job_type_id
+          where j.deleted_at is null and j.completed_at is not null
+            and jt.revenue_class = 'recurring'
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and ${sql.raw(REVENUE_ON_JOB)} = 0
+        `,
+      },
+      denominator: { label: "programme applications completed", records: completed(["recurring"]) },
     },
   },
 
@@ -498,8 +728,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "one time customers who started a programme inside sixty days",
-      denominatorLabel: "one time customers served",
       /**
        * "One time, deep or move in customers who book a recurring plan within
        * sixty days, divided by one time customers served. EXCLUDES move out
@@ -511,30 +739,47 @@ export const CATALOGUE: Record<string, Entry> = {
        * because a move out that converts is rare enough that including it moves
        * the number by less than its own month to month variation, and the
        * alternative is withholding the most useful growth figure a recurring
-       * business has.
+       * business has. One row per CUSTOMER, on their first one off job in the
+       * window, which opens on the customer.
        */
-      numerator: (from, to) => sql`
-        select count(distinct j.customer_id)::numeric as value
-        from public.job j
-        join public.job_type jt on jt.id = j.job_type_id
-        where j.deleted_at is null and j.completed_at is not null
-          and jt.revenue_class in ('service', 'project')
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-          and exists (
-            select 1 from public.agreement a
-            where a.customer_id = j.customer_id and a.deleted_at is null
-              and a.started_on >= (j.completed_at at time zone 'UTC')::date
-              and a.started_on <= (j.completed_at at time zone 'UTC')::date + 60
-          )
-      `,
-      denominator: (from, to) => sql`
-        select count(distinct j.customer_id)::numeric as value
-        from public.job j
-        join public.job_type jt on jt.id = j.job_type_id
-        where j.deleted_at is null and j.completed_at is not null
-          and jt.revenue_class in ('service', 'project')
-          and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
-      `,
+      numerator: {
+        label: "one time customers who started a programme inside sixty days",
+        records: (from, to, zone) => sql`
+          select distinct on (j.customer_id)
+                 'customer'::text as kind, j.customer_id::text as id,
+                 (select c.name from public.customer c where c.id = j.customer_id) as label,
+                 to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+                 1::numeric as value, '/customers/' || j.customer_id as href
+          from public.job j
+          join public.job_type jt on jt.id = j.job_type_id
+          where j.deleted_at is null and j.completed_at is not null
+            and jt.revenue_class in ('service', 'project')
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and exists (
+              select 1 from public.agreement a
+              where a.customer_id = j.customer_id and a.deleted_at is null
+                and a.started_on >= (j.completed_at at time zone ${zone})::date
+                and a.started_on <= (j.completed_at at time zone ${zone})::date + 60
+            )
+          order by j.customer_id, j.completed_at
+        `,
+      },
+      denominator: {
+        label: "one time customers served",
+        records: (from, to, zone) => sql`
+          select distinct on (j.customer_id)
+                 'customer'::text as kind, j.customer_id::text as id,
+                 (select c.name from public.customer c where c.id = j.customer_id) as label,
+                 to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+                 1::numeric as value, '/customers/' || j.customer_id as href
+          from public.job j
+          join public.job_type jt on jt.id = j.job_type_id
+          where j.deleted_at is null and j.completed_at is not null
+            and jt.revenue_class in ('service', 'project')
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+          order by j.customer_id, j.completed_at
+        `,
+      },
     },
   },
 
@@ -554,8 +799,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "money",
     measure: {
-      numeratorLabel: "revenue on completed jobs",
-      denominatorLabel: "paid hours on site and travelling",
       /**
        * "Invoiced revenue divided by paid cleaner hours, counting every person on
        * a team separately. EXCLUDES office and administrative hours, and EXCLUDES
@@ -563,16 +806,25 @@ export const CATALOGUE: Record<string, Entry> = {
        *
        * Every exclusion is a `kind` on the timeclock entry: `shop` is the office
        * and administrative half, `travel` is travel. "Every person separately" is
-       * what summing minutes per entry already does.
+       * what summing minutes per entry already does. One row per entry, adding
+       * its hours.
        */
-      numerator: revenueOf(["install", "service", "recurring", "project"]),
-      denominator: (from, to) => sql`
-        select coalesce(sum(te.minutes), 0)::numeric / 60 as value
-        from public.timeclock_entry te
-        where te.deleted_at is null
-          and te.kind in ('on_site', 'paid_break')
-          and te.started_at >= ${from}::date and te.started_at < (${to}::date + 1)
-      `,
+      numerator: { label: "revenue on completed jobs", records: revenueOf(["install", "service", "recurring", "project"]) },
+      denominator: {
+        label: "paid hours on site and travelling",
+        records: (from, to, zone) => sql`
+          select 'time'::text as kind, te.id::text as id,
+                 concat(t.display_name, ', ', replace(te.kind::text, '_', ' ')) as label,
+                 to_char(te.started_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+                 (coalesce(te.minutes, 0)::numeric / 60) as value,
+                 '/timesheets?week=' || to_char(te.started_at at time zone ${zone}, 'YYYY-MM-DD') as href
+          from public.timeclock_entry te
+          join public.technician t on t.id = te.technician_id
+          where te.deleted_at is null
+            and te.kind in ('on_site', 'paid_break')
+            and te.started_at >= ${dayStart(from, zone)} and te.started_at < ${dayAfter(to, zone)}
+        `,
+      },
     },
   },
 
@@ -591,10 +843,13 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "percent",
     needs:
-      "A reason an inspection failed. The definition EXCLUDES jobs failed for "
-      + "something outside the trade's own scope, because 'counting those hides "
-      + "whether the crews are the problem', and `inspection.result` records "
-      + "fail without a cause.",
+      "The authority's inspection of a permitted job, and why one failed. M33's "
+      + "`inspection` records the contractor's own statutory inspections of a "
+      + "property (a backflow test, a fire system), not the city inspector signing "
+      + "off a panel change, and nothing records a permit or its inspections. Even "
+      + "there, `inspection.result` records a fail without a cause, and the "
+      + "definition EXCLUDES jobs failed for something outside the electrical "
+      + "scope because 'counting those hides whether the crews are the problem'.",
   },
 
   budget_hour_variance: {
@@ -602,9 +857,11 @@ export const CATALOGUE: Record<string, Entry> = {
     format: "percent",
     needs:
       "Budgeted hours on the job. `job_type.default_duration_minutes` is a "
-      + "scheduling default rather than a budget for this job, and the definition "
-      + "also EXCLUDES separately approved change order hours, which needs a "
-      + "change order.",
+      + "scheduling default rather than a budget for this job, and a project "
+      + "phase carries a budget in money, not hours. Change orders now exist "
+      + "(M12) and the definition EXCLUDES separately approved change order "
+      + "hours, but a change order carries an amount and a cost and no hours, so "
+      + "there is nothing to take out of the actual hours either.",
   },
 
   production_per_crew_hour: {
@@ -623,20 +880,26 @@ export const CATALOGUE: Record<string, Entry> = {
     format: "percent",
     needs:
       "Who cancelled a visit, and when. The definition is stops cancelled inside "
-      + "the notice window and EXCLUDES visits the company cancelled itself. "
-      + "`visit.status` records that a visit was cancelled without saying by whom "
-      + "or at what notice, so a week of rain would read as customers cancelling.",
+      + "the notice window and EXCLUDES visits the company cancelled itself. A "
+      + "customer cancelling from their portal link is now recorded "
+      + "(`visit_change_request`, with when they asked), but a customer who rings "
+      + "and asks the office to cancel is recorded exactly like the company "
+      + "cancelling for rain: `visit.status` says cancelled and nothing says by "
+      + "whom. Counting only the portal's half would undercount, and counting "
+      + "every cancellation would read a week of rain as customers leaving.",
   },
 
   chemical_cost_per_stop: {
     state: "needs",
     format: "money",
     needs:
-      "A product application record. The definition values product applied from "
-      + "the product register and EXCLUDES devices, bait stations and monitors, "
-      + "which are capital. Inventory records what was issued to a truck, not "
-      + "what went on a property, so the figure would be a purchasing number "
-      + "rather than a cost per stop.",
+      "A product application tied to the product register. Service reports "
+      + "record what was applied (`service_report_field.product_name`, quantity "
+      + "and unit, the EPA number) but by name rather than as a price book item, "
+      + "so nothing values it, and the definition values product from the "
+      + "register and EXCLUDES devices, bait stations and monitors, which are "
+      + "capital. Valuing it from what was issued to a truck instead would make "
+      + "this a purchasing number rather than a cost per stop.",
   },
 
   supply_cost_pct: {
@@ -654,21 +917,26 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "percent",
     needs:
-      "Which regulated fields the operator's own configuration requires. The "
-      + "definition is visits where every required field was captured, and a "
-      + "reading is declared by the pack without being marked required per "
-      + "jurisdiction, so this would measure against our list rather than theirs.",
+      "Which regulated fields the operator required WHEN the visit was "
+      + "recorded. A service report template marks fields required and "
+      + "regulated, but a report keeps only the template's version number and "
+      + "editing a template rewrites its fields on the same row, so last spring's "
+      + "visits would be judged against today's list. The definition also "
+      + "EXCLUDES visits recorded with a no product applied reason, and a report "
+      + "has a skipped flag but no such reason.",
   },
 
   diag_conversion: {
     state: "needs",
     format: "percent",
     needs:
-      "Whether approved work happened on the SAME visit. `revenue_class` says a "
-      + "job type is a service call and the estimate says it was approved, and "
-      + "the definition turns on same-visit conversion: an estimate approved three "
-      + "days later is a different and much easier sale, and counting it would "
-      + "flatter the number by most of its own value.",
+      "Which trade owned the fault. The same visit half is now measurable (an "
+      + "estimate's signature has a time and the visit has its arrival and "
+      + "completion), but the definition EXCLUDES calls where the fault was in "
+      + "equipment another trade owns, 'which the electrician was never going to "
+      + "close', and nothing on a job or a visit records that. Those calls are a "
+      + "large share of troubleshooting, so the number would read low for a "
+      + "reason the technicians do not control.",
   },
 
   drain_conversion: {
@@ -685,22 +953,50 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "percent",
     needs:
-      "A typed install date on the unit. `equipment.installed_on` exists and the "
-      + "definition needs water heaters 'recorded as over ten years old AND "
-      + "inspected in the period', which means an inspection against that unit: "
-      + "`visit_asset` records that one was serviced, and whether it was INSPECTED "
-      + "as opposed to worked on is the distinction that is missing.",
+      "Whether the customer has already booked the replacement with somebody "
+      + "else. Both halves are now recorded: an inspection names the unit it "
+      + "looked at, `installed_on` gives the age, and the register records a "
+      + "replacement as a move with that reason. The definition EXCLUDES units "
+      + "the customer has already scheduled with someone else, 'so the ones "
+      + "nobody followed up on stay visible', and a declined recommendation "
+      + "records why in free text, so those units cannot be told apart.",
   },
 
   backflow_recert: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A last-test date on the assembly. The definition divides assemblies "
-      + "retested by assemblies whose last test is a year or more old, and the "
-      + "test date lives in `equipment.attributes`, which is untyped jsonb that "
-      + "nothing validates. A date held as free text cannot be compared, so the "
-      + "denominator would be a guess.",
+    measure: {
+      /**
+       * "Assemblies retested within the period divided by assemblies whose
+       * last test is a year or more old. Excludes assemblies recorded as
+       * removed or abandoned, which otherwise sit in the denominator forever."
+       *
+       * This needed a typed last test date on the assembly, and M33 gave it
+       * one: a backflow test is an inspection whose checkpoints are about a
+       * `backflow-assembly` and whose answers name the unit they were taken
+       * on, on a real `performed_on` date. A date typed into the unit's
+       * untyped attributes is still not read, because nothing validates it.
+       *
+       * A TEST is an inspection with a result: pass, pass with deficiencies or
+       * fail. A failed test is still a test (the retest happened and found a
+       * fault); "not tested", "not accessible" and "partial" are a visit, not
+       * a retest.
+       *
+       * DUE means the assembly's last test BEFORE the window is a year or more
+       * old by the window's last day, so a month's figure counts the
+       * assemblies that came due in it as well as the ones already overdue.
+       * An assembly never tested here has no last test and is not in either
+       * half: the definition counts assemblies whose last test is old, and a
+       * register imported without its test history would otherwise read as a
+       * fleet nobody has ever retested.
+       *
+       * REMOVED OR ABANDONED is an assembly taken off the register (retired,
+       * replaced or removed, which all mark it inactive) and it is out of both
+       * halves.
+       */
+      numerator: { label: "assemblies retested in the window", records: backflowDue(true) },
+      denominator: { label: "assemblies due for a retest", records: backflowDue(false) },
+    },
   },
 
   panel_pipeline: {
@@ -719,8 +1015,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "money",
     measure: {
-      numeratorLabel: "value of declined recommendations on units over twelve years old",
-      denominatorLabel: "declined recommendations counted",
       /**
        * The one pipeline figure that needs no untyped attribute: "Total value of
        * declined replacement recommendations on systems over twelve years old
@@ -730,31 +1024,10 @@ export const CATALOGUE: Record<string, Entry> = {
        * The denominator is a count rather than a divisor: this is a total, and
        * the count is what makes it checkable. A pipeline of forty thousand over
        * three recommendations is a different conversation from one over sixty.
+       * Each recommendation opens on the unit it is about.
        */
-      numerator: (from, to) => sql`
-        select coalesce(sum(d.quoted_amount), 0) as value
-        from public.deficiency d
-        join public.equipment e on e.id = d.equipment_id
-        where d.deleted_at is null
-          and d.declined_on is not null
-          and d.declined_on >= ${from}::date and d.declined_on <= ${to}::date
-          and d.quoted_amount is not null
-          and e.active = true
-          and e.installed_on is not null
-          and e.installed_on < current_date - interval '12 years'
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.deficiency d
-        join public.equipment e on e.id = d.equipment_id
-        where d.deleted_at is null
-          and d.declined_on is not null
-          and d.declined_on >= ${from}::date and d.declined_on <= ${to}::date
-          and d.quoted_amount is not null
-          and e.active = true
-          and e.installed_on is not null
-          and e.installed_on < current_date - interval '12 years'
-      `,
+      numerator: { label: "value of declined recommendations on units over twelve years old", records: declinedOnOldUnits("d.quoted_amount") },
+      denominator: { label: "declined recommendations counted", records: declinedOnOldUnits("1") },
     },
   },
 
@@ -762,11 +1035,12 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "number",
     needs:
-      "Miles driven. The definition divides completed stops by route miles and "
-      + "EXCLUDES the drive from the yard to the first stop and back, and nothing "
-      + "records odometer or distance. The timeclock holds start and end "
-      + "coordinates per entry, which is a straight line between two points "
-      + "rather than a route.",
+      "Miles driven between stops. The definition divides completed stops by "
+      + "route miles and EXCLUDES the drive from the yard to the first stop and "
+      + "back. A van's odometer readings are now recorded (M22), but as one "
+      + "reading per vehicle per day, which includes both yard legs, and the "
+      + "timeclock's coordinates are a straight line between two points rather "
+      + "than a route.",
   },
 
   /* ------------------------------ the six the guard test found for me ------ */
@@ -796,8 +1070,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "stops where the bin was not out",
-      denominatorLabel: "attempted stops",
       /**
        * "Stops where the bin was not at the curb divided by attempted stops. Every
        * one is a paid drive with no revenue."
@@ -807,22 +1079,8 @@ export const CATALOGUE: Record<string, Entry> = {
        * completed or recorded as no access, not a visit that was scheduled, because
        * a round the truck never reached is not a bin that was not out.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.visit_asset va
-        join public.visit v on v.id = va.visit_id
-        where va.deleted_at is null and v.deleted_at is null
-          and va.outcome = 'no_access'
-          and v.completed_at >= ${from}::date and v.completed_at < (${to}::date + 1)
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.visit_asset va
-        join public.visit v on v.id = va.visit_id
-        where va.deleted_at is null and v.deleted_at is null
-          and va.outcome is not null
-          and v.completed_at >= ${from}::date and v.completed_at < (${to}::date + 1)
-      `,
+      numerator: { label: "stops where the bin was not out", records: binStops(true) },
+      denominator: { label: "attempted stops", records: binStops(false) },
     },
   },
 
@@ -842,8 +1100,6 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "computed",
     format: "percent",
     measure: {
-      numeratorLabel: "new subscriptions from a referral",
-      denominatorLabel: "new subscriptions",
       /**
        * "New subscriptions attributed to a neighbour referral divided by all new
        * subscriptions."
@@ -857,20 +1113,18 @@ export const CATALOGUE: Record<string, Entry> = {
        * for every company that recorded referrals correctly. A first agreement
        * (`renewal_count = 0`) is the subscription starting.
        */
-      numerator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.agreement a
-        join public.customer c on c.id = a.customer_id
-        where a.deleted_at is null and a.renewal_count = 0
-          and a.started_on >= ${from}::date and a.started_on <= ${to}::date
-          and c.lead_source = 'referral_customer'
-      `,
-      denominator: (from, to) => sql`
-        select count(*)::numeric as value
-        from public.agreement a
-        where a.deleted_at is null and a.renewal_count = 0
-          and a.started_on >= ${from}::date and a.started_on <= ${to}::date
-      `,
+      numerator: {
+        label: "new subscriptions from a referral",
+        records: (from, to) => sql`
+          select ${sql.raw(agreementRow)}
+          from public.agreement a
+          join public.customer c on c.id = a.customer_id
+          where a.deleted_at is null and a.renewal_count = 0
+            and a.started_on >= ${from}::date and a.started_on <= ${to}::date
+            and c.lead_source = 'referral_customer'
+        `,
+      },
+      denominator: { label: "new subscriptions", records: plansSold() },
     },
   },
 

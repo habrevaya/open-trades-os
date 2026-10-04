@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Sixteen operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty four operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, and the last seven are selling and closing on site, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -194,6 +194,114 @@ the technician on the visit, or somebody who may send invoices, can ask.
 
 `/my-day` takes cash, checks and the card link the same way.
 
+### Selling and closing on site
+
+The sale at the kitchen table, on the phone and on `/my-day`, all through the
+same queue, so all of it works in a basement and lands when the van finds a
+signal. Seven operation kinds:
+
+| Kind | Rule | What it is |
+|---|---|---|
+| `estimate.create` | append | Good, better and best built on the phone, with ids the phone made |
+| `estimate.approve` | transition | The customer's choice and signature, drawn on the glass |
+| `estimate.decline` | transition | The customer saying no, with why |
+| `invoice.raise` | transition | The invoice for the visit's work, shown and signed for |
+| `task.claim` | transition | Taking a task off the office's queue |
+| `task.close` | transition | Finishing your own task |
+| `tip.record` | append | A cash tip the technician kept |
+
+**Building the options.** The price book the phone carries is searched with
+no signal, by name, code, description and what a kit contains; a kit is one
+line at its own price and says what it covers. Each line is priced from the
+version the phone holds, and the server writes that version's price when it
+was in force in the week before, so a price rise the phone had not heard of
+does not change what the customer was shown; an older one is refused in
+words. The customer's membership is on the day (`member` on each visit), and
+the phone takes the plan's discount off each line, and waives a diagnostic or
+after hours fee, exactly as the server will. The phone offers no discount of
+its own and never shows a cost or a margin.
+
+**The figure is the server's figure.** The phone's arithmetic is one file,
+`packages/core/src/field/pricing.ts`, which imports nothing so the phone can
+bundle it, and a test in core holds every line and every total it gives to
+the server's estimate, invoice and member pricing over thousands of random
+documents. So the total a customer signs for on the phone is the total the
+server writes.
+
+**The customer's screen.** The options in the order a proposal uses
+(recommended first, then the dearest), each line at its price with the
+member's saving said, the extras to tick and the total for what is ticked,
+the terms, and a box to sign in with their name. Choosing and signing puts
+the drawn signature into the queue first (the hash checked upload path, as a
+photograph), then `estimate.approve` naming it and the total the customer was
+shown. The server works the option out again with what they ticked and
+records the approval only when the two agree to the cent, through
+`estimates.decide`, the same approval the customer's own link makes,
+recorded as given in person and signed at the moment they signed. A
+different figure is refused and said ("The customer was shown $1,500.00, and
+this option with what they ticked comes to $1,620.00 ...").
+
+**Who may carry a customer's yes.** `estimate:present`, which the technician
+preset holds: the technician on the visit, with the customer's own name and
+drawn signature. It is not `estimate:approve`, which records a yes on the
+customer's behalf and which a technician does not hold.
+
+**The invoice on site.** `invoice:raise_on_site`, which the technician preset
+holds, raises and issues one invoice for the technician's own visit, and is
+not `invoice:write`. It bills one of two things, never both, because an
+option is usually a flat price that covers the parts used to do it: the
+option the customer signed for, copied as signed by the estimate's own
+conversion, or the parts and charges recorded on the job (a part recorded on
+the phone carries an id the phone made, so it can be billed before there is a
+signal), priced by the same `billing.createIn` as an invoice the office
+raises. The phone sends the total the customer saw. When the server's total
+agrees, the invoice is issued and the customer's signature recorded against
+a hash of it; when it does not (a price changed, a warranty the phone could
+not see), the invoice is kept as a DRAFT for the office, never issued at a
+figure the customer did not sign for, and the operation is recorded as a
+conflict the office sees and the phone says in the office's words.
+
+**Taking the money, and a tip.** Cash or a check against the invoice raised
+there, through `payment.collect` as before, now with a tip on top when the
+company takes tips (the setting on `/settings/portal`, the same one the
+portal's pay button reads): the tip is held in Tips payable and split evenly
+between everybody on the job's visits, the way a tip on the portal is, with
+the same suggestions and the same refusals. A card goes through the
+invoice's own link, where the customer can add a tip. With a lender
+connected (M13), `POST /v1/visits/{id}/financing-link` opens the lender's
+application for what is owing and texts it or hands it over; like the card
+link it needs a signal.
+
+**A cash tip kept.** A customer hands the technician a twenty for
+themselves. It never reaches the company, so nothing is booked; `tip.record`
+puts it on the technician's own pay statement as `cash_tip`, already in their
+hand (M17). Always the phone's own person.
+
+**The office's tasks.** The snapshot carries the person's own tasks and the
+ones nobody has taken, and the phone takes one (`task.claim`) and finishes
+its own (`task.close`) through the queue's own services, so the second of two
+people taking the same task offline is told somebody else has it. A task with
+a checklist is finished on its own page, where the items are.
+
+**What the person may do.** The snapshot's `abilities` says, from the
+person's permissions and the company's settings, whether they may build
+estimates, take a customer's signature, raise invoices and take tasks,
+whether the company takes tips and with which suggestions, whether a lender
+is connected and whether the field assistant (M27) is on, so the phone
+offers only what the server would accept.
+
+### Inspections
+
+A technician the company lets file inspections (`compliance:write`, which the
+technician preset does not hold) is sent the inspection programmes with the day,
+and runs one against a visit: pass or fail, readings with the range beside them,
+not applicable with a reason, a photo per checkpoint and a signature. The whole
+inspection is one `inspection.record` operation, an append that always applies,
+with an id the phone made so a retry files it once. The server files it through
+the same service the office uses, against the visit's own customer and address,
+and draws the verdict itself; the phone never sends one. `/my-day` runs the same
+inspection with a typed signature.
+
 ### Notices about the day
 
 When the office puts a visit on somebody's day, takes it off, moves it or
@@ -224,6 +332,56 @@ channels the server sends to, and registers its token with
 `POST /v1/field/devices`, the call it already makes. Signing out and taking a
 phone away both clear the token. A company can require an access token for its
 Expo project and set `EXPO_ACCESS_TOKEN` for the worker.
+
+### Location while working, and the privacy choices behind it
+
+The phone app shares where its person is with the office, and with the
+customer they are on the way to, and every choice about it is made for the
+person being located:
+
+- **Off until the company turns it on.** An owner turns it on at
+  `/schedule/technicians` (`PUT /v1/dispatch/location-sharing`,
+  `settings:write`), where the rule is written out in the words below. The
+  office can turn it off for any one person (`PATCH /v1/technicians/{id}`,
+  `user:write`).
+- **Only while working.** Clocked in, on the way to a visit, or working one.
+  The phone decides from the day it holds, offline (`sharingFor` in
+  `packages/field-client`), and starts the operating system's location only
+  then; the moment it says otherwise the updates stop and any position not
+  yet sent is thrown away rather than sent after the fact.
+- **The server checks every position again.** Positions ride along with the
+  sync (`positions` on `POST /v1/field/sync`), after the operations in the
+  same send, and each one is judged against the server's own record of the
+  punches and the visits. One taken outside working time is dropped and
+  counted in the answer, never stored, so a phone that is wrong cannot put an
+  evening at home on the map. A visit marked on the way and never finished
+  counts for twelve hours at most.
+- **The person always knows.** A line at the top of their day says when it is
+  on and who can see them ("Nina Patel can see you on their tracking link
+  until you arrive"), and says when it is off. Android shows its own notice
+  for as long as it runs and iOS its blue location indicator. The snapshot
+  tells the phone the company's setting and the person's
+  (`locationSharing`), so they can see which applies to them.
+- **Few people see it.** Live positions are shown to people who dispatch
+  (`visit:dispatch`), not to a CSR and not to other technicians. A customer
+  sees one pin, only on the way to their own visit, only after the text, and
+  nothing once the technician arrives.
+- **Kept briefly.** Three days unless the company sets one to thirty, then
+  deleted by the worker. Turning sharing off for the company or a person
+  deletes what was kept at once; shortening the retention deletes what is now
+  past it.
+- **Not precise beyond need.** A fix less accurate than a kilometre, one from
+  the future, one at 0, 0 and one from a phone faking its GPS are refused.
+  The phone thins what it keeps: a parked van sends one every few minutes.
+
+The phone asks for location permission only when sharing first becomes due,
+not at sign in. With "while using the app" only, it shares while the app is
+open and says so.
+
+Telling the customer you are on the way also moves the visit on the way on
+the phone, into the queue like every other tap, so the tracking link has a
+van to show and the office sees the visit move whether or not the text got
+through.
 
 ### Offline, and sending
 
@@ -319,7 +477,7 @@ wrote is a different decision from writing it.
 
 | Role | Access |
 |---|---|
-| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`) |
+| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`) |
 | Crew lead | The same, scoped to the crew |
 | Dispatcher | Reads and resolves conflicts |
 | Office manager | Reads service reports and publishes them |
@@ -351,7 +509,10 @@ device, and so an Expo app and the web page share one implementation.
 
 ## What is not built
 
-The phone app has not been run on a device or a simulator. It is typechecked,
+The phone app has not been run on a device or a simulator, so live location
+has been tested against its logic and a fake server, not against a real
+phone's GPS, battery or background limits; iOS in particular decides how often
+a backgrounded app is woken. It is typechecked,
 its logic is unit tested and it bundles for Android and iOS, and that is all,
 so no push notice has been seen on a real phone: the server side is tested
 against a fake of the push service, and a build needs an Expo project id
@@ -376,9 +537,20 @@ yes or no, a choice, and a chemical application; a photo or signature field on
 a template is taken with the camera and the signature pad instead. A report
 cannot be changed on the phone after it is sent.
 
-The phone records cash and checks and fetches a card link; it does not take a
-tip, and the technician cannot raise an invoice, so a card link needs the
-office to have issued one.
+Selling on site is on the phone and on `/my-day`, and the phone app has, like
+everything else in it, not been run on a device: the estimate builder, the
+customer's screen, the signature pad, the invoice and the tip are typechecked
+and their logic unit tested, and the same flow is driven end to end in a
+browser on `/my-day`. On the phone an estimate has at most three options
+(the server takes five) and no discount the technician types; a line not in
+the price book is typed with its price. An invoice raised on site bills the
+option signed for or the work recorded, never both; recorded parts left off
+stay unbilled for the office. Invoices carry no sales tax yet (BUILD.md), so
+neither does the phone's. A signature for an invoice the customer was not
+there for can be skipped, and the invoice is raised unsigned. A task with a
+checklist is finished on its own page in a browser, not on the phone. The
+lender's link and the field assistant need a signal; nothing about them is
+queued.
 
 Object storage: the bytes are columns in Postgres, which is right
 for a self hoster with a few gigabytes of photographs and wrong for a company

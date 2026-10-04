@@ -113,6 +113,61 @@ owes and to whom. `POST /v1/compliance/submissions` opens one,
 `GET /v1/compliance/constants/stale` is the ones whose window has ended with no
 later one.
 
+### Toolbox talks
+
+`/compliance/safety` lists every talk with who signed; `POST /v1/safety/meetings`
+records one with its topic, time, place, who led it and who was there, and
+`/compliance/safety/{id}` is its sign in sheet. Each of the company's own people
+signs from My day (`/my-day`), drawing a signature with a finger that is kept as a
+stored file: `GET /v1/safety/my-meetings` is their own lines and
+`POST /v1/safety/meetings/{id}/sign` signs, for the person signed in and nobody
+else, refused before the talk was held and after the sheet closed. Somebody without
+an account (a supplier's rep, a subcontractor) is marked signed from the paper sheet
+with `POST /v1/safety/meetings/{id}/attendees/{attendeeId}/signed`, which says so on
+the line, and the paper is photographed onto the talk.
+`POST /v1/safety/meetings/{id}/close` closes the sheet; nobody is added or signs
+after.
+
+### Incident reports
+
+`POST /v1/safety/incidents`, or `/compliance/incidents/new` from a phone: what kind of
+thing (an injury, a near miss, damage, a vehicle, a spill, something else), when,
+where, what happened in the reporter's own words, what was done straight away, who
+was there and how, and a photograph. An injury report must say who was hurt. The
+office is told by an urgent or high task in its queue, raised in the same
+transaction. `/compliance/incidents` is the register, or a reporter's own reports
+for somebody who cannot read the register, and `/compliance/incidents/{id}` is one.
+Follow up actions are tasks tied to the report
+(`POST /v1/safety/incidents/{id}/follow-ups`), and
+`POST /v1/safety/incidents/{id}/close` closes it with what was learned, refused
+while any follow up is open.
+
+### Keeping records and letting them go
+
+`/compliance/retention` reads each retention rule back as a sentence and shows what
+a purge would remove under it today, from `GET /v1/compliance/retention/preview`,
+which uses the same function as the purge. Every seeded rule arrives with purging
+off. Turning it on (`PATCH /v1/compliance/retention/rules/{id}`) lets the worker's
+daily pass remove what the preview lists; `POST /v1/compliance/retention/purges`
+runs a pass now and `GET /v1/compliance/retention/purges` lists them, with any
+record that could not be removed and why.
+
+A record is removed only when four things all say yes: the rule's purging is on,
+its clock has run out, no other active rule over the same record keeps it longer or
+has purging off, and nobody has put a hold on it. A clock that cannot be worked out
+(a job not finished, a report not prepared) keeps the record. A hold
+(`POST /v1/compliance/retention/holds`, released with
+`POST /v1/compliance/retention/holds/{id}/release`) keeps one record whatever its
+age, for a claim or a dispute, and the call recordings sweep honours it too. Every
+record removed leaves an audit line naming the rule, the clock and the day it became
+due.
+
+The purge acts on incident reports, toolbox talks, service reports and inspections,
+with their photographs and signatures. A rule naming a kind matches by the
+incident's kind, the code of a service report's job type, or the trade pack's code
+for an inspection's programme; the screen says which. A rule about anything else is
+shown as one this product cannot act on.
+
 ### Attachments
 
 `POST /v1/attachments` uploads one against a record and
@@ -130,7 +185,14 @@ the compliance ones, because an attachment is a file on a record.
 
 Two permission pairs, and they are different questions. `document:read` and
 `document:write` are the register of files. `compliance:read` and
-`compliance:write` are the filings, the figures and, in M24, the certifications.
+`compliance:write` are the filings, the figures, the retention rules and the purge,
+and, in M24, the certifications.
+
+Safety records are their own three: `safety:read` is the register of talks and
+incidents, `safety:write` runs talks and follows reports up (office managers and
+crew leads hold both), and `safety:report` reports an incident, held by everybody
+on the office, dispatch and field presets. A technician signs their own line on a
+talk with `field:sync`.
 
 ## API
 
@@ -143,6 +205,16 @@ Two permission pairs, and they are different questions. `document:read` and
 | `POST /v1/compliance/submissions` | `compliance:write` |
 | `GET /v1/compliance/constants` | `compliance:read` |
 | `POST /v1/attachments` | `document:write` |
+| `GET /v1/safety/meetings` | `safety:read` |
+| `POST /v1/safety/meetings` | `safety:write` |
+| `POST /v1/safety/meetings/{id}/sign` | `field:sync`, for your own line |
+| `POST /v1/safety/incidents` | `safety:report` |
+| `GET /v1/safety/incidents` | `safety:report`; the register needs `safety:read` |
+| `POST /v1/safety/incidents/{id}/follow-ups` | `safety:write` |
+| `GET /v1/compliance/retention/preview` | `compliance:read` |
+| `PATCH /v1/compliance/retention/rules/{id}` | `compliance:write` |
+| `POST /v1/compliance/retention/holds` | `compliance:write` |
+| `POST /v1/compliance/retention/purges` | `compliance:write` |
 
 ## Common questions
 
@@ -155,13 +227,25 @@ product decides that a licence is required.
 
 **Where do retention rules come from?** The trade pack declares them, with the
 clock start stated explicitly, because retention almost never runs from when the row
-was created. Nothing purges on them yet.
+was created. They say what the pack was written to, not what your state requires,
+which is why every one arrives with purging off.
+
+**Does this tell me whether an incident must be reported?** No. That depends on the
+jurisdiction, the injury and what a doctor did, none of which this database holds.
 
 ## What is not built
 
-Nothing acts on a retention policy: the rules are seeded and read and no purge
-exists. There is no safety meeting, incident or toolbox talk record, despite the
-module's name: what is here is documents, filings and figures. A submission is
+The purge acts on four kinds of record; rules about any other kind are kept on
+file and act on nothing. Removing a service report or an inspection removes that
+record and its photographs, not the job or the address it was about. A rule's clock
+start cannot be changed on the screen, only its period and whether it purges, and
+there is no screen to write a new rule. Holds are placed by kind and id, or from the
+preview, not from each record's own page.
+
+Incident reports are not sent to anybody: no authority form (an OSHA 300 log, for
+one) is produced, and nothing decides whether an incident is reportable. A toolbox
+talk has no library of topics or scheduled talks, and is signed from the web
+technician's day, not from the native app. A submission is
 tracked and not transmitted, because there is no per authority formatter, and the
 trade pack is explicit that a submission seed describes what the software must
 produce and to whom, never what the business is legally required to do.

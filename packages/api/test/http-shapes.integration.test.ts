@@ -177,7 +177,7 @@ run("stock reaches the HTTP API in the shape the document promises", () => {
     }) as { movements: Record<string, unknown>[] };
 
     expect(Object.keys(body.movements[0]!).sort()).toEqual([
-      "id", "itemId", "jobId", "kind", "locationId", "occurredAt",
+      "id", "itemId", "jobId", "kind", "locationId", "lotId", "occurredAt",
       "quantity", "reasonCode", "sequence", "totalCost", "transferId",
     ]);
   });

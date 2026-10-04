@@ -65,7 +65,7 @@ import { adapterSettings } from "../secrets/endpoints";
  */
 export type AccountingEntityKind =
   | "customer" | "invoice" | "payment" | "credit_memo" | "refund"
-  | "credit_note" | "credit_note_application" | "credit_note_void";
+  | "credit_note" | "credit_note_application" | "credit_note_void" | "journal";
 
 /** ISO 4217, carried on every amount for the same reason the schema carries it. */
 export interface ExternalMoney {
@@ -216,6 +216,27 @@ export interface ExternalCreditApplication {
   invoiceExternalId: string;
   appliedOn: string;
   amount: ExternalMoney;
+}
+
+/**
+ * A manual journal an accountant posted here: lines on accounts, each a debit
+ * or a credit, balanced.
+ *
+ * The one thing this bridge sends that is not a document, and the comment on
+ * `pushInvoice` says why the sync does not push postings: a journal in the
+ * books does not age as a receivable or match a deposit. A manual journal has
+ * no document behind it in either system, so a journal is exactly what it
+ * is, over there as here. Every account is resolved from the mapping by the
+ * service, and a journal with an unmapped account is refused by name.
+ */
+export interface ExternalJournal {
+  idempotencyKey: string;
+  /** Our journal number, for a bookkeeper matching it by eye. */
+  number: number;
+  postedOn: string;
+  currency: string;
+  memo: string;
+  lines: { accountExternalId: string; direction: "debit" | "credit"; amount: ExternalMoney; description: string | null }[];
 }
 
 /** What the provider gave the thing we pushed. */
@@ -385,6 +406,13 @@ export interface AccountingProvider {
    */
   pushCreditNote(note: ExternalCreditNote): Promise<PushResult>;
 
+  /**
+   * A manual journal. OPTIONAL: a book that cannot take one leaves it out,
+   * and the sync then leaves journals here and says so on the problems list
+   * rather than sending them some other way.
+   */
+  pushJournal?(journal: ExternalJournal): Promise<PushResult>;
+
   /** One credit note against one invoice, by an amount, on a date. */
   pushCreditApplication(application: ExternalCreditApplication): Promise<PushResult>;
 
@@ -467,6 +495,12 @@ export interface HttpResponse {
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /**
+   * The bytes, for the one answer that is not text: a report handed back as a
+   * zip. Optional so every fake that answers JSON stays as it is; `fetch`
+   * has it.
+   */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export type HttpTransport = (

@@ -474,3 +474,5 @@ export function checkHistory(
   }
   return { ok: true };
 }
+
+export * from "./proposal-layout.js";

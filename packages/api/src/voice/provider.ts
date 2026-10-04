@@ -72,6 +72,28 @@ export interface VoiceProvider {
    */
   pointCalls(input: { providerNumberId: string; voiceUrl: string; statusUrl: string }): Promise<VoiceResult<object>>;
   releaseNumber(providerNumberId: string): Promise<VoiceResult<object>>;
+  /**
+   * Ring a phone or a browser from one of the company's numbers, and ask
+   * `url` what to do when it is answered. Used to offer a waiting caller to
+   * the people who answer their line.
+   */
+  placeCall(input: {
+    to: string; from: string; url: string; timeoutSeconds: number;
+  }): Promise<VoiceResult<{ callSid: string }>>;
+  /**
+   * Start recording a call already in progress. Only ever called after the
+   * recording check said yes for it: on a call the office placed from the
+   * browser, that is after the person called pressed 1.
+   */
+  startRecording(input: { callSid: string; recordingCallback: string }): Promise<VoiceResult<object>>;
+  /**
+   * Create, or point again, the carrier's application that the browser phone
+   * places its calls through. Its voice address is where the carrier asks
+   * what to do with a call a person dials in the office app.
+   */
+  saveApplication(input: {
+    applicationSid: string | null; label: string; voiceUrl: string; statusUrl: string;
+  }): Promise<VoiceResult<{ applicationSid: string }>>;
   fetchRecording(recordingUrl: string): Promise<VoiceResult<{ bytes: Uint8Array }>>;
   deleteRecording(recordingId: string): Promise<VoiceResult<object>>;
 }

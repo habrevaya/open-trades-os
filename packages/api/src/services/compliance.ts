@@ -689,6 +689,7 @@ export interface SubmissionView {
 const viewSubmission = (
   row: typeof schema.regulatorySubmission.$inferSelect,
   today: string,
+  zone: string,
 ): SubmissionView => {
   const settled = (SETTLED as readonly string[]).includes(row.state);
   const daysUntilDue = row.dueOn ? daysBetween(today, row.dueOn) : null;
@@ -710,7 +711,7 @@ const viewSubmission = (
     supersedesId: row.supersedesId,
     overdue: !settled && daysUntilDue !== null && daysUntilDue < 0,
     daysUntilDue,
-    statement: submissionSentence(row, daysUntilDue),
+    statement: submissionSentence(row, daysUntilDue, zone),
   };
 };
 
@@ -727,11 +728,12 @@ const viewSubmission = (
 function submissionSentence(
   row: typeof schema.regulatorySubmission.$inferSelect,
   daysUntilDue: number | null,
+  zone: string,
 ): string {
   switch (row.state) {
     case "acknowledged":
       return `${row.authorityName} acknowledged this on `
-        + `${row.acknowledgedAt?.toISOString().slice(0, 10) ?? "an unrecorded date"} `
+        + `${row.acknowledgedAt ? time.dateIn(row.acknowledgedAt, zone) : "an unrecorded date"} `
         + `under reference ${row.acknowledgementReference ?? "none recorded"}.`;
     case "rejected":
       return `${row.authorityName} rejected this: ${row.rejectionReason ?? "no reason recorded"}. `
@@ -877,7 +879,7 @@ export async function openSubmission(
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const today = time.dateIn(new Date(), zone);
-    if (existing) return viewSubmission(existing, today);
+    if (existing) return viewSubmission(existing, today, zone);
 
     const [row] = await tx.insert(schema.regulatorySubmission).values({
       organizationId: ctx.actor.organizationId,
@@ -904,7 +906,7 @@ export async function openSubmission(
       kind, periodStart, periodEnd, dueOn: input.dueOn,
     });
 
-    return viewSubmission(row!, today);
+    return viewSubmission(row!, today, zone);
   });
 }
 
@@ -1014,7 +1016,7 @@ export async function advance(ctx: ServiceContext, input: AdvanceInput): Promise
       { state: before.state }, { state: input.to, reference, reason });
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
-    return viewSubmission(row!, time.dateIn(new Date(), zone));
+    return viewSubmission(row!, time.dateIn(new Date(), zone), zone);
   });
 }
 
@@ -1076,7 +1078,7 @@ export async function resubmit(
     await audit(tx, ctx, "regulatory_submission.resubmitted", "regulatory_submission", row!.id,
       { supersedes: before.id }, { state: "due", dueOn: row!.dueOn });
 
-    return viewSubmission(row!, time.dateIn(new Date(), zone));
+    return viewSubmission(row!, time.dateIn(new Date(), zone), zone);
   });
 }
 
@@ -1107,7 +1109,7 @@ export async function calendar(
       .orderBy(sql`${schema.regulatorySubmission.dueOn} asc nulls last`,
         desc(schema.regulatorySubmission.createdAt));
 
-    return rows.map((row) => viewSubmission(row, today));
+    return rows.map((row) => viewSubmission(row, today, zone));
   });
 }
 

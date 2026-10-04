@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import {
-  FieldApi, FieldQueue, SyncEngine, UploadQueue, isOffline,
+  FieldApi, FieldQueue, PositionBuffer, SyncEngine, UploadQueue, isOffline,
 } from "@opentradesos/field-client";
 import type { Session } from "../lib/session";
 import { storageFor } from "./storage";
@@ -18,6 +18,8 @@ export interface FieldClient {
   api: FieldApi;
   queue: FieldQueue;
   uploads: UploadQueue;
+  /** Where fixes wait for the next send, while the person is working. */
+  positions: PositionBuffer;
   engine: SyncEngine;
 }
 
@@ -40,8 +42,9 @@ async function build(session: Session): Promise<FieldClient> {
   // server's contract says so, and Hermes has no crypto.randomUUID.
   const queue = new FieldQueue({ storage, deviceId: session.deviceId, newId: () => Crypto.randomUUID() });
   const uploads = new UploadQueue({ storage, queue, files: uploadFiles });
+  const positions = new PositionBuffer({ storage, deviceId: session.deviceId });
   const engine = new SyncEngine({
-    queue, uploads, storage,
+    queue, uploads, storage, positions,
     transport: api.transport(),
     uploadTransport: {
       owed: async () => (await api.owedUploads(session.deviceId)).map((u) => u.clientId),
@@ -57,7 +60,7 @@ async function build(session: Session): Promise<FieldClient> {
     snapshot: (input) => api.snapshot({ deviceId: session.deviceId, ...input }),
     timezone: session.timezone,
   });
-  return { session, api, queue, uploads, engine };
+  return { session, api, queue, uploads, positions, engine };
 }
 
 /** Forget the built client, after signing out, so nothing holds the old token. */

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { assertCan, permissionsFor, type reporting } from "@opentradesos/core";
 import { guardedRead, NotFoundError, type ServiceContext } from "./context";
-import { JOB_COSTING_SQL, GROSS_MARGIN_SQL, SETTLEMENT_SQL, PROFITABILITY_DATASET } from "./report-catalogue";
+import { JOB_COSTING_SQL, GROSS_MARGIN_SQL, FULLY_LOADED_MARGIN_SQL, SETTLEMENT_SQL, PROFITABILITY_DATASET } from "./report-catalogue";
 import { run, scopeFilterFor, type ReportResult } from "./reports";
 
 /**
@@ -46,9 +46,9 @@ import { run, scopeFilterFor, type ReportResult } from "./reports";
  */
 export const CAVEATS = {
   overhead:
-    "Gross margin. No overhead is allocated: not the truck, the dispatcher, the building or the software. "
-    + "This product holds no overhead pool and no driver to spread one with, and the usual stand-ins are circular. "
-    + "Allocate by revenue and every job keeps the margin percentage it already had; allocate by hours and a job that ran long is charged twice for the same overrun.",
+    "Gross margin. No overhead is allocated in it: not the truck, the dispatcher, the building, or the employer's payroll taxes and workers' compensation. "
+    + "Where a fully loaded margin is shown beside it, on a job and on the job costing reports, it takes off labour burden and overhead at the rates your company set under Settings, Costing, each at the rate in effect on the day; with none set the two are equal. "
+    + "An allocation is a choice, not a measurement: overhead by revenue leaves every job's margin percentage where it was, and overhead by the hour charges a job that ran long twice for the same overrun.",
   overtime:
     "Labour is hours at the loaded rate frozen onto each punch, which is base plus fringe. "
     + "The overtime premium is NOT included, because overtime is a property of a person's week rather than of a job: "
@@ -112,6 +112,13 @@ export interface JobProfitability {
   grossMargin: string;
   /** Null, never zero, when there is no revenue to be a percentage of. */
   grossMarginPercent: number | null;
+  /** Employer's payroll taxes, benefits and workers' comp at the company's rates. Zero with none set. */
+  labourBurden: string;
+  /** Overhead at the company's rate for the job's day. Zero with none set. */
+  overhead: string;
+  /** Gross margin less burden and overhead. Equal to gross margin until rates are set. */
+  fullyLoadedMargin: string;
+  fullyLoadedMarginPercent: number | null;
 
   scheduledHours: string;
   actualHours: string;
@@ -167,6 +174,9 @@ type StatementRow = {
   labour_cost: string;
   processing_fees: string;
   gross_margin: string;
+  labour_burden: string;
+  overhead: string;
+  fully_loaded_margin: string;
   unbilled_cost: string;
   scheduled_hours: string;
   actual_hours: string;
@@ -214,6 +224,9 @@ export async function statement(
         ${money(JOB_COSTING_SQL.labourCost, "labour_cost")},
         ${money(JOB_COSTING_SQL.processingFees, "processing_fees")},
         ${money(GROSS_MARGIN_SQL, "gross_margin")},
+        ${money(JOB_COSTING_SQL.labourBurden, "labour_burden")},
+        ${money(JOB_COSTING_SQL.overhead, "overhead")},
+        ${money(FULLY_LOADED_MARGIN_SQL, "fully_loaded_margin")},
         ${money(JOB_COSTING_SQL.unbilledCost, "unbilled_cost")},
         ${hours(JOB_COSTING_SQL.scheduledHours, "scheduled_hours")},
         ${hours(JOB_COSTING_SQL.actualHours, "actual_hours")},
@@ -407,6 +420,12 @@ export async function statement(
       grossMarginPercent: revenue === 0
         ? null
         : Math.round((Number(row.gross_margin) / revenue) * 1000) / 10,
+      labourBurden: row.labour_burden,
+      overhead: row.overhead,
+      fullyLoadedMargin: row.fully_loaded_margin,
+      fullyLoadedMarginPercent: revenue === 0
+        ? null
+        : Math.round((Number(row.fully_loaded_margin) / revenue) * 1000) / 10,
 
       scheduledHours: row.scheduled_hours,
       actualHours: row.actual_hours,
@@ -485,6 +504,7 @@ export async function summary(
     dimensions: [input.by],
     measures: [
       "revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin",
+      "labour_burden", "overhead", "fully_loaded_margin",
       "scheduled_hours", "actual_hours", "hours_over", "count",
     ],
     ...(input.includeInProgress

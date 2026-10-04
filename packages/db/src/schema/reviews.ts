@@ -225,11 +225,11 @@ export const reviewRequest = pgTable("review_request", {
 /**
  * A REVIEW THAT EXISTS IN THE WORLD
  *
- * Entered by hand, or brought in by a connector once one is built. The
- * catalogue is honest that no review platform connector exists yet, so the
- * manual path is the real path today and is not a placeholder: a company
- * with forty reviews and a work list telling them which three are owed a
- * reply is better off than one waiting for an API.
+ * Entered by hand, or read from a Google Business Profile listing by its
+ * connector. The manual path stays a real path rather than a placeholder:
+ * Yelp, Angi and every other platform without a connector are typed in, and
+ * a company with forty reviews and a work list telling them which three are
+ * owed a reply is better off than one waiting for an API.
  *
  * `authorName` and `body` are what the platform shows publicly. They are
  * stored because a reply has to answer what was actually said, and a work
@@ -267,6 +267,40 @@ export const review = pgTable("review", {
    */
   recoveryDueAt: timestamp("recovery_due_at", { withTimezone: true }),
   recoveredAt: timestamp("recovered_at", { withTimezone: true }),
+
+  /**
+   * The connection a review was read from, when a listing connector brought
+   * it in. A reply to one of these is posted back to the platform; a reply to
+   * a review typed in by hand is posted there by hand, as it always was.
+   * Not a foreign key: reviews.ts sits below integrations.ts, and a review
+   * outlives the connection that read it.
+   */
+  connectionId: uuid("connection_id"),
+  /**
+   * Where the reply stands on the platform: `pending` until it is posted,
+   * `posted`, or `failed` with the platform's words in `reply_error`. Null on
+   * a review nobody has answered, and on one answered for a platform with no
+   * connector, where the reply is the office's own record of what it wrote.
+   */
+  replyState: text("reply_state"),
+  replyError: text("reply_error"),
+  replyPostedAt: timestamp("reply_posted_at", { withTimezone: true }),
+
+  /**
+   * WHO THIS PROBABLY IS, NEVER WHO IT IS.
+   *
+   * A reviewer chooses what to call themselves, and "J. Smith" with a job
+   * finished last week is likely and not certain. The suggestion is kept
+   * apart from `customer_id` and `job_id`, which only a person's confirmation
+   * writes, because a review tied to the wrong customer puts a stranger's one
+   * star on a technician's record and a recovery call to somebody who never
+   * complained.
+   */
+  suggestedCustomerId: uuid("suggested_customer_id").references(() => customer.id, { onDelete: "set null" }),
+  suggestedJobId: uuid("suggested_job_id").references(() => job.id, { onDelete: "set null" }),
+  suggestionReason: text("suggestion_reason"),
+  /** A suggestion somebody said was wrong, so it is not offered again. */
+  suggestionDismissedAt: timestamp("suggestion_dismissed_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   externalIdx: uniqueIndex("review_external_idx")

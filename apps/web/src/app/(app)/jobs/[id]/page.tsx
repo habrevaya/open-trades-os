@@ -1,16 +1,19 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing, portalSettings, branches,
+  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
+import { BillingPlanView, ContractAndDeadlines, CoverageFromUnit } from "./CommercialBilling";
 import { Priority } from "./Priority";
 import { Branch } from "./Branch";
+import { RequiredSkills } from "./RequiredSkills";
 import { Parties } from "./Parties";
 import { Costing } from "./Costing";
 import { Chip } from "@opentradesos/ui";
@@ -18,15 +21,17 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
-import { ActionForm } from "@/components/ActionForm";
+import { ActionForm, TextArea } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { addVisit } from "../actions";
 import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus, shareJobPhoto } from "./actions";
+import { shareVisitNotes } from "./notes-actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
+import { EstimateDrafts } from "./EstimateDrafts";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +66,23 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     acquisition.channelOptions(ctx),
     branches.options(ctx),
   ]);
+  /**
+   * WHO PAYS FOR OTHER PEOPLE'S WORK: customers with a contract, offered by
+   * name on the parties form, and the contracts the job could run under,
+   * which are the ones held by somebody on the job.
+   */
+  const allContracts = can(user.actor, "contract:read") ? await contracts.listContracts(ctx) : [];
+  const accounts = [...new Map([
+    ...allContracts.map((c) => [c.customerId, c.customerName] as const),
+    ...parties.filter((row) => row.party.customerId && row.party.customerId !== job.customerId)
+      .map((row) => [row.party.customerId!, row.customerName ?? ""] as const),
+  ]).entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  const involved = new Set([job.customerId, ...parties.map((row) => row.party.customerId).filter(Boolean)]);
+  const contractOptions = allContracts.filter((c) => involved.has(c.customerId))
+    .map((c) => ({ id: c.id, label: `${c.name}, ${c.customerName}` }));
+  const clocks = await jobBilling.clocks(ctx, { jobId: id });
+  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id }) : null;
+
   /** The evidence behind the source, for whoever reads the marketing figures. */
   const attribution = can(user.actor, "adspend:read")
     ? await marketing.handlers.getJobAttribution(ctx, { jobId: id })
@@ -146,10 +168,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         <Fact label="Description">{job.description}</Fact>
         <Fact label="Customer said">{job.customerComplaint}</Fact>
         <Fact label="PO number">{job.purchaseOrderNumber}</Fact>
+        <Fact label="Unit">
+          {job.equipmentId ? <a href={`/equipment/${job.equipmentId}`} className="hover:underline">The unit this job is about</a> : null}
+        </Fact>
       </Facts>
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
+      <RequiredSkills jobId={id} actor={user.actor} writes={writes} />
 
       <Origin jobId={id} job={job} sources={sources} attribution={attribution} writes={writes}
               timezone={user.organizationTimezone} />
@@ -192,6 +218,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           jobId={id}
           customerId={job.customerId}
           customerName={customer.name}
+          accounts={accounts}
           roles={roles.PARTY_ROLES.map((role) => {
             const held = parties.find((row) => row.party.role === role.key);
             return {
@@ -203,6 +230,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                     isCustomer: held.party.customerId !== null,
                     name: held.customerName ?? held.party.externalName ?? "",
                     reference: held.party.externalReference ?? "",
+                    accountId: held.party.customerId && held.party.customerId !== job.customerId ? held.party.customerId : null,
+                    share: held.party.sharePercent
+                      ? `${Number(held.party.sharePercent) * 100}%`
+                      : held.party.shareAmount ? money.edit(money.money(held.party.shareAmount, "USD")) : "",
                   }
                 : null,
             };
@@ -228,10 +259,16 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             key, label: cov.COVERAGE[key].label, description: cov.COVERAGE[key].description,
           }))}
           current={entitlement
-            ? { source: entitlement.source, externalReference: entitlement.externalReference }
+            ? {
+                source: entitlement.source,
+                externalReference: entitlement.externalReference,
+                customerResponsibility: entitlement.customerResponsibility
+                  ? money.edit(money.money(entitlement.customerResponsibility, "USD")) : null,
+              }
             : null}
         />
       ) : null}
+      {writes && job.equipmentId ? <CoverageFromUnit jobId={id} /> : null}
 
       <h2 className="mt-10 text-base font-semibold">Authorised</h2>
       {authorization ? (
@@ -275,6 +312,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           }
         : null} /> : null}
 
+      <ContractAndDeadlines jobId={id} clocks={clocks} options={contractOptions} writes={writes}
+                            timezone={user.organizationTimezone} />
+
       {costing && <Costing data={costing} />}
 
       <h2 className="mt-10 text-base font-semibold">Visits</h2>
@@ -286,7 +326,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         <Table head={<><Th className="w-16">#</Th><Th>Window</Th><Th>Who</Th><Th>Status</Th></>}>
           {job.visits.map((visit) => (
             <tr key={visit.id}>
-              <Td className="font-mono tabular-nums text-ink-700">{visit.sequence}</Td>
+              <Td className="font-mono tabular-nums text-ink-700">
+                <a href={`/visits/${visit.id}`} className="hover:underline" aria-label={`Open visit ${visit.sequence}`}>{visit.sequence}</a>
+              </Td>
               <Td className="text-ink-700">
                 {/*
                   In the company's timezone, always. A dispatcher in Denver
@@ -299,6 +341,33 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   : "Unscheduled"}
                 {visit.technicianNotes ? (
                   <p className="mt-1 whitespace-pre-line text-xs text-ink-500">{visit.technicianNotes}</p>
+                ) : null}
+                {visit.customerNotesSharedAt && visit.customerNotes ? (
+                  <p className="mt-1 whitespace-pre-line text-xs text-ink-700">
+                    <span className="font-medium">The customer reads:</span> {visit.customerNotes}
+                  </p>
+                ) : null}
+                {/*
+                  The notes are the technician's own and stay private. What the
+                  customer reads on their account is a copy somebody here chose,
+                  edited if it needs to be, and it does not change when the phone
+                  adds to the notes later.
+                */}
+                {can(user.actor, "servicereport:publish") && (visit.technicianNotes || visit.customerNotes) ? (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-ink-700 underline underline-offset-4">
+                      {visit.customerNotesSharedAt ? "Change what the customer reads" : "Show the customer these notes"}
+                    </summary>
+                    <ActionForm action={shareVisitNotes} submit="Show on their account" tone="quiet"
+                                hidden={{ jobId: job.id, visitId: visit.id }} className="mt-2 space-y-2">
+                      <TextArea label={`What the customer reads about visit ${visit.sequence}`} name="notes"
+                                defaultValue={visit.customerNotes ?? visit.technicianNotes ?? ""} maxLength={4000} />
+                    </ActionForm>
+                    {visit.customerNotesSharedAt && (
+                      <ActionForm action={shareVisitNotes} submit="Stop showing the customer" tone="quiet"
+                                  hidden={{ jobId: job.id, visitId: visit.id, stop: "yes" }} className="mt-2" />
+                    )}
+                  </details>
                 ) : null}
               </Td>
               <Td className="text-ink-700">
@@ -353,6 +422,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       )}
 
       <UsedOnJob lines={used} />
+
+      <EstimateDrafts ctx={ctx} jobId={id} />
+      {plan && (plan.lines.length > 0 || plan.existing.length === 0) && job.status !== "cancelled" && (
+        <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} />
+      )}
 
       {(invoices.length > 0 || canInvoice) && (
         <section aria-label="Invoices">
@@ -458,6 +532,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         values={(job.customFields ?? {}) as Record<string, unknown>}
         canWrite={can(user.actor, "job:write")}
       />
+      <RecordsPanel ctx={ctx} link="job" id={id} back={`/jobs/${id}`} />
     </div>
   );
 }

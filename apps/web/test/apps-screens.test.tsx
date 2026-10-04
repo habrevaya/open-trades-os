@@ -113,3 +113,38 @@ describe("the applications list", () => {
     expect(hrefs).toContain("/settings/apps");
   });
 });
+
+/** M26's CONSENT FLOW: AN APP THAT ASKED */
+describe("an application that asked to be let in", () => {
+  const request = {
+    expiresAt: "2026-10-10T00:00:00.000Z", expired: false, returnsTo: "partner.example.test",
+    requestedFrom: "203.0.113.7", refusedAt: null, refusedReason: null, claimedAt: null,
+  };
+
+  it("is waiting, holds nothing, and links to the page where it is decided", () => {
+    const row = app({ status: "pending", source: "request", request, tokens: [], live: false, approvedAt: null });
+    expect(standing(row).label).toBe("Waiting for an answer");
+    const html = renderToStaticMarkup(<Apps apps={[row]} />);
+    expect(html).toContain("/settings/apps/requests/a1");
+    expect(html).toContain("nothing is granted until somebody approves it");
+  });
+
+  it("is expired, not waiting, once nobody answered in time", () => {
+    const row = app({ status: "pending", source: "request", request: { ...request, expired: true }, tokens: [], live: false });
+    expect(standing(row).label).toBe("Expired");
+    expect(renderToStaticMarkup(<Apps apps={[row]} />)).not.toContain("/settings/apps/requests/a1");
+  });
+
+  it("says a refused app holds nothing, with the reason it was told", () => {
+    const row = app({
+      status: "refused", source: "request", tokens: [], live: false,
+      request: { ...request, refusedAt: "2026-10-04T00:00:00.000Z", refusedReason: "We do not know you" },
+    });
+    expect(standing(row)).toMatchObject({ label: "Refused", why: "We do not know you" });
+  });
+
+  it("says an approved request collects its own credential", () => {
+    const row = app({ status: "active", source: "request", request, tokens: [], live: false });
+    expect(standing(row).why).toMatch(/collects its credential itself/);
+  });
+});

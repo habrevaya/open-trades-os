@@ -1,9 +1,10 @@
 import { and, eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { comms, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { comms, marketplaces as mp, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
 import * as email from "./email";
+import * as leadEmails from "./lead-emails";
 import type { InboundEmail, WebhookRequest } from "../email/provider";
 
 /**
@@ -39,6 +40,8 @@ import type { InboundEmail, WebhookRequest } from "../email/provider";
 
 export type InboundEmailOutcome =
   | { kind: "message"; messageId: string; conversationId: string; matchedBy: "token" | "address"; automatic: boolean }
+  /** Sent to the company's lead inbox: a marketplace's lead email, read into a lead offer. */
+  | { kind: "lead_email"; outcome: leadEmails.LeadEmailOutcome }
   | { kind: "duplicate"; messageId: string }
   | { kind: "ignored"; reason: "own_address" | "no_sender" };
 
@@ -82,11 +85,30 @@ export async function receiveByToken(
         if (!body.ok) return { kind: "rejected", reason: "body_unavailable" };
         message = { ...message, text: body.text, html: body.html, headers: { ...message.headers, ...body.headers } };
       }
+      /**
+       * An email to the lead inbox (`leads+TOKEN@` the receiving domain) is a
+       * marketplace's lead notice somebody forwarded, not a customer writing
+       * in a thread. The token has to be this company's, so a forwarded email
+       * cannot be aimed at another company that shares the domain.
+       */
+      const replyDomain = email.replyDomainOf(connection.settings ?? {});
+      /**
+       * A mailbox's forwarding rule keeps the original To line, so the lead
+       * inbox is often only in the envelope headers the receiving server
+       * adds; those are read too.
+       */
+      const envelope = ["delivered-to", "x-original-to", "x-forwarded-to", "envelope-to"]
+        .map((name) => message.headers[name]).filter((value): value is string => typeof value === "string");
+      const leadToken = mp.leadInboxTokenIn([...message.to, ...message.cc, ...envelope], replyDomain);
+      if (leadToken && await leadEmails.organizationForToken(db, leadToken) === connection.organizationId) {
+        return {
+          kind: "recorded",
+          outcome: { kind: "lead_email", outcome: await leadEmails.receive(db, connection.organizationId, message) },
+        };
+      }
       return {
         kind: "recorded",
-        outcome: await store(db, connection.organizationId, message, {
-          replyDomain: email.replyDomainOf(connection.settings ?? {}),
-        }),
+        outcome: await store(db, connection.organizationId, message, { replyDomain }),
       };
     }
   }

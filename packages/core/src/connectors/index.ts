@@ -86,8 +86,23 @@ export type ConnectorCapability =
    * reason `property.latitude` was a column nothing filled.
    */
   | "maps"
+  /**
+   * How long the drive is by road. In the capability enum since the first
+   * migration with nothing behind it, so every drive time was a straight line
+   * stretched by a factor. The optimiser, the rebalance and a customer's ETA
+   * all ask it, and all fall back to the straight line without it.
+   */
+  | "routing"
   /** Speech to text, for the call recordings and voicemails this product keeps. */
-  | "transcription";
+  | "transcription"
+  /**
+   * Consumer financing: a lender the customer borrows from to pay the
+   * company. In the database's capability enum since the first migration with
+   * nothing behind it, as `calendar` and `maps` were.
+   */
+  | "financing"
+  /** Postcards and letters printed and posted by a mail house, to an audience of the company's own customers. */
+  | "direct_mail";
 
 /**
  * How the operator proves who they are.
@@ -126,6 +141,15 @@ export type ConnectorFlow =
   | "conversions_out"
   /** Behaviour: sessions, search terms, page performance. */
   | "analytics_in"
+  /**
+   * Replies to a lead written here and sent through the marketplace that sold
+   * it, and the customer's messages back. Its own flow because most
+   * marketplaces deliver a lead and take nothing back, and an owner choosing
+   * between them should see which ones answer.
+   */
+  | "lead_messages"
+  /** Printed mail out: a postcard or a letter, to a person at an address. */
+  | "mail_out"
   /** Reputation: reviews read, and replies written. */
   | "reviews_in"
   | "reviews_out"
@@ -180,7 +204,21 @@ export type ConnectorFlow =
    * product for the geocoder, which is worth an owner knowing before they
    * connect one, and a coordinate with its precision comes back to be kept.
    */
-  | "locations_in";
+  | "locations_in"
+  /**
+   * A loan application out to a lender, its decision back, and the lender's
+   * payment in. One flow rather than three, because none of the three is
+   * worth anything without the others: an application whose decision never
+   * comes back is a customer left waiting, and a decision with no payment is
+   * an invoice nobody closes.
+   */
+  | "financing_in"
+  /**
+   * Drive times back for pairs of points sent out. The points are customers'
+   * houses and where technicians are, which is worth an owner knowing before
+   * they point this at somebody else's server.
+   */
+  | "drive_times_in";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -237,13 +275,13 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "ads",
     auth: "oauth",
     flows: ["spend_in", "conversions_out"],
-    state: "declared",
+    state: "built",
     purpose:
-      "Pull spend, clicks and impressions per campaign per day, and report booked jobs back against the gclid so the account can bid on work rather than on form fills.",
+      "Pull every campaign's cost per day into your spend, mapped onto your tracking campaigns, and report each paid job back against the click that won it, with its revenue, so the account bids on work rather than on form fills. Replaces the conversion file once it is on.",
     setup:
-      "A Google Ads developer token, which is an application to Google and is not instant, plus OAuth consent from somebody with account access.",
+      "Three things from Google, then a sign in. A developer token, which is an application to Google from a manager account and is not instant: until it is approved for basic access it only works against test accounts. An OAuth client of the web application type in Google Cloud, with this deployment's sign in return address added to it, kept in your secret store as one JSON value with clientId and clientSecret. And a conversion action in the Ads account, of the import type, for booked jobs. Enter the customer id and the names of the two secrets, then press Sign in with Google with an account that can manage the Ads account.",
     limitation:
-      "It knows what it was paid and what it was clicked. It does not know which of those clicks became a job, which is the whole reason conversions have to be sent back.",
+      "It knows what it was paid and what it was clicked. A conversion can only be sent for a job whose customer arrived through a tagged click, or whose email or phone the company and the customer allow to be matched, and Google refuses a click more than ninety days old. Google's own conversion counts will differ from this product's, because Google models what it cannot see. A job's revenue that changes after it was sent is not restated.",
   },
   {
     key: "google_lsa",
@@ -251,36 +289,41 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "ads",
     auth: "oauth",
     flows: ["spend_in", "leads_in"],
-    state: "declared",
+    state: "built",
     purpose:
-      "The pay per lead product most trades companies actually spend on. Leads arrive as calls and messages with a charge attached, which is spend and a lead at once.",
-    setup: "OAuth against the Local Services account, which is separate from the Google Ads account even when one person owns both.",
+      "The pay per lead product most trades companies actually spend on. Its calls, messages and bookings arrive in the lead inbox credited to Local Services, and what it charged arrives as spend under Local Services rather than blended into Google Ads.",
+    setup:
+      "The same developer token and OAuth client as Google Ads, because Local Services leads are read through the Google Ads API. Enter the customer id of the Local Services account, which is its own account even when one person owns both, and sign in with Google.",
     limitation:
-      "Disputing a bad lead is a manual process on Google's side and no API changes that, so a charge will be in the numbers before anybody decides whether it should be.",
+      "Disputing a bad lead is a manual process on Google's side and no API changes that, so a charge will be in the numbers before anybody decides whether it should be. Google withholds the caller's details on some leads and in some regions, and the message text of a message lead is not read, only that it arrived. The lead's time is read in the account's own timezone.",
   },
   {
     key: "meta_ads",
     label: "Meta Ads",
     capability: "ads",
     auth: "oauth",
-    flows: ["spend_in", "leads_in", "conversions_out"],
-    state: "declared",
+    flows: ["spend_in", "conversions_out"],
+    state: "built",
     purpose:
-      "Spend per campaign, leads from instant forms, and booked jobs reported back against the fbclid.",
-    setup: "A Meta app with ads_read and leads_retrieval, reviewed by Meta, plus a page admin to authorise it.",
+      "Pull every Facebook and Instagram campaign's cost per day into your spend, and send a Lead when a job is booked and a Purchase when it is paid through the Conversions API, matched on the click and, where allowed, hashed email and phone.",
+    setup:
+      "A Meta app of the business type with Marketing API access, its app id and secret in your secret store as one JSON value with clientId and clientSecret, and this deployment's sign in return address added to it. Reading another business's ad account needs ads_read and ads_management at advanced access, which is Meta's app review. Enter the ad account id and the pixel id, then press Sign in with Meta.",
     limitation:
-      "Attribution inside Meta's own reporting will not agree with what this product measures, and the gap is not a bug in either. Meta counts a view that led to a search a week later; this counts what was tagged.",
+      "Meta's sign in lasts about sixty days and cannot be extended without signing in again; a system user token kept in your own secret store does not expire. Attribution inside Meta's own reporting will not agree with what this product measures, and the gap is not a bug in either. Meta refuses an event more than seven days old, so a job paid later than that is never reported. Leads from Meta's instant forms are not read; use the lead webhook for those.",
   },
   {
     key: "bing_ads",
     label: "Microsoft Advertising",
     capability: "ads",
     auth: "oauth",
-    flows: ["spend_in", "conversions_out"],
-    state: "declared",
-    purpose: "The same as Google Ads, for the account most contractors forget they are running.",
-    setup: "A Microsoft Advertising developer token and OAuth consent.",
-    limitation: "Lower volume than Google, so per campaign numbers go noisy fast at a contractor's budget.",
+    flows: ["spend_in"],
+    state: "built",
+    purpose:
+      "Pull every Microsoft Advertising (Bing) campaign's cost per day into your spend every six hours, mapped onto your tracking campaigns, for the account most contractors forget they are running.",
+    setup:
+      "A Microsoft Advertising developer token, which Microsoft issues from the Developer Portal to a user of a Microsoft Advertising account, and an app registered in Microsoft Entra with this deployment's sign in return address added to it, kept in your secret store as one JSON value with clientId and clientSecret. Enter the customer id and the account id from the top of the Microsoft Advertising screen, the names of the two secrets, then press Sign in with Microsoft.",
+    limitation:
+      "Spend only: booked jobs are not sent back to Microsoft, so its own reports count form fills and not work; the conversion file is for Google and Meta. Its reporting is a report job that is submitted, waited on and downloaded, and a report Microsoft is still preparing after a minute is asked for again at the next pull. Lower volume than Google, so per campaign numbers go noisy fast at a contractor's budget.",
   },
 
   /* ------------------------------------------------------------ leads in */
@@ -302,25 +345,69 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     key: "angi",
     label: "Angi Leads",
     capability: "lead_source",
-    auth: "api_key",
-    flows: ["leads_in", "conversions_out"],
-    state: "declared",
+    auth: "webhook_secret",
+    flows: ["leads_in"],
+    state: "built",
     purpose:
-      "Accept or decline offers against real capacity, materialise the work, and reconcile what was actually paid out against what was promised.",
-    setup: "A partner API key, which Angi issues to contractors on qualifying plans.",
+      "Each lead Angi (and HomeAdvisor) sells you arrives in the lead inbox the moment it is posted, credited to the channel and tracking campaign you choose, with what Angi charged for it recorded as spend.",
+    setup:
+      "Angi posts leads to a CRM only for partners in its CRM integration program, which Angi has to approve. Once approved, give Angi the address shown when you set it up here, and the password you keep in your secret store under the name you entered. Until then, forward Angi's lead emails to your lead inbox address instead.",
     limitation:
-      "Payout reconciliation is the part marketplaces are worst at, and their figures arrive late and change. Anything this reports before the month closes is provisional.",
+      "Tested against a fake of Angi's lead post, not a live account. Angi has no API for writing back to a customer, so replies are a call or a text from here. A lead Angi credits back after a dispute is not taken out of the spend by itself.",
   },
   {
     key: "thumbtack",
     label: "Thumbtack",
     capability: "lead_source",
+    auth: "webhook_secret",
+    flows: ["leads_in", "lead_messages"],
+    state: "built",
+    purpose:
+      "Each Thumbtack lead in the lead inbox as it is sent, credited to the channel and tracking campaign you choose, with its price recorded as spend; the customer's messages on the lead, and replies written here sent back through Thumbtack.",
+    setup:
+      "Thumbtack's partner API is open only to partners Thumbtack approves. An approved partner gets an access token (kept in your secret store, its name entered here) and registers the address shown here for new leads and messages, with the password you keep under the name you entered. Until then, forward Thumbtack's lead emails to your lead inbox address.",
+    limitation:
+      "Tested against a fake of Thumbtack's documented API, not a live account. The access token is read from your secret store as it is; when Thumbtack expires it, put the new one there. Offers expire in minutes, so a lead read from an email has usually already been answered by somebody faster.",
+  },
+  {
+    key: "yelp",
+    label: "Yelp Request a Quote",
+    capability: "lead_source",
     auth: "api_key",
+    flows: ["leads_in", "lead_messages"],
+    state: "built",
+    purpose:
+      "Each Request a Quote lead from Yelp in the lead inbox, credited to the channel and tracking campaign you choose, with the customer's messages on it and replies written here sent back through Yelp.",
+    setup:
+      "Yelp's Leads API is open only to partners Yelp approves, and the business owner then grants the partner access to the business. Enter the Yelp business id and the name of the secret holding the access token, and give Yelp the address shown here for lead notices. Until then, forward Yelp's emails to your lead inbox address.",
+    limitation:
+      "Tested against a fake of Yelp's documented API, not a live account. Yelp posts only that something happened and nothing is believed from the notice: the lead is read from Yelp with the token. Yelp usually withholds the customer's phone number, so the lead's email is Yelp's relay to them.",
+  },
+  {
+    key: "nextdoor",
+    label: "Nextdoor",
+    capability: "lead_source",
+    auth: "none",
     flows: ["leads_in"],
-    state: "declared",
-    purpose: "The same offer and accept loop, against Thumbtack's own lead flow.",
-    setup: "A Thumbtack pro account with API access enabled.",
-    limitation: "Offers expire in minutes, so an integration that polls rather than receives has already lost most of them.",
+    state: "built",
+    purpose: "Enquiries from your Nextdoor business page in the lead inbox, read from the notification emails Nextdoor sends you.",
+    setup: "Nothing to apply for, because there is nothing to apply for: Nextdoor has no API for a business's enquiries. Forward Nextdoor's notification emails to your lead inbox address.",
+    limitation:
+      "Only as good as the email. Nextdoor's notifications often carry a name and a message and no phone number, and such an email is kept for somebody to read rather than made into a lead with nobody to call. Answering is done on Nextdoor.",
+  },
+  {
+    key: "lead_email",
+    label: "Lead notification emails",
+    capability: "lead_source",
+    auth: "none",
+    flows: ["leads_in"],
+    state: "built",
+    purpose:
+      "One address per company that the lead emails from Angi, HomeAdvisor, Thumbtack, Yelp and Nextdoor are forwarded to, each read into a lead offer credited to the platform that sent it. For the platforms that will not give you API access.",
+    setup:
+      "An email provider that receives mail (Resend, with a receiving domain entered as its reply domain on Settings, Integrations). The address is shown on Marketing, Lead offers, Lead sources; set a rule in your mailbox forwarding the platforms' lead emails to it.",
+    limitation:
+      "It reads labels (Name, Phone, Zip code) rather than a platform's layout, so it survives a redesign, and it is still reading an email: a platform that drops the phone number from its email gives a lead with nobody to call, which is kept for a person to read rather than made into a lead. The first email a mailbox sends to confirm a forwarding rule is kept the same way, so the code in it can be read here.",
   },
 
   /* ----------------------------------------------------------- analytics */
@@ -328,13 +415,29 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     key: "ga4",
     label: "Google Analytics 4",
     capability: "analytics",
+    auth: "api_key",
+    flows: ["conversions_out"],
+    state: "built",
+    purpose:
+      "Send a lead when a job is booked and a purchase when it is paid, tied to the visit the website snippet saw, so booked work shows up in your own analytics against the page and the source that brought it.",
+    setup:
+      "Google Analytics on your website, and the website snippet from Settings, Website on the same pages, which is what reads the visitor's analytics id. Then the measurement id of the web data stream, and a Measurement Protocol API secret created in that stream's settings, kept in your secret store with its name entered here.",
+    limitation:
+      "Google accepts a malformed event as readily as a good one and drops it without a word, so sent here means received there and nothing more. Nothing that identifies a person is sent, which Google's terms forbid. A visitor whose analytics id was never captured, because they rang from a van rather than visiting the site, cannot be tied to a visit at all. Sessions are read back by Google Analytics 4 reports, a separate connection.",
+  },
+  {
+    key: "ga4_data",
+    label: "Google Analytics 4 reports",
+    capability: "analytics",
     auth: "oauth",
     flows: ["analytics_in"],
-    state: "declared",
-    purpose: "Sessions, landing pages and search terms, to sit beside what the CRM says was booked.",
-    setup: "OAuth against a property, plus the measurement id on the website.",
+    state: "built",
+    purpose:
+      "Sessions by source and medium, per day, read from your Google Analytics property twice a day onto the marketing overview, beside the leads and the jobs each source brought.",
+    setup:
+      "The Google Analytics Data API switched on in a Google Cloud project, an OAuth client of the web application type there with this deployment's sign in return address, kept in your secret store as one JSON value with clientId and clientSecret. Enter the property id (the number in Analytics' admin, not the G- measurement id), then sign in with Google as somebody who can read the property.",
     limitation:
-      "GA4 samples, models and thresholds its own data. Its session count and this product's lead count will not reconcile and should not be presented as if they might.",
+      "Sessions are Google's count, with Google's sampling and consent mode gaps, and will not match the visits this product's own snippet records. A session is a visit, not a person, so sessions and leads are compared as rates, never matched one to one.",
   },
   {
     key: "search_console",
@@ -342,10 +445,43 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "analytics",
     auth: "oauth",
     flows: ["analytics_in"],
-    state: "declared",
-    purpose: "What people searched before they arrived, which is the only honest read on organic demand.",
-    setup: "Verify the domain in Search Console and authorise the property.",
-    limitation: "Queries are withheld below a volume threshold, so the long tail a trades site lives on is mostly invisible.",
+    state: "built",
+    purpose: "What people searched before they arrived, with the clicks and impressions of each search, read twice a day onto the marketing overview: the only honest read on organic demand.",
+    setup:
+      "The domain verified in Search Console, the Search Console API switched on in a Google Cloud project with an OAuth client of the web application type there (this deployment's sign in return address added, kept in your secret store as one JSON value with clientId and clientSecret). Enter the property exactly as Search Console names it (sc-domain:yourcompany.com, or the https address of a URL property), then sign in with Google as somebody who can read it.",
+    limitation: "Queries are withheld below a volume threshold, so the long tail a trades site lives on is mostly invisible. Search Console publishes a day two or three days late, so the last few days are always short.",
+  },
+
+  /* ------------------------------------------------------- meta instant forms */
+  {
+    key: "meta_lead_ads",
+    label: "Meta instant forms",
+    capability: "ads",
+    auth: "oauth",
+    flows: ["leads_in"],
+    state: "built",
+    purpose:
+      "Leads filled in on a Facebook or Instagram instant form, in the lead inbox within seconds of Meta posting them and read again every ten minutes in case a post was missed, each credited to Meta and to the tracking campaign its ad campaign is mapped to.",
+    setup:
+      "A Meta app of the business type with app review passed for leads_retrieval, pages_show_list, pages_read_engagement, pages_manage_metadata and ads_read; its id and secret in your secret store as one JSON value with clientId and clientSecret. In the app's webhooks, subscribe the Page object's leadgen field to this deployment's public address followed by /api/webhooks/meta/leads, with the verify token set as META_LEADS_VERIFY_TOKEN in the deployment's environment. Enter the Page id, then sign in with Meta as an admin of the Page.",
+    limitation:
+      "Tested against a fake of Meta's documented Graph API and webhooks, not a live Page. Meta's sign in lasts about sixty days. A form's custom questions are kept with the lead and not mapped onto fields; the name, phone, email and address questions are. A lead older than ninety days cannot be read from Meta at all.",
+  },
+
+  /* ----------------------------------------------------------- direct mail */
+  {
+    key: "lob",
+    label: "Lob",
+    capability: "direct_mail",
+    auth: "api_key",
+    flows: ["mail_out"],
+    state: "built",
+    purpose:
+      "Print and post a postcard or a letter to an audience of your own customers, each piece with the mailing's tracking number and its own web address and QR code, so a call or a visit from it is credited to the mailing and its cost recorded as spend.",
+    setup:
+      "A Lob account and its secret API key, kept in your secret store with its name entered here. A test key (it starts test_) prints nothing and charges nothing, which is the way to look at a mailing before sending it for real. Your company's address on Settings is the return address.",
+    limitation:
+      "Tested against a fake of Lob's documented API, not a live account. Lob's API does not say what a piece cost, so the price per piece is yours to type from Lob's price list. Where a piece is in the post is not read back from Lob; what it says when the piece is sent (its id and expected delivery) is kept.",
   },
 
   /* ------------------------------------------------------------- reviews */
@@ -355,12 +491,13 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "reviews",
     auth: "oauth",
     flows: ["reviews_in", "reviews_out"],
-    state: "declared",
+    state: "built",
     purpose:
-      "Read reviews as they land and reply from here. For a local trades company this listing is worth more than the website.",
-    setup: "OAuth from an account with manager access to the listing.",
+      "Read reviews into the review work list every hour and post the reply written here back to the listing. For a local trades company this listing is worth more than the website.",
+    setup:
+      "Access to the Business Profile API, which is its own application to Google, granted to a Google Cloud project, and an OAuth client in that project kept in your secret store as one JSON value with clientId and clientSecret. Enter the listing's account id and location id, then sign in with Google as somebody who manages the listing.",
     limitation:
-      "Google rate limits both reading and replying, and a reply posted through an API is still subject to their moderation, so a reply that appears here can be absent there.",
+      "Google rate limits both reading and replying, and a reply posted through an API is still subject to their moderation, so a reply that appears here can be absent there. Who wrote a review is a suggestion here, never a fact, until somebody confirms it.",
   },
 
   /* --------------------------------------------------------- campaigns out */
@@ -568,6 +705,50 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "Only the permanent tier may be stored, and this product stores every answer, so it always asks for that tier and a token without it is refused. The token travels in the request's URL because that is the only place Mapbox accepts it, which is why it should be scoped to geocoding and nothing else. Google is deliberately not offered: its terms cap keeping coordinates at thirty days and bar drawing them on a map that is not Google's.",
   },
 
+  /* -------------------------------------------------------------- routing */
+  {
+    key: "osrm",
+    label: "OSRM (your own routing server)",
+    capability: "routing",
+    auth: "none",
+    flows: ["drive_times_in"],
+    state: "built",
+    purpose:
+      "Drive times by road for the route optimiser, the day rebalance and the arrival time a customer sees on their tracking link, from a routing engine you run yourself on OpenStreetMap roads. Nothing leaves your own servers.",
+    setup:
+      "Run OSRM with your state's OpenStreetMap extract (the project publishes a container that does it in three commands) and enter its address here. There is no account and no key. The project's public demo server is not offered: it asks not to be used for real traffic.",
+    limitation:
+      "No live traffic: a time is what the roads allow, not what the motorway is doing at five. Answers are kept thirty days, so a road that opens or closes takes that long to show unless you refresh your extract and reconnect. Without a routing service connected, or when it does not answer, every drive is a straight line estimate and the screens say so.",
+  },
+  {
+    key: "mapbox_directions",
+    label: "Mapbox (drive times)",
+    capability: "routing",
+    auth: "api_key",
+    flows: ["drive_times_in"],
+    state: "built",
+    purpose:
+      "The same drive times by road from Mapbox's Matrix API, for a company that would rather pay per request than run a routing server.",
+    setup:
+      "A Mapbox access token scoped to the Matrix API, in your secret store with its name entered here. This is a separate connection from the Mapbox geocoder, so a company can geocode with one service and route with another.",
+    limitation:
+      "Each request costs money on Mapbox's pricing, and a customer watching their tracking link asks for the drive from the van's newest position. Answers are kept for a day at most, the cautious reading of terms that restrict storing what Mapbox returns. Twenty five points a request, so a big day is several requests. The token travels in the URL, which is why it should be scoped to this API alone.",
+  },
+  {
+    key: "openrouteservice",
+    label: "OpenRouteService",
+    capability: "routing",
+    auth: "api_key",
+    flows: ["drive_times_in"],
+    state: "built",
+    purpose:
+      "Drive times by road over OpenStreetMap from Heidelberg's hosted routing service, which has a free tier, or from the same software run on your own server.",
+    setup:
+      "For the hosted service, a free key from openrouteservice.org in your secret store with its name entered here. For your own server, enter its address and leave the key empty.",
+    limitation:
+      "The hosted free tier has a daily request quota and fifty points a request; a company that outgrows it runs its own. No live traffic. Answers are kept a week. Your customers' locations are sent to whichever server you point it at.",
+  },
+
   /* ------------------------------------------------------- call transcripts */
   {
     key: "whisper",
@@ -614,6 +795,22 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "A restricted API key from your own Stripe account, scoped to payment intents, charges and refunds, plus a webhook endpoint pointed at the URL on this screen and the signing secret it gives you. Both go in your secret store; this product holds the names of them, never the values. The money goes to your account, on your rate, and nothing here takes a cut.",
     limitation:
       "The webhook is what closes an invoice, so a connection whose signing secret is missing or wrong takes cards perfectly well and never learns that any of them succeeded. It also means a payment taken while this product is down is reconciled when it comes back, not at the moment the customer pays.",
+  },
+
+  /* ---------------------------------------------------------- financing in */
+  {
+    key: "wisetack",
+    label: "Wisetack",
+    capability: "financing",
+    auth: "api_key",
+    flows: ["financing_in"],
+    state: "built",
+    purpose:
+      "Let customers pay over time. Estimates and invoices show an \"as low as\" monthly figure from your Wisetack plans, always with \"subject to approval\" beside it; the customer applies from their link or from a text or email the office sends; the application's status shows on the estimate or invoice; and when Wisetack funds the loan the payment lands on the invoice with Wisetack's fee booked as an expense.",
+    setup:
+      "A Wisetack merchant account with API access, which Wisetack grants to merchants it has signed: an API token, your merchant id, and a webhook endpoint pointed at the URL on this screen with its signing secret. The token and the signing secret go in your secret store; this product holds their names. Enter the plans on your Wisetack agreement (months and APR, such as 60@17.9) and the smallest and largest amount Wisetack finances for you, which is what the monthly figure is worked out from.",
+    limitation:
+      "Tested against a fake of Wisetack's API, not a live account: run one application through Wisetack's sandbox before turning it on for customers. The monthly figure is worked out from the plans you enter, not asked of Wisetack per customer, so it is only as right as those plans. Nothing about a customer's credit is kept beyond the status Wisetack returns. A loan Wisetack refunds after funding is shown and not reversed: record the refund on the payment.",
   },
 ];
 

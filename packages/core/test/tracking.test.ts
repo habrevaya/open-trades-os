@@ -153,3 +153,13 @@ describe("writing a swapped number the way the page wrote the old one", () => {
     expect(() => new Function(source)).not.toThrow();
   });
 });
+
+describe("the browser's own analytics and Meta ids", () => {
+  it("is still a script a browser can run, and sends both cookies with the arrival and once more after load", () => {
+    const source = snippetSource({ apiBase: "https://ots.test/api", appBase: "https://ots.test", companyKey: "acme" });
+    expect(() => new Function(source)).not.toThrow();
+    expect(source).toContain(`cookie("_ga")`);
+    expect(source).toContain(`cookie("_fbp")`);
+    expect(source).toContain("identify:true");
+  });
+});

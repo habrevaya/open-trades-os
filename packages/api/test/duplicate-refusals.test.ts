@@ -63,6 +63,10 @@ type Refused =
   | { file: string; how: "check"; says: string };
 
 const REFUSED: Record<string, Refused> = {
+  /** A second burden or overhead rate for one component on one day: "which rate applied" would have two answers. */
+  costing_rate_day_idx: { file: "costing.ts", how: "check", says: "already has a rate from" },
+  /** A journal reversed twice, which would take the same money back twice. */
+  journal_entry_reverses_idx: { file: "journals.ts", how: "check", says: "was already reversed by journal" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
@@ -78,6 +82,10 @@ const REFUSED: Record<string, Refused> = {
   /** A vendor's part number typed onto a second item, or a catalogue naming it twice. */
   vendor_item_part_number_idx: { file: "vendor-catalogue.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
+  /** A technician added twice to one toolbox talk's sign in sheet. */
+  safety_meeting_attendee_person_idx: {
+    file: "safety.ts", how: "check", says: "is already on the list for this talk",
+  },
   /** Two shelves with one name under one parent, typed into the category manager. */
   price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
   marketing_campaign_utm_idx: { file: "campaigns.ts", how: "catch" },
@@ -87,6 +95,12 @@ const REFUSED: Record<string, Refused> = {
   organization_slug_idx: { file: "organizations.ts", how: "catch" },
   organization_external_ref_idx: { file: "operator.ts", how: "catch" },
   user_email_idx: { file: "operator.ts", how: "catch" },
+  /** A second kind of record defined under a key the company already uses. */
+  custom_object_type_key_idx: { file: "custom-objects.ts", how: "catch" },
+  /** Two proposal layouts with one name, the default chosen twice, or two layouts for one job type. */
+  proposal_template_name_idx: { file: "proposal-templates.ts", how: "catch" },
+  proposal_template_job_type_idx: { file: "proposal-templates.ts", how: "catch" },
+  proposal_template_default_idx: { file: "proposal-templates.ts", how: "catch" },
 
   /* ---- selected first and refused in the service's own words ---- */
   certification_type_code_idx: {
@@ -113,6 +127,25 @@ const REFUSED: Record<string, Refused> = {
   crew_member_uniq_idx: {
     file: "crews.ts", how: "check", says: "same technician on the crew twice",
   },
+  /** A second claim filed on the same third party invoice. */
+  coverage_claim_invoice_idx: {
+    file: "claims.ts", how: "check", says: "already has a claim",
+  },
+  /** A second approval step given a number already taken. */
+  purchase_approval_rule_step_idx: {
+    file: "purchase-approvals.ts", how: "check", says: "There is already a step",
+  },
+  /**
+   * A serial number received twice. The row is looked up first and reused for
+   * a unit that left and came back; one still in stock is refused by name.
+   */
+  stock_lot_number_idx: {
+    file: "inventory.ts", how: "check", says: "is already in stock at",
+  },
+  /** The same skill recorded twice for one person while the first is still open. */
+  technician_skill_open_idx: {
+    file: "people-records.ts", how: "check", says: "already has",
+  },
 };
 
 /**
@@ -122,6 +155,10 @@ const REFUSED: Record<string, Refused> = {
  * the symptom of something much worse than a typo.
  */
 const LEFT_TO_THE_DATABASE: Record<string, string> = {
+  journal_entry_number_idx: "Allocated by the numbering service, in its own sequence.",
+  financing_application_external_idx: "The lender's own id for an application, written once when the lender opens it. Nobody types it.",
+  budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
+  budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
   /* --- numbers and sequences this product generates --- */
   invoice_number_idx: "The invoice number is allocated by the numbering service under a lock.",
   estimate_number_idx: "Allocated by the numbering service.",
@@ -131,12 +168,25 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   price_book_item_version_idx: "The version is the previous one plus one, inside the write.",
   project_phase_sequence_idx: "The sequence is assigned by the service, not chosen.",
   project_draw_sequence_idx: "The sequence is assigned by the service, not chosen.",
+  project_change_order_number_idx: "Allocated by the service as the next number under a per project lock.",
+  project_application_number_idx: "Allocated by the service as the next number under a per project lock.",
   stock_movement_sequence_idx: "A per-item sequence assigned inside the movement write.",
   domain_event_seq_idx:
     "The event log's own per-organization sequence, allocated inside the append.",
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",
   workflow_version_idx: "The next version number, assigned on publish.",
   workflow_step_run_idx: "One row per step of a run, keyed by the run and the step.",
+  stock_tracking_item_idx:
+    "One tracking mode per item. Setting it reads the row first and updates it in place, so nothing inserts a second.",
+  truck_stock_minimum_item_location_idx:
+    "One live minimum per item per truck, written with on conflict do update: setting it again replaces it.",
+  purchase_order_approval_step_idx:
+    "A step of an order is decided once. The service only ever decides the step that is waiting, so a collision is two people deciding the same step in the same instant, and the second is a conflict rather than a duplicate anybody typed.",
+  purchase_order_send_token_idx: "The hash of thirty two random bytes minted for an emailed order's printable link.",
+  onboarding_item_template_idx:
+    "One copy of each checklist line per person. Starting onboarding inserts with on conflict do nothing, so starting again adds only the new lines.",
+  employment_record_person_idx:
+    "One employment record per person, written with on conflict do update: saving it again replaces it.",
   vendor_item_vendor_item_idx:
     "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 
@@ -162,8 +212,28 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   referral_reward_referred_idx:
     "One reward per referred customer. The worker claims it with on conflict do nothing, which is "
     + "what makes granting a reward idempotent however many passes look.",
+  ad_conversion_send_idx:
+    "One send per job, platform and kind. The conversion pass claims it with on conflict do nothing, so a collision is a second worker and is skipped.",
+  ad_platform_campaign_idx: "The platform's own campaign id per connection, looked up by the spend pull before it inserts.",
+  advertising_consent_live_idx:
+    "One live answer per customer. The service locks and supersedes the live row in the same write before it inserts.",
+  oauth_authorization_state_idx: "The hash of thirty two random bytes the sign in mints.",
+  sealed_credential_connection_idx: "One grant per connection, upserted by the sign in.",
   review_external_idx: "The platform's own review id, so a re-poll is not a second review.",
   lead_offer_external_idx: "The marketplace's own offer id.",
+  lead_offer_message_external_idx:
+    "The marketplace's own id for a message on a lead. Inserted with on conflict do nothing, so a message posted twice, or read back from Yelp on every notice, is one line in the thread.",
+  lead_inbox_org_idx: "One lead inbox per company, minted on first read with on conflict do nothing and rotated with an upsert.",
+  lead_inbox_token_idx: "A random token the service mints for the inbox address. Nobody types it.",
+  lead_email_provider_idx:
+    "The email provider's id for an email. The lead inbox takes an advisory lock on it and looks first, so a redelivery is reported as the same email.",
+  ad_conversion_adjustment_sequence_idx:
+    "One adjustment per place in line per sent purchase. The restating pass inserts with on conflict do nothing, so a collision is a second worker and is skipped.",
+  search_query_day_idx: "A day and a query per Search Console connection. A pull deletes the days it asked about and writes them again.",
+  analytics_session_day_idx: "A day, source and medium per Analytics connection. A pull deletes the days it asked about and writes them again.",
+  mail_piece_recipient_idx:
+    "One piece per customer per mailing. Written once when the audience is frozen, with on conflict do nothing, so a second press of Send posts nobody twice.",
+  mail_piece_code_idx: "Ten random characters the service mints for a piece's own address. Nobody types it into this product.",
   external_work_order_uniq_idx:
     "Their work order id. `receive` is idempotent on it by design, so a second delivery updates "
     + "rather than inserts.",
@@ -189,6 +259,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "The hash of a token made from 256 random bits. A collision is not a typo.",
   portal_grant_token_idx:
     "The hash of a customer link made from 256 random bits, never chosen by anybody.",
+  oauth_code_hash_idx:
+    "The hash of an OAuth authorization code made from 256 random bits and handed through a browser once.",
+  oauth_refresh_token_hash_idx:
+    "The hash of an OAuth refresh token made from 256 random bits, rotated on every use.",
   calendar_feed_token_idx:
     "The hash of a feed URL made from 256 random bits, handed to a phone rather than typed.",
   lead_source_connector_token_idx:
@@ -214,6 +288,17 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
 
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
+  ai_agent_setting_agent_idx: "One settings row per agent per company, upserted.",
+  ai_agent_proposal_open_idx:
+    "One open draft per agent per source. Inserted with on conflict do nothing, and the open draft is returned instead.",
+  ai_agent_proposal_idempotency_idx: "An idempotency key: a repeat is meant to collide and return the first draft.",
+  ai_chat_session_token_idx: "A random token's hash, generated here. A collision is a bug, not a duplicate somebody typed.",
+  ai_chat_session_conversation_idx:
+    "One chat per conversation. A text conversation's is inserted with on conflict do nothing, and a website chat makes its own conversation.",
+  voice_agent_session_call_idx:
+    "One phone assistant conversation per call. Inserted with on conflict do nothing, and a call that already had one goes to voicemail.",
+  voice_agent_session_token_idx: "A random token's hash, generated here. A collision is a bug, not a duplicate somebody typed.",
+  softphone_presence_person_idx: "One heartbeat row per person per company, upserted every minute while they take calls in the browser.",
   discount_policy_org_idx: "One policy per company, upserted.",
   setup_step_key_idx: "One row per setup step per company, upserted when a step is marked done or reopened.",
   asset_compliance_kind_idx: "One expiry per asset per kind, upserted by `setAssetObligation`.",
@@ -228,6 +313,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   reorder_policy_item_location_idx: "One policy per item and location, upserted.",
   recording_policy_jurisdiction_idx: "One policy per jurisdiction, upserted.",
   device_installation_idx: "One row per installation of the app, upserted on registration.",
+  technician_position_fix_idx:
+    "One row per fix a phone took. A batch resent after a dropped answer is the same fixes, inserted with on conflict do nothing.",
+  travel_time_pair_idx: "One cached drive time per pair of points per routing provider, upserted when asked again.",
   project_job_job_idx: "One project link per job, which is what stops a job being in two.",
   web_form_slug_idx: "Upserted on the slug, because publishing a form again is an edit.",
   network_grant_uniq_idx:

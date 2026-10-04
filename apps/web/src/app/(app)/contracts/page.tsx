@@ -2,6 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { contracts } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
+import { can } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,12 @@ export default async function ContractsPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Contracts" count={rows.length} />
+      {can(user.actor, "contract:write") && (
+        <a href="/contracts/new"
+           className="mt-3 inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+          Set up a contract
+        </a>
+      )}
 
       <p className="mt-4 max-w-2xl text-sm text-ink-700">
         A rate card is a price authority that is not ours. Where one applies,
@@ -55,8 +62,8 @@ export default async function ContractsPage() {
           {rows.map((row) => (
             <li key={row.id} className="bg-canvas p-4">
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-medium text-ink-900">{row.customerName}</span>
-                <span className="text-sm text-ink-700">{row.name}</span>
+                <a href={`/contracts/${row.id}`} className="font-medium text-ink-900 hover:underline">{row.customerName}</a>
+                <a href={`/contracts/${row.id}`} className="text-sm text-ink-700 hover:underline">{row.name}</a>
                 {row.contractNumber && (
                   <span className="text-xs tabular-nums text-ink-500">{row.contractNumber}</span>
                 )}

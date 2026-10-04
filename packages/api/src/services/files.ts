@@ -667,7 +667,7 @@ export const handlers = {
  * with "that is not a PNG", which sends whoever is debugging it to look at
  * the camera rather than at the transport.
  */
-function decode(encoded: string): Uint8Array {
+export function decode(encoded: string): Uint8Array {
   const cleaned = encoded.includes(",") ? encoded.slice(encoded.indexOf(",") + 1) : encoded;
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
     throw new ConflictError("That is not base64. The file did not survive the trip here.");

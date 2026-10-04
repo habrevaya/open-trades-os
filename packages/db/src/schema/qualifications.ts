@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, integer, jsonb, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, integer, jsonb, index, uniqueIndex, timestamp, date, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user, technician } from "./tenancy";
@@ -122,6 +122,13 @@ export const certificationType = pgTable("certification_type", {
    * discovered by a dispatcher at eight in the morning.
    */
   renewalLeadDays: integer("renewal_lead_days").notNull().default(60),
+  /**
+   * Continuing education hours the authority wants before a renewal, where it
+   * wants any. Counted from the hours logged since the current holding was
+   * issued (`continuing_education` in `people.ts`). Null is a certification
+   * renewed by paying a fee, which is most of them.
+   */
+  ceHoursRequired: numeric("ce_hours_required", { precision: 7, scale: 2 }),
   active: boolean("active").notNull().default(true),
   /** What this is, in the operator's words, for the person maintaining it. */
   note: text("note"),

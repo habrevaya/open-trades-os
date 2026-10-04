@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { assignVisit, reorderDay, proposeRoute, suggestAssignments } from "./actions";
+import { assignVisit, reorderDay, proposeRoute, suggestAssignments, lockVisit, livePositions } from "./actions";
 import type { dispatch } from "@opentradesos/api/services";
 import type { TileSource } from "@/lib/map-tiles";
 import { DispatchMap, type MapData } from "./DispatchMap";
@@ -11,6 +11,7 @@ type BoardData = Awaited<ReturnType<typeof dispatch.board>>;
 type Column = BoardData["technicians"][number];
 type Card = Column["visits"][number];
 type Unassigned = BoardData["unassigned"][number];
+type CrewLane = BoardData["crews"][number];
 
 export type BoardView = "board" | "map" | "split";
 
@@ -38,6 +39,12 @@ const timeIn = (zone: string): TimeFormatter => (iso: string | null) =>
         hour: "numeric", minute: "2-digit", timeZone: zone,
       })
     : null;
+
+/** The map's live pins, read again through the server action, or nothing when it refuses. */
+const readLive = async () => {
+  const result = await livePositions();
+  return result.ok ? result.live : null;
+};
 
 const shiftDate = (date: string, days: number) =>
   new Date(new Date(`${date}T12:00:00Z`).getTime() + days * 864e5).toISOString().slice(0, 10);
@@ -215,8 +222,16 @@ export function Board({
             </span>
           )}
           {pending && <span className="text-ink-500">Saving…</span>}
+          {canDispatch && canReorder && (
+            <a href={`/schedule/rebalance?date=${date}`}
+               className="rounded border border-steel-300 px-2.5 py-1 font-medium hover:bg-steel-100">
+              Rebalance the day
+            </a>
+          )}
         </div>
       </header>
+
+      <DayStrip board={board} time={time} timezone={timezone} />
 
       {error && (
         <div role="alert" className="border-b border-red-600 bg-red-tint px-4 py-2 text-sm text-red-600 lg:px-6">
@@ -289,7 +304,7 @@ export function Board({
 
       {view === "map" && map ? (
         <DispatchMap
-          map={map} tiles={tiles} canDispatch={canDispatch} time={time} className="flex-1"
+          map={map} tiles={tiles} canDispatch={canDispatch} time={time} className="flex-1" readLive={readLive}
           onAssign={(visitId, technicianId) => {
             clearMessages();
             start(async () => { await assign(visitId, technicianId); });
@@ -299,7 +314,7 @@ export function Board({
       <div className="flex flex-1 overflow-hidden">
         {view === "split" && map && (
           <DispatchMap
-            map={map} tiles={tiles} canDispatch={canDispatch} time={time} stacked
+            map={map} tiles={tiles} canDispatch={canDispatch} time={time} stacked readLive={readLive}
             className="w-1/2 shrink-0 border-r border-steel-200"
             onAssign={(visitId, technicianId) => {
               clearMessages();
@@ -385,6 +400,9 @@ export function Board({
                 });
               } : null}
             />
+          ))}
+          {board.crews.map((c) => (
+            <CrewColumn key={c.id} crew={c} time={time} />
           ))}
           {board.technicians.length === 0 && (
             <p className="p-6 text-ink-500">
@@ -481,7 +499,7 @@ function TechnicianColumn({
               onDragOver={(e) => { if (canDispatch && dragging) e.preventDefault(); }}
               onDrop={(e) => { e.stopPropagation(); setOver(false); onDrop(v.id); }}
             >
-              <VisitCard visit={v} draggable={canDispatch} time={time} onDragStart={() => onDragStart(v.id)} />
+              <VisitCard visit={v} draggable={canDispatch} time={time} onDragStart={() => onDragStart(v.id)} canLock={canDispatch} />
             </li>
           ))}
         </ol>
@@ -490,14 +508,82 @@ function TechnicianColumn({
   );
 }
 
+/**
+ * WHAT ELSE IS ON THE DAY: who has the phone tonight, and the routes running.
+ *
+ * The rota said in words, including when nobody is on, because a blank where
+ * a name should be reads as fine. The routes so a route business watching
+ * the board sees its Tuesday pool route as a route, with how far through it
+ * the day has got, rather than as forty unrelated cards.
+ */
+function DayStrip({ board, time, timezone }: { board: BoardData; time: TimeFormatter; timezone: string }) {
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { weekday: "short", timeZone: timezone });
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-steel-200 px-4 py-2 text-sm lg:px-6">
+      <span aria-label="On call">
+        {board.onCall.length === 0
+          ? <span className="text-amber-700">Nobody is on call today.</span>
+          : board.onCall.map((s, i) => (
+            <span key={i} className="mr-3">
+              On call: <span className="font-medium">{s.technicianName}</span>{" "}
+              <span className="text-ink-500">{day(s.startsAt)} {time(s.startsAt)} to {day(s.endsAt)} {time(s.endsAt)}</span>
+            </span>
+          ))}
+      </span>
+      {board.routes.length > 0 && (
+        <span aria-label="Routes today" className="flex flex-wrap gap-2">
+          {board.routes.map((r) => (
+            <span key={r.id} className="rounded border border-steel-300 px-2 py-0.5 text-xs">
+              <span className="font-medium">{r.name}</span>{" "}
+              {r.done} of {r.stops} done{r.runBy ? `, ${r.runBy}` : ""}
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A crew's day, beside the people's. Its cards are not dragged onto a person:
+ * crew work goes to a crew on its own screen, with its equipment and its lead
+ * checked, and putting one person on it from here would be a different thing.
+ */
+function CrewColumn({ crew, time }: { crew: CrewLane; time: TimeFormatter }) {
+  return (
+    <section aria-label={`Crew ${crew.name}`} className="flex w-72 shrink-0 flex-col rounded-md border border-steel-200 bg-canvas">
+      <header className="border-b border-steel-200 px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: crew.color ?? "#7C3AED" }} aria-hidden />
+          <h2 className="truncate text-sm font-medium">{crew.name}</h2>
+          <span className="ml-auto text-xs text-ink-500">Crew</span>
+        </div>
+        <p className="mt-0.5 truncate text-xs text-ink-500">
+          {crew.leadName ? `Led by ${crew.leadName}` : "No lead named"}
+          {crew.memberNames.length > 0 ? `, ${crew.memberNames.length} ${crew.memberNames.length === 1 ? "person" : "people"}` : ""}
+        </p>
+      </header>
+      <ol className="flex-1 space-y-2 overflow-y-auto p-2">
+        {crew.visits.map((v) => (
+          <li key={v.id}><VisitCard visit={v} draggable={false} time={time} onDragStart={() => {}} canLock={false} /></li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function VisitCard({
-  visit, draggable, onDragStart, time,
+  visit, draggable, onDragStart, time, canLock,
 }: {
   visit: Card;
   draggable: boolean;
   onDragStart: () => void;
   time: TimeFormatter;
+  /** Whether this person may lock it to whoever has it. */
+  canLock: boolean;
 }) {
+  const [locked, setLocked] = useState(visit.locked);
+  const [saving, start] = useTransition();
   return (
     <article
       draggable={draggable}
@@ -514,6 +600,7 @@ function VisitCard({
       </div>
       <p className="mt-0.5 truncate text-ink-700">{visit.summary}</p>
       <p className="mt-0.5 truncate text-xs text-ink-500">{visit.addressLine1}</p>
+      {visit.routeName && <p className="mt-0.5 truncate text-xs font-medium text-ink-700">Route: {visit.routeName}</p>}
       <div className="mt-1.5 flex items-center gap-2 text-xs">
         {/*
           The arrival window, not a start time. A contractor promises "between
@@ -531,6 +618,26 @@ function VisitCard({
         <span className="ml-auto capitalize text-ink-500">
           {visit.status.replace(/_/g, " ")}
         </span>
+        {/*
+          Locked is "this stays with this person, in its place", which no
+          window can say. The rebalance and the optimiser leave it alone.
+        */}
+        {canLock ? (
+          <button
+            type="button"
+            disabled={saving}
+            aria-pressed={locked}
+            aria-label={`${locked ? "Unlock" : "Lock"} ${visit.customerName}'s visit`}
+            title={locked ? "Locked: rebalancing leaves it here" : "Lock it to this person and place"}
+            onClick={() => start(async () => {
+              const result = await lockVisit({ visitId: visit.id, locked: !locked });
+              if (result.ok) setLocked(!locked);
+            })}
+            className={`rounded border px-1.5 py-0.5 ${locked ? "border-ink-900 bg-ink-900 text-white" : "border-steel-300 text-ink-500"}`}
+          >
+            {locked ? "Locked" : "Lock"}
+          </button>
+        ) : locked ? <span className="rounded border border-ink-900 px-1.5 py-0.5">Locked</span> : null}
       </div>
     </article>
   );

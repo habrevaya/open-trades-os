@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { portal } from "@opentradesos/api/services";
+import { CompanyContact } from "@/components/CompanyContact";
 
 /**
  * THE CONTRACTOR'S NAME ON THE PAGE THEIR CUSTOMER OPENS
@@ -63,6 +64,12 @@ export async function PortalBrand({ token, children, logoHref }: {
           className="mx-auto h-12 max-w-[200px] object-contain"
         />
       )}
+      {/*
+        How to reach the company, under its mark, on every page a customer
+        opens: the question somebody has about an invoice is usually best
+        asked on the phone, and the page used to give no number to call.
+      */}
+      <CompanyContact contact={brand?.contact} centered className="text-center text-xs not-italic text-ink-500" />
       {children}
     </div>
   );

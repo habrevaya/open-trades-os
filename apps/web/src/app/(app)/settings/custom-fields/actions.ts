@@ -39,7 +39,8 @@ export async function defineField(_previous: FormState, form: FormData): Promise
         : "Added.",
     };
   });
-  revalidatePath("/settings/custom-fields");
+  /** The fields on the product's records and on a company's own kinds are both under Settings. */
+  revalidatePath("/settings", "layout");
   return result;
 }
 
@@ -60,7 +61,8 @@ export async function editField(_previous: FormState, form: FormData): Promise<F
         : "Saved.",
     };
   });
-  revalidatePath("/settings/custom-fields");
+  /** The fields on the product's records and on a company's own kinds are both under Settings. */
+  revalidatePath("/settings", "layout");
   return result;
 }
 
@@ -80,6 +82,7 @@ export async function retireField(_previous: FormState, form: FormData): Promise
         : "Retired.",
     };
   });
-  revalidatePath("/settings/custom-fields");
+  /** The fields on the product's records and on a company's own kinds are both under Settings. */
+  revalidatePath("/settings", "layout");
   return result;
 }

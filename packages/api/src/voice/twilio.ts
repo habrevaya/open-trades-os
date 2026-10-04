@@ -206,6 +206,44 @@ export function createTwilioVoice(
       }
     },
 
+    placeCall(input) {
+      const form = new URLSearchParams({
+        To: input.to, From: input.from, Url: input.url, Method: "POST",
+        Timeout: String(Math.max(5, Math.min(60, Math.round(input.timeoutSeconds)))),
+      });
+      return call(`${account}/Calls.json`, { method: "POST", form }, (payload) => ({
+        callSid: String(payload["sid"] ?? ""),
+      }));
+    },
+
+    startRecording(input) {
+      const form = new URLSearchParams({
+        RecordingStatusCallback: input.recordingCallback,
+        RecordingStatusCallbackMethod: "POST",
+        RecordingStatusCallbackEvent: "completed",
+        RecordingChannels: "dual",
+      });
+      return call(
+        `${account}/Calls/${encodeURIComponent(input.callSid)}/Recordings.json`,
+        { method: "POST", form },
+        () => ({}),
+      );
+    },
+
+    saveApplication(input) {
+      const form = new URLSearchParams({
+        FriendlyName: input.label.slice(0, 64),
+        VoiceUrl: input.voiceUrl, VoiceMethod: "POST",
+        StatusCallback: input.statusUrl, StatusCallbackMethod: "POST",
+      });
+      const target = input.applicationSid
+        ? `${account}/Applications/${encodeURIComponent(input.applicationSid)}.json`
+        : `${account}/Applications.json`;
+      return call(target, { method: "POST", form }, (payload) => ({
+        applicationSid: String(payload["sid"] ?? input.applicationSid ?? ""),
+      }));
+    },
+
     deleteRecording(recordingId) {
       return call(`${account}/Recordings/${encodeURIComponent(recordingId)}.json`, { method: "DELETE" }, () => ({}));
     },

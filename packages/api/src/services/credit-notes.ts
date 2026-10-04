@@ -414,6 +414,7 @@ async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: b
     totals: { subtotal: usd(note.subtotal), taxTotal: usd(note.taxTotal), total: usd(note.total) },
     customerId: note.customerId,
     ...(note.invoiceId ? { invoiceId: note.invoiceId } : {}),
+    ...(invoice?.jobId ? { jobId: invoice.jobId } : {}),
   }));
 
   const [issued] = await tx.update(schema.creditNote).set({
@@ -596,11 +597,16 @@ export async function voidNote(ctx: ServiceContext, input: { id: string; reason:
         `Credit note ${note.number} has ${say(usd(note.amountApplied))} applied to invoices. A credit that has been used cannot be taken back here.`,
       );
     }
+    /** The job the credited invoice was for, so restoring the revenue restores it on that job. */
+    const [credited] = note.invoiceId
+      ? await tx.select({ jobId: schema.invoice.jobId }).from(schema.invoice).where(eq(schema.invoice.id, note.invoiceId)).limit(1)
+      : [];
     await writePosting(tx, ctx, ledger.postCreditNoteVoid({
       creditNoteId: note.id,
       occurredAt: new Date(),
       totals: { subtotal: usd(note.subtotal), taxTotal: usd(note.taxTotal), total: usd(note.total) },
       customerId: note.customerId,
+      ...(credited?.jobId ? { jobId: credited.jobId } : {}),
     }));
     await tx.update(schema.creditNote).set({
       status: "void", balance: "0", voidedAt: new Date(), updatedAt: new Date(),

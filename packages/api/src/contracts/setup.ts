@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { setup as rules } from "@opentradesos/core";
 import { defineRoute } from "../lib/define";
-import { Uuid } from "./common";
+import { Uuid, CompanyContact } from "./common";
 
 /**
  * M02. A COMPANY SETTING ITSELF UP, WITHOUT ANYBODY POSTING JSON
@@ -83,12 +83,12 @@ const CompanyDetails = z.object({
   name: z.string(),
   legalName: z.string().nullable(),
   timezone: z.string(),
-});
+}).merge(CompanyContact);
 
 export const getCompanyDetails = defineRoute({
   method: "get",
   path: "/v1/company",
-  summary: "What the company is called, and the zone its days run in",
+  summary: "What the company is called, how customers reach it, and the zone its days run in",
   module: "M02",
   permissions: ["settings:read"],
   input: z.object({}),
@@ -98,14 +98,21 @@ export const getCompanyDetails = defineRoute({
 export const updateCompanyDetails = defineRoute({
   method: "patch",
   path: "/v1/company",
-  summary: "Rename the company, or set its legal name",
+  summary: "Rename the company, set its legal name, or set how customers reach it",
   description:
-    "The name is what customers see on every invoice, text and portal page; the legal name is what goes on a document with legal weight and is often not the name on the van. The time zone is changed on its own, from Settings, because of what changing it does.",
+    "The name is what customers see on every invoice, text and portal page; the legal name is what goes on a document with legal weight and is often not the name on the van. The phone, email and postal address are printed on proposals, invoices, statements, their PDFs and the portal's header. A contact field left out keeps what it had and an empty string or null clears it; the phone is stored in E.164, and an address with a street and no town, or a town and no street, is refused. The time zone is changed on its own, from Settings, because of what changing it does.",
   module: "M02",
   permissions: ["settings:write"],
   input: z.object({
     name: z.string().min(1).max(120),
     legalName: z.string().max(200).nullable().optional(),
+    phone: z.string().max(40).nullable().optional(),
+    email: z.string().max(254).nullable().optional(),
+    addressLine1: z.string().max(120).nullable().optional(),
+    addressLine2: z.string().max(120).nullable().optional(),
+    city: z.string().max(120).nullable().optional(),
+    state: z.string().max(120).nullable().optional(),
+    postalCode: z.string().max(20).nullable().optional(),
   }),
   output: CompanyDetails,
 });
@@ -143,6 +150,7 @@ export const setItemTax = defineRoute({
   module: "M02",
   permissions: ["pricebook:write"],
   idempotent: true,
+  dryRun: true,
   input: z.object({
     itemIds: z.array(Uuid).min(1).max(1000),
     taxable: z.boolean(),

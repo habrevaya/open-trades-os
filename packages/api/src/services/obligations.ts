@@ -1,8 +1,9 @@
-import { and, asc, eq, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
+import { and, asc, eq, lte, notInArray, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
+import { metSql, passIn } from "./contract-clocks";
 
 /**
  * DEADLINES, AND THE ONE THAT NOBODY COULD SEE
@@ -145,6 +146,12 @@ export async function open(
          * prevent.
          */
         notInArray(schema.obligation.state, [...CLOSED]),
+        /**
+         * And not a contract clock whose fact has already happened. The
+         * worker records the satisfaction on its next pass; until then the
+         * arrival at ten to the hour must not read as a breach at the hour.
+         */
+        sql`not ${metSql}`,
         ...(options.overdueOnly ? [lte(schema.obligation.dueAt, now)] : []),
         ...(options.kind ? [eq(schema.obligation.kind, options.kind)] : []),
       ))
@@ -262,36 +269,24 @@ export async function waive(ctx: ServiceContext, input: { id: string; reason: st
  *
  * The breach half is idempotent because it selects `state = 'open'` and then
  * sets the state to `breached`, so a row it has touched no longer matches.
- * An extra `breached_at is null` there would never change an outcome: there
- * is no path in this file that moves a row back to open. It is not written.
+ * The one path that moves a row back to open is a contract clock moved to a
+ * new due time (services/contract-clocks.ts), which is a new promise and
+ * clears its own breach, so stamping it again when that passes is right.
  *
  * The escalation half genuinely needs `escalated_at is null`, because it
  * does NOT change the state: a row stays open or breached after escalating,
- * so without that check every sweep would escalate it again.
+ * so without that check every sweep would raise its task again.
  */
 export async function sweep(ctx: ServiceContext, now = new Date()) {
   return guardedWrite(ctx, "task:write", async (tx) => {
-    const breached = await tx.update(schema.obligation).set({
-      state: "breached",
-      breachedAt: now,
-      updatedAt: now,
-    }).where(and(
-      eq(schema.obligation.organizationId, ctx.actor.organizationId),
-      eq(schema.obligation.state, "open"),
-      lte(schema.obligation.dueAt, now),
-    )).returning({ id: schema.obligation.id });
-
-    const escalated = await tx.update(schema.obligation).set({
-      escalatedAt: now,
-      updatedAt: now,
-    }).where(and(
-      eq(schema.obligation.organizationId, ctx.actor.organizationId),
-      inArray(schema.obligation.state, ["open", "breached"]),
-      isNull(schema.obligation.escalatedAt),
-      lte(schema.obligation.escalateAt, now),
-    )).returning({ id: schema.obligation.id });
-
-    return { breached: breached.length, escalated: escalated.length };
+    /**
+     * Contract clocks are reconciled first, so a clock met since the last
+     * pass is satisfied rather than stamped as breached, and the escalation
+     * that follows raises a task in the office queue rather than only a
+     * stamp nobody reads. See services/contract-clocks.ts.
+     */
+    const done = await passIn(tx, ctx, now);
+    return { breached: done.breached, escalated: done.escalated };
   });
 }
 

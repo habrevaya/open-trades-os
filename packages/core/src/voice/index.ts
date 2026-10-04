@@ -4,6 +4,7 @@ import {
   type HoursVerdict, type CallParty, type JurisdictionPolicy, type RecordingDecision, type RoutingDestination,
 } from "../telephony/index.js";
 import { menuHoursTable, type PhoneMenu } from "./menus.js";
+import { isClientAddress } from "./softphone.js";
 
 /**
  * A TRACKING NUMBER THAT ANSWERS ITS OWN CALLS
@@ -52,7 +53,22 @@ export type Verb =
   | { verb: "record"; action: string; recordingCallback: string; maxSeconds: number }
   | { verb: "redirect"; url: string }
   | { verb: "hangup" }
-  | { verb: "reject" };
+  | { verb: "reject" }
+  | { verb: "play"; url: string }
+  /** Hold the caller in the carrier's queue, asking `waitUrl` what to play, and `action` when they leave it. */
+  | { verb: "enqueue"; queue: string; waitUrl: string; action: string }
+  /** Said from the wait instructions: leave the queue now, on to the enqueue's action. */
+  | { verb: "leave" }
+  /** Put whoever answered through to the caller at the front of a queue. */
+  | { verb: "dialQueue"; queue: string; url: string }
+  /**
+   * Hand the call to the phone assistant: the carrier turns the caller's
+   * speech into text, sends it over a WebSocket to `url`, and reads aloud the
+   * text that comes back. `greeting` is said first, by the carrier, and may
+   * not be talked over. When the assistant ends the session the carrier asks
+   * `action` what happens next.
+   */
+  | { verb: "relay"; url: string; action: string; greeting: string; language: string };
 
 /** XML text and attribute escaping. Office typed names go through this, always. */
 export function escapeXml(text: string): string {
@@ -78,9 +94,12 @@ function verbXml(v: Verb): string {
         ? `${attr("record", "record-from-answer-dual")}${attr("recordingStatusCallback", v.recordingCallback)}`
           + `${attr("recordingStatusCallbackEvent", "completed")}`
         : "";
-      const numbers = (typeof v.to === "string" ? [v.to] : v.to).map((to) => v.whisperUrl
-        ? `<Number${attr("url", v.whisperUrl)}>${escapeXml(to)}</Number>`
-        : `<Number>${escapeXml(to)}</Number>`).join("");
+      /** A browser is a `Client` noun, named without its prefix; everything else is a number. */
+      const numbers = (typeof v.to === "string" ? [v.to] : v.to).map((to) => {
+        const noun = isClientAddress(to) ? "Client" : "Number";
+        const name = isClientAddress(to) ? to.slice("client:".length) : to;
+        return `<${noun}${v.whisperUrl ? attr("url", v.whisperUrl) : ""}>${escapeXml(name)}</${noun}>`;
+      }).join("");
       return `<Dial${attr("action", v.action)}${attr("method", "POST")}${attr("timeout", v.timeoutSeconds)}`
         + `${attr("answerOnBridge", "true")}${v.callerId ? attr("callerId", v.callerId) : ""}${recording}>`
         + `${numbers}</Dial>`;
@@ -92,6 +111,18 @@ function verbXml(v: Verb): string {
     case "redirect": return `<Redirect${attr("method", "POST")}>${escapeXml(v.url)}</Redirect>`;
     case "hangup": return "<Hangup/>";
     case "reject": return "<Reject/>";
+    case "play": return `<Play>${escapeXml(v.url)}</Play>`;
+    case "enqueue":
+      return `<Enqueue${attr("action", v.action)}${attr("method", "POST")}${attr("waitUrl", v.waitUrl)}`
+        + `${attr("waitUrlMethod", "POST")}>${escapeXml(v.queue)}</Enqueue>`;
+    case "leave": return "<Leave/>";
+    case "dialQueue":
+      return `<Dial><Queue${attr("url", v.url)}${attr("method", "POST")}>${escapeXml(v.queue)}</Queue></Dial>`;
+    case "relay":
+      return `<Connect${attr("action", v.action)}${attr("method", "POST")}>`
+        + `<ConversationRelay${attr("url", v.url)}${attr("welcomeGreeting", v.greeting)}`
+        + `${attr("welcomeGreetingInterruptible", "none")}${attr("language", v.language)}`
+        + `${attr("dtmfDetection", "true")}${attr("interruptible", "speech")}/></Connect>`;
   }
 }
 
@@ -114,6 +145,19 @@ export function twiml(verbs: readonly Verb[]): string {
 export const RECORDING_QUESTION =
   "This call can be recorded so we can look after you properly. Press 1 if that is all right. "
   + "Otherwise stay on the line and you will be connected without recording.";
+
+/**
+ * The same question, put to somebody the office is ringing from the browser.
+ *
+ * Asked of the person picking up, before the two are connected, because on an
+ * outbound call they are the party who has not agreed to anything yet: the
+ * person in the office pressed Call. Said with the company's name first, so a
+ * customer hearing a machine before a voice knows who is ringing.
+ */
+export function calleeRecordingQuestion(company: string): string {
+  return `${company} is calling. This call can be recorded so we can look after you properly. `
+    + "Press 1 if that is all right. Otherwise stay on the line and you will be connected without recording.";
+}
 
 export const VOICEMAIL_PROMPT =
   "Sorry we missed you. Please leave your name, number and what you need after the tone, and we will call you back.";
@@ -316,9 +360,15 @@ export function routeToMenu(input: {
 export function recordingDecision(input: {
   callerPressedOne: boolean;
   policies: readonly JurisdictionPolicy[];
+  /**
+   * Who the person outside the company is on this call: the caller, or on a
+   * call the office placed from the browser, the person called. Either way
+   * they are asked the same question and agree the same way.
+   */
+  outside?: "caller" | "callee" | undefined;
 }): { decision: RecordingDecision; parties: CallParty[] } {
   const parties: CallParty[] = [
-    { role: "caller", ...(input.callerPressedOne ? { consented: true } : {}) },
+    { role: input.outside ?? "caller", ...(input.callerPressedOne ? { consented: true } : {}) },
     { role: "agent", consented: true },
   ];
   return {
@@ -418,3 +468,5 @@ export function checkNumberSearch(input: {
  * the router above can send a call to.
  */
 export * from "./menus.js";
+export * from "./queues.js";
+export * from "./softphone.js";

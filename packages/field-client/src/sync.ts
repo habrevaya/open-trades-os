@@ -3,9 +3,10 @@ import {
 } from "./queue";
 import type { Storage } from "./storage";
 import type { UploadQueue, UploadTransport } from "./uploads";
-import type { FieldSnapshot, PriceBookEntry } from "./wire";
+import type { FieldAbilities, FieldInspectionProgram, FieldSnapshot, PriceBookEntry } from "./wire";
 import { projectDay, todayIn, type DayView } from "./day";
 import { describeOperation, describeUpload, type Problem } from "./problems";
+import { sharingFor, type PositionBuffer, type SharingState } from "./positions";
 
 /**
  * ONE PASS OF "SEND WHAT IS WAITING, THEN ASK WHAT CHANGED"
@@ -19,7 +20,9 @@ import { describeOperation, describeUpload, type Problem } from "./problems";
  *
  * The order is the order the server needs:
  *
- *   1. Operations, oldest first, in batches until nothing more is accepted.
+ *   1. Operations, oldest first, in batches until nothing more is accepted,
+ *      then any positions waiting, after the operations so a punch in sent
+ *      in the same pass is on the record when its fixes are judged.
  *   2. The bytes of any photograph or signature whose record has now landed.
  *   3. The day as the server now sees it, saved so the app opens offline.
  *
@@ -67,6 +70,8 @@ export interface SyncEngineOptions {
   now?: () => Date;
   /** Batches per pass. A whole day is a few; this stops a held tail looping. */
   maxRounds?: number;
+  /** Where fixes wait for the next send, when the app shares location. */
+  positions?: PositionBuffer;
 }
 
 export class SyncEngine {
@@ -144,6 +149,12 @@ export class SyncEngine {
     }
     await this.rememberApplied(before);
 
+    if (this.options.positions) {
+      const sent = await this.options.positions.flush(this.options.transport);
+      if (sent.offline) return { ...report, offline: true };
+      if (sent.error) report.error = sent.error;
+    }
+
     // 2. Files.
     const drained = await uploads.drain(this.options.uploadTransport);
     report.uploadsSent = drained.sent;
@@ -182,7 +193,20 @@ export class SyncEngine {
       : undefined;
 
     const fresh = await this.options.snapshot({ from, days: this.options.days ?? 2, sinceRevision });
-    const snapshot = fresh.unchanged && cached ? cached.snapshot : fresh;
+    /**
+     * The sharing settings come with every answer, changed or not: the
+     * revision covers the visits, and an office turning sharing off for
+     * somebody must reach the phone on the next send, not the next change to
+     * their day.
+     */
+    const snapshot = fresh.unchanged && cached
+      ? {
+          ...cached.snapshot,
+          ...(fresh.locationSharing ? { locationSharing: fresh.locationSharing } : {}),
+          /** What the person may do can change without the day changing: a role edited in the office. */
+          ...(fresh.abilities ? { abilities: fresh.abilities } : {}),
+        }
+      : fresh;
 
     const entry: CachedSnapshot = { snapshot, from, fetchedAt: this.now().toISOString() };
     await this.options.storage.set(KEY.snapshot, JSON.stringify(entry));
@@ -224,12 +248,18 @@ export class SyncEngine {
     day: DayView;
     /** What a part can be picked from, as the server last sent it. */
     priceBook: PriceBookEntry[];
+    /** What an inspection can be run against, as the server last sent it. Empty for somebody who may not. */
+    inspectionPrograms: FieldInspectionProgram[];
     from: string | null;
     waiting: number;
     uploadsWaiting: number;
     problems: Problem[];
     backoffUntil: Date | null;
     lastSyncedAt: string | null;
+    /** Whether the phone should be sharing where its person is now, and the sentence that says so. */
+    location: SharingState;
+    /** What this person may do on site, as the server last said. Nothing new from an older server. */
+    abilities: FieldAbilities;
   }> {
     const { queue, uploads } = this.options;
     const cached = await this.cached();
@@ -252,6 +282,7 @@ export class SyncEngine {
     return {
       day,
       priceBook: cached?.snapshot.priceBook ?? [],
+      inspectionPrograms: cached?.snapshot.inspectionPrograms ?? [],
       from: cached?.from ?? null,
       // Conflicted operations are recorded; only what has not landed is waiting.
       waiting: pending.filter((o) => o.status !== "conflicted" && o.status !== "rejected").length,
@@ -259,9 +290,21 @@ export class SyncEngine {
       problems,
       backoffUntil: await queue.backoffUntil(),
       lastSyncedAt: await this.lastSyncedAt(),
+      location: sharingFor(day, cached?.snapshot.locationSharing),
+      abilities: cached?.snapshot.abilities ?? NO_ABILITIES,
     };
   }
 }
+
+/**
+ * What a phone offers when the server has not said: nothing new. A server
+ * older than selling on site would refuse every one of these, and a button
+ * that is always refused is worse than no button.
+ */
+export const NO_ABILITIES: FieldAbilities = {
+  writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
+  tipping: { enabled: false, presets: [] }, financing: false, assistant: false,
+};
 
 async function readJson<T>(storage: Storage, key: string): Promise<T | null> {
   const raw = await storage.get(key);

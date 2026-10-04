@@ -62,10 +62,10 @@ const WEBHOOK_TOKEN: SettingSpec = { kind: "text", system: true };
 /**
  * Every key each built provider reads, and nothing else.
  *
- * Marketing connectors are absent because they never pass operator settings
- * through `integration_connection`: lead webhooks keep their own table and a
- * spend file is parsed on upload. A provider absent from here takes no
- * settings at all.
+ * The lead webhook and the spend file are absent because they never pass
+ * operator settings through `integration_connection`: lead webhooks keep
+ * their own table and a spend file is parsed on upload. A provider absent
+ * from here takes no settings at all.
  */
 export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string, SettingSpec>>>> = {
   stripe: {
@@ -151,11 +151,161 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     minIntervalMs: { kind: "number" },
     baseUrl: BASE_URL,
   },
+  /**
+   * Consumer financing. The plans are the merchant agreement's, typed in as
+   * "months@APR", because they are what "as low as" is worked out from and
+   * Wisetack is not asked for them per customer.
+   */
+  wisetack: {
+    merchantId: { kind: "text" },
+    webhookSecretRef: { kind: "secret_name" },
+    plans: { kind: "list" },
+    minAmount: { kind: "text" },
+    maxAmount: { kind: "text" },
+    /** Off hides the monthly figure everywhere and keeps the apply link. On by default once connected. */
+    showMonthly: { kind: "boolean" },
+  },
+  osrm: {
+    /** The address of the company's own OSRM server. Required: there is no public default. */
+    endpoint: { kind: "text" },
+    /** The OSRM profile, `driving` unless the server was built with another. */
+    profile: { kind: "text" },
+  },
+  mapbox_directions: {
+    /** `driving`, or `driving-traffic` for live traffic at ten points a request. */
+    profile: { kind: "text" },
+    baseUrl: BASE_URL,
+  },
+  openrouteservice: {
+    /** A self hosted server; the hosted service when absent. */
+    endpoint: { kind: "text" },
+    /** `driving-car` unless a truck profile suits the vans better. */
+    profile: { kind: "text" },
+    baseUrl: BASE_URL,
+  },
   whisper: {
     /** Where the API lives: OpenAI's, or a Whisper server the company runs itself. */
     endpoint: { kind: "text" },
     model: { kind: "text" },
     language: { kind: "text" },
+    baseUrl: BASE_URL,
+  },
+  /**
+   * The ad platforms. Each names its OAuth client by secret name; the grant a
+   * sign in hands back is sealed in `sealed_credential` and never appears
+   * here. `authUrl` and `tokenUrl` exist so a test can send the sign in to a
+   * fake.
+   */
+  google_ads: {
+    customerId: { kind: "text" },
+    loginCustomerId: { kind: "text" },
+    conversionActionId: { kind: "text" },
+    developerTokenRef: { kind: "secret_name" },
+    oauthClientRef: { kind: "secret_name" },
+    personalData: { kind: "text" },
+    sendConversions: { kind: "boolean" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  google_lsa: {
+    customerId: { kind: "text" },
+    loginCustomerId: { kind: "text" },
+    developerTokenRef: { kind: "secret_name" },
+    oauthClientRef: { kind: "secret_name" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  meta_ads: {
+    adAccountId: { kind: "text" },
+    pixelId: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    personalData: { kind: "text" },
+    sendConversions: { kind: "boolean" },
+    /** Meta's Events Manager test code, so a company can watch events arrive before trusting them. */
+    testEventCode: { kind: "text" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  ga4: {
+    measurementId: { kind: "text" },
+    personalData: { kind: "text" },
+    sendConversions: { kind: "boolean" },
+    baseUrl: BASE_URL,
+  },
+  google_business_profile: {
+    accountId: { kind: "text" },
+    locationId: { kind: "text" },
+    /** The review platform key reviews are recorded under, which the review policy names. */
+    platform: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  /**
+   * Microsoft Advertising. Two ids because Microsoft's API wants both the
+   * customer (the manager) and the account the campaigns live in on every
+   * request, in headers.
+   */
+  bing_ads: {
+    customerId: { kind: "text" },
+    accountId: { kind: "text" },
+    developerTokenRef: { kind: "secret_name" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  /** Meta's instant forms, read from one Page. */
+  meta_lead_ads: {
+    pageId: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  search_console: {
+    /** The property as Search Console names it: `sc-domain:example.com` or `https://www.example.com/`. */
+    siteUrl: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  ga4_data: {
+    /** The property's number, not the G- measurement id, which is the data stream's. */
+    propertyId: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  /**
+   * The marketplaces' API connections. Each is made by the lead source setup
+   * rather than by the generic connect form, and holds the business the
+   * account is and the name of the token its API is spoken to with. The
+   * password the platform posts with is the connection's credential.
+   */
+  angi: { baseUrl: BASE_URL },
+  thumbtack: {
+    businessId: { kind: "text" },
+    apiTokenRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+  },
+  yelp: {
+    businessId: { kind: "text" },
+    apiTokenRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+  },
+  /** The mail house. The API key is the connection's credential. */
+  lob: {
     baseUrl: BASE_URL,
   },
   callrail: {

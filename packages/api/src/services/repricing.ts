@@ -1,8 +1,8 @@
 import { and, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, repricing } from "@opentradesos/core";
+import { assertCan, can, repricing, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, UnprocessableError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, UnprocessableError, type ServiceContext,
 } from "./context";
 import { inForceAt, load, reviseWithin } from "./pricebook";
 import { withDescendants } from "./price-categories";
@@ -126,11 +126,13 @@ async function compute(
   }
   const waiting = await scheduledFor(tx, rows.map((r) => r.item.id));
   const seesCost = can(ctx.actor, "pricebook.cost:read");
+  /** The day a scheduled change starts, as the company counts days. */
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
 
   return rows.map(({ item, version }) => {
     const pending = waiting.get(item.id);
     const outcome = pending
-      ? { changed: false as const, message: `A price change is already scheduled for ${pending.toISOString().slice(0, 10)}.` }
+      ? { changed: false as const, message: `A price change is already scheduled for ${time.dateIn(pending, zone)}.` }
       : repricing.reprice({ price: version.price, cost: version.cost }, rule);
     const after = outcome.changed ? outcome.price : null;
     return {

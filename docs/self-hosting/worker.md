@@ -82,6 +82,24 @@ to the after-pass hooks (texts, email, webhooks, accounting) even if it had no
 events, so the email goes on that pass. The email hook is new with this: queued
 email used to wait for `POST /v1/email/send-queued`.
 
+## Records past their retention
+
+Once a day per company, the pass removes records past a retention rule that the
+company switched purging on for under Compliance, Keeping records. Every seeded
+rule arrives with purging off, so a deployment that never turns one on never has
+anything removed. A company is visited when it has such a rule and no pass in the
+last twenty hours, through `app.retention_purge_organizations`, which the
+`background` role may call and the request role may not.
+
+| What happens | What the pass does |
+|---|---|
+| A record is past every rule that covers it and not on hold | Removed, with its photographs and signatures, and an audit line naming the rule |
+| A record is on hold | Kept and counted |
+| Another active rule over the same record has purging off, or keeps it longer | Kept |
+| Removing one record fails | That record is kept and the reason is written on the pass; the rest carry on |
+
+At most five hundred records go in one pass; the next day's pass carries on.
+
 ## Telling a technician's phone
 
 After the drain, each pass reads every company's log from its own position
@@ -278,3 +296,27 @@ instead: `deploy/templates/netlify/README.md` says when.
 
 It is not a queue. The event log is already durable and already ordered, and a
 queue beside it would be a second source of truth about what happened.
+
+## Ad platforms, analytics and review listings
+
+Each pass also visits every company with a connected Google Ads, Local
+Services, Meta, Google Analytics or Google Business Profile, through
+`app.ad_work_organizations`, which returns company ids and nothing else, least
+recently visited first. Inside each company every connection does what is due
+by its own clock:
+
+| What | How often |
+|---|---|
+| Spend per campaign per day, the last three days again each time | Every six hours |
+| Local Services calls, messages and bookings into the lead offers | Every ten minutes |
+| Google reviews read, and replies written here posted | Every hour; waiting replies on every pass |
+| Booked and paid jobs sent to the platform whose click won them | Every quarter hour |
+
+Every pull is a `sync_run` row with what it read, what it wrote and why it
+stopped, written before the platform is asked, so a platform that is down is
+asked again at the next cadence and not on every tick. A platform that stops
+accepting the sign in marks the connection as needing a person and the worker
+leaves it alone until somebody signs in again. Nothing to configure beyond the
+connections themselves and `CREDENTIAL_SEALING_KEY`, which the worker needs
+with the same value as the web app to open the grants it keeps. Turn the visits
+off for a deployment with `ads: false` on the pass.

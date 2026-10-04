@@ -129,8 +129,27 @@ run("creating an estimate", () => {
   });
 
   it("gives a technician the price and withholds the cost", async () => {
-    const created = await estimates.create(office(), threeOptions()) as Record<string, unknown>;
-    const seen = await estimates.get(tech(), { id: created["id"] as string }) as Record<string, unknown>;
+    /**
+     * On a job the technician is sent to: they quote on site, and an estimate
+     * on work that is not theirs is out of their scope altogether (see
+     * scope.integration.test.ts), so it would read as not found.
+     */
+    const [member] = await raw<{ id: string }[]>`select id from public.membership
+      where organization_id = ${ORG_A} and user_id = ${USER_A} limit 1`;
+    const techId = crypto.randomUUID();
+    await raw`insert into public.technician (id, organization_id, membership_id, display_name)
+      values (${techId}, ${ORG_A}, ${member!.id}, 'Quoting Tech')`;
+    const [job] = await raw<{ id: string }[]>`insert into public.job (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG_A}, ${Math.floor(Math.random() * 1e6) + 500000}, ${customerA}, ${propertyA}, 'scheduled', 'Quote on site') returning id`;
+    const [visit] = await raw<{ id: string }[]>`insert into public.visit (organization_id, job_id, status, window_start)
+      values (${ORG_A}, ${job!.id}, 'scheduled', now()) returning id`;
+    await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id, is_lead)
+      values (${ORG_A}, ${visit!.id}, ${techId}, true)`;
+
+    const created = await estimates.create(office(), { ...threeOptions(), jobId: job!.id }) as Record<string, unknown>;
+    const onSite = ctxFor(ORG_A, USER_A, ["technician"]);
+    onSite.actor = { ...onSite.actor, technicianId: techId };
+    const seen = await estimates.get(onSite, { id: created["id"] as string }) as Record<string, unknown>;
     const option = (seen["options"] as Array<Record<string, unknown>>)[0]!;
 
     expect(option["total"]).toBeDefined();

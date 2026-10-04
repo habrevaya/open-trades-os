@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk, money as m, telephony as tel, time, transcript as tr } from "@opentradesos/core";
+import { ads, marketing as mk, money as m, telephony as tel, time, transcript as tr } from "@opentradesos/core";
 import { guardedRead, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import { callSearch } from "./telephony";
 import * as acquisition from "./acquisition";
@@ -51,7 +51,14 @@ import { revenueByJob } from "./marketing";
  * refusing the whole report.
  */
 
-export type Dimension = "channel" | "campaign" | "number";
+/**
+ * `platform` is the ad platform a call, a lead, a job or a dollar came
+ * through: Google Ads, Local Services, Meta, Microsoft. Everything that is not
+ * an ad platform (the van, a referral, organic search) is one row of its own,
+ * so the return of each paid platform reads against its own spend and the
+ * pulled spend is never compared with work it did not buy.
+ */
+export type Dimension = "channel" | "campaign" | "number" | "platform";
 export type Measure =
   | "spend" | "calls" | "answered" | "missed" | "firstTime"
   | "leads" | "booked" | "completed" | "revenue";
@@ -113,6 +120,8 @@ interface JobItem {
 
 interface SpendItem {
   kind: "recorded" | "fixed" | "per_lead";
+  /** The catalogue key the money went to, which is what the platform view groups it by. */
+  source: string;
   spendId: string | null;
   campaignId: string | null;
   spentOn: string | null;
@@ -252,8 +261,16 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
       sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) < ${end.toISOString()}::timestamptz`,
     ));
 
+  /** The ad platform a catalogue key is, or the row for everything else. */
+  const platformOf = (source: string | null | undefined) =>
+    source && ads.AD_PLATFORM_SOURCES.includes(source) ? source : NONE;
+
   const callDim = (call: typeof schema.call.$inferSelect): string => {
     const number = call.phoneNumberId ? numberById.get(call.phoneNumberId) : undefined;
+    if (input.by === "platform") {
+      const channel = call.channelId ?? number?.channelId;
+      return platformOf(channel ? channelById.get(channel)?.sourceKey : null);
+    }
     if (input.by === "number") return call.phoneNumberId ?? NONE;
     if (input.by === "campaign") return call.acquisitionCampaignId ?? NONE;
     return call.channelId ?? number?.channelId ?? NONE;
@@ -285,6 +302,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
   const callNumber = new Map<string, string | null>();
   for (const { call } of callRows) callNumber.set(call.id, call.phoneNumberId);
   const touchDim = (t: TouchRow): string => {
+    if (input.by === "platform") return platformOf(t.source);
     if (input.by === "channel") return t.channelId ?? defaultChannel.get(t.source) ?? NONE;
     if (input.by === "campaign") return t.acquisitionCampaignId ?? NONE;
     if (t.callId && callNumber.get(t.callId)) return callNumber.get(t.callId)!;
@@ -406,6 +424,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
    * number", where it is visible rather than lost.
    */
   const placeSpend = (item: SpendItem, channelId: string | null) => {
+    if (input.by === "platform") { bucket(platformOf(item.source)).spend.push(item); return; }
     if (input.by === "channel") { bucket(channelId ?? NONE).spend.push(item); return; }
     if (input.by === "campaign") { bucket(item.campaignId ?? NONE).spend.push(item); return; }
     const own = item.campaignId ? numbersOfCampaign(item.campaignId) : [];
@@ -423,12 +442,13 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
     const channelId = row.channelId ?? campaign?.channelId ?? defaultChannel.get(row.source) ?? null;
     placeSpend({
       kind: "recorded",
+      source: row.source,
       spendId: row.id,
       campaignId: row.acquisitionCampaignId,
       spentOn: row.spentOn,
       label: campaign?.name ?? row.campaign ?? mk.leadSourceLabel(row.source),
       amount: m.money(row.amount, "USD"),
-      note: row.origin === "manual" ? null : `Imported from ${row.origin}.`,
+      note: spendNote(row.origin),
     }, channelId);
   }
 
@@ -439,7 +459,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
         { startsOn: campaign.startsOn, endsOn: campaign.endsOn }, input);
       if (part.daysInRange === 0) continue;
       placeSpend({
-        kind: "fixed", spendId: null, campaignId: campaign.id, spentOn: null,
+        kind: "fixed", source: channelById.get(campaign.channelId)?.sourceKey ?? "unknown", spendId: null, campaignId: campaign.id, spentOn: null,
         label: campaign.name, amount: part.amount,
         note: `${part.daysInRange} of the campaign's ${part.days} days fall in this range.`,
       }, campaign.channelId);
@@ -452,7 +472,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
       }
       if (leads.size === 0) continue;
       placeSpend({
-        kind: "per_lead", spendId: null, campaignId: campaign.id, spentOn: null,
+        kind: "per_lead", source: channelById.get(campaign.channelId)?.sourceKey ?? "unknown", spendId: null, campaignId: campaign.id, spentOn: null,
         label: campaign.name,
         amount: m.multiply(m.money(campaign.costAmount, "USD"), String(leads.size)),
         note: `${leads.size} lead${leads.size === 1 ? "" : "s"} at ${m.toString(m.round(m.money(campaign.costAmount, "USD"), 2))} each.`,
@@ -465,11 +485,17 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
   for (const key of buckets.keys()) {
     if (key === NONE) {
       labels.set(key, {
-        label: input.by === "channel" ? "Not attributed" : input.by === "campaign" ? "No tracking campaign" : "No tracking number",
+        label: input.by === "channel" ? "Not attributed"
+          : input.by === "campaign" ? "No tracking campaign"
+            : input.by === "platform" ? "Not an ad platform" : "No tracking number",
         detail: input.by === "channel"
           ? "Nothing was recorded, or it could not be placed. Not counted as direct, because it is not."
-          : null,
+          : input.by === "platform"
+            ? "Everything else: the van, referrals, search, marketplaces, and work nothing was recorded for."
+            : null,
       });
+    } else if (input.by === "platform") {
+      labels.set(key, { label: mk.leadSourceLabel(key), detail: null });
     } else if (input.by === "channel") {
       const c = channelById.get(key);
       labels.set(key, { label: c?.name ?? "A removed channel", detail: c ? mk.leadSourceLabel(c.sourceKey) : null });
@@ -490,6 +516,23 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
   }
 
   return { buckets, people, labels, model };
+}
+
+/**
+ * Where a spend line came from, in words. Pulled spend says which platform
+ * pulled it, because "is this figure from Google itself or from somebody's
+ * spreadsheet" is the first question about a cost that looks wrong.
+ */
+function spendNote(origin: string): string | null {
+  if (origin === "manual") return null;
+  if (origin === "google_ads") return "Pulled from Google Ads.";
+  if (origin === "meta_ads") return "Pulled from Meta Ads.";
+  if (origin === "bing_ads") return "Pulled from Microsoft Advertising.";
+  /** What a marketplace said it charged for a lead, written when the lead arrived. */
+  if (origin === "lead_charge") return "Pulled from what the marketplace charged for the lead.";
+  /** A mailing's pieces times its price per piece, written as the pieces went to the printer. */
+  if (origin === "direct_mail") return "Pulled from the mailing's pieces and price per piece.";
+  return `Imported from ${origin}.`;
 }
 
 async function loadCallNumbers(

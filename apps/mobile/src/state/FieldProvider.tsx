@@ -6,7 +6,11 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
-import { formatAmount, type Problem, type SyncEngine, type SyncReport } from "@opentradesos/field-client";
+import {
+  formatAmount, inspectionPayload, type AssistantAnswer, type BuiltInspection, type FieldInspectionProgram,
+  type Problem, type SyncEngine, type SyncReport,
+} from "@opentradesos/field-client";
+import type { KeptSignature } from "../lib/sell";
 import type { Session } from "../lib/session";
 import { deviceInstallationId, sessionExpired } from "../lib/session";
 import {
@@ -19,6 +23,8 @@ import { clearSession, installationId, loadSession, saveSession } from "../platf
 import { fieldClientFor, forgetFieldClients, type FieldClient } from "../platform/field";
 import { keepPhoto, keepSignature } from "../platform/files";
 import { startBackgroundSync, stopBackgroundSync } from "../platform/background";
+import { locationPermission, startSharing, stopSharing } from "../platform/location";
+import { shouldTrack, type LocationPermission } from "../lib/location";
 
 /**
  * THE PHONE'S STATE, IN ONE PLACE
@@ -50,6 +56,8 @@ interface FieldState {
   signInWithCode(input: { server: string; email: string; code: string }): Promise<SignInOutcome>;
   /** Whether changes to the day are pushed to this phone, and if not, why. */
   push: PushState;
+  /** What the phone's settings allow for sharing location, asked only once sharing is due. */
+  locationPermission: LocationPermission;
   /** A card payment link for the visit's job, texted to the customer or handed to the share sheet. */
   paymentLink(visitId: string, how: "text" | "share"): Promise<string>;
   signOut(): Promise<void>;
@@ -57,8 +65,27 @@ interface FieldState {
   record(kind: RecordKind, visitId?: string, payload?: Record<string, unknown>): Promise<void>;
   takePhoto(visitId: string): Promise<string | null>;
   saveSignature(visitId: string, dataUrl: string, signedBy: string): Promise<string | null>;
+  /** A photo for one inspection checkpoint: its upload id, a reason it could not be kept, or null when cancelled. */
+  checkpointPhoto(visitId: string): Promise<{ uploadId: string } | { problem: string } | null>;
+  /** An inspection, filed whole: the answers, who signed it off and their drawn signature when there is one. */
+  fileInspection(visitId: string, input: {
+    program: FieldInspectionProgram; built: BuiltInspection;
+    inspectorName: string; inspectorLicense: string; signedByName: string; signature: string | null;
+  }): Promise<string | null>;
   resolve(problem: Problem, choice: "acknowledge" | "retry" | "discard"): Promise<void>;
   onMyWay(visitId: string, etaMinutes: number): Promise<string>;
+  /**
+   * A step of the sale (`lib/sell`), run against this phone's queue, then
+   * the screen redrawn from it and a send tried. The step decides what goes
+   * in and in what order; this only gives it the phone.
+   */
+  perform(step: (phone: Pick<FieldClient, "queue" | "uploads">) => Promise<unknown>): Promise<void>;
+  /** A signature drawn on the glass, kept on the phone's disk and hashed, ready to be recorded. */
+  keepDrawnSignature(dataUrl: string): Promise<KeptSignature | { problem: string }>;
+  /** The lender's application link for the visit's job, texted or handed to the share sheet. */
+  financingLink(visitId: string, how: "text" | "share"): Promise<string>;
+  /** A question for the field assistant. Needs a signal. */
+  ask(question: string, visitId: string | null): Promise<AssistantAnswer | { problem: string }>;
 }
 
 const Context = createContext<FieldState | null>(null);
@@ -78,6 +105,7 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const [report, setReport] = useState<SyncReport | null>(null);
   const [signInEnded, setSignInEnded] = useState(false);
   const [push, setPush] = useState<PushState>("off");
+  const [permission, setPermission] = useState<LocationPermission>("undetermined");
   const clientRef = useRef<FieldClient | null>(null);
   clientRef.current = client;
 
@@ -164,6 +192,32 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     return () => { clearInterval(timer); app.remove(); network.remove(); };
   }, [status, sync]);
 
+  /**
+   * Location follows the day. When the field client says the phone should be
+   * sharing (clocked in, on the way, working, with sharing on for the company
+   * and this person), the operating system's updates start, asking for
+   * permission the first time; when it says otherwise they stop and any fix
+   * not yet sent is thrown away rather than sent after the fact.
+   */
+  const sharing = view?.location ?? null;
+  const sharingOn = sharing?.state.sharing ?? false;
+  const interval = sharing?.intervalSeconds ?? 60;
+  useEffect(() => {
+    if (status !== "ready") return;
+    void (async () => {
+      if (!sharingOn) {
+        await stopSharing();
+        await clientRef.current?.positions.clear();
+        return;
+      }
+      const allowed = await locationPermission(true);
+      setPermission(allowed);
+      if (shouldTrack(sharing, allowed)) await startSharing(interval);
+      else await stopSharing();
+    })();
+    // `sharing` is read for the permission check only; the effect follows on and off and the interval.
+  }, [status, sharingOn, interval]);
+
   const deviceFacts = async (): Promise<DeviceFacts> => ({
     installation: await installationId(),
     platform: Platform.OS === "ios" ? "ios" : "android",
@@ -199,6 +253,8 @@ export function FieldProvider({ children }: { children: ReactNode }) {
       try { await c.api.signOut(c.session.deviceId); } catch { /* ended anyway, or later */ }
     }
     await stopBackgroundSync();
+    await stopSharing();
+    await c?.positions.clear();
     await clearSession();
     forgetFieldClients();
     setClient(null);
@@ -220,6 +276,59 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     });
     await refreshView(c);
     void sync(true);
+  }, [refreshView, sync]);
+
+  const checkpointPhoto = useCallback<FieldState["checkpointPhoto"]>(async (visitId) => {
+    const c = clientRef.current;
+    if (!c) return { problem: "Not signed in." };
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      return { problem: "The camera is turned off for this app. Turn it on in the phone's settings to take photos." };
+    }
+    const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.6, exif: false });
+    const asset = shot.canceled ? null : shot.assets[0];
+    if (!asset) return null;
+    const uploadId = Crypto.randomUUID();
+    const { extension, contentType } = extensionFor(asset.mimeType);
+    const kept = await keepPhoto(asset.uri, uploadId, extension);
+    await c.uploads.add({ uploadId, visitId, kind: "photo", contentType, ...kept });
+    await refreshView(c);
+    void sync(true);
+    return { uploadId };
+  }, [refreshView, sync]);
+
+  /**
+   * The signature first, as an upload like any other, then the inspection
+   * naming it, both into the queue before anything is sent, so the record of
+   * the inspection and the image of who signed it cannot be separated by a
+   * dead battery. The inspection's id is made here, so a retry files it once.
+   */
+  const fileInspection = useCallback<FieldState["fileInspection"]>(async (visitId, input) => {
+    const c = clientRef.current;
+    if (!c) return "Not signed in.";
+    let signatureUploadId: string | undefined;
+    if (input.signature) {
+      const png = pngFromDataUrl(input.signature);
+      if (!png) return "The signature could not be saved. Sign again.";
+      signatureUploadId = Crypto.randomUUID();
+      const kept = await keepSignature(png, signatureUploadId);
+      await c.uploads.add({
+        uploadId: signatureUploadId, visitId, kind: "signature", contentType: "image/png", ...kept,
+        caption: `Inspection signed off by ${input.signedByName.trim()}`,
+      });
+    }
+    await c.queue.enqueue({
+      kind: "inspection.record",
+      subjectId: Crypto.randomUUID(),
+      payload: inspectionPayload({
+        visitId, program: input.program, built: input.built,
+        inspectorName: input.inspectorName, inspectorLicense: input.inspectorLicense,
+        signedByName: input.signedByName, signatureUploadId,
+      }),
+    });
+    await refreshView(c);
+    void sync(true);
+    return null;
   }, [refreshView, sync]);
 
   const takePhoto = useCallback<FieldState["takePhoto"]>(async (visitId) => {
@@ -279,6 +388,18 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const onMyWay = useCallback<FieldState["onMyWay"]>(async (visitId, etaMinutes) => {
     const c = clientRef.current;
     if (!c) return "Not signed in.";
+    /**
+     * Telling the customer you are on the way IS being on the way: the visit
+     * moves to on the way first, into the queue like every other tap, so the
+     * tracking link has a van to show and the office sees the visit move,
+     * whether or not the text gets through.
+     */
+    const visit = (await c.engine.view()).day.visits.find((v) => v.id === visitId);
+    if (visit?.stage === "upcoming") {
+      await c.queue.enqueue({ kind: "visit.en_route", subjectId: visitId });
+      await refreshView(c);
+      await sync(true);
+    }
     try {
       const result = await c.api.onMyWay(visitId, etaMinutes, Crypto.randomUUID());
       if (result.sent) return `Texted: about ${etaMinutes} minutes away.`;
@@ -289,7 +410,7 @@ export function FieldProvider({ children }: { children: ReactNode }) {
         ? "No signal, so the customer was not texted. Call them if you can."
         : error instanceof Error ? error.message : "Not sent.";
     }
-  }, []);
+  }, [refreshView, sync]);
 
   /**
    * A card, through the invoice's own link, which needs a signal and the
@@ -315,12 +436,72 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const perform = useCallback<FieldState["perform"]>(async (step) => {
+    const c = clientRef.current;
+    if (!c) return;
+    await step(c);
+    await refreshView(c);
+    void sync(true);
+  }, [refreshView, sync]);
+
+  /**
+   * Kept on the phone's disk before anything names it, and hashed there, so
+   * the record of the customer's yes and the image of their signature cannot
+   * be separated by a dead battery.
+   */
+  const keepDrawnSignature = useCallback<FieldState["keepDrawnSignature"]>(async (dataUrl) => {
+    const png = pngFromDataUrl(dataUrl);
+    if (!png) return { problem: "The signature could not be saved. Ask them to sign again." };
+    const uploadId = Crypto.randomUUID();
+    try {
+      return { uploadId, ...(await keepSignature(png, uploadId)) };
+    } catch {
+      return { problem: "The signature could not be kept on this phone. Ask them to sign again." };
+    }
+  }, []);
+
+  /** The lender's link, asked for now or not at all, like the card link. */
+  const financingLink = useCallback<FieldState["financingLink"]>(async (visitId, how) => {
+    const c = clientRef.current;
+    if (!c) return "Not signed in.";
+    try {
+      const link = await c.api.financingLink(visitId, how === "text", Crypto.randomUUID());
+      if (how === "share" && link.url) {
+        await Share.share({ message: `Apply to pay ${formatAmount(link.amount)} over time with ${link.lender}: ${link.url}` });
+        return `A link to apply with ${link.lender}. The lender decides, and the office sees it once the loan is funded.`;
+      }
+      if (link.texted) return `Texted them a link to apply with ${link.lender} for ${formatAmount(link.amount)}.`;
+      return link.reason ?? "The link was made but not texted. Share it instead.";
+    } catch (error) {
+      const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
+      return offline
+        ? "No signal, so no financing link. Try again when you have a signal."
+        : error instanceof Error ? error.message : "The link could not be made.";
+    }
+  }, []);
+
+  const ask = useCallback<FieldState["ask"]>(async (question, visitId) => {
+    const c = clientRef.current;
+    if (!c) return { problem: "Not signed in." };
+    try {
+      return await c.api.askAssistant(question, visitId, Crypto.randomUUID());
+    } catch (error) {
+      const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
+      return {
+        problem: offline
+          ? "No signal, so the assistant cannot look. Try again when you have a signal."
+          : error instanceof Error ? error.message : "The assistant could not answer.",
+      };
+    }
+  }, []);
+
   const value = useMemo<FieldState>(() => ({
-    status, session, view, syncing, report, signInEnded, push,
+    status, session, view, syncing, report, signInEnded, push, locationPermission: permission,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
-    resolve, onMyWay, paymentLink,
-  }), [status, session, view, syncing, report, signInEnded, push, signIn, requestCode, signInWithCode, signOut,
-    sync, record, takePhoto, saveSignature, resolve, onMyWay, paymentLink]);
+    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask,
+  }), [status, session, view, syncing, report, signInEnded, push, permission, signIn, requestCode, signInWithCode, signOut,
+    sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
+    perform, keepDrawnSignature, financingLink, ask]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

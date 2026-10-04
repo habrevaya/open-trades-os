@@ -17,11 +17,10 @@ export async function loadSlots(input: {
   slug: string;
   serviceId: string;
 }): Promise<Slot[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  /** No `from`: the service starts at today where the company is, which this server does not know. */
   const { slots } = await booking.availability(getDb(), {
     organizationSlug: input.slug,
     bookableServiceId: input.serviceId,
-    from: today,
     days: 21,
   });
   return slots;

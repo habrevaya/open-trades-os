@@ -408,12 +408,14 @@ export async function deleteRecordingIn(tx: Database, ctx: ServiceContext, callI
    * A transcript of the recording goes with it, in the same statement. The
    * words are the recording in another form, and a deletion that left them
    * would be a deletion of the sound only. A voicemail's transcript stays:
-   * deleting a call recording does not delete the message the caller left.
+   * deleting a call recording does not delete the message the caller left,
+   * and nor does it delete what the phone assistant heard, which is not of
+   * the recording.
    * One an integration sent, which cannot say what it was made from, goes
    * too: the safe reading of "delete the recording" is the one that leaves
    * no words of the conversation behind.
    */
-  const recordingTranscript = call.transcriptSource !== "voicemail";
+  const recordingTranscript = call.transcriptSource !== "voicemail" && call.transcriptSource !== "assistant";
   const [row] = await tx.update(schema.call).set({
     recordingUrl: null,
     recordingStorageKey: null,
@@ -474,7 +476,7 @@ export interface AttachTranscriptInput {
    * transcript itself. Null for one an integration sent: it is still kept,
    * and nothing here can say what it was made from.
    */
-  source?: "recording" | "voicemail" | null | undefined;
+  source?: "recording" | "voicemail" | "assistant" | null | undefined;
 }
 
 /**

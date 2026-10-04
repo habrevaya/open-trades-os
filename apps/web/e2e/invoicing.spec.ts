@@ -207,8 +207,8 @@ test("a customer's statement runs from what was owed to what is owed, and the pe
   await expect(statement.getByRole("region", { name: "Still open" })).toContainText(owed);
 
   // A period that ends before today's activity starts shows nothing in it, and owes nothing at its end.
-  await owner.getByLabel("From").fill("2020-01-01");
-  await owner.getByLabel("To").fill("2020-01-31");
+  await owner.getByLabel("From", { exact: true }).fill("2020-01-01");
+  await owner.getByLabel("To", { exact: true }).fill("2020-01-31");
   await owner.getByRole("button", { name: "Show" }).click();
   await expect(owner).toHaveURL(/from=2020-01-01&to=2020-01-31/);
   await expect(activity).toContainText("Nothing charged, paid or credited in this period.");

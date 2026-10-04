@@ -69,14 +69,14 @@ import { within } from "./workflow-schedule";
  * absent from the row, and pretending otherwise by hashing it would simply
  * mean no endpoint could ever be signed.
  *
- * What that buys the rest of the file is a rule with no exceptions: the
- * secret is returned exactly once, in the return value of `register`, and
- * `shape` below is the only way a row leaves this file. `shape` does not
- * take `secretRef` from the row and there is no code path that does, so a
- * list, a read or an update cannot leak it even by accident. An operator who
- * loses it is in the same position as one who loses an app token: they
- * register a new endpoint, which is the same action they would take if it
- * leaked.
+ * What that buys the rest of the file is a rule with no exceptions: a
+ * secret is returned exactly once, when it is made, by `register` or by
+ * `rotateSecret`, and `shape` below is the only way a row leaves this file.
+ * `shape` takes neither secret column from the row and there is no code path
+ * that does, so a list, a read or an update cannot leak one even by accident.
+ * An operator who loses it rotates, which is the same action they would take
+ * if it leaked: with no overlap when it leaked, and with one when it was
+ * merely lost and the receiver still holds it.
  *
  * The column comment says "stored encrypted", which is a deployment
  * property rather than something this file can assert. It is stated here so
@@ -131,6 +131,46 @@ export function signDelivery(input: {
 }
 
 /**
+ * THE SIGNATURE HEADER, WHILE A ROTATION OVERLAPS.
+ *
+ * Outside a rotation the header holds one signature, exactly as it always
+ * has. During the overlap an operator chose when rotating, it holds two,
+ * separated by a comma, newest first: one made with the new secret and one
+ * with the old. A receiver accepts the delivery when any one of them matches
+ * the secret it holds, which is what lets the person who runs the receiver
+ * switch to the new secret on their own day rather than at the moment of the
+ * rotation.
+ *
+ * A comma, because a hex signature never contains one and the format is the
+ * one Stripe receivers already know. A receiver comparing the whole header
+ * against one value will refuse deliveries for the length of the overlap, and
+ * the rotation screen says so before anybody presses the button.
+ */
+export function signatureHeader(input: {
+  secrets: readonly string[]; body: string; timestamp: number;
+}): { signature: string; timestamp: string } {
+  const timestamp = String(input.timestamp);
+  const signature = input.secrets
+    .map((secret) => signDelivery({ secret, body: input.body, timestamp: input.timestamp }).signature)
+    .join(",");
+  return { signature, timestamp };
+}
+
+/**
+ * The secrets that sign a delivery made at `at`: the current one, and the one
+ * before it while its overlap lasts.
+ */
+export function signingSecrets(
+  endpoint: { secretRef: string; previousSecretRef: string | null; previousSecretExpiresAt: Date | null },
+  at: Date,
+): string[] {
+  const overlap = endpoint.previousSecretRef !== null
+    && endpoint.previousSecretExpiresAt !== null
+    && endpoint.previousSecretExpiresAt.getTime() > at.getTime();
+  return overlap ? [endpoint.secretRef, endpoint.previousSecretRef!] : [endpoint.secretRef];
+}
+
+/**
  * How far out of date a delivery may be before a receiver should refuse it.
  *
  * Five minutes, matching the inbound webhook. Long enough for clock drift on
@@ -159,9 +199,19 @@ export function verifyDelivery(input: {
     createHmac("sha256", input.secret).update(`${input.timestamp}.${input.body}`).digest("hex"),
     "utf8",
   );
-  const provided = Buffer.from(input.signature, "utf8");
-  if (expected.length !== provided.length) return false;
-  return timingSafeEqual(expected, provided);
+  /**
+   * Any one of the signatures in the header, because during a rotation's
+   * overlap there are two and the receiver holds one of the two secrets.
+   * Every candidate is compared, rather than stopping at the first match, so
+   * the time taken does not say which position matched.
+   */
+  let matched = false;
+  for (const candidate of input.signature.split(",")) {
+    const provided = Buffer.from(candidate.trim(), "utf8");
+    if (expected.length !== provided.length) continue;
+    if (timingSafeEqual(expected, provided)) matched = true;
+  }
+  return matched;
 }
 
 /* --------------------------------------------------------------- the rows */
@@ -190,6 +240,13 @@ export interface Endpoint {
   active: boolean;
   /** Consecutive failures. Reset to zero by a delivery that succeeds. */
   failureCount: number;
+  /** When the current signing secret was made, by registration or by rotation. */
+  secretRotatedAt: string | null;
+  /**
+   * Until when the secret before the last rotation still signs as well, or
+   * null when only the current one does. Never the secret itself.
+   */
+  previousSecretExpiresAt: string | null;
   /**
    * The last time a delivery was ATTEMPTED, successful or not.
    *
@@ -212,6 +269,12 @@ function shape(row: typeof schema.webhookEndpoint.$inferSelect): Endpoint {
     events: row.events ?? [],
     active: row.active,
     failureCount: row.failureCount,
+    secretRotatedAt: (row.secretRotatedAt ?? row.createdAt).toISOString(),
+    previousSecretExpiresAt:
+      row.previousSecretRef !== null && row.previousSecretExpiresAt !== null
+        && row.previousSecretExpiresAt.getTime() > Date.now()
+        ? row.previousSecretExpiresAt.toISOString()
+        : null,
     lastDeliveryAt: row.lastDeliveryAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -412,6 +475,7 @@ export async function register(
       organizationId: ctx.actor.organizationId,
       url,
       secretRef: secret,
+      secretRotatedAt: new Date(),
       events: names,
       active: input.active ?? true,
     }).returning();
@@ -498,6 +562,91 @@ export async function update(
       tx, ctx, "webhook.updated", "webhook_endpoint", input.id, shape(before), shape(after!),
     );
     return shape(after!);
+  });
+}
+
+/**
+ * The longest an old secret may go on signing after a rotation. A week covers
+ * the person who runs the receiver being on holiday; longer, and the old
+ * secret is not being retired, it is being kept.
+ */
+export const MAX_OVERLAP_HOURS = 168;
+
+/**
+ * Give an endpoint a new signing secret, and hand it back once.
+ *
+ * WITH AN OVERLAP, because the person rotating and the person who updates the
+ * receiver are usually not the same person and rarely act in the same minute.
+ * For `overlapHours` every delivery is signed with both secrets, so the
+ * receiver keeps accepting deliveries whichever one it holds, and moves to the
+ * new one whenever its owner gets to it. Zero means the old secret stops
+ * signing now, which is the right answer when the old one leaked.
+ *
+ * A second rotation during an overlap replaces the old secret with the one
+ * that was current, so the one before that stops signing at once: two secrets
+ * sign at most, never three.
+ *
+ * A REPLAY RETURNS THE SAME SECRET rather than rotating twice. The secret is
+ * stored in plaintext for signing (see the top of this file), so a retry
+ * after a lost response can be handed the value the first call made, which
+ * is the one an operator then pastes into their receiver. If the endpoint has
+ * been rotated again since, the replay is refused rather than handing out a
+ * secret the original call did not make.
+ */
+export async function rotateSecret(
+  ctx: ServiceContext, input: { id: string; overlapHours?: number | undefined },
+): Promise<Endpoint & { secret: string }> {
+  const overlapHours = input.overlapHours ?? 24;
+  if (!Number.isInteger(overlapHours) || overlapHours < 0 || overlapHours > MAX_OVERLAP_HOURS) {
+    throw new ConflictError(`The overlap is a whole number of hours from 0 to ${MAX_OVERLAP_HOURS}.`);
+  }
+  return guardedWrite(ctx, "integration:write", async (tx) => {
+    const before = await load(tx, ctx.actor.organizationId, input.id);
+
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ response: schema.integrationEvent.responsePayload })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.eventType, "webhook.secret_rotated"),
+          eq(schema.integrationEvent.entityId, input.id),
+        )).limit(1);
+      if (seen) {
+        const rotatedAt = String((seen.response ?? {})["rotatedAt"] ?? "");
+        if (before.secretRotatedAt?.toISOString() === rotatedAt) {
+          return { ...shape(before), secret: before.secretRef };
+        }
+        throw new ConflictError(
+          "This endpoint has been given another secret since that request, so its secret cannot be shown again.",
+        );
+      }
+    }
+
+    const now = new Date();
+    const secret = newSecret();
+    const [after] = await tx.update(schema.webhookEndpoint).set({
+      secretRef: secret,
+      previousSecretRef: overlapHours > 0 ? before.secretRef : null,
+      previousSecretExpiresAt: overlapHours > 0 ? new Date(now.getTime() + overlapHours * 3_600_000) : null,
+      secretRotatedAt: now,
+      updatedAt: now,
+    }).where(eq(schema.webhookEndpoint.id, input.id)).returning();
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "outbound", provider: "api", eventType: "webhook.secret_rotated",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "webhook_endpoint", entityId: input.id,
+        responsePayload: { rotatedAt: now.toISOString() },
+      });
+    }
+
+    /** Neither secret is in the audit line, for the reason `register` gives. */
+    await audit(tx, ctx, "webhook.secret_rotated", "webhook_endpoint", input.id, shape(before), {
+      ...shape(after!), overlapHours,
+    });
+    return { ...shape(after!), secret };
   });
 }
 
@@ -921,8 +1070,8 @@ async function sendOne(
 ): Promise<Sent> {
   const at = clock();
   const body = JSON.stringify(envelope(organizationId, event));
-  const { signature, timestamp } = signDelivery({
-    secret: endpoint.secretRef, body, timestamp: at.getTime(),
+  const { signature, timestamp } = signatureHeader({
+    secrets: signingSecrets(endpoint, at), body, timestamp: at.getTime(),
   });
 
   const started = performance.now();
@@ -1647,6 +1796,9 @@ export const handlers = {
 
   listWebhookEndpoints: async (ctx: ServiceContext): Promise<{ endpoints: Endpoint[] }> =>
     ({ endpoints: await list(ctx) }),
+
+  rotateWebhookSecret: (ctx: ServiceContext, input: { id: string; overlapHours?: number | undefined }) =>
+    rotateSecret(ctx, input),
 
   updateWebhookEndpoint: (
     ctx: ServiceContext,

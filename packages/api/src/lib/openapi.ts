@@ -63,6 +63,8 @@ export interface OperationObject {
   "x-authorization": Authorization;
   /** Every permission the caller must hold. Empty on grant and public routes, where nobody holds one. */
   "x-permissions": string[];
+  /** Present and true on a bulk operation that can be asked what it would change. */
+  "x-dry-run"?: boolean;
 }
 
 export type PathItemObject = {
@@ -265,6 +267,23 @@ export function buildOpenApiDocument(
       });
     }
 
+    /**
+     * The dry run is a header for the same reason the key is: it is about
+     * how to run the request, not what the request is. Documented only where
+     * the route declares one, because the dispatcher refuses it everywhere
+     * else.
+     */
+    if (route.dryRun === true && authorization === "session") {
+      parameters.push({
+        name: "x-otos-dry-run",
+        in: "header",
+        required: false,
+        description:
+          "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+        schema: { type: "string", enum: ["true"] },
+      });
+    }
+
     const operation: OperationObject = {
       operationId: name,
       summary: route.summary,
@@ -283,6 +302,7 @@ export function buildOpenApiDocument(
       security: securityFor(authorization),
       "x-authorization": authorization,
       "x-permissions": [...route.permissions],
+      ...(route.dryRun === true ? { "x-dry-run": true } : {}),
     };
 
     const allowed = (servedAt.get(route.path) ?? []).map((m) => m.toUpperCase()).sort();

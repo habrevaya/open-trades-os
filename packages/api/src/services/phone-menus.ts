@@ -6,6 +6,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { replayed, remember } from "./once";
+import { settingWithin } from "./agents";
 
 /**
  * PHONE MENUS, RING GROUPS AND WHO ANSWERS
@@ -51,12 +52,17 @@ export async function directoryFor(tx: Database, organizationId: string): Promis
     .from(schema.businessUnit)
     .where(and(eq(schema.businessUnit.organizationId, organizationId), eq(schema.businessUnit.active, true)));
   const people = await peopleOf(tx, organizationId);
+  const queues = await tx.select({ id: schema.callQueue.id, name: schema.callQueue.name })
+    .from(schema.callQueue).where(eq(schema.callQueue.organizationId, organizationId));
+  const assistant = await settingWithin(tx, organizationId, "voice");
 
   return {
     menus: new Map(menus.map((m) => [m.id, m.name])),
     ringGroups: new Map(groups.map((g) => [g.id, g.name])),
     people: new Map(people.map((p) => [p.userId, { name: p.name, phone: p.phone }])),
     rotas: new Map(units.map((u) => [u.id, u.name])),
+    queues: new Map(queues.map((q) => [q.id, q.name])),
+    assistant: assistant.enabled && assistant.runAsUserId !== null,
   };
 }
 
@@ -259,6 +265,16 @@ async function usedBy(tx: Database, organizationId: string, target: Destination)
   for (const group of groups) {
     if (target.kind === "ring_group" && group.id === target.id) continue;
     if (same(group.noAnswerTo as Destination)) found.push(`the ${group.name} ring group`);
+  }
+  /** A waiting line rings its group's phones, and sends callers on to wherever it overflows to. */
+  const lines = await tx.select().from(schema.callQueue).where(eq(schema.callQueue.organizationId, organizationId));
+  for (const line of lines) {
+    const rings = target.kind === "ring_group" && line.ringGroupId === target.id;
+    if (rings || same(line.overflowTo as Destination)) found.push(`the ${line.name} waiting line`);
+  }
+  if (target.kind === "ring_group") {
+    const assistant = await settingWithin(tx, organizationId, "voice");
+    if (assistant.voice.transferRingGroupId === target.id) found.push("the phone assistant");
   }
   if (target.kind === "ivr") {
     const numbers = await tx.select({ e164: schema.phoneNumber.e164 }).from(schema.phoneNumber)
@@ -476,6 +492,8 @@ export async function choices(ctx: ServiceContext) {
       ringGroups: list(directory.ringGroups),
       menus: list(directory.menus),
       branches: list(directory.rotas),
+      queues: list(directory.queues),
+      assistant: directory.assistant,
     };
   });
 }

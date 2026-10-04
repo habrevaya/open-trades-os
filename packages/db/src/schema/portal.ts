@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, integer, index, timestamp, date, time, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { pk, timestamps, money, currency, rate } from "./_shared";
-import { organization, businessUnit, user } from "./tenancy";
-import { customer, property } from "./crm";
+import { organization, businessUnit, user, technician } from "./tenancy";
+import { customer, property, contact } from "./crm";
 import { job, jobType, visit } from "./work";
 import { territory } from "./scheduling";
 import { estimate } from "./billing";
@@ -44,6 +44,19 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
    * bare id in a URL with no page behind it.
    */
   "deposit",
+  /**
+   * View and approve or decline one change order on a project. Its own scope
+   * rather than an estimate's, because approving one changes a contract
+   * that already exists, and the page has to say so in those words.
+   */
+  "change_order",
+  /**
+   * Every invoice one payer owes: a warranty company, a carrier, a
+   * facilities client's accounts payable. The subject is the payer's own
+   * customer record, and the page lists what is addressed to them or paid by
+   * them and nothing else.
+   */
+  "payer",
 ]);
 
 /**
@@ -90,6 +103,18 @@ export const portalSignIn = pgTable("portal_sign_in", {
   endedReason: text("ended_reason"),
   /** Who it signed in as, once it did. */
   customerId: uuid("customer_id").references(() => customer.id, { onDelete: "set null" }),
+  /**
+   * The contact the address belonged to, when a contact signed in as the
+   * customer rather than the customer themselves.
+   */
+  contactId: uuid("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  /**
+   * The customers the address was on when the code was asked for. What lets
+   * the office see a customer's failed tries, which never get as far as
+   * `customer_id`; empty for an address nobody has. Kept as it was then,
+   * because the question is what happened, not who has the address today.
+   */
+  matchedCustomerIds: uuid("matched_customer_ids").array().notNull().default(sql`'{}'::uuid[]`),
   /** What became of the message: `queued`, or why it could not go. Never shown to whoever asked. */
   delivery: text("delivery"),
   /** The caller's own key, so a double tap on "Send me a code" sends one code. */
@@ -143,10 +168,26 @@ export const portalGrant = pgTable("portal_grant", {
    * address on the customer's own record.
    */
   signInId: uuid("sign_in_id").references(() => portalSignIn.id, { onDelete: "set null" }),
+  /**
+   * The contact this grant acts for, when a contact signed in as the
+   * customer (and on every narrower link minted from that sign in). The
+   * customer is still `customer_id`: what they see is the customer's
+   * account, and what they do is recorded as this person.
+   */
+  contactId: uuid("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  /**
+   * Why `revoked_at` was set on a sign in: `signed_out` by the customer,
+   * `office` when somebody in the office ended it, `access_removed` when the
+   * office took a contact's sign in away. Null for a link, which says
+   * nothing more than that it was withdrawn or spent.
+   */
+  revokedReason: text("revoked_reason"),
   ...timestamps,
 }, (t) => ({
   hashIdx: uniqueIndex("portal_grant_token_idx").on(t.tokenHash),
   subjectIdx: index("portal_grant_subject_idx").on(t.organizationId, t.scope, t.subjectId),
+  /** The office's view of a customer's sign ins: theirs, newest first. */
+  customerIdx: index("portal_grant_customer_idx").on(t.organizationId, t.customerId, t.createdAt),
 }));
 
 /**
@@ -292,6 +333,13 @@ export const bookingRequest = pgTable("booking_request", {
    */
   connectedAppId: uuid("connected_app_id").references(() => connectedApp.id, { onDelete: "set null" }),
 
+  /**
+   * The technician a returning customer asked for, from their own signed in
+   * account. A wish rather than an assignment: the slot was offered from
+   * their free time, and booking the request with its visit puts them on it
+   * when they are still free and qualified on the day.
+   */
+  preferredTechnicianId: uuid("preferred_technician_id").references(() => technician.id, { onDelete: "set null" }),
   depositId: uuid("deposit_id"),
   declineReason: text("decline_reason"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),

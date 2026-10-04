@@ -7,7 +7,7 @@ import type { z } from "zod";
 */
 import type {
   FieldSnapshot, SignInResult, RegisterResult, OwedUpload, StoreUploadResult, ArrivalNoticeResult,
-  CodeRequestResult, PaymentLinkResult,
+  CodeRequestResult, PaymentLinkResult, FinancingLinkResult, AssistantAnswer,
 } from "@opentradesos/field-client/wire";
 import type { SyncResponse, Transport } from "@opentradesos/field-client/queue";
 import { PUSH_CHANNELS } from "@opentradesos/field-client/wire";
@@ -15,6 +15,7 @@ import { ANDROID_CHANNEL } from "../src/push/provider";
 import {
   getFieldSnapshot, signInDevice, registerDevice, listPendingUploads, storeUpload,
   sendArrivalNotice, syncOperations, requestSignInCode, signInWithCode, visitPaymentLink,
+  visitFinancingLink, askFieldAssistant,
 } from "../src/contracts";
 
 /**
@@ -48,6 +49,8 @@ describe("the field client's wire types", () => {
     const codeSent = {} as Out<typeof requestSignInCode>;
     const codeSignIn = {} as Out<typeof signInWithCode>;
     const link = {} as Out<typeof visitPaymentLink>;
+    const lender = {} as Out<typeof visitFinancingLink>;
+    const asked = {} as Out<typeof askFieldAssistant>;
 
     expect(accepts<FieldSnapshot>(snapshot)).toBe(true);
     expect(accepts<SignInResult>(signIn)).toBe(true);
@@ -59,6 +62,8 @@ describe("the field client's wire types", () => {
     expect(accepts<CodeRequestResult>(codeSent)).toBe(true);
     expect(accepts<SignInResult>(codeSignIn)).toBe(true);
     expect(accepts<PaymentLinkResult>(link)).toBe(true);
+    expect(accepts<FinancingLinkResult>(lender)).toBe(true);
+    expect(accepts<AssistantAnswer>(asked)).toBe(true);
   });
 
   it("send notices to the Android channels the app creates", () => {

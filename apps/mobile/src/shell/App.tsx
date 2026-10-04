@@ -7,22 +7,35 @@ import { SignInScreen } from "../screens/SignInScreen";
 import { DayScreen } from "../screens/DayScreen";
 import { VisitScreen } from "../screens/VisitScreen";
 import { SignatureScreen } from "../screens/SignatureScreen";
+import { InspectionScreen } from "../screens/InspectionScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
+import { EstimateScreen } from "../screens/EstimateScreen";
+import { PresentScreen } from "../screens/PresentScreen";
+import { InvoiceScreen } from "../screens/InvoiceScreen";
+import { TasksScreen } from "../screens/TasksScreen";
+import { AssistantScreen } from "../screens/AssistantScreen";
 import { color } from "../components/theme";
 import { onNoticeTapped } from "../platform/notifications";
 
 /**
- * Five screens and a stack, held in state rather than in a navigation
- * library. The app is a list, a detail, a signature pad and a list of
- * problems; a router would be the largest dependency in it and do nothing
- * the back button below does not.
+ * Eleven screens and a stack, held in state rather than in a navigation
+ * library. The app is a list, a detail, a signature pad, an inspection, a
+ * list of problems, the estimate builder, the customer's screen, the
+ * invoice, the office's tasks and the assistant; a router would be the
+ * largest dependency in it and do nothing the back button below does not.
  */
 export type Route =
   | { name: "day" }
   | { name: "visit"; visitId: string }
   | { name: "signature"; visitId: string }
+  | { name: "inspection"; visitId: string; programId: string }
   | { name: "outbox" }
-  | { name: "sign-in-again" };
+  | { name: "sign-in-again" }
+  | { name: "estimate-new"; visitId: string }
+  | { name: "present"; visitId: string; estimateId: string }
+  | { name: "invoice"; visitId: string }
+  | { name: "tasks" }
+  | { name: "assistant"; visitId: string | null };
 
 export interface Navigate {
   push(route: Route): void;
@@ -69,8 +82,14 @@ function Screens() {
   switch (route.name) {
     case "visit": return <VisitScreen visitId={route.visitId} nav={nav} />;
     case "signature": return <SignatureScreen visitId={route.visitId} nav={nav} />;
+    case "inspection": return <InspectionScreen visitId={route.visitId} programId={route.programId} nav={nav} />;
     case "outbox": return <OutboxScreen nav={nav} />;
     case "sign-in-again": return <SignInScreen again onDone={nav.back} />;
+    case "estimate-new": return <EstimateScreen visitId={route.visitId} nav={nav} />;
+    case "present": return <PresentScreen visitId={route.visitId} estimateId={route.estimateId} nav={nav} />;
+    case "invoice": return <InvoiceScreen visitId={route.visitId} nav={nav} />;
+    case "tasks": return <TasksScreen nav={nav} />;
+    case "assistant": return <AssistantScreen visitId={route.visitId} nav={nav} />;
     default: return <DayScreen nav={nav} />;
   }
 }

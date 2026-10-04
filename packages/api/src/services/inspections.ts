@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { inspection as insp, time } from "@opentradesos/core";
+import { assertCan, inspection as insp, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
 } from "./context";
+import * as estimates from "./estimates";
 
 /**
  * INSPECTIONS AND THE DEFICIENCY BACKLOG
@@ -247,21 +248,46 @@ export async function programs(ctx: ServiceContext) {
  * to a buyer, gets shown to an insurer, and asserts that somebody looked at
  * things nobody looked at.
  */
-export async function record(
-  ctx: ServiceContext,
-  input: {
-    programId: string;
-    propertyId: string;
-    customerId: string;
-    answers: insp.RecordedAnswer[];
-    jobId?: string | null;
-    visitId?: string | null;
-    inspectorName?: string | null;
-    inspectorLicense?: string | null;
-    performedOn?: string;
-  },
-) {
-  return guardedWrite(ctx, "compliance:write", async (tx) => {
+export interface RecordInput {
+  /**
+   * The inspection's own id, when the caller made one. The phone does, offline,
+   * because a signature taken on the same screen has to name the inspection
+   * before the server has heard of it. A second filing under an id that
+   * exists returns the first rather than filing twice.
+   */
+  id?: string | undefined;
+  programId: string;
+  propertyId: string;
+  customerId: string;
+  answers: insp.RecordedAnswer[];
+  jobId?: string | null;
+  visitId?: string | null;
+  inspectorName?: string | null;
+  inspectorLicense?: string | null;
+  performedOn?: string;
+  /** Who signed the report off, and the signature's upload from the phone. */
+  signedByName?: string | null;
+  signedAt?: Date | null;
+  signatureUploadId?: string | null;
+}
+
+export async function record(ctx: ServiceContext, input: RecordInput) {
+  return guardedWrite(ctx, "compliance:write", (tx) => recordIn(tx, ctx, input));
+}
+
+/**
+ * The filing itself, inside a transaction somebody else opened. The field
+ * sync files an inspection inside its own batch, in a savepoint, after
+ * checking `compliance:write` itself; everything else comes through `record`.
+ */
+export async function recordIn(tx: Database, ctx: ServiceContext, input: RecordInput) {
+  {
+    if (input.id) {
+      const [existing] = await tx.select().from(schema.inspection)
+        .where(and(eq(schema.inspection.id, input.id), eq(schema.inspection.organizationId, ctx.actor.organizationId)))
+        .limit(1);
+      if (existing) return summaryOf(tx, existing);
+    }
     const program = await loadProgram(tx, ctx.actor.organizationId, input.programId);
 
     const assessment = insp.assessInspection(templateFor(program), input.answers);
@@ -271,6 +297,7 @@ export async function record(
     const performedOn = input.performedOn ?? time.dateIn(new Date(), zone);
 
     const [row] = await tx.insert(schema.inspection).values({
+      ...(input.id ? { id: input.id } : {}),
       organizationId: ctx.actor.organizationId,
       programId: program.id,
       /**
@@ -290,6 +317,25 @@ export async function record(
       nextDueOn: program.frequencyMonths
         ? addMonths(performedOn, program.frequencyMonths)
         : null,
+      /**
+       * The checkpoints and the answers, kept with the inspection, so the
+       * report printed next year is printed from what was asked and what was
+       * said, not from the programme as somebody has since revised it.
+       */
+      checkpoints: program.checkpoints,
+      answers: input.answers.map((answer) => ({
+        itemKey: answer.itemKey,
+        value: { ...answer.value } as Record<string, unknown> & { kind: string },
+        at: answer.at.toISOString(),
+        by: answer.by,
+        ...(answer.note !== undefined ? { note: answer.note } : {}),
+        ...(answer.photoIds !== undefined ? { photoIds: [...answer.photoIds] } : {}),
+        ...(answer.equipmentId !== undefined ? { equipmentId: answer.equipmentId } : {}),
+      })),
+      statement: assessment.statement,
+      signedByName: input.signedByName?.trim() || null,
+      signedAt: input.signedByName?.trim() ? input.signedAt ?? new Date() : null,
+      signatureUploadId: input.signatureUploadId ?? null,
     }).returning();
 
     /**
@@ -401,13 +447,51 @@ export async function record(
       /** Core's own sentence, not one reassembled here. */
       statement: assessment.statement,
       complete: assessment.complete,
-      unanswered: assessment.unanswered,
-      optionalSkipped: assessment.optionalSkipped,
-      counts: assessment.counts,
+      unanswered: [...assessment.unanswered],
+      optionalSkipped: [...assessment.optionalSkipped],
+      counts: assessment.counts as Record<string, number>,
       nextDueOn: row!.nextDueOn,
       deficiencies: assessment.deficiencies.length,
     };
+  }
+}
+
+/**
+ * What a replayed filing gets back: the same summary, recomputed from what
+ * was kept, so a phone retrying after a lost response sees what it filed.
+ */
+async function summaryOf(tx: Database, row: typeof schema.inspection.$inferSelect) {
+  const template = templateFor({
+    name: "", standard: null,
+    checkpoints: row.checkpoints ?? [],
   });
+  const assessment = insp.assessInspection(template, (row.answers ?? []).map(toRecorded));
+  const [{ count } = { count: 0 }] = await tx.select({ count: sql<number>`count(*)::int` })
+    .from(schema.deficiency).where(eq(schema.deficiency.inspectionId, row.id));
+  return {
+    id: row.id,
+    result: row.result,
+    statement: row.statement ?? (assessment.ok ? assessment.statement : ""),
+    complete: assessment.ok ? assessment.complete : false,
+    unanswered: assessment.ok ? [...assessment.unanswered] : [],
+    optionalSkipped: assessment.ok ? [...assessment.optionalSkipped] : [],
+    counts: (assessment.ok ? assessment.counts : {}) as Record<string, number>,
+    nextDueOn: row.nextDueOn,
+    deficiencies: Number(count),
+  };
+}
+
+/** A stored answer back into core's shape. */
+function toRecorded(answer: typeof schema.inspection.$inferSelect["answers"][number]): insp.RecordedAnswer {
+  return {
+    itemKey: answer.itemKey,
+    value: answer.value as unknown as insp.AnswerValue,
+    at: new Date(answer.at),
+    by: answer.by,
+    ...(answer.note !== undefined ? { note: answer.note } : {}),
+    ...(answer.photoIds !== undefined ? { photoIds: answer.photoIds } : {}),
+    ...(answer.equipmentId !== undefined ? { equipmentId: answer.equipmentId } : {}),
+  };
 }
 
 function explainAssessment(refusal: insp.AssessmentRefusal): string {
@@ -466,6 +550,8 @@ export async function backlog(
 ) {
   return guardedRead(ctx, "compliance:read", async (tx) => {
     const now = input.now ?? new Date();
+    /** For a fault with no found date, the company's day it was written down. */
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
 
     const rows = await tx.select({
       deficiency: schema.deficiency,
@@ -496,7 +582,7 @@ export async function backlog(
       const standing = insp.backlogStanding({
         itemKey: deficiency.checkpointKey ?? deficiency.id,
         severity,
-        foundAt: new Date(`${deficiency.foundOn ?? deficiency.createdAt.toISOString().slice(0, 10)}T00:00:00Z`),
+        foundAt: new Date(`${deficiency.foundOn ?? time.dateIn(deficiency.createdAt, zone)}T00:00:00Z`),
       }, now);
 
       return {
@@ -514,6 +600,10 @@ export async function backlog(
         correctByOn: deficiency.correctByOn,
         ageDays: standing.ageDays,
         overdue: standing.overdue,
+        /** The quote it became, once somebody quoted it. */
+        estimateId: deficiency.estimateId,
+        /** Whether the checkpoint declared a repair, so quoting it needs no typed price. */
+        hasRemedy: deficiency.remedies.length > 0,
         /** Core's sentence. For the list, not for a chart. */
         statement: standing.statement,
       };
@@ -637,6 +727,383 @@ export async function proposal(ctx: ServiceContext, input: { propertyId: string 
   });
 }
 
+/* ------------------------------------------------------------ the report */
+
+export interface ReportItem {
+  key: string;
+  prompt: string;
+  kind: "pass_fail" | "reading";
+  unit: string | null;
+  /** "350 to 450 psi", for a reading. */
+  range: string | null;
+  /** What was recorded, as words: "Pass", "412 psi", "Not applicable: no meter on site". */
+  answer: string | null;
+  /**
+   * What it came to. `finding` carries a severity; `borderline` is a reading
+   * inside its range and near the edge of it, which is NOT a failure.
+   */
+  verdict: "pass" | "borderline" | "finding" | "not_applicable" | "not_answered";
+  severity: string | null;
+  note: string | null;
+  by: string | null;
+  at: string | null;
+  equipmentId: string | null;
+  photos: { id: string; storageKey: string | null }[];
+}
+
+export interface InspectionReport {
+  id: string;
+  organizationName: string;
+  program: {
+    id: string | null; name: string; standard: string | null; reportAudience: string;
+    authorityName: string | null; version: number | null;
+  };
+  customer: { id: string; name: string };
+  property: { id: string; address: string };
+  performedOn: string | null;
+  result: string | null;
+  statement: string | null;
+  inspectorName: string | null;
+  inspectorLicense: string | null;
+  nextDueOn: string | null;
+  submittedAt: Date | null;
+  submissionReference: string | null;
+  items: ReportItem[];
+  deficiencies: {
+    id: string; severity: insp.Severity; label: string; recordedSeverity: string; description: string;
+    code: string | null; correctByOn: string | null; status: string; estimateId: string | null;
+  }[];
+  signature: { name: string; at: Date | null; storageKey: string | null } | null;
+  /**
+   * False for an inspection filed before its checkpoints were kept with it.
+   * Its prompts then come from the programme as it is now, and the report
+   * says so rather than passing them off as what was asked.
+   */
+  checkpointsKept: boolean;
+}
+
+/**
+ * THE INSPECTION REPORT, FROM THE DATA HELD.
+ *
+ * Every checkpoint as it was asked, what was recorded against it, the range
+ * a reading was judged against and what it came to, the findings with their
+ * severity, code and correction date, the photographs, the inspector and
+ * their licence, the signature, and when it is next due. The same document
+ * whoever reads it; a programme whose report goes to an authority prints the
+ * authority's name and the standard at the top, because that is the reader
+ * the report is for.
+ *
+ * Rendered from the checkpoints and answers frozen on the inspection, so a
+ * report reprinted after the programme was revised still says what was
+ * asked. Each item's verdict is core's assessment again, not a word stored
+ * at filing, so the report and the backlog cannot disagree about a reading.
+ *
+ * WHAT IT IS NOT: an authority's own form. A fire marshal's office that
+ * insists on its form gets the same facts copied onto it; there is no per
+ * authority formatter, and the module doc says so.
+ */
+export async function report(ctx: ServiceContext, input: { id: string }): Promise<InspectionReport> {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const [row] = await tx.select().from(schema.inspection)
+      .where(and(eq(schema.inspection.id, input.id), eq(schema.inspection.organizationId, ctx.actor.organizationId)))
+      .limit(1);
+    if (!row) throw new NotFoundError("Inspection");
+
+    const [program] = row.programId
+      ? await tx.select().from(schema.inspectionProgram).where(eq(schema.inspectionProgram.id, row.programId)).limit(1)
+      : [];
+    const checkpoints = row.checkpoints ?? program?.checkpoints ?? [];
+    const template = templateFor({ name: program?.name ?? "", standard: program?.standard ?? null, checkpoints });
+    const answers = row.answers ?? [];
+    const assessment = insp.assessInspection(template, answers.map(toRecorded));
+
+    const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+      .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+    const [customer] = await tx.select({ id: schema.customer.id, name: schema.customer.name })
+      .from(schema.customer).where(eq(schema.customer.id, row.customerId)).limit(1);
+    const [property] = await tx.select().from(schema.property).where(eq(schema.property.id, row.propertyId)).limit(1);
+    const deficiencies = await tx.select().from(schema.deficiency)
+      .where(eq(schema.deficiency.inspectionId, row.id));
+
+    const photoIds = [...new Set(answers.flatMap((a) => [
+      ...(a.photoIds ?? []),
+      ...(a.value.kind === "photo" && Array.isArray(a.value["photoIds"]) ? a.value["photoIds"] as string[] : []),
+    ]))];
+    const signatureIds = row.signatureUploadId ? [row.signatureUploadId] : [];
+    const uploads = photoIds.length + signatureIds.length === 0 ? [] : await tx.select({
+      clientId: schema.fieldUpload.clientId, storageKey: schema.fieldUpload.storageKey,
+    }).from(schema.fieldUpload).where(inArray(schema.fieldUpload.clientId, [...photoIds, ...signatureIds]));
+    const stored = new Map(uploads.map((u) => [u.clientId, u.storageKey]));
+
+    const findings = assessment.ok ? new Map(assessment.deficiencies.map((d) => [d.itemKey, d])) : new Map();
+    const notApplicable = new Set(assessment.ok ? assessment.notApplicable : []);
+    const unanswered = new Set(assessment.ok ? [...assessment.unanswered, ...assessment.optionalSkipped] : []);
+    const byKey = new Map(answers.map((a) => [a.itemKey, a]));
+
+    const items: ReportItem[] = checkpoints.map((checkpoint) => {
+      const answer = byKey.get(checkpoint.key);
+      const reading = checkpoint.requiresReading === true;
+      const finding = findings.get(checkpoint.key) as insp.Deficiency | undefined;
+      const value = answer?.value;
+      let verdict: ReportItem["verdict"] = "pass";
+      if (notApplicable.has(checkpoint.key)) verdict = "not_applicable";
+      else if (unanswered.has(checkpoint.key) || !answer) verdict = "not_answered";
+      else if (finding && insp.SEVERITY[finding.severity].failsInspection) verdict = "finding";
+      else if (finding && reading) verdict = "borderline";
+      else if (finding) verdict = "finding";
+      return {
+        key: checkpoint.key,
+        prompt: checkpoint.label,
+        kind: reading ? "reading" : "pass_fail",
+        unit: checkpoint.unit ?? null,
+        range: reading && checkpoint.range ? insp.describeRange(checkpoint.range, checkpoint.unit ?? "") : null,
+        answer: value ? describeAnswer(value, checkpoint.unit ?? null) : null,
+        verdict,
+        severity: finding ? insp.SEVERITY[finding.severity].label : null,
+        note: answer?.note ?? null,
+        by: answer?.by ?? null,
+        at: answer?.at ?? null,
+        equipmentId: answer?.equipmentId ?? null,
+        photos: [
+          ...(answer?.photoIds ?? []),
+          ...(value?.kind === "photo" && Array.isArray(value["photoIds"]) ? value["photoIds"] as string[] : []),
+        ].map((id) => ({ id, storageKey: stored.get(id) ?? null })),
+      };
+    });
+
+    return {
+      id: row.id,
+      organizationName: org?.name ?? "",
+      program: {
+        id: program?.id ?? null,
+        name: program?.name ?? "Inspection",
+        standard: program?.standard ?? null,
+        reportAudience: program?.reportAudience ?? "customer",
+        authorityName: program?.authorityName ?? null,
+        version: row.programVersion,
+      },
+      customer: { id: row.customerId, name: customer?.name ?? "" },
+      property: {
+        id: row.propertyId,
+        address: property
+          ? [property.addressLine1, property.city, [property.state, property.postalCode].filter(Boolean).join(" ")]
+            .filter(Boolean).join(", ")
+          : "",
+      },
+      performedOn: row.performedOn,
+      result: row.result,
+      statement: row.statement ?? (assessment.ok ? assessment.statement : null),
+      inspectorName: row.inspectorName,
+      inspectorLicense: row.inspectorLicense,
+      nextDueOn: row.nextDueOn,
+      submittedAt: row.submittedAt,
+      submissionReference: row.submissionReference,
+      items,
+      deficiencies: deficiencies.map((d) => {
+        const severity = TO_CORE[d.severity] ?? "wear";
+        return {
+          id: d.id, severity, label: insp.SEVERITY[severity].label, recordedSeverity: d.severity,
+          description: d.description, code: d.code, correctByOn: d.correctByOn, status: d.status,
+          estimateId: d.estimateId,
+        };
+      }).sort((a, b) => insp.compareSeverity(a.severity, b.severity)),
+      signature: row.signedByName
+        ? { name: row.signedByName, at: row.signedAt, storageKey: row.signatureUploadId ? stored.get(row.signatureUploadId) ?? null : null }
+        : null,
+      checkpointsKept: row.checkpoints !== null,
+    };
+  });
+}
+
+/** An answer as the report prints it. */
+function describeAnswer(value: Record<string, unknown> & { kind: string }, unit: string | null): string {
+  switch (value.kind) {
+    case "pass_fail": return value["passed"] === true ? "Pass" : "Fail";
+    case "reading": return value["raw"] === null || value["raw"] === undefined || value["raw"] === ""
+      ? "No reading" : `${String(value["raw"])}${unit ? ` ${unit}` : ""}`;
+    case "note": return String(value["text"] ?? "");
+    case "count": return String(value["count"] ?? "");
+    case "photo": {
+      const count = Array.isArray(value["photoIds"]) ? value["photoIds"].length : 0;
+      return `${count} ${count === 1 ? "photo" : "photos"}`;
+    }
+    case "not_applicable": return `Not applicable: ${String(value["why"] ?? "")}`;
+    default: return "";
+  }
+}
+
+/** Inspections filed, newest first, for the list beside the backlog. */
+export async function recent(
+  ctx: ServiceContext, input: { propertyId?: string | undefined; visitId?: string | undefined; limit?: number | undefined } = {},
+) {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const rows = await tx.select({
+      inspection: schema.inspection,
+      programName: schema.inspectionProgram.name,
+      customerName: schema.customer.name,
+      line1: schema.property.addressLine1,
+      city: schema.property.city,
+    }).from(schema.inspection)
+      .leftJoin(schema.inspectionProgram, eq(schema.inspectionProgram.id, schema.inspection.programId))
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.inspection.customerId))
+      .innerJoin(schema.property, eq(schema.property.id, schema.inspection.propertyId))
+      .where(and(
+        eq(schema.inspection.organizationId, ctx.actor.organizationId),
+        ...(input.propertyId ? [eq(schema.inspection.propertyId, input.propertyId)] : []),
+        ...(input.visitId ? [eq(schema.inspection.visitId, input.visitId)] : []),
+      ))
+      .orderBy(desc(schema.inspection.performedOn), desc(schema.inspection.createdAt))
+      .limit(input.limit ?? 50);
+    return rows.map((r) => ({
+      id: r.inspection.id,
+      programName: r.programName ?? "Inspection",
+      performedOn: r.inspection.performedOn,
+      result: r.inspection.result,
+      customerName: r.customerName,
+      address: [r.line1, r.city].filter(Boolean).join(", "),
+      visitId: r.inspection.visitId,
+      nextDueOn: r.inspection.nextDueOn,
+    }));
+  });
+}
+
+/* ---------------------------------------------------------- one action quote */
+
+/**
+ * TURN ONE FINDING INTO A QUOTE, IN ONE ACTION.
+ *
+ * The remedies the checkpoint declared, frozen on the finding, become the
+ * lines of a new estimate for the customer at that property, priced from
+ * the contractor's own price book by item code through the estimate
+ * service's own pricing. The evidence goes with it: what was seen, by whom
+ * and when, and why each line follows from it, in the option's description
+ * the customer reads. The finding moves to quoted with the estimate and the
+ * amount on it, so the backlog shows it is in front of the customer.
+ *
+ * REFUSED, in words, when:
+ *
+ *   The finding has no observation. Core's proposal builder refuses a price
+ *   with no evidence, and that refusal is the reason the module exists.
+ *
+ *   A remedy names a price book code this company does not have. The quote
+ *   would be missing the line that fixes the problem.
+ *
+ *   The checkpoint declared no remedy and no price was given. There is then
+ *   nothing to price; give the price for correcting it and that becomes the
+ *   line.
+ *
+ * A finding already quoted returns its estimate rather than writing a
+ * second, which is what makes the button safe to press twice.
+ */
+export async function quoteDeficiency(
+  ctx: ServiceContext, input: { id: string; price?: string | null | undefined },
+): Promise<{ deficiencyId: string; estimateId: string; amount: string | null; created: boolean }> {
+  assertCan(ctx.actor, "estimate:write");
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const [row] = await tx.select().from(schema.deficiency)
+      .where(and(eq(schema.deficiency.id, input.id), eq(schema.deficiency.organizationId, ctx.actor.organizationId)))
+      .limit(1);
+    if (!row) throw new NotFoundError("Deficiency");
+    if (row.estimateId) {
+      return { deficiencyId: row.id, estimateId: row.estimateId, amount: row.quotedAmount, created: false };
+    }
+    if (row.status !== "open" && row.status !== "deferred") {
+      throw new ConflictError(`That finding is ${row.status}, so there is nothing to quote.`);
+    }
+
+    const proposal = insp.proposeWork([{
+      itemKey: row.checkpointKey ?? row.id,
+      severity: TO_CORE[row.severity] ?? "wear",
+      summary: row.description,
+      ...(row.observation ? {
+        observation: {
+          itemKey: row.observation.itemKey, prompt: row.observation.prompt,
+          recorded: row.observation.recorded, at: new Date(row.observation.at),
+          by: row.observation.by, photoIds: row.observation.photoIds,
+        },
+      } : {}),
+      remedies: row.remedies,
+      ...(row.code ? { codeReference: row.code } : {}),
+    }]);
+    if (!proposal.ok) {
+      throw new ConflictError(
+        proposal.reason === "unobserved_deficiency"
+          ? "This finding has no observation behind it: no reading, no note, no photo. A price with no evidence is "
+            + "the one thing this will not write. Record what was seen first."
+          : proposal.reason === "unjustified_remedy"
+            ? `A repair on this finding's checkpoint cannot be priced: ${proposal.detail.join(" ")}`
+            : String(proposal.detail),
+      );
+    }
+
+    const lines = proposal.groups.flatMap((g) => g.lines);
+    const codes = [...new Set(lines.map((l) => l.priceBookItemKey))];
+    const items = codes.length === 0 ? [] : await tx.select({ id: schema.priceBookItem.id, code: schema.priceBookItem.code })
+      .from(schema.priceBookItem)
+      .where(and(eq(schema.priceBookItem.organizationId, ctx.actor.organizationId), inArray(schema.priceBookItem.code, codes)));
+    const byCode = new Map(items.map((i) => [i.code, i.id]));
+    const missing = codes.filter((code) => !byCode.has(code));
+    if (missing.length > 0) {
+      throw new ConflictError(
+        `The repair for this finding names ${missing.join(", ")}, which ${missing.length === 1 ? "is" : "are"} not in your price book. `
+        + "Add the item, or correct the code on the programme, so the quote has the line that fixes the problem.",
+      );
+    }
+
+    const estimateLines: { priceBookItemId?: string; name: string; description?: string; quantity: string; unitPrice: string;
+      discountAmount: string; taxable: boolean; isOptional: boolean; isSelected: boolean }[] =
+      lines.map((line) => ({
+        priceBookItemId: byCode.get(line.priceBookItemKey)!,
+        name: line.label,
+        description: line.rationale,
+        quantity: String(line.quantity),
+        unitPrice: "0",
+        discountAmount: "0",
+        taxable: true,
+        isOptional: false,
+        isSelected: false,
+      }));
+    if (estimateLines.length === 0) {
+      if (input.price === undefined || input.price === null || input.price === "") {
+        throw new ConflictError(
+          "No repair is declared on this finding's checkpoint, so there is nothing to price it from. "
+          + "Give the price for correcting it and that becomes the line.",
+        );
+      }
+      const price = String(input.price).trim();
+      if (!/^\d+(\.\d{1,4})?$/.test(price)) throw new ConflictError(`${input.price} is not an amount of money.`);
+      estimateLines.push({
+        name: `Correct: ${row.description}`, quantity: "1", unitPrice: price,
+        discountAmount: "0", taxable: true, isOptional: false, isSelected: false,
+      });
+    }
+
+    const evidence = row.observation
+      ? `Found ${row.foundOn ?? row.observation.at.slice(0, 10)} by ${row.observation.by}: ${row.observation.recorded}`
+      : row.description;
+    const estimate = await estimates.create({ ...ctx, db: tx, idempotencyKey: `deficiency-quote:${row.id}` }, {
+      customerId: row.customerId,
+      propertyId: row.propertyId,
+      title: `Correct: ${row.description}`.slice(0, 200),
+      taxRate: "0",
+      options: [{
+        name: insp.SEVERITY[TO_CORE[row.severity] ?? "wear"].heading.slice(0, 100),
+        description: [evidence, row.code ? `Code reference: ${row.code}.` : null].filter(Boolean).join(" ").slice(0, 2000),
+        isRecommended: true,
+        lines: estimateLines,
+      }],
+    });
+    const total = estimate.options[0]?.total ?? null;
+
+    await tx.update(schema.deficiency).set({
+      status: "quoted", estimateId: estimate.id, quotedAmount: total, updatedAt: new Date(),
+    }).where(eq(schema.deficiency.id, row.id));
+    await audit(tx, ctx, "deficiency.quoted", "deficiency", row.id,
+      { status: row.status }, { status: "quoted", estimateId: estimate.id, amount: total });
+    return { deficiencyId: row.id, estimateId: estimate.id, amount: total, created: true };
+  });
+}
+
 /* ---------------------------------------------------------------- helpers */
 
 async function loadProgram(tx: Database, organizationId: string, id: string) {
@@ -695,6 +1162,7 @@ export const handlers = {
       inspectorName?: string | null | undefined;
       inspectorLicense?: string | null | undefined;
       performedOn?: string | undefined;
+      signedByName?: string | null | undefined;
     },
   ) => record(ctx, {
     programId: input.programId,
@@ -722,6 +1190,7 @@ export const handlers = {
     ...(input.inspectorName !== undefined ? { inspectorName: input.inspectorName } : {}),
     ...(input.inspectorLicense !== undefined ? { inspectorLicense: input.inspectorLicense } : {}),
     ...(input.performedOn !== undefined ? { performedOn: input.performedOn } : {}),
+    ...(input.signedByName !== undefined ? { signedByName: input.signedByName } : {}),
   }),
 
   listDeficiencies: async (
@@ -738,6 +1207,12 @@ export const handlers = {
       ...(input.now !== undefined ? { now: new Date(input.now) } : {}),
     }),
   }),
+
+  getInspectionReport: (ctx: ServiceContext, input: { id: string }) => report(ctx, input),
+  listInspections: async (ctx: ServiceContext, input: { propertyId?: string | undefined; limit?: number | undefined }) =>
+    ({ inspections: await recent(ctx, input) }),
+  quoteDeficiency: (ctx: ServiceContext, input: { id: string; price?: string | null | undefined }) =>
+    quoteDeficiency(ctx, input),
 
   setDeficiencyStatus: (
     ctx: ServiceContext,

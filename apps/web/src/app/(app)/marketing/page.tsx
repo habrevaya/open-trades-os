@@ -18,8 +18,8 @@ export const dynamic = "force-dynamic";
  * and what did each of those cost? The ad account knows what it spent, the
  * CRM knows what was booked, and nobody joins them.
  *
- * Cut three ways with one switch, by channel, by tracking campaign or by
- * tracking number, over the dates the reader picks and under the attribution
+ * Cut four ways with one switch, by channel, by tracking campaign, by
+ * tracking number or by ad platform, over the dates the reader picks and under the attribution
  * model the reader picks. EVERY COUNT AND EVERY SUM IS A LINK to the calls,
  * people, jobs or spend lines behind it, computed by the same code as the
  * cell, so a figure that looks wrong can be opened and argued with rather than
@@ -51,7 +51,9 @@ export default async function MarketingPage(
    */
   const report = await marketingReport.handlers.getMarketingFunnel(ctx, params);
   const unplaced = await marketing.unplaced(ctx, 10);
-  const firstColumn = params.by === "channel" ? "Channel" : params.by === "campaign" ? "Tracking campaign" : "Tracking number";
+  const firstColumn = params.by === "channel" ? "Channel"
+    : params.by === "campaign" ? "Tracking campaign"
+      : params.by === "platform" ? "Ad platform" : "Tracking number";
   const rows = [
     ...report.rows.map((row) => ({ ...row, total: false })),
     { ...report.total, key: "all", label: "Everything", detail: "People counted once", total: true },
@@ -61,7 +63,7 @@ export default async function MarketingPage(
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Marketing" />
       <p className="mt-2 max-w-3xl text-sm text-ink-700">
-        Spend is what you or an import recorded. Calls, leads, jobs and revenue are counted from
+        Spend is what you typed, a file loaded, or a connected ad platform reported. Calls, leads, jobs and revenue are counted from
         what actually happened, never from a number a platform reported about itself. Revenue is
         what was invoiced on the job, without the tax. Every number opens into the rows behind it.
       </p>
@@ -82,6 +84,7 @@ export default async function MarketingPage(
             <option value="channel">Channel</option>
             <option value="campaign">Tracking campaign</option>
             <option value="number">Tracking number</option>
+            <option value="platform">Ad platform</option>
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">

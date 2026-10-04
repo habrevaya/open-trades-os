@@ -17,13 +17,33 @@
  */
 export type IconName =
   | "day" | "today" | "schedule" | "jobs" | "tasks"
-  | "customers" | "inbox"
+  | "customers" | "inbox" | "phone"
   | "invoices" | "estimates" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance";
+  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
+  | "books" | "people" | "records";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Books: a ledger open flat, two pages and a spine, for the journal and the budget. */
+  books: (
+    <>
+      <path d="M12 6.5c-2-1.6-4.8-2-8-1.5v13c3.2-.5 6 0 8 1.5 2-1.5 4.8-2 8-1.5V5c-3.2-.5-6-.1-8 1.5Z" />
+      <path d="M12 6.5V19.5" />
+    </>
+  ),
+  /**
+   * People: a hard hat, for the crew. Not a head and shoulders, because
+   * Customers is already two of those and the pair has to survive the rail
+   * collapsing to icons.
+   */
+  people: (
+    <>
+      <path d="M5 16.5a7 7 0 0 1 14 0" />
+      <path d="M3.5 16.5h17v2h-17z" />
+      <path d="M10 10V7h4v3" />
+    </>
+  ),
   /** Compliance: a shield, for what keeps the company allowed to work. */
   compliance: (
     <>
@@ -152,6 +172,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="m3.6 7 7.3 5.3a2 2 0 0 0 2.2 0L20.4 7" />
     </>
   ),
+  /** Phone: a handset, for calls made and taken in the browser. Not an envelope, which is the inbox. */
+  phone: (
+    <>
+      <path d="M6.6 3.8 9.4 4.4l1.2 3.9-2 1.4a11.5 11.5 0 0 0 5.7 5.7l1.4-2 3.9 1.2.6 2.8a2 2 0 0 1-2.1 2.4A16.6 16.6 0 0 1 4.2 5.9a2 2 0 0 1 2.4-2.1Z" />
+    </>
+  ),
   // A bill: a document, torn off at the bottom.
   /**
    * Estimates: two cards side by side, one raised, for options the customer
@@ -241,6 +267,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   automations: <path d="M13.4 2.6 5.2 13.2h5.4l-.9 8.2 8.2-10.6h-5.4l.9-8.2Z" />,
+  /** Records: a folder with a tab, for the company's own kinds of record. */
+  records: (
+    <>
+      <path d="M3 7.2V18a1.6 1.6 0 0 0 1.6 1.6h14.8A1.6 1.6 0 0 0 21 18V9.4a1.6 1.6 0 0 0-1.6-1.6h-7.2L10.3 5.2H4.6A1.6 1.6 0 0 0 3 6.8Z" />
+      <path d="M7.4 13h9.2M7.4 16h5.6" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7.4h4.4M12.6 7.4H20M4 16.6h7.4M15.6 16.6H20" />

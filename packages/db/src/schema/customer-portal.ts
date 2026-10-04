@@ -51,9 +51,21 @@ export const savedPaymentMethod = pgTable("saved_payment_method", {
   customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
   profileId: uuid("profile_id").notNull().references(() => paymentProfile.id, { onDelete: "cascade" }),
   provider: text("provider").notNull(),
+  /**
+   * `card` or `bank_account`. A bank account is saved the same way, through
+   * the processor's own setup flow with the bank verified on the spot, and
+   * nothing of it is kept here but the bank's name and the last four digits.
+   * It pays more slowly: a payment from one is pending for days before the
+   * processor says the money arrived, and can still fail in that time.
+   */
+  kind: text("kind").notNull().default("card"),
   /** The processor's id for the card, `pm_` at Stripe. What a charge names. */
   externalRef: text("external_ref").notNull(),
-  /** As the processor reports them. Enough to recognise the card, never enough to use it. */
+  /**
+   * As the processor reports them. Enough to recognise the card, never
+   * enough to use it. For a bank account the brand is the bank's name and
+   * there is no expiry.
+   */
   brand: text("brand"),
   last4: text("last4"),
   expMonth: integer("exp_month"),

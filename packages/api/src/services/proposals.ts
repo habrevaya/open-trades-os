@@ -1,9 +1,10 @@
 import { eq, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, estimate as est, money as m } from "@opentradesos/core";
-import { guardedRead, type ServiceContext } from "./context";
-import { loadEstimate } from "./estimates";
+import { contactOf, guardedRead, type ServiceContext } from "./context";
+import { assertEstimateVisible, loadEstimate } from "./estimates";
 import { inGrant, peek, requireScope } from "./portal";
+import { layoutWithin, proposalPhotoWithin, type ResolvedLayout } from "./proposal-templates";
 
 /**
  * THE PROPOSAL, AS A DOCUMENT
@@ -75,6 +76,8 @@ export interface ProposalDocument {
     version: number;
     /** The company's calendar, for the dates on the page. */
     timezone: string;
+    /** How the customer reaches the company, printed under its name. */
+    contact: brand.CompanyContact;
   };
   id: string;
   number: number;
@@ -90,6 +93,12 @@ export interface ProposalDocument {
   terms: string | null;
   /** In the order the customer is shown them: the recommended one first, then most expensive. */
   options: ProposalOption[];
+  /**
+   * How it is laid out: the company's template as copied onto this estimate,
+   * or the fixed layout (the options, then the terms) when none was applied,
+   * with the reviews and option photographs its sections show.
+   */
+  layout: ResolvedLayout;
 }
 
 const usd = (value: string) => m.money(value, "USD");
@@ -140,6 +149,9 @@ export async function proposalWithin(
   );
 
   const tiers = est.tierLabels(options.map((o) => usd(o["total"] as string)));
+  const [stored] = await tx.select({ layout: schema.estimate.proposalLayout })
+    .from(schema.estimate).where(eq(schema.estimate.id, estimateId)).limit(1);
+  const layout = await layoutWithin(tx, estimateId, stored?.layout ?? null);
 
   return {
     company: {
@@ -151,6 +163,7 @@ export async function proposalWithin(
       hasLogo: marks.some((a) => a.kind === "logo"),
       version: Math.floor(latest.getTime() / 1000),
       timezone: org?.timezone ?? "America/Chicago",
+      contact: await contactOf(tx, ctx.actor.organizationId),
     },
     id: full.id,
     number: full.number,
@@ -167,6 +180,7 @@ export async function proposalWithin(
       [property?.city, [property?.state, property?.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", "),
     ].filter(Boolean).join(", "),
     terms: full.terms ?? null,
+    layout,
     options: options.map((option, index) => {
       const subtotal = usd(option["subtotal"] as string);
       const taxTotal = usd(option["taxTotal"] as string);
@@ -203,7 +217,21 @@ export async function proposalWithin(
 
 /** The office's copy, to read, print or hand over. */
 export async function proposal(ctx: ServiceContext, input: { id: string }): Promise<ProposalDocument> {
-  return guardedRead(ctx, "estimate:read", (tx) => proposalWithin(tx, ctx, input.id));
+  return guardedRead(ctx, "estimate:read", async (tx) => {
+    await assertEstimateVisible(tx, ctx, input.id);
+    return proposalWithin(tx, ctx, input.id);
+  });
+}
+
+/**
+ * One photograph the proposal shows, from the customer's own link: the cover
+ * or one on an option of this estimate, and nothing else. Peeked like the
+ * page, so looking does not spend the approval link.
+ */
+export async function proposalPhotoForToken(db: Database, token: string, photoId: string) {
+  const grant = await peek(db, token);
+  const estimateId = requireScope(grant, "estimate");
+  return inGrant(db, grant, (tx) => proposalPhotoWithin(tx, estimateId, photoId));
 }
 
 /**

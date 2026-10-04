@@ -2,10 +2,11 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { safeNext } from "@/lib/safe-next";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { organizations, setupTokens, passwords } from "@opentradesos/api/services";
+import { organizations, setupTokens, passwords, workflows } from "@opentradesos/api/services";
 import { hashPassword, issueToken, SESSION_COOKIE, SESSION_TTL_DAYS, sessionCookieOptions } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { keptValues } from "@/lib/kept-values";
@@ -77,6 +78,16 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
       ownerUserId: userId,
     });
 
+    /**
+     * The recommended automations a new company starts with switched on (the
+     * follow up on an unanswered estimate), installed by the owner exactly as
+     * pressing "Turn on" would. The operator API does the same.
+     */
+    await workflows.installStarters({
+      actor: { userId, organizationId: org.organizationId, roles: ["owner"] },
+      db: tx,
+    });
+
     const { token, tokenHash } = issueToken();
     const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 864e5);
     // Through the SECURITY DEFINER door, same as resolution. The session table
@@ -122,7 +133,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
   );
 
   (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
-  redirect("/");
+  redirect(safeNext(formData.get("next")) ?? "/");
 }
 
 export async function signOut(): Promise<void> {
@@ -175,7 +186,11 @@ export async function completeWelcome(_prev: ActionState, formData: FormData): P
     .from(schema.membership)
     .innerJoin(schema.organization, eq(schema.organization.id, schema.membership.organizationId))
     .where(and(eq(schema.membership.userId, userId), eq(schema.membership.active, true)))
-    .orderBy(sql`${schema.organization.suspendedAt} is not null`)
+    /**
+     * A real company before its sandbox: signing in lands in the company,
+     * and the sandbox is opened on purpose from Settings, Sandbox.
+     */
+    .orderBy(sql`${schema.organization.suspendedAt} is not null`, sql`${schema.organization.sandboxOfOrganizationId} is not null`)
     .limit(1);
 
   // The password is set either way, so the honest next step is the sign in

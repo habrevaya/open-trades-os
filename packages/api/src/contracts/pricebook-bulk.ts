@@ -180,6 +180,7 @@ export const applyPriceChange = defineRoute({
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
+  dryRun: true,
   input: ChangeInput,
   output: Applied,
 });
