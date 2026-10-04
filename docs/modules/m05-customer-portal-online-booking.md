@@ -137,10 +137,15 @@ is the shape of what it is willing to sell: which job types are bookable, in
 which territories, how far ahead, how much notice, how many per window. The
 engine intersects that with business hours and with the technicians' own
 days, as the dispatch board has them: who is working, who has approved time
-off touching the window, who is qualified for the job type's skills (the
-same check the board's drop makes), and how much of each person's window the
+off touching the window, who is qualified for the job type's skills on each
+day shown (the same check the board's drop makes, asked again from the day
+after a certification expires), and how much of each person's window the
 visits already on their day take up, each from when it is due to arrive for
-its estimated length. Each person fits as many more of the job type's usual
+its estimated length. Every kind of day counts: a crew's visit is on every
+member's day, a route's stops are laid end to end in route order from the
+start of the day with the route's declared drive between them (the drive
+is busy time too), and a rental's drop or collection counts against
+whoever drives it, or as work waiting for somebody when nobody does yet. Each person fits as many more of the job type's usual
 length as their free time holds, and work already asked for and not yet on
 anybody's day (unassigned visits, booking requests waiting to be booked,
 customers' asks to move into the window) comes off the total first. The per
@@ -372,6 +377,27 @@ the new day; agreeing to a cancellation cancels it. Either way the customer is
 told, by text where they can be texted and by email otherwise, and the request
 records whether they were.
 
+### Offer a different time
+
+Answering a request to move, the office can offer another time instead of
+the one asked for, chosen from the same windows online booking would offer
+for that work. `GET /v1/visit-change-requests/{id}/times` lists them
+(`visit:read`) and `POST /v1/visit-change-requests/{id}/propose` sends one
+(`visit:reschedule`), with words of the office's own. Nothing moves. The
+customer is sent the time and a link to the visit's change page, and the
+request is `proposed`: the time is held against its window while they
+decide, the request's task is closed because the office has answered, and
+no new request can be made about the visit until they reply. They answer
+from the same link, or from the link the offer came with, or signed in:
+`POST /v1/portal/visit-change/answer`. Yes (`accepted`) moves the visit to
+that time exactly as agreeing to their own request would, off whoever had
+it and back on the board, and raises a task for the office to put somebody
+on it. No (`turned_down`) leaves the visit where it was and raises a high
+task to talk to them. A yes is taken without checking the window again,
+because the company made the offer; it is refused only when the visit has
+started or the time has passed. On the job's page and in the queue, the
+request shows "Offer this time instead" beside the two answers.
+
 ### Take a booking from the website
 
 `GET /v1/public/services` and `GET /v1/public/availability` are read by a
@@ -435,6 +461,9 @@ in from, and which codes failed, are the office's business.
 | `GET /v1/visit-change-requests` | `visit:read` |
 | `POST /v1/visit-change-requests/{id}/approve` | `visit:reschedule` |
 | `POST /v1/visit-change-requests/{id}/decline` | `visit:reschedule` |
+| `GET /v1/visit-change-requests/{id}/times` | `visit:read` |
+| `POST /v1/visit-change-requests/{id}/propose` | `visit:reschedule` |
+| `POST /v1/portal/visit-change/answer` | nothing: the link or a sign in is the authority |
 | `POST /v1/public/portal/{organizationSlug}/codes` | nothing: counted per address and network address |
 | `POST /v1/public/portal/{organizationSlug}/sign-in` | nothing: the code is the authority |
 | `POST /v1/portal/sign-out` | nothing: a sign in |
@@ -512,11 +541,14 @@ files. Readings are shown as a table of values, not a chart. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the
 online booking service for the job's type, so a company that takes no online
-bookings for that work cannot offer moves for it. The office cannot propose
-a different time from the request: a decline says why in words, and the
-customer replies or asks again. Capacity reads technicians dispatched one by
-one: a crew's, a route's or a rental's work is not counted against them, and
-qualification is asked for the first day shown rather than for each day.
+bookings for that work cannot offer moves for it. The office can offer a
+different time only for a request to move, only from the windows online
+booking offers, and cannot withdraw an offer once sent: a change to the
+visit (the office moving or cancelling it) overtakes it. A customer who
+turns an offer down is not offered another on the page; the office's task
+is to talk to them. Capacity lays a route's stops end to end from the start
+of the day, so a route that starts later is counted as starting then; a
+crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,
 and nothing puts it on the board until somebody does. Agreeing to cancel a
 job's only visit cancels the visit and leaves the job as it was; whether the
