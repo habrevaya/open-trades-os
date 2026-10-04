@@ -34,7 +34,7 @@ catalogue cannot drift into optimism.
 
 **What counts as built is deliberately narrow.** A parser with no transport is not a
 connector. A connector is built when a company can set it up from the settings screen
-and data arrives. Twenty three entries are built today and five are declared.
+and data arrives. Twenty six entries are built today and five are declared.
 
 **A capability is a seam, not a vendor.** Payments, email, accounting, messaging,
 telephony, ads, lead source, reviews, maps, tax, payroll, financing, storage,
@@ -216,8 +216,10 @@ Five catalogue entries are declared and have no adapter, and the catalogue names
 one rather than hiding them. The geocoders' rate limit is per process, so a
 deployment running several workers against the public OpenStreetMap server sends
 that many requests a second; run one worker, or your own geocoder. There is no
-batch geocoding endpoint and no routing provider: drive time is estimated from the
-straight line (M09). There is no marketplace, no adapter plugin loading at
+batch geocoding endpoint: addresses are placed one at a time by the worker, and
+`GET /v1/geocoding` says how many are waiting. A routing service answers drive
+times by road without traffic, and with none connected drive time is the straight
+line at an average speed (M09). There is no marketplace, no adapter plugin loading at
 runtime and no per connector health dashboard beyond each one's state on the settings
 screen. Secrets are read from the environment or a secret store by name, so a company
 that wants them managed in the product does not get that, deliberately; the one

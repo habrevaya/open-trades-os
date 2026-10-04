@@ -239,7 +239,10 @@ the company, and its one or two settings:
 - **Follow up an estimate that has not been answered.** On `estimate.sent`: wait
   some days, stop unless the estimate is still waiting for an answer, text the
   customer a fresh link to it, email one, and raise a call in the office queue.
-  A link minted for a message that could not go is withdrawn.
+  A link minted for a message that could not go is withdrawn. A new company
+  starts with this one installed and on, waiting three days, put there by its
+  owner when the company is created (`onForNewCompanies` on
+  `GET /v1/workflow-templates`); it is turned off from the list like any other.
 - **Ask for a review after a paid job.** On `invoice.paid`: wait some hours, put
   the job to the reviews module's own decision, waiting again if it says later,
   and send the ask with the review site's link. M20 has the decision.

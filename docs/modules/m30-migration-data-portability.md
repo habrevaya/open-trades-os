@@ -173,9 +173,10 @@ declined on a day with the reason, or expired on a day. It needs
 starts no automation. An imported approval converts like any other.
 
 Not yet accepted, and reported by the toolkit as gaps: the day an estimate was
-sent or converted, customer notes, partial billing addresses, property
-coordinates, a price book item without a code, and a person who never had a
-login.
+sent or converted, customer notes, partial billing addresses, a price book item
+without a code, and a person who never had a login. A property's coordinates
+are not taken when it is created; they are set afterwards with
+`POST /v1/properties/{id}/pin`, which the geocoder then never moves.
 
 ## Taking a copy
 

@@ -358,15 +358,20 @@ technicians, because handing a tip back is a decision nobody here has made for t
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
 until somebody corrects it by hand. Saved cards are
 Stripe's only. Tax rate determination is deliberately not
-built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
-dunning is a workflow somebody builds in M29. Financing has one lender adapter, Wisetack, tested against a fake rather
+built: the rate is on the line it was charged on, and BUILD.md says why. Overdue
+invoices are chased by the collections agent (M27): a reminder per step the
+company sets, drafted on the company's model key and sent from
+`/invoices/reminders` by a person or on its own when the company lets it. It
+needs the company's own model key (M27); chasing without one is a workflow
+somebody builds in M29. Financing has one lender adapter, Wisetack, tested against a fake rather
 than a live account; a loan Wisetack refunds after funding is flagged on the
 application and not reversed, so the refund is recorded on the payment by hand,
 and the payment is dated when the funding was heard about rather than the
 lender's settlement date. "As low as" uses the plans entered on the connection
 and is not asked of the lender per customer.
 
-The PDFs carry the company's name and colour and not its logo, and are set in the
+The PDFs carry the company's name, colour, phone, email and address (M02) and not
+its logo, and are set in the
 standard Helvetica faces, so a letter outside Western European alphabets prints as
 its base letter where it has one and as "?" where it does not. An invoice is not
 attached as a PDF to the invoice email, which still sends the link to pay it.
