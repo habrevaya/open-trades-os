@@ -60,6 +60,8 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
       <PageHeader title="Rebalance the day" />
       <p className="mt-1 text-sm text-ink-700">
         {heading}. <a href={`/schedule?date=${date}`} className="underline">Back to the board</a>
+        {" "}or <a href={`/schedule/rebalance/days?from=${date}`} className="underline">rebalance several days</a>,
+        which can move a visit to another day its customer agreed to.
       </p>
       {applied !== null && (
         <p role="status" className="mt-3 text-sm text-green-700">
@@ -94,7 +96,7 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
           {proposal.workday.lunchMinutes > 0
             ? `, with a ${proposal.workday.lunchMinutes} minute break starting between ${proposal.workday.lunchEarliest} and ${proposal.workday.lunchLatest}`
             : ""}, and up to {proposal.workday.maxOvertimeMinutes} minutes of overtime may be planned.
-          Locked visits, crew work and visits with several people stay where they are.
+          Locked visits, crew work, visits with several people and drivers' days with containers stay where they are.
         </p>
       </section>
 
@@ -165,8 +167,8 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
               <li key={u.visitId}><span className="font-medium">{u.customerName}</span>: {u.reason}</li>
             ))}
             {proposal.leftOut.map((l) => (
-              <li key={l.technicianId}><span className="font-medium">{l.displayName}</span> is left out. {l.reason}{" "}
-                <a href="/schedule/technicians" className="underline">Set where days start</a></li>
+              <li key={l.technicianId}><span className="font-medium">{l.displayName}</span> is left out. {l.reason}
+                {/not on the map/.test(l.reason) ? <>{" "}<a href="/schedule/technicians" className="underline">Set where days start</a></> : null}</li>
             ))}
           </ul>
         </section>

@@ -116,6 +116,7 @@ describe("the optimiser's preview", () => {
     missed: [{ visitId: V2, customerName: "Tolu Okafor", lateByMinutes: 25, unreachable: true }],
     locked: [], pinned: [], unplaced: [], applyOrder: [V1, V2], declaredLegs: 0,
     travel: { averageKmh: 40, roadFactor: 1.3, dayStartsAt: "08:00" },
+    truck: null,
     driveSource: "estimate" as const,
     driveNote: "Drive times are straight line estimates. Connect a routing service under Settings, Integrations for times by road.",
   };
@@ -158,7 +159,7 @@ describe("the optimiser's preview", () => {
         suggested={{
           date: "2026-10-05",
           suggestions: [{
-            visitId: V2, customerName: "Tolu Okafor", technicianId: T1, technicianName: "Ray Ortiz",
+            visitId: V2, customerName: "Tolu Okafor", member: "Comfort Club", technicianId: T1, technicianName: "Ray Ortiz",
             position: 2, addedDriveMinutes: 12, wouldBeLate: [], unknownSkills: [],
             considered: [
               { technicianId: T1, technicianName: "Ray Ortiz", addedDriveMinutes: 12, makesLate: false, refused: null },
@@ -178,5 +179,40 @@ describe("the optimiser's preview", () => {
     expect(html).toContain("Ray Ortiz, stop 2, adds about 12 min driving.");
     expect(html).toContain("Assign to Ray Ortiz");
     expect(html).toContain("Sam Reyes cannot be sent");
+    expect(html).toContain("Member, Comfort Club: suggested first");
+  });
+
+  it("lists a driver's runs to the yard when the day is ordered by what is on the truck", () => {
+    const html = renderToStaticMarkup(
+      <RoutePreview
+        proposal={{ ...proposal, missed: [], truck: {
+          byTruck: true, note: "Ordered by what is on the truck: one container at a time, 20 minutes at the yard to tip and load.",
+          containersPerTruck: 1, yardMinutes: 20, currentYardRuns: 3,
+          yardRuns: [
+            { afterVisitId: V1, beforeVisitId: V2, tipped: 1, loaded: 1, arriveAt: "2026-10-05T15:00:00.000Z" },
+            { afterVisitId: V2, beforeVisitId: null, tipped: 1, loaded: 0, arriveAt: "2026-10-05T18:00:00.000Z" },
+          ],
+          startLoad: { empties: 1, fulls: 0 },
+        } }}
+        technicianName="Ray Ortiz" customerOf={names} canApply onApply={() => {}} onClose={() => {}}
+      />,
+    );
+    expect(html).toContain("Ordered by what is on the truck");
+    expect(html).toContain("3 runs to the yard in the middle of the day as it is, 1 run in this order.");
+    expect(html).toContain("After Dana Whitfield: back to the yard to tip the full container and load an empty, then Tolu Okafor.");
+    expect(html).toContain("After Tolu Okafor: back to the yard to tip the full container at the end of the day.");
+  });
+
+  it("says when a day with containers could not be ordered by the truck", () => {
+    const html = renderToStaticMarkup(
+      <RoutePreview
+        proposal={{ ...proposal, truck: {
+          byTruck: false, note: "Not ordered by what is on the truck, because where Ray Ortiz's day starts, the yard, is not on the map.",
+          containersPerTruck: 1, yardMinutes: 20, currentYardRuns: null, yardRuns: [], startLoad: null,
+        } }}
+        technicianName="Ray Ortiz" customerOf={names} canApply onApply={() => {}} onClose={() => {}}
+      />,
+    );
+    expect(html).toContain("the yard, is not on the map");
   });
 });

@@ -23,6 +23,8 @@ import { Payments } from "./Payments";
 import { Referral } from "./Referral";
 import { PortalSignIns } from "./PortalSignIns";
 import { AdData } from "./AdData";
+import { PreferredDays } from "./PreferredDays";
+import { dispatchDays } from "@opentradesos/api/services";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
@@ -205,6 +207,7 @@ export default async function CustomerPage({
         known={can(user.actor, "customer:write") ? (await customerTags.list(ctx)).map((t) => t.tag) : []}
         canWrite={can(user.actor, "customer:write")}
       />
+      <PreferredDays customerId={id} days={await dispatchDays.preferredDays(ctx, { id })} canWrite={can(user.actor, "customer:write")} />
 
       {addresses.length > 0 && (
         <div className="mt-10">

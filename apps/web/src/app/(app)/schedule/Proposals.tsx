@@ -60,6 +60,23 @@ export function RoutePreview({
           ))}
         </ul>
       )}
+      {proposal.truck && (
+        <div className="mt-2">
+          <p className={proposal.truck.byTruck ? "text-ink-700" : "text-amber-700"}>
+            {proposal.truck.note}
+            {proposal.truck.byTruck && proposal.truck.currentYardRuns !== null
+              ? ` ${yardRunsLine(proposal.truck.currentYardRuns, proposal.truck.yardRuns.filter((r) => r.beforeVisitId !== null).length)}`
+              : ""}
+          </p>
+          {proposal.truck.yardRuns.length > 0 && (
+            <ul aria-label="Runs to the yard" className="mt-1 space-y-0.5 text-ink-700">
+              {proposal.truck.yardRuns.map((r, i) => (
+                <li key={i}>{yardRunText(r, name)}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <ol className="mt-2 flex flex-wrap gap-2" aria-label="The order">
         {proposal.applyOrder.map((id, i) => (
           <li key={id} className="rounded border border-steel-200 px-2 py-0.5">
@@ -94,11 +111,34 @@ export function RoutePreview({
   );
 }
 
+type YardRun = NonNullable<Proposal["truck"]>["yardRuns"][number];
+
+/** The runs to the yard in the middle of the day, as it is and as proposed. */
+function yardRunsLine(now: number, proposed: number): string {
+  if (now === proposed) return "";
+  const runs = (n: number) => `${n} ${n === 1 ? "run" : "runs"}`;
+  return `${runs(now)} to the yard in the middle of the day as it is, ${runs(proposed)} in this order.`;
+}
+
+/** One run to the yard, in a driver's words. */
+function yardRunText(run: YardRun, name: (id: string) => string): string {
+  const what = [
+    run.tipped > 0 ? `tip ${run.tipped === 1 ? "the full container" : `${run.tipped} full containers`}` : null,
+    run.loaded > 0 ? `load ${run.loaded === 1 ? "an empty" : `${run.loaded} empties`}` : null,
+    run.loaded < 0 ? `leave ${-run.loaded === 1 ? "an empty" : `${-run.loaded} empties`}` : null,
+  ].filter(Boolean).join(" and ") || "stop";
+  const after = run.afterVisitId ? `After ${name(run.afterVisitId)}` : "First";
+  return run.beforeVisitId
+    ? `${after}: back to the yard to ${what}, then ${name(run.beforeVisitId)}.`
+    : `${after}: back to the yard to ${what} at the end of the day.`;
+}
+
 /**
  * WHO SHOULD TAKE THE UNASSIGNED WORK, SUGGESTED
  *
  * Each with the technician it fits, the driving it adds, any window it would
- * break, and, behind a fold, everybody else considered with their figure or
+ * break, members whose plan promises priority first and said so, and, behind
+ * a fold, everybody else considered with their figure or
  * the reason they were ruled out. Accepting one is the ordinary assignment.
  */
 export function Suggestions({
@@ -121,7 +161,10 @@ export function Suggestions({
       <ul className="mt-1 space-y-2">
         {suggested.suggestions.map((s) => (
           <li key={s.visitId} className="border-t border-steel-200 pt-2 first:border-0 first:pt-0">
-            <p className="font-medium">{s.customerName}</p>
+            <p className="font-medium">
+              {s.customerName}
+              {s.member && <span className="ml-2 text-xs font-normal text-ink-500">Member, {s.member}: suggested first</span>}
+            </p>
             {s.technicianId ? (
               <>
                 <p className="text-xs text-ink-700">
