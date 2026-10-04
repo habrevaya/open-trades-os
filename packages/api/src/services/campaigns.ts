@@ -1126,7 +1126,7 @@ export async function mintUnsubscribe(tx: Database, organizationId: string, inpu
     campaignId: input.campaignId ?? null,
   });
 
-  return { token, url: `${base}/api/v1/public/unsubscribe/${token}` };
+  return { token, url: `${base}${email.UNSUBSCRIBE_PATH}${token}` };
 }
 
 /* ------------------------------------------------------------ the clock */
