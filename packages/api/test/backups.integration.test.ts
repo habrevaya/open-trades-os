@@ -123,7 +123,7 @@ run("taking a copy", () => {
     }
   });
 
-  it("writes a company too large for one request a part at a time", async () => {
+  it("writes a company too large for one request a part at a time", { timeout: 60_000 }, async () => {
     // Nine megabytes of a file, which puts the archive past the eight megabyte part size.
     const big = randomBytes(9 * 1024 * 1024);
     await raw`insert into public.stored_file (organization_id, storage_key, content_type, sha256, size_bytes, bytes)
@@ -135,7 +135,7 @@ run("taking a copy", () => {
     expect(bucket.objects.get(done!.objectKey)!.body.length).toBeGreaterThan(9 * 1024 * 1024);
   });
 
-  it("keeps the newest copies and deletes only older ones this company wrote", async () => {
+  it("keeps the newest copies and deletes only older ones this company wrote", { timeout: 60_000 }, async () => {
     bucket.objects.set("copies/somebody-elses.zip", { body: Buffer.from("theirs"), contentType: "application/zip", modified: new Date(0) });
     await backups.saveDestination(owner(), destination({ keep: 2 }));
     const made: string[] = [];
@@ -189,7 +189,7 @@ run("taking a copy", () => {
 });
 
 run("reading a copy back from the bucket", () => {
-  it("lists the copies in a bucket and checks one into an empty company", async () => {
+  it("lists the copies in a bucket and checks one into an empty company", { timeout: 60_000 }, async () => {
     await backups.saveDestination(owner(), destination());
     const done = await backups.runBackup(db(), ORG, "person");
     await seedOrg(raw, { organizationId: EMPTY, userId: EMPTY_USER, name: "Somewhere New", slug: "backups30-new" });

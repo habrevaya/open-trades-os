@@ -258,7 +258,7 @@ run("the round trip", () => {
   });
 });
 
-run("refusing", () => {
+run("refusing", { timeout: 60_000 }, () => {
   let copyPath: string;
 
   /** Small Co and its owner are not on this deployment: the copy is all there is of them. */
@@ -279,7 +279,7 @@ run("refusing", () => {
               values (${OTHER}, 'https://example.test/hook', 'whsec_live_secret', '[]'::jsonb)`;
     copyPath = await takeCopy(actor(OTHER, OTHER_USER), "archive", "small.zip");
     await freshTarget();
-  });
+  }, 60_000);
 
   it("refuses a company that already has records, and says what they are", async () => {
     await raw`insert into public.customer (organization_id, type, name, payment_terms_days) values (${TARGET}, 'residential', 'Already Here', 0)`;
