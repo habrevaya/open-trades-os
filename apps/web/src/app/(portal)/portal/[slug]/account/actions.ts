@@ -57,10 +57,10 @@ export type CardSetupResult =
   | { ok: true; clientSecret: string; publishableKey: string }
   | { ok: false; message: string };
 
-export async function startCardSetup(slug: string): Promise<CardSetupResult> {
+export async function startCardSetup(slug: string, kind: "card" | "bank_account" = "card"): Promise<CardSetupResult> {
   const session = await requirePortalSession(slug);
   try {
-    const started = await savedCards.startSave(getDb(), { token: session.token }, await requestMeta());
+    const started = await savedCards.startSave(getDb(), { token: session.token, kind }, await requestMeta());
     if (!started.publishableKey) {
       return { ok: false, message: "Saving a card is not set up yet. You can still pay with a card each time." };
     }

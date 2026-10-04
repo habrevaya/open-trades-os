@@ -21,6 +21,7 @@ import {
   laborSettings,
   voice, websiteTracking, referrals,
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
+  portalAccess, portalBlocks, portalBooking,
   setup, team, branches, tradePacks,
   phoneMenus, transcription,
   ads,
@@ -943,6 +944,21 @@ export const handlers = {
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
   shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
+  // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)
+  listPortalSignIns: portalAccess.handlers.listPortalSignIns,
+  listCustomerPortalSessions: portalAccess.handlers.listCustomerPortalSessions,
+  endCustomerPortalSessions: portalAccess.handlers.endCustomerPortalSessions,
+  setContactPortalAccess: portalAccess.handlers.setContactPortalAccess,
+  getPublicPortalBranding: (db: Database, input: { organizationSlug: string }) =>
+    portal.publicBrandingAt(db, input.organizationSlug),
+  shareVisitNotes: portalBlocks.handlers.shareVisitNotes,
+  listBankPayments: async (ctx: ServiceContext, input: { customerId?: string | undefined; invoiceId?: string | undefined }) => {
+    const { bankPayments } = await payments.bankPayments(ctx, input);
+    return { bankPayments };
+  },
+  getPortalBookingOptions: portalBooking.handlers.getPortalBookingOptions,
+  getPortalBookingAvailability: portalBooking.handlers.getPortalBookingAvailability,
+  requestPortalBooking: portalBooking.handlers.requestPortalBooking,
   payTips: payroll.handlers.payTips,
 
   // Setup, the team and branches (M02, M01)

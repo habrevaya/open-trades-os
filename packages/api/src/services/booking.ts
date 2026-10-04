@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, time, marketing as mk, SYSTEM_USER_ID } from "@opentradesos/core";
+import { money as m, time, marketing as mk, customerPortal as cp, SYSTEM_USER_ID } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -18,6 +18,7 @@ import type {
   createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
 import { portalBase } from "../lib/portal-base";
+import { qualify } from "./qualification";
 
 
 /**
@@ -152,6 +153,10 @@ export async function openSlots(db: Database, input: {
   from: string;
   days: number;
   exceptRequestId?: string | undefined;
+  /** The visit being moved, which must not count against its own new window. */
+  exceptVisitId?: string | undefined;
+  /** Only this technician's free time: a returning customer asking for somebody by name. */
+  technicianId?: string | undefined;
 }): Promise<OpenSlot[]> {
   const { service } = input;
   const org = { id: input.organizationId, timezone: input.timezone };
@@ -215,31 +220,16 @@ export async function openSlots(db: Database, input: {
   }
 
   /**
-   * Time off is per technician, so one person being away is not a reason to
-   * stop taking work. A day on which EVERY technician is off is, and that is
-   * the case worth catching, because it is the company holiday.
-   *
-   * Per-technician availability, and therefore a real answer to "can anyone
-   * qualified actually be there", arrives with the dispatch board in Phase 3.
-   * Until then the per-window ceiling is the binding constraint.
+   * WHO COULD ACTUALLY GO, from the board's own facts: the technicians, their
+   * time off, the visits already on their days and the work waiting for
+   * somebody. Null when the company has no technicians recorded at all, and
+   * then the per window limit is all there is to go on, as before.
    */
-  const [{ headcount } = { headcount: 0 }] = await db
-    .select({ headcount: sql<number>`count(*)::int` })
-    .from(schema.technician)
-    .where(and(
-      eq(schema.technician.organizationId, org.id),
-      eq(schema.technician.active, true),
-    ));
-
-  const off = await db.select({
-    startsAt: schema.timeOff.startsAt,
-    endsAt: schema.timeOff.endsAt,
-    technicianId: schema.timeOff.technicianId,
-  }).from(schema.timeOff)
-    .where(and(
-      eq(schema.timeOff.organizationId, org.id),
-      eq(schema.timeOff.approved, true),
-    ));
+  const room = await capacityReader(db, {
+    organizationId: org.id, timezone: org.timezone, service, from: input.from, until: isoDate(until),
+    technicianId: input.technicianId, exceptRequestId: input.exceptRequestId, exceptVisitId: input.exceptVisitId,
+  });
+  if (input.technicianId && room === null) return [];
 
   const slots: OpenSlot[] = [];
 
@@ -266,10 +256,10 @@ export async function openSlots(db: Database, input: {
       if (opensAt < earliest) continue;
 
       const used = taken.get(takenKey(date, w.id)) ?? 0;
-      const remaining = service.maxPerWindow - used;
+      /** The company's own limit is the ceiling; the technicians' free time is what is under it. */
+      const fits = room ? room(date, w) : null;
+      const remaining = Math.min(service.maxPerWindow - used, fits ?? Number.POSITIVE_INFINITY);
       if (remaining <= 0) continue;
-
-      if (headcount > 0 && awayCount(off, day, org.timezone) >= headcount) continue;
 
       slots.push({
         date,
@@ -283,6 +273,191 @@ export async function openSlots(db: Database, input: {
   }
 
   return slots;
+}
+
+/**
+ * Somebody can still go: checked inside the transaction that writes a
+ * request, against the technicians' days as they are now, because the
+ * window free when the page drew can be full by the time the form posts.
+ */
+export async function assertRoom(db: Database, input: {
+  organizationId: string;
+  timezone: string;
+  service: typeof schema.bookableService.$inferSelect;
+  date: string;
+  arrivalWindowId: string;
+  technicianId?: string | undefined;
+}): Promise<void> {
+  const [window] = await db.select().from(schema.arrivalWindow)
+    .where(and(eq(schema.arrivalWindow.id, input.arrivalWindowId), eq(schema.arrivalWindow.organizationId, input.organizationId)))
+    .limit(1);
+  if (!window) throw new NotFoundError("Arrival window");
+  const room = await capacityReader(db, {
+    organizationId: input.organizationId, timezone: input.timezone, service: input.service,
+    from: input.date, until: input.date, technicianId: input.technicianId,
+  });
+  if (input.technicianId && room === null) throw new ConflictError("That technician is not taking bookings. Choose anybody, or another time.");
+  if (room && room(input.date, window) <= 0) {
+    throw new ConflictError(input.technicianId
+      ? "That technician has just been booked for that time. Please choose another."
+      : "That time has just been taken. Please choose another.");
+  }
+}
+
+/**
+ * HOW MUCH MORE OF THIS SERVICE EACH WINDOW HOLDS, FROM THE BOARD
+ *
+ * Loads once what the dispatch board knows for the days asked about, and
+ * answers per day and window with `customerPortal.windowCapacity` (core
+ * says the model in words). The facts:
+ *
+ *  - the active technicians, or the one a returning customer asked for;
+ *  - whether each is qualified for the service's job type, asked of the
+ *    same `qualify` the board's drop and the assignment API ask, once for
+ *    the first day shown (a certification lapsing mid fortnight is caught
+ *    when the visit is assigned, as it is for any booking);
+ *  - their approved time off;
+ *  - the visits on their days, each taking its estimated length from when
+ *    it is due to arrive;
+ *  - the work waiting for somebody in the same window: unassigned visits,
+ *    booking requests not yet booked onto the board, and customers' asks to
+ *    move into it.
+ *
+ * Every read names the organization, because the public widget reaches
+ * this with no tenant context. Null when the company has no technicians
+ * recorded at all: there is no board to read, and the per window limit is
+ * all there is to go on.
+ */
+export async function capacityReader(db: Database, input: {
+  organizationId: string;
+  timezone: string;
+  service: typeof schema.bookableService.$inferSelect;
+  from: string;
+  until: string;
+  technicianId?: string | undefined;
+  exceptRequestId?: string | undefined;
+  exceptVisitId?: string | undefined;
+}): Promise<((date: string, window: { id: string; startsAt: string; endsAt: string }) => number) | null> {
+  const org = input.organizationId;
+  const [type] = await db.select({
+    skills: schema.jobType.requiredSkills, minutes: schema.jobType.defaultDurationMinutes,
+  }).from(schema.jobType)
+    .where(and(eq(schema.jobType.id, input.service.jobTypeId), eq(schema.jobType.organizationId, org))).limit(1);
+  const duration = type?.minutes ?? 60;
+
+  const people = await db.select({ id: schema.technician.id }).from(schema.technician)
+    .where(and(
+      eq(schema.technician.organizationId, org),
+      eq(schema.technician.active, true),
+      input.technicianId ? eq(schema.technician.id, input.technicianId) : undefined,
+    ));
+  if (people.length === 0) return null;
+  const verdicts = await qualify(db, org, {
+    technicianIds: people.map((p) => p.id), skills: type?.skills ?? [], on: input.from,
+  });
+
+  /** A day either side, because a company's day is not a UTC day. */
+  const lower = new Date(time.startOfDayIn(input.from, input.timezone).getTime() - 864e5);
+  const upper = new Date(time.startOfDayIn(input.until, input.timezone).getTime() + 2 * 864e5);
+  const live = sql`${schema.visit.status} not in ('cancelled', 'no_show')`;
+
+  const visits = await db.select({
+    id: schema.visit.id,
+    start: schema.visit.windowStart,
+    minutes: schema.visit.estimatedDurationMinutes,
+    technicianId: schema.visitAssignment.technicianId,
+    /** A crew's, a route's or a rental's visit is not waiting for a technician. */
+    otherwise: sql<boolean>`(${schema.visit.crewId} is not null or ${schema.visit.routeId} is not null or ${schema.visit.rentalId} is not null)`,
+  })
+    .from(schema.visit)
+    .leftJoin(schema.visitAssignment, eq(schema.visitAssignment.visitId, schema.visit.id))
+    .where(and(
+      eq(schema.visit.organizationId, org),
+      gte(schema.visit.windowStart, lower),
+      lte(schema.visit.windowStart, upper),
+      live,
+      input.exceptVisitId ? sql`${schema.visit.id} <> ${input.exceptVisitId}` : undefined,
+    ));
+
+  const off = await db.select({
+    startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt, technicianId: schema.timeOff.technicianId,
+  }).from(schema.timeOff)
+    .where(and(
+      eq(schema.timeOff.organizationId, org),
+      eq(schema.timeOff.approved, true),
+      lte(schema.timeOff.startsAt, upper),
+      gte(schema.timeOff.endsAt, lower),
+    ));
+
+  /**
+   * Requests not yet on the board: waiting for the office, or confirmed into
+   * a job that has no visit yet. Each needs somebody for its service's
+   * usual length. A request naming a technician waits for them alone.
+   */
+  const requests = await db.select({
+    date: schema.bookingRequest.requestedDate,
+    windowId: schema.bookingRequest.arrivalWindowId,
+    minutes: schema.jobType.defaultDurationMinutes,
+    technicianId: schema.bookingRequest.preferredTechnicianId,
+  })
+    .from(schema.bookingRequest)
+    .innerJoin(schema.bookableService, eq(schema.bookableService.id, schema.bookingRequest.bookableServiceId))
+    .innerJoin(schema.jobType, eq(schema.jobType.id, schema.bookableService.jobTypeId))
+    .where(and(
+      eq(schema.bookingRequest.organizationId, org),
+      gte(schema.bookingRequest.requestedDate, input.from),
+      lte(schema.bookingRequest.requestedDate, input.until),
+      sql`(${schema.bookingRequest.status} = 'pending' or (${schema.bookingRequest.status} = 'confirmed'
+        and not exists (select 1 from public.visit v where v.job_id = ${schema.bookingRequest.jobId})))`,
+    ));
+
+  const holds = await db.select({
+    date: schema.visitChangeRequest.requestedDate,
+    windowId: schema.visitChangeRequest.arrivalWindowId,
+    minutes: schema.visit.estimatedDurationMinutes,
+  })
+    .from(schema.visitChangeRequest)
+    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitChangeRequest.visitId))
+    .where(and(
+      eq(schema.visitChangeRequest.organizationId, org),
+      eq(schema.visitChangeRequest.kind, "reschedule"),
+      eq(schema.visitChangeRequest.status, "pending"),
+      gte(schema.visitChangeRequest.requestedDate, input.from),
+      lte(schema.visitChangeRequest.requestedDate, input.until),
+      input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
+    ));
+
+  return (date, window) => {
+    const span = {
+      start: windowStart(date, window.startsAt, input.timezone),
+      end: windowStart(date, window.endsAt, input.timezone),
+    };
+    const inWindow = (at: Date | null) => at !== null && at >= span.start && at < span.end;
+    let waiting = 0;
+    for (const v of visits) {
+      if (!v.technicianId && !v.otherwise && !input.technicianId && inWindow(v.start)) waiting += v.minutes;
+    }
+    for (const r of requests) {
+      if (r.date !== date || r.windowId !== window.id) continue;
+      if (input.technicianId ? r.technicianId === input.technicianId : true) waiting += r.minutes;
+    }
+    if (!input.technicianId) {
+      for (const h of holds) if (h.date === date && h.windowId === window.id) waiting += h.minutes;
+    }
+    return cp.windowCapacity({
+      window: span,
+      durationMinutes: duration,
+      waitingMinutes: waiting,
+      technicians: people.map((person) => ({
+        id: person.id,
+        qualified: verdicts.get(person.id)?.qualified ?? true,
+        away: off.some((o) => o.technicianId === person.id && o.startsAt < span.end && o.endsAt > span.start),
+        busy: visits
+          .filter((v) => v.technicianId === person.id && v.start !== null)
+          .map((v) => ({ start: v.start!, minutes: v.minutes })),
+      })),
+    }).jobs;
+  };
 }
 
 /** A window's clock time on a day, as an instant, in the company's zone. */
@@ -421,6 +596,7 @@ export async function createRequest(
         "That time has just been taken. Please choose another.",
       );
     }
+    await assertRoom(tx, { organizationId: org.id, timezone: org.timezone, service, date: input.requestedDate, arrivalWindowId: input.arrivalWindowId });
 
     const [row] = await tx.insert(schema.bookingRequest).values({
       organizationId: org.id,
@@ -782,6 +958,13 @@ async function matchOrCreateProperty(
   request: typeof schema.bookingRequest.$inferSelect,
   explicitCustomerId?: string | undefined,
 ): Promise<{ propertyId: string; customerId: string }> {
+  /**
+   * A request a customer made from their own account already says who and
+   * where. Matching it by address again could only find somebody else.
+   */
+  if (request.customerId && request.propertyId && !explicitCustomerId) {
+    return { propertyId: request.propertyId, customerId: request.customerId };
+  }
   const line1 = (request.addressLine1 ?? "").trim().toLowerCase();
   const postal = (request.postalCode ?? "").trim();
 
@@ -935,27 +1118,12 @@ function shapeRequest(r: typeof schema.bookingRequest.$inferSelect) {
     sourceUrl: r.sourceUrl,
     referrer: r.referrer,
     utm: r.utm,
+    preferredTechnicianId: r.preferredTechnicianId,
     declineReason: r.declineReason,
     decidedAt: r.decidedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
-}
-
-/** Distinct technicians whose approved time off covers this calendar day. */
-function awayCount(
-  off: Array<{ startsAt: Date; endsAt: Date; technicianId: string }>,
-  day: Date,
-  timeZone: string,
-): number {
-  // Local bounds, like everywhere else a calendar day is turned into two
-  // instants. Time off recorded as a local working day overlapped the wrong
-  // UTC window by the offset, which at five hours is most of an afternoon.
-  const { start: dayStart, end: dayEnd } = time.dayBoundsIn(time.dateIn(day, timeZone), timeZone);
-  const away = new Set(
-    off.filter((o) => o.startsAt < dayEnd && o.endsAt > dayStart).map((o) => o.technicianId),
-  );
-  return away.size;
 }
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);

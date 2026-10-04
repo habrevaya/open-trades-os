@@ -20,12 +20,13 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
-import { ActionForm } from "@/components/ActionForm";
+import { ActionForm, TextArea } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { addVisit } from "../actions";
 import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus, shareJobPhoto } from "./actions";
+import { shareVisitNotes } from "./notes-actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
@@ -339,6 +340,33 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   : "Unscheduled"}
                 {visit.technicianNotes ? (
                   <p className="mt-1 whitespace-pre-line text-xs text-ink-500">{visit.technicianNotes}</p>
+                ) : null}
+                {visit.customerNotesSharedAt && visit.customerNotes ? (
+                  <p className="mt-1 whitespace-pre-line text-xs text-ink-700">
+                    <span className="font-medium">The customer reads:</span> {visit.customerNotes}
+                  </p>
+                ) : null}
+                {/*
+                  The notes are the technician's own and stay private. What the
+                  customer reads on their account is a copy somebody here chose,
+                  edited if it needs to be, and it does not change when the phone
+                  adds to the notes later.
+                */}
+                {can(user.actor, "servicereport:publish") && (visit.technicianNotes || visit.customerNotes) ? (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-ink-700 underline underline-offset-4">
+                      {visit.customerNotesSharedAt ? "Change what the customer reads" : "Show the customer these notes"}
+                    </summary>
+                    <ActionForm action={shareVisitNotes} submit="Show on their account" tone="quiet"
+                                hidden={{ jobId: job.id, visitId: visit.id }} className="mt-2 space-y-2">
+                      <TextArea label={`What the customer reads about visit ${visit.sequence}`} name="notes"
+                                defaultValue={visit.customerNotes ?? visit.technicianNotes ?? ""} maxLength={4000} />
+                    </ActionForm>
+                    {visit.customerNotesSharedAt && (
+                      <ActionForm action={shareVisitNotes} submit="Stop showing the customer" tone="quiet"
+                                  hidden={{ jobId: job.id, visitId: visit.id, stop: "yes" }} className="mt-2" />
+                    )}
+                  </details>
                 ) : null}
               </Td>
               <Td className="text-ink-700">

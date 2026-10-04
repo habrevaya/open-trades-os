@@ -468,6 +468,15 @@ revoke all on function app.revoke_session(text) from public;
 -- charge. So the use count is incremented in the same statement that reads the
 -- row, and the limit is enforced in the WHERE clause rather than afterwards in
 -- application code.
+--
+-- Both return the contact a grant acts for, when a contact on the customer
+-- signed in as them, so the request that follows can be recorded as that
+-- person. Adding a column to what a function returns is not something
+-- `create or replace` may do, so each is dropped first; the grants on them
+-- are given again further down, on every migrate.
+drop function if exists app.consume_portal_grant(text, text);
+drop function if exists app.peek_portal_grant(text);
+
 create or replace function app.consume_portal_grant(
   p_token_hash text, p_ip text default null
 ) returns table (
@@ -476,7 +485,8 @@ create or replace function app.consume_portal_grant(
     customer_id uuid,
     scope text,
     subject_id uuid,
-    uses_remaining integer
+    uses_remaining integer,
+    contact_id uuid
   )
   language sql
   volatile
@@ -498,7 +508,8 @@ create or replace function app.consume_portal_grant(
        )
     returning
       g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
-      case when g.max_uses is null then null else g.max_uses - g.use_count end
+      case when g.max_uses is null then null else g.max_uses - g.use_count end,
+      g.contact_id
   $$;
 
 -- Reading a grant without spending a use. Every refresh of a tracking page
@@ -511,7 +522,8 @@ create or replace function app.peek_portal_grant(p_token_hash text)
     customer_id uuid,
     scope text,
     subject_id uuid,
-    uses_remaining integer
+    uses_remaining integer,
+    contact_id uuid
   )
   language sql
   stable
@@ -520,7 +532,8 @@ create or replace function app.peek_portal_grant(p_token_hash text)
   as $$
     select
       g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
-      case when g.max_uses is null then null else g.max_uses - g.use_count end
+      case when g.max_uses is null then null else g.max_uses - g.use_count end,
+      g.contact_id
     from public.portal_grant g
     where g.token_hash = p_token_hash
       and g.expires_at > now()

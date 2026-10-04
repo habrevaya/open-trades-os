@@ -32,3 +32,12 @@ export async function saveJobPhotos(_previous: FormState, form: FormData): Promi
     return { message: "Saved." };
   });
 }
+
+/** Bank payments on or off. Off until somebody turns it on, because the money arrives days later and can still fail. */
+export async function saveBankPayments(_previous: FormState, form: FormData): Promise<FormState> {
+  return attempt(form, async () => {
+    await portalSettings.set(await ctx(), { bankAccounts: form.get("bankAccounts") === "on" });
+    revalidatePath("/settings/portal");
+    return { message: "Saved." };
+  });
+}

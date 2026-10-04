@@ -7,10 +7,11 @@ import { portalBase } from "../lib/portal-base";
 /**
  * WHAT A COMPANY LETS ITS CUSTOMERS DO FOR THEMSELVES
  *
- * Two decisions, both off until somebody makes them: whether a customer
- * paying from the portal is offered a tip for the technicians, and whether
+ * Three decisions, all off until somebody makes them: whether a customer
+ * paying from the portal is offered a tip for the technicians, whether
  * every job photograph is shown on the customer's job page or only the ones
- * somebody chose. Kept in `organization.settings.portal` beside the other
+ * somebody chose, and whether a signed in customer may save a bank account
+ * and pay from it. Kept in `organization.settings.portal` beside the other
  * settings the company owns, and read through core so a hand edited blob can
  * only ever read as "off".
  *
@@ -43,6 +44,7 @@ export async function get(ctx: ServiceContext): Promise<PortalSettingsView> {
 export interface PortalSettingsInput {
   tipping?: { enabled: boolean; presets: number[] } | undefined;
   jobPhotos?: cp.PhotoSharing | undefined;
+  bankAccounts?: boolean | undefined;
 }
 
 /**
@@ -59,7 +61,11 @@ export async function set(ctx: ServiceContext, input: PortalSettingsInput): Prom
       if (!checked.ok) throw new ConflictError(checked.reason);
       tipping = checked.settings;
     }
-    const after: cp.PortalSettings = { tipping, jobPhotos: input.jobPhotos ?? before.jobPhotos };
+    const after: cp.PortalSettings = {
+      tipping,
+      jobPhotos: input.jobPhotos ?? before.jobPhotos,
+      bankAccounts: input.bankAccounts ?? before.bankAccounts,
+    };
     await tx.update(schema.organization).set({
       settings: sql`${schema.organization.settings} || ${JSON.stringify({ portal: after })}::jsonb`,
       updatedAt: new Date(),

@@ -4,6 +4,7 @@ import { useKeptAction } from "@/lib/use-kept-action";
 import { useState } from "react";
 import { Chip, Phone } from "@opentradesos/ui";
 import { addContact, removeContact, makePrimary } from "./actions";
+import { setContactPortalAccess } from "./portal-actions";
 
 const BUTTON =
   "inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm hover:bg-steel-100 disabled:opacity-60";
@@ -19,6 +20,8 @@ export interface ContactRow {
   isPrimary: boolean;
   preferredChannel: string;
   noticeRank: number;
+  /** The office lets them sign in to the customer's portal as the customer. */
+  portalAccess?: boolean;
 }
 
 /**
@@ -37,18 +40,21 @@ export interface ContactRow {
  * first.
  */
 export function Contacts({
-  customerId, contacts, properties,
+  customerId, contacts, properties, portalControl = false,
 }: {
   customerId: string;
   contacts: ContactRow[];
   properties: { id: string; label: string }[];
+  /** Whoever is looking may decide who signs in to the customer's portal. */
+  portalControl?: boolean;
 }) {
   const [addState, addForm, adding] = useKeptAction(addContact, null);
+  const [accessState, accessForm, granting] = useKeptAction(setContactPortalAccess, null);
   const [removeState, removeForm, removing] = useKeptAction(removeContact, null);
   const [primaryState, primaryForm, promoting] = useKeptAction(makePrimary, null);
   const [open, setOpen] = useState(false);
 
-  const error = [addState, removeState, primaryState]
+  const error = [addState, removeState, primaryState, accessState]
     .map((state) => (state && "error" in state ? state.error : null))
     .find(Boolean);
 
@@ -86,8 +92,25 @@ export function Contacts({
               {contact.phone && <span className="text-sm text-ink-700"><Phone value={contact.phone} /></span>}
               {contact.email && <span className="text-sm text-ink-700">{contact.email}</span>}
               <span className="text-xs text-ink-500">prefers {contact.preferredChannel}</span>
+              {contact.portalAccess && <Chip tone="info">Can sign in as the customer</Chip>}
 
               <span className="ml-auto flex gap-2">
+                {/*
+                  Signing in as the customer is for somebody on the account,
+                  not somebody at one door: a tenant sees the landlord's
+                  bills otherwise. So a contact on a property alone is not
+                  offered it.
+                */}
+                {portalControl && !contact.propertyId && (
+                  <form {...accessForm}>
+                    <input type="hidden" name="customerId" value={customerId} />
+                    <input type="hidden" name="id" value={contact.id} />
+                    <input type="hidden" name="allowed" value={contact.portalAccess ? "no" : "yes"} />
+                    <button type="submit" disabled={granting} className={BUTTON}>
+                      {contact.portalAccess ? `Stop ${contact.name.split(" ")[0]} signing in` : `Let ${contact.name.split(" ")[0]} sign in`}
+                    </button>
+                  </form>
+                )}
                 {!contact.isPrimary && (
                   <form {...primaryForm}>
                     <input type="hidden" name="customerId" value={customerId} />

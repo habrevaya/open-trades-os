@@ -41,7 +41,11 @@ let draftId = "";
 let othersId = "";
 let estimateId = "";
 
-const today = () => new Date().toISOString().slice(0, 10);
+/**
+ * Today where the company is, not in UTC: the service refuses a date in the
+ * company's future, and for six hours a night UTC is already tomorrow.
+ */
+const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
 
 beforeAll(async () => {
   if (!url) return;

@@ -46,6 +46,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
   /** Tips that came with payments on this invoice, and the technicians they are held for. */
   const tipped = (await tips.forInvoice(ctx, { invoiceId: id })).tips;
+  /** A bank payment on its way, or one the bank refused this month, so nobody chases or charges twice. */
+  const bank = can(user.actor, "payment:read")
+    ? (await payments.bankPayments(ctx, { invoiceId: id })).bankPayments
+    : [];
   const memberIds = invoice.lines.map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
   const plans = memberIds.length > 0 && can(user.actor, "customer:read")
     ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
@@ -186,6 +190,19 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           </ActionForm>
         </section>
       ) : null}
+
+      {bank.length > 0 && (
+        <section aria-label="Bank payments" className="mt-6 space-y-2">
+          {bank.map((b) => (
+            <p key={b.id} role={b.status === "failed" ? "alert" : "status"}
+               className={`rounded-md border p-3 text-sm ${b.status === "failed" ? "border-red-600 bg-red-tint text-red-600" : "border-steel-200 bg-steel-100 text-ink-700"}`}>
+              {b.status === "pending"
+                ? <>A bank payment of <Money value={b.amount} /> from the customer is on its way, started {formatIn(b.startedAt, tz)}. Bank payments take a few business days; the invoice shows paid when the bank confirms it, and cannot be paid again until then.</>
+                : <>A bank payment of <Money value={b.amount} /> started {formatIn(b.startedAt, tz)} did not go through{b.reason ? `: ${b.reason}` : "."} Nothing was recorded as paid. Ask the customer for another way to pay.</>}
+            </p>
+          ))}
+        </section>
+      )}
 
       {collects && (
         <section aria-label="Take payment" className="mt-8 rounded-md border border-steel-200 p-4">

@@ -189,7 +189,7 @@ run("saving a card", () => {
 
     const [row] = await raw<Record<string, unknown>[]>`select * from public.saved_payment_method where id = ${card.id}`;
     expect(Object.keys(row!).sort()).toEqual([
-      "brand", "created_at", "customer_id", "exp_month", "exp_year", "external_ref", "id", "last4",
+      "brand", "created_at", "customer_id", "exp_month", "exp_year", "external_ref", "id", "kind", "last4",
       "organization_id", "profile_id", "provider", "removed_at", "saved_by_grant_id", "updated_at",
     ]);
   });

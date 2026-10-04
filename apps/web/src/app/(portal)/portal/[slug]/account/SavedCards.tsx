@@ -3,23 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { loadStripe, type StripeClient, type StripeElement, type StripeElements } from "../../../PayNow";
 import type { CardSetupResult } from "./actions";
+import { cardLabel } from "./card-label";
 
 export interface CardRow {
   id: string;
+  kind?: "card" | "bank_account";
   brand: string | null;
   last4: string | null;
   expMonth: number | null;
   expYear: number | null;
 }
-
-const BRAND: Record<string, string> = {
-  visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover",
-  diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay",
-};
-
-/** How a card is named on a button: "Visa ending 4242". */
-export const cardLabel = (card: Pick<CardRow, "brand" | "last4">) =>
-  `${BRAND[card.brand ?? ""] ?? "Card"}${card.last4 ? ` ending ${card.last4}` : ""}`;
 
 /**
  * THE CUSTOMER'S SAVED CARDS: THE LIST, REMOVING ONE, AND ADDING ONE.
@@ -29,15 +22,18 @@ export const cardLabel = (card: Pick<CardRow, "brand" | "last4">) =>
  * back here with the setup's id, and the page reads the setup from Stripe
  * before it records anything. Nothing is charged by saving a card.
  */
-export function SavedCards({ cards, canSave, start, remove, notice }: {
+export function SavedCards({ cards, canSave, canSaveBank = false, start, remove, notice }: {
   cards: CardRow[];
   canSave: boolean;
-  start: () => Promise<CardSetupResult>;
+  /** The company takes bank payments, so a bank account can be saved too. */
+  canSaveBank?: boolean;
+  start: (kind: "card" | "bank_account") => Promise<CardSetupResult>;
   remove: (cardId: string) => Promise<{ ok: boolean; message?: string }>;
   /** What happened when Stripe sent the customer back, said by the page. */
   notice: { ok: boolean; text: string } | null;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "saving">("idle");
+  const [kind, setKind] = useState<"card" | "bank_account">("card");
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const mountRef = useRef<HTMLDivElement>(null);
@@ -53,10 +49,11 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
     }
   }, [state]);
 
-  async function open() {
+  async function open(what: "card" | "bank_account") {
+    setKind(what);
     setState("loading");
     setError(null);
-    const started = await start();
+    const started = await start(what);
     if (!started.ok) {
       setError(started.message);
       setState("idle");
@@ -71,7 +68,7 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
       mounted.current = false;
       setState("ready");
     } catch {
-      setError("The card form could not load. Check your connection and try again.");
+      setError(`The ${what === "bank_account" ? "bank account" : "card"} form could not load. Check your connection and try again.`);
       setState("idle");
     }
   }
@@ -86,7 +83,7 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
       confirmParams: { return_url: window.location.href.split("?")[0]! },
     });
     // Only reached when Stripe did not send the customer back, which is a failure.
-    setError(failed?.message ?? "The card was not saved. Nothing was charged.");
+    setError(failed?.message ?? `The ${kind === "bank_account" ? "bank account" : "card"} was not saved. Nothing was charged.`);
     setState("ready");
   }
 
@@ -100,7 +97,9 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
 
   return (
     <section aria-label="Saved cards" className="rounded-md border border-steel-200 bg-canvas p-5">
-      <h2 className="text-xs uppercase tracking-[0.08em] text-ink-500">Saved cards</h2>
+      <h2 className="text-xs uppercase tracking-[0.08em] text-ink-500">
+        {canSaveBank || cards.some((c) => c.kind === "bank_account") ? "Saved cards and bank accounts" : "Saved cards"}
+      </h2>
       {notice && (
         <p
           role={notice.ok ? "status" : "alert"}
@@ -119,7 +118,7 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
             <li key={card.id} className="flex items-center justify-between gap-4">
               <span>
                 {cardLabel(card)}
-                {card.expMonth && card.expYear && (
+                {card.kind !== "bank_account" && card.expMonth && card.expYear && (
                   <span className="text-ink-500">, expires {String(card.expMonth).padStart(2, "0")}/{card.expYear}</span>
                 )}
               </span>
@@ -139,12 +138,27 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
       {canSave && (state === "idle" || state === "loading") && (
         <button
           type="button"
-          onClick={() => void open()}
+          onClick={() => void open("card")}
           disabled={state === "loading"}
           className="mt-4 h-11 w-full rounded border border-steel-300 text-sm font-medium transition-colors hover:bg-steel-100 disabled:opacity-40"
         >
-          {state === "loading" ? "Opening…" : "Save a card"}
+          {state === "loading" && kind === "card" ? "Opening…" : "Save a card"}
         </button>
+      )}
+      {canSaveBank && (state === "idle" || state === "loading") && (
+        <>
+          <button
+            type="button"
+            onClick={() => void open("bank_account")}
+            disabled={state === "loading"}
+            className="mt-2 h-11 w-full rounded border border-steel-300 text-sm font-medium transition-colors hover:bg-steel-100 disabled:opacity-40"
+          >
+            {state === "loading" && kind === "bank_account" ? "Opening…" : "Save a bank account"}
+          </button>
+          <p className="mt-1 text-center text-xs text-ink-500">
+            You sign in to your bank to check the account. A payment from a bank account takes a few business days to arrive.
+          </p>
+        </>
       )}
       {(state === "ready" || state === "saving") && (
         <div className="mt-4">
@@ -156,10 +170,12 @@ export function SavedCards({ cards, canSave, start, remove, notice }: {
             style={{ backgroundColor: "var(--brand, #111827)", color: "var(--brand-on, #ffffff)" }}
             className="mt-4 h-12 w-full rounded text-base font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            {state === "saving" ? "Saving…" : "Save this card"}
+            {state === "saving" ? "Saving…" : kind === "bank_account" ? "Save this bank account" : "Save this card"}
           </button>
           <p className="mt-2 text-center text-xs text-ink-500">
-            Card details go straight to Stripe and never reach this site. Saving a card charges nothing.
+            {kind === "bank_account"
+              ? "Bank details go straight to Stripe and never reach this site. Saving a bank account takes nothing from it; by paying from it later you allow that one payment to be taken."
+              : "Card details go straight to Stripe and never reach this site. Saving a card charges nothing."}
           </p>
         </div>
       )}

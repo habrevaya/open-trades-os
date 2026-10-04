@@ -80,7 +80,14 @@ export const PERMISSIONS = {
   "booking:decide": "Confirm or decline a booking request",
   "booking:configure": "Choose what the public may book, and on what terms",
   "portal:grant": "Issue a customer a link to approve, pay or track without an account",
-  "portal:revoke": "Withdraw a customer link",
+  "portal:revoke": "Withdraw a customer link, end a customer's sign in, and choose which contacts may sign in",
+  /**
+   * Separate from `portal:grant` because a technician holds that one, to hand
+   * a customer a link on their own phone, and a technician has no business
+   * reading which addresses a customer signs in from or when somebody failed
+   * to. The person who answers "the code never came" is in the office.
+   */
+  "portal:read": "See customers' portal sign ins and failed sign in codes",
   "membership:read": "View memberships and agreements",
   "membership:write": "Sell and edit memberships",
   /**

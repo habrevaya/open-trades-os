@@ -88,6 +88,69 @@ describe("the signed in account", () => {
   });
 });
 
+describe("the work on the account, laid out by the trade", () => {
+  const report = {
+    id: "r1", visitId: "v9", publishedAt: "2026-09-20T15:00:00Z", summary: "Perimeter treatment",
+    observations: "Gap under the garage door", fields: [
+      { key: "product", label: "Product", kind: "chemical", unit: null, value: null, outOfRange: false,
+        product: { name: "Termidor SC", epaRegistrationNumber: "7969-210", quantity: "0.7500", unit: "gal", target: "Ants" } },
+      { key: "stations", label: "Stations serviced", kind: "numeric", unit: null, value: "6.0000", outOfRange: false, product: null },
+    ],
+  };
+  const extras = {
+    blocks: [
+      { kind: "service_report" as const, title: "What we did and what we used", config: {}, declared: true },
+      { kind: "next_visit" as const, title: "Coming up", config: {}, declared: true },
+      { kind: "visit_timeline" as const, title: "Service history", config: {}, declared: false },
+      { kind: "equipment_register" as const, title: "Your equipment", config: {}, declared: false },
+    ],
+    history: [{
+      visitId: "v9", jobId: "j9", jobNumber: 31, summary: "Quarterly treatment", date: "2026-09-20T15:00:00Z",
+      status: "completed", technicianName: "Ray", notes: "Keep pets off the lawn for two hours.", report,
+    }],
+    equipment: [{
+      id: "q1", property: "14 Live Oak St", name: "Furnace", tag: "Hall closet", manufacturer: "Carrier", model: null,
+      serialNumber: null, installedOn: null, warrantyPartsExpiresOn: null, warrantyLaborExpiresOn: null, location: null,
+      details: [{ label: "Filter size", value: "16x25x1" }],
+    }],
+    readings: [], checklist: null, photos: [], payments: [], planVisits: [], recommendations: [],
+    contact: { phone: null, technicians: ["Ray"] },
+  };
+
+  it("draws the pack's blocks in its order, with the products used, the shared notes and the filter size", () => {
+    const html = renderToStaticMarkup(<AccountView account={account({ extras })} pay={() => null} />);
+    expect(html.indexOf("What we did and what we used")).toBeLessThan(html.indexOf("Coming up"));
+    expect(html).toContain("Termidor SC, 0.75 gal, for Ants");
+    expect(html).toContain("EPA registration 7969-210");
+    expect(html).toContain("Keep pets off the lawn for two hours.");
+    expect(html).toContain("Filter size: 16x25x1");
+    expect(html).toContain("Job #31, with Ray");
+  });
+
+  it("shows every account its history and equipment even with no pack", () => {
+    const html = renderToStaticMarkup(<AccountView account={account()} pay={() => null} />);
+    expect(html).toContain("Service history");
+    expect(html).toContain("Nothing recorded at your home yet.");
+  });
+
+  it("says a bank payment is on its way instead of offering to pay again, and says when one failed", () => {
+    const html = renderToStaticMarkup(
+      <AccountView
+        account={account({
+          invoices: [{ id: "i1", number: 1041, status: "open", issuedOn: null, dueOn: null, currency: "USD",
+            total: "458.0000", balance: "458.0000", payable: false, bankPaymentPending: true, tipping: NO_TIP }],
+          bankPayments: [{ id: "b2", status: "failed", amount: "90.0000", invoiceNumbers: [1003],
+            startedAt: "2026-09-01T15:00:00Z", failedAt: "2026-09-04T15:00:00Z", reason: "The account has insufficient funds." }],
+        })}
+        pay={(i) => <button>pay {i.number}</button>}
+      />,
+    );
+    expect(html).toContain("Your bank payment is on its way");
+    expect(html).not.toContain("pay 1041");
+    expect(html).toContain("did not go through: The account has insufficient funds.");
+  });
+});
+
 describe("paying an invoice", () => {
   const start = async () => ({ ok: false as const, message: "not in a test" });
 
@@ -114,6 +177,18 @@ describe("paying an invoice", () => {
     );
     expect(html).not.toContain("Add a tip");
     expect(html).toContain("Pay $80.00 with Visa ending 4242");
+  });
+
+  it("says what paying from a bank account allows, and how long it takes", () => {
+    const html = renderToStaticMarkup(
+      <PayInvoice
+        balance="80.0000" currency="USD" start={start} tipping={NO_TIP}
+        savedCards={[{ id: "b1", label: "Frost Bank account ending 6789", kind: "bank_account" }]}
+        payWithSaved={async () => ({ ok: false, message: "not in a test" })}
+      />,
+    );
+    expect(html).toContain("Pay $80.00 with Frost Bank account ending 6789");
+    expect(html).toContain("takes a few business days to arrive");
   });
 });
 

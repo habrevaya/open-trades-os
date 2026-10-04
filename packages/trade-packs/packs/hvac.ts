@@ -74,10 +74,15 @@ export const hvac: TradePackInput = {
       { key: "seer", label: "SEER2", kind: "numeric" },
       { key: "refrigerant", label: "Refrigerant", kind: "select", options: ["R-22", "R-410A", "R-454B", "R-32"] },
     ]},
-    { code: "air-handler", name: "Air handler" },
+    // The filter size is what a homeowner most often rings to ask, so it is
+    // recorded on the unit and shown on their account.
+    { code: "air-handler", name: "Air handler", attributes: [
+      { key: "filter_size", label: "Filter size", kind: "text" },
+    ]},
     { code: "furnace", name: "Furnace", attributes: [
       { key: "afue", label: "AFUE", kind: "numeric" },
       { key: "stages", label: "Stages", kind: "select", options: ["Single", "Two", "Modulating"] },
+      { key: "filter_size", label: "Filter size", kind: "text" },
     ]},
     { code: "evap-coil", name: "Evaporator coil", parentCode: "air-handler" },
     { code: "compressor", name: "Compressor", parentCode: "condenser" },

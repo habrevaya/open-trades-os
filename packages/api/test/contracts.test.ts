@@ -69,6 +69,15 @@ describe("permissions", () => {
        * returns the brand, last four and expiry, which is all that is kept.
        */
       "GET /v1/portal/account",
+      /**
+       * A signed in customer asking for a visit: what they can book, the
+       * windows open (with the technician who came before, by first name,
+       * and only one who has been to them), and the request. Sign in only;
+       * the property and technician are checked against the customer the
+       * sign in names, and the request is one the office still books.
+       */
+      "GET /v1/portal/booking",
+      "GET /v1/portal/booking/availability",
       "GET /v1/portal/cards",
       "GET /v1/portal/estimate",
       /** A change order on a project, read and signed from its own link, as an estimate is. */
@@ -115,6 +124,11 @@ describe("permissions", () => {
        */
       "GET /v1/public/dni",
       "GET /v1/public/hosted-forms/{key}",
+      /**
+       * The sign in page's brand, by the company's public key: its name,
+       * colour and whether it has a logo, which is what goes on its van.
+       */
+      "GET /v1/public/portal/{organizationSlug}/branding",
       "GET /v1/public/services",
       /**
        * The phone app signing in. Open because nobody is signed in yet, and
@@ -137,6 +151,7 @@ describe("permissions", () => {
        */
       "POST /v1/portal/account/open",
       "POST /v1/portal/account/pay",
+      "POST /v1/portal/booking",
       "POST /v1/portal/card-setup",
       "POST /v1/portal/card-setup/confirm",
       "POST /v1/portal/cards/{cardId}/pay",

@@ -11564,6 +11564,124 @@
         ]
       }
     },
+    "/v1/bank-payments": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listBankPayments",
+        "summary": "Bank payments on their way, and the ones that failed this month",
+        "description": "A bank payment is pending for a few business days before the processor says whether it arrived, and the invoice stays open meanwhile; it cannot be paid again until then. A failed one raised a task in the office queue saying why.\n\nRequires a session holding: payment:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bank payments on their way, and the ones that failed this month",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBankPaymentsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:read"
+        ]
+      }
+    },
     "/v1/booking/arrival-windows": {
       "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -23194,6 +23312,145 @@
         ]
       }
     },
+    "/v1/contacts/{id}/portal-access": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setContactPortalAccess",
+        "summary": "Let a contact sign in as their customer, or stop them",
+        "description": "A contact the office allows signs in with their own email or mobile number and sees the customer's account; what they do there is recorded as them. Only a contact on a customer, with an address a code can go to. Taking it away ends every sign in they have open.\n\nRequires a session holding: customer:write, portal:revoke.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetContactPortalAccessInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Let a contact sign in as their customer, or stop them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetContactPortalAccessOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write",
+          "portal:revoke"
+        ]
+      }
+    },
     "/v1/continuing-education/{id}/remove": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -29382,6 +29639,253 @@
         "x-authorization": "session",
         "x-permissions": [
           "customer:read"
+        ]
+      }
+    },
+    "/v1/customers/{id}/portal-sessions": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listCustomerPortalSessions",
+        "summary": "A customer's sign ins, open and recently ended",
+        "description": "Requires a session holding: portal:read.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A customer's sign ins, open and recently ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCustomerPortalSessionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "portal:read"
+        ]
+      }
+    },
+    "/v1/customers/{id}/portal-sessions/end": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "endCustomerPortalSessions",
+        "summary": "End a customer's sign in, or every one they have open",
+        "description": "Ended everywhere at once, the way their own sign out ends it: the next page they open asks for a code. Links the office sent them are left alone. Ending one that has already ended changes nothing.\n\nRequires a session holding: portal:revoke.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndCustomerPortalSessionsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "End a customer's sign in, or every one they have open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndCustomerPortalSessionsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "portal:revoke"
         ]
       }
     },
@@ -63945,8 +64449,8 @@
       },
       "patch": {
         "operationId": "setPortalSettings",
-        "summary": "Turn tipping on or off, and choose which job photographs customers see",
-        "description": "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job.\n\nRequires a session holding: settings:write.",
+        "summary": "Turn tipping and bank payments on or off, and choose which job photographs customers see",
+        "description": "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M05"
         ],
@@ -63973,7 +64477,7 @@
         },
         "responses": {
           "200": {
-            "description": "Turn tipping on or off, and choose which job photographs customers see",
+            "description": "Turn tipping and bank payments on or off, and choose which job photographs customers see",
             "content": {
               "application/json": {
                 "schema": {
@@ -64064,6 +64568,126 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:write"
+        ]
+      }
+    },
+    "/v1/portal-sign-ins": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listPortalSignIns",
+        "summary": "Customers asking for sign in codes, and what became of each",
+        "description": "Newest first. With a customer, the codes that signed in as them and the ones asked for at an address on their record at the time, so a failed try shows on the customer it was aimed at. Without one, every attempt at an address somebody has; strangers typing numbers nobody has are left out. What became of the message is here too, which answers \"the code never came\".\n\nRequires a session holding: portal:read.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Customers asking for sign in codes, and what became of each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPortalSignInsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "portal:read"
         ]
       }
     },
@@ -64326,6 +64950,290 @@
         "x-permissions": []
       }
     },
+    "/v1/portal/booking": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "getPortalBookingOptions",
+        "summary": "What a signed in customer can book, where, and with whom",
+        "description": "From a sign in only. The services the company takes online, the customer's own addresses, and the technicians who have been to them before, by first name: the ones they can ask for again.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What a signed in customer can book, where, and with whom",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPortalBookingOptionsOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      },
+      "post": {
+        "operationId": "requestPortalBooking",
+        "summary": "Ask for a visit from the customer's own account",
+        "description": "From a sign in only. Writes a booking request already carrying the customer and the property, checked against the window and the technician's day inside the same transaction. The office books it; booking it with its visit puts the technician asked for on it when they are still free and qualified.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M05"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestPortalBookingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask for a visit from the customer's own account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestPortalBookingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
+    "/v1/portal/booking/availability": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getPortalBookingAvailability",
+        "summary": "The windows open for a service, from anybody or from one technician",
+        "description": "From a sign in only. The same windows the public widget offers, from the same function; with a technician, only that person's own free time, and only a technician who has been to this customer before.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "bookableServiceId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60,
+              "default": 14
+            }
+          },
+          {
+            "name": "technicianId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The windows open for a service, from anybody or from one technician",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPortalBookingAvailabilityOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
     "/v1/portal/card-setup": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -64333,8 +65241,8 @@
       ],
       "post": {
         "operationId": "startPortalCardSetup",
-        "summary": "Start saving a card",
-        "description": "From a sign in only. Returns what the processor's own card element needs to collect the card in the browser. The card details go to the processor and never to this server.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "summary": "Start saving a card or a bank account",
+        "description": "From a sign in only. Returns what the processor's own element needs to collect the card, or to verify a bank account by signing in to the bank, in the browser. The details go to the processor and never to this server. A bank account only when the company has turned bank payments on.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
         "tags": [
           "M13"
         ],
@@ -64350,7 +65258,7 @@
         },
         "responses": {
           "201": {
-            "description": "Start saving a card",
+            "description": "Start saving a card or a bank account",
             "content": {
               "application/json": {
                 "schema": {
@@ -64511,8 +65419,8 @@
       ],
       "get": {
         "operationId": "listPortalCards",
-        "summary": "The cards the customer has saved",
-        "description": "From a sign in only. The brand, the last four digits and the expiry, which is all that is kept: the card itself is held by the processor.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
+        "summary": "The cards and bank accounts the customer has saved",
+        "description": "From a sign in only. The brand or bank, the last four digits and a card's expiry, which is all that is kept: the card or account itself is held by the processor.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -64530,7 +65438,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The cards the customer has saved",
+            "description": "The cards and bank accounts the customer has saved",
             "content": {
               "application/json": {
                 "schema": {
@@ -64593,7 +65501,7 @@
       "post": {
         "operationId": "payPortalInvoiceWithCard",
         "summary": "Pay one invoice with a saved card",
-        "description": "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. The invoice shows paid when the processor's signed webhook says the money moved.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
         "tags": [
           "M13"
         ],
@@ -74851,7 +75759,7 @@
       "get": {
         "operationId": "getAvailability",
         "summary": "Real openings for a bookable service",
-        "description": "Derived from business hours, time off, existing commitments and the per-window ceiling. Never a list that was typed in.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
+        "description": "Derived from business hours, the technicians' own days (who is working, who is off, who is qualified for the work and how much of each window is already booked, with work still waiting for somebody taken off first) and the per-window ceiling, which stays the most the company will sell. Never a list that was typed in.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M05"
         ],
@@ -75649,6 +76557,87 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GetHostedFormOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "public",
+        "x-permissions": []
+      }
+    },
+    "/v1/public/portal/{organizationSlug}/branding": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getPublicPortalBranding",
+        "summary": "A company's name, colour and whether it has a logo, for its sign in page",
+        "description": "The sign in page has no token to brand itself from, so it is branded from the company's public key. Only what goes on the van: the name, the colour (with the colours readable on it) and whether there is a logo. The logo itself is served at `/portal/{slug}/logo`.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "organizationSlug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A company's name, colour and whether it has a logo, for its sign in page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPublicPortalBrandingOutput"
                 }
               }
             }
@@ -100454,6 +101443,144 @@
         ]
       }
     },
+    "/v1/visits/{id}/customer-notes": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "shareVisitNotes",
+        "summary": "Show the customer what happened on a visit, in words the office chose",
+        "description": "The technician's own notes are never shown as they stand. This shares a copy, the notes as they read now or the office's wording of them, on the customer's account beside the visit; null stops showing it. The same permission as publishing a service report.\n\nRequires a session holding: servicereport:publish.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareVisitNotesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Show the customer what happened on a visit, in words the office chose",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareVisitNotesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "servicereport:publish"
+        ]
+      }
+    },
     "/v1/visits/{id}/lock": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -110227,6 +111354,19 @@
               "null"
             ]
           },
+          "customerNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerNotesSharedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "externalRef": {
             "type": [
               "object",
@@ -110275,6 +111415,8 @@
           "arrivedAt",
           "completedAt",
           "technicianNotes",
+          "customerNotes",
+          "customerNotesSharedAt",
           "externalRef",
           "createdAt",
           "updatedAt",
@@ -110962,6 +112104,13 @@
                   "type": "string"
                 }
               },
+              "preferredTechnicianId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "declineReason": {
                 "type": [
                   "string",
@@ -111005,6 +112154,7 @@
               "sourceUrl",
               "referrer",
               "utm",
+              "preferredTechnicianId",
               "declineReason",
               "decidedAt",
               "createdAt",
@@ -111057,6 +112207,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "card",
+              "bank_account"
+            ]
+          },
           "brand": {
             "type": [
               "string",
@@ -111088,6 +112245,7 @@
         },
         "required": [
           "id",
+          "kind",
           "brand",
           "last4",
           "expMonth",
@@ -112458,6 +113616,13 @@
                   "type": "string"
                 }
               },
+              "preferredTechnicianId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "declineReason": {
                 "type": [
                   "string",
@@ -112501,6 +113666,7 @@
               "sourceUrl",
               "referrer",
               "utm",
+              "preferredTechnicianId",
               "declineReason",
               "decidedAt",
               "createdAt",
@@ -115902,6 +117068,19 @@
                     "null"
                   ]
                 },
+                "customerNotes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerNotesSharedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "externalRef": {
                   "type": [
                     "object",
@@ -115947,6 +117126,8 @@
                 "arrivedAt",
                 "completedAt",
                 "technicianNotes",
+                "customerNotes",
+                "customerNotesSharedAt",
                 "externalRef",
                 "createdAt",
                 "updatedAt"
@@ -121303,6 +122484,13 @@
               "type": "string"
             }
           },
+          "preferredTechnicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "declineReason": {
             "type": [
               "string",
@@ -121346,6 +122534,7 @@
           "sourceUrl",
           "referrer",
           "utm",
+          "preferredTechnicianId",
           "declineReason",
           "decidedAt",
           "createdAt",
@@ -124668,6 +125857,26 @@
           "explanation",
           "status",
           "link"
+        ]
+      },
+      "EndCustomerPortalSessionsInput": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "EndCustomerPortalSessionsOutput": {
+        "type": "object",
+        "properties": {
+          "ended": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ended"
         ]
       },
       "EndTechnicianSkillInput": {
@@ -134796,6 +136005,19 @@
                     "null"
                   ]
                 },
+                "customerNotes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerNotesSharedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "externalRef": {
                   "type": [
                     "object",
@@ -134841,6 +136063,8 @@
                 "arrivedAt",
                 "completedAt",
                 "technicianNotes",
+                "customerNotes",
+                "customerNotesSharedAt",
                 "externalRef",
                 "createdAt",
                 "updatedAt"
@@ -138334,6 +139558,136 @@
           "numbers"
         ]
       },
+      "GetPortalBookingAvailabilityOutput": {
+        "type": "object",
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "arrivalWindowId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "remaining": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "date",
+                "arrivalWindowId",
+                "label",
+                "startsAt",
+                "endsAt",
+                "remaining"
+              ]
+            }
+          }
+        },
+        "required": [
+          "slots"
+        ]
+      },
+      "GetPortalBookingOptionsOutput": {
+        "type": "object",
+        "properties": {
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "price": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "currency": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "description",
+                "price",
+                "currency"
+              ]
+            }
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          },
+          "technicians": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "services",
+          "properties",
+          "technicians"
+        ]
+      },
       "GetPortalJobLiveOutput": {
         "type": "object",
         "properties": {
@@ -138476,6 +139830,9 @@
               "all"
             ]
           },
+          "bankAccounts": {
+            "type": "boolean"
+          },
           "signInUrl": {
             "type": "string"
           }
@@ -138483,6 +139840,7 @@
         "required": [
           "tipping",
           "jobPhotos",
+          "bankAccounts",
           "signInUrl"
         ]
       },
@@ -140135,6 +141493,46 @@
           "terms"
         ]
       },
+      "GetPublicPortalBrandingOutput": {
+        "type": "object",
+        "properties": {
+          "organizationName": {
+            "type": "string"
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasLogo": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "organizationName",
+          "color",
+          "on",
+          "text",
+          "hasLogo",
+          "version"
+        ]
+      },
       "GetPurchaseOrderOutput": {
         "type": "object",
         "properties": {
@@ -141316,6 +142714,13 @@
                   ],
                   "format": "uuid"
                 },
+                "actorContactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "action": {
                   "type": "string"
                 },
@@ -141352,6 +142757,7 @@
                 "actorUserId",
                 "actorAgentId",
                 "actorPortalGrantId",
+                "actorContactId",
                 "action",
                 "entityType",
                 "entityId",
@@ -147998,6 +149404,70 @@
           "attachments"
         ]
       },
+      "ListBankPaymentsOutput": {
+        "type": "object",
+        "properties": {
+          "bankPayments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "invoiceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "failedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "status",
+                "amount",
+                "invoiceIds",
+                "startedAt",
+                "failedAt",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "bankPayments"
+        ]
+      },
       "ListBookableServicesOutput": {
         "type": "object",
         "properties": {
@@ -148239,6 +149709,13 @@
                     "type": "string"
                   }
                 },
+                "preferredTechnicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "declineReason": {
                   "type": [
                     "string",
@@ -148285,6 +149762,7 @@
                 "sourceUrl",
                 "referrer",
                 "utm",
+                "preferredTechnicianId",
                 "declineReason",
                 "decidedAt",
                 "createdAt",
@@ -151635,6 +153113,98 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ListCustomerPortalSessionsOutput": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "lastUsedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lastUsedIp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
+                "address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "startedAt",
+                "expiresAt",
+                "lastUsedAt",
+                "lastUsedIp",
+                "active",
+                "endedAt",
+                "endedReason",
+                "channel",
+                "address",
+                "contactName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "sessions"
         ]
       },
       "ListCustomerTagsOutput": {
@@ -158296,6 +159866,13 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "bank_account"
+                  ]
+                },
                 "brand": {
                   "type": [
                     "string",
@@ -158327,6 +159904,7 @@
               },
               "required": [
                 "id",
+                "kind",
                 "brand",
                 "last4",
                 "expMonth",
@@ -158337,11 +159915,120 @@
           },
           "canSave": {
             "type": "boolean"
+          },
+          "canSaveBank": {
+            "type": "boolean"
           }
         },
         "required": [
           "cards",
-          "canSave"
+          "canSave",
+          "canSaveBank"
+        ]
+      },
+      "ListPortalSignInsOutput": {
+        "type": "object",
+        "properties": {
+          "attempts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
+                "address": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "signed_in",
+                    "waiting",
+                    "wrong_code",
+                    "too_many_attempts",
+                    "replaced",
+                    "expired",
+                    "no_account"
+                  ]
+                },
+                "wrongCodes": {
+                  "type": "integer"
+                },
+                "delivery": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requestedIp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signedInIp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ]
+                  }
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "at",
+                "channel",
+                "address",
+                "outcome",
+                "wrongCodes",
+                "delivery",
+                "requestedIp",
+                "signedInIp",
+                "customers",
+                "contactName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "attempts"
         ]
       },
       "ListPriceBookOutput": {
@@ -170345,6 +172032,13 @@
                   ],
                   "format": "uuid"
                 },
+                "actorContactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "action": {
                   "type": "string"
                 },
@@ -170381,6 +172075,7 @@
                 "actorUserId",
                 "actorAgentId",
                 "actorPortalGrantId",
+                "actorContactId",
                 "action",
                 "entityType",
                 "entityId",
@@ -176610,6 +178305,69 @@
           "updatedAt"
         ]
       },
+      "RequestPortalBookingInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          },
+          "bookableServiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "arrivalWindowId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "token",
+          "bookableServiceId",
+          "propertyId",
+          "requestedDate",
+          "arrivalWindowId"
+        ]
+      },
+      "RequestPortalBookingOutput": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "arrivalWindowId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "requestId",
+          "requestedDate",
+          "arrivalWindowId"
+        ]
+      },
       "RequestPortalCodeInput": {
         "type": "object",
         "properties": {
@@ -180612,6 +182370,19 @@
               "null"
             ]
           },
+          "customerNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerNotesSharedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "externalRef": {
             "type": [
               "object",
@@ -180657,6 +182428,8 @@
           "arrivedAt",
           "completedAt",
           "technicianNotes",
+          "customerNotes",
+          "customerNotesSharedAt",
           "externalRef",
           "createdAt",
           "updatedAt"
@@ -182592,6 +184365,37 @@
           "statusReason"
         ]
       },
+      "SetContactPortalAccessInput": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allowed"
+        ]
+      },
+      "SetContactPortalAccessOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "portalAccess": {
+            "type": "boolean"
+          },
+          "endedSessions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "portalAccess",
+          "endedSessions"
+        ]
+      },
       "SetCostingRateInput": {
         "type": "object",
         "properties": {
@@ -184235,6 +186039,9 @@
               "chosen",
               "all"
             ]
+          },
+          "bankAccounts": {
+            "type": "boolean"
           }
         }
       },
@@ -184266,6 +186073,9 @@
               "all"
             ]
           },
+          "bankAccounts": {
+            "type": "boolean"
+          },
           "signInUrl": {
             "type": "string"
           }
@@ -184273,6 +186083,7 @@
         "required": [
           "tipping",
           "jobPhotos",
+          "bankAccounts",
           "signInUrl"
         ]
       },
@@ -186327,6 +188138,48 @@
           "sharedWithCustomerAt"
         ]
       },
+      "ShareVisitNotesInput": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "notes"
+        ]
+      },
+      "ShareVisitNotesOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sharedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "customerNotes",
+          "sharedAt"
+        ]
+      },
       "ShareWithNetworkInput": {
         "type": "object",
         "properties": {
@@ -186959,6 +188812,13 @@
             "type": "string",
             "minLength": 20,
             "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "card",
+              "bank_account"
+            ]
           }
         },
         "required": [
@@ -192020,6 +193880,19 @@
                     "null"
                   ]
                 },
+                "customerNotes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerNotesSharedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "externalRef": {
                   "type": [
                     "object",
@@ -192065,6 +193938,8 @@
                 "arrivedAt",
                 "completedAt",
                 "technicianNotes",
+                "customerNotes",
+                "customerNotesSharedAt",
                 "externalRef",
                 "createdAt",
                 "updatedAt"
@@ -196769,6 +198644,9 @@
                 "payable": {
                   "type": "boolean"
                 },
+                "bankPaymentPending": {
+                  "type": "boolean"
+                },
                 "tipping": {
                   "type": "object",
                   "properties": {
@@ -196818,6 +198696,7 @@
                 "total",
                 "balance",
                 "payable",
+                "bankPaymentPending",
                 "tipping"
               ]
             }
@@ -196931,6 +198810,658 @@
           },
           "onlinePaymentAvailable": {
             "type": "boolean"
+          },
+          "requested": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "serviceName": {
+                  "type": "string"
+                },
+                "requestedDate": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "windowName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "technicianName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "serviceName",
+                "requestedDate",
+                "windowName",
+                "technicianName"
+              ]
+            }
+          },
+          "bankPayments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "invoiceNumbers": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "failedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "status",
+                "amount",
+                "invoiceNumbers",
+                "startedAt",
+                "failedAt",
+                "reason"
+              ]
+            }
+          },
+          "extras": {
+            "type": "object",
+            "properties": {
+              "blocks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "visit_timeline",
+                        "service_report",
+                        "readings_trend",
+                        "equipment_register",
+                        "checklist_results",
+                        "photo_gallery",
+                        "documents",
+                        "invoices",
+                        "payments",
+                        "plan_status",
+                        "next_visit",
+                        "recommended_work",
+                        "referral",
+                        "contact_card"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "declared": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "config",
+                    "declared"
+                  ]
+                }
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "visitId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "jobId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "jobNumber": {
+                      "type": "integer"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "technicianName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "notes": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "report": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "visitId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "publishedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "summary": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observations": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "unit": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "value": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "outOfRange": {
+                                "type": "boolean"
+                              },
+                              "product": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "properties": {
+                                  "name": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "epaRegistrationNumber": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "quantity": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "unit": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "target": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "epaRegistrationNumber",
+                                  "quantity",
+                                  "unit",
+                                  "target"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "label",
+                              "kind",
+                              "unit",
+                              "value",
+                              "outOfRange",
+                              "product"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "visitId",
+                        "publishedAt",
+                        "summary",
+                        "observations",
+                        "fields"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "visitId",
+                    "jobId",
+                    "jobNumber",
+                    "summary",
+                    "date",
+                    "status",
+                    "technicianName",
+                    "notes",
+                    "report"
+                  ]
+                }
+              },
+              "equipment": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "property": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "manufacturer": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "model": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "serialNumber": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "installedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "warrantyPartsExpiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "warrantyLaborExpiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "details": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "value"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "property",
+                    "name",
+                    "tag",
+                    "manufacturer",
+                    "model",
+                    "serialNumber",
+                    "installedOn",
+                    "warrantyPartsExpiresOn",
+                    "warrantyLaborExpiresOn",
+                    "location",
+                    "details"
+                  ]
+                }
+              },
+              "readings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "value": {
+                            "type": "string"
+                          },
+                          "outOfRange": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "at",
+                          "value",
+                          "outOfRange"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "unit",
+                    "points"
+                  ]
+                }
+              },
+              "checklist": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "done": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "done"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "date",
+                  "summary",
+                  "items"
+                ]
+              },
+              "photos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "takenAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "jobNumber": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "takenAt",
+                    "jobNumber"
+                  ]
+                }
+              },
+              "payments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "receivedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "receivedAt",
+                    "amount",
+                    "method",
+                    "status"
+                  ]
+                }
+              },
+              "planVisits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "agreementId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "planName": {
+                      "type": "string"
+                    },
+                    "dueOn": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "booked",
+                        "skipped",
+                        "due"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agreementId",
+                    "planName",
+                    "dueOn",
+                    "state"
+                  ]
+                }
+              },
+              "recommendations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "text"
+                  ]
+                }
+              },
+              "contact": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "technicians": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "phone",
+                  "technicians"
+                ]
+              }
+            },
+            "required": [
+              "blocks",
+              "history",
+              "equipment",
+              "readings",
+              "checklist",
+              "photos",
+              "payments",
+              "planVisits",
+              "recommendations",
+              "contact"
+            ]
           }
         },
         "required": [
@@ -196943,7 +199474,10 @@
           "estimates",
           "agreements",
           "deposits",
-          "onlinePaymentAvailable"
+          "onlinePaymentAvailable",
+          "requested",
+          "bankPayments",
+          "extras"
         ]
       },
       "ViewPortalChangeOrderOutput": {

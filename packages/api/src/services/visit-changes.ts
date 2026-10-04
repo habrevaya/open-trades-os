@@ -183,6 +183,8 @@ export async function options(
         service: rules.service,
         from: input.from ?? time.dateIn(now, timezone),
         days: Math.min(input.days ?? 21, 60),
+        /** The visit being moved does not stand in its own way. */
+        exceptVisitId: visit.id,
       }))
       : [];
 
@@ -304,7 +306,7 @@ export async function request(
       if (!rules.service || rules.blockedBy) throw new ConflictError(rules.blockedBy ?? "This visit cannot be moved online.");
       const slot = (await openSlots(tx, {
         organizationId: grant.organizationId, timezone, service: rules.service,
-        from: input.requestedDate, days: 1,
+        from: input.requestedDate, days: 1, exceptVisitId: visit.id,
       })).find((s) => s.arrivalWindowId === input.arrivalWindowId && s.date === input.requestedDate);
       if (!slot) throw new ConflictError("That time is not open any more. Please choose another.");
 
@@ -569,7 +571,7 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
       }
       const still = (await openSlots(tx, {
         organizationId: ctx.actor.organizationId, timezone, service,
-        from: req.requestedDate, days: 1, exceptRequestId: req.id,
+        from: req.requestedDate, days: 1, exceptRequestId: req.id, exceptVisitId: visit.id,
       })).some((s) => s.arrivalWindowId === req.arrivalWindowId && s.date === req.requestedDate);
       if (!still) {
         throw new ConflictError("That time has filled up since the customer asked. Decline it and offer them another.");

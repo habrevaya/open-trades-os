@@ -42,15 +42,56 @@ export interface FakeStripe {
   /** What the server would use as Stripe's API root. */
   baseUrl: string;
   intents: FakeIntent[];
+  /** Bank accounts and cards saved through a setup, by setup id. */
+  setups: Map<string, { customer: string; kind: string }>;
   close(): Promise<void>;
 }
 
 export async function fakeStripeApi(): Promise<FakeStripe> {
   const intents: FakeIntent[] = [];
+  const setups = new Map<string, { customer: string; kind: string }>();
+  const stamp = Date.now().toString(36);
+  const json = (response: import("node:http").ServerResponse, value: unknown) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(value));
+  };
   const server: Server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
     request.on("end", () => {
+      /*
+        Saving a card or a bank account: a Stripe customer, a setup intent,
+        and the setup read back. A bank account comes back verified, as it
+        does once the customer has signed in to their bank in Stripe's window.
+      */
+      if (request.method === "POST" && request.url === "/v1/customers") {
+        json(response, { id: `cus_e2e_${stamp}_${setups.size + 1}`, object: "customer" });
+        return;
+      }
+      if (request.method === "POST" && request.url === "/v1/setup_intents") {
+        const params = new URLSearchParams(body);
+        const id = `seti_e2e_${stamp}_${setups.size + 1}`;
+        setups.set(id, { customer: params.get("customer") ?? "", kind: params.get("payment_method_types[0]") ?? "card" });
+        json(response, { id, object: "setup_intent", client_secret: `${id}_secret_fake`, status: "requires_payment_method" });
+        return;
+      }
+      const read = /^\/v1\/setup_intents\/([^/?]+)/.exec(request.url ?? "");
+      if (request.method === "GET" && read) {
+        const setup = setups.get(decodeURIComponent(read[1]!));
+        if (!setup) {
+          response.writeHead(404, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: { code: "resource_missing", message: "No such setup intent" } }));
+          return;
+        }
+        const pm = `pm_e2e_${read[1]}`;
+        json(response, {
+          id: read[1], object: "setup_intent", status: "succeeded", customer: setup.customer,
+          payment_method: setup.kind === "us_bank_account"
+            ? { id: pm, type: "us_bank_account", us_bank_account: { bank_name: "Frost Bank", last4: "6789" } }
+            : { id: pm, type: "card", card: { brand: "visa", last4: "4242", exp_month: 4, exp_year: 2031 } },
+        });
+        return;
+      }
       if (request.method !== "POST" || request.url !== "/v1/payment_intents") {
         response.writeHead(404, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: { message: `The fake has no ${request.method} ${request.url}` } }));
@@ -77,10 +118,17 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
         authorization: request.headers.authorization,
       };
       intents.push(intent);
+      /*
+        A saved method confirmed on the spot: a bank debit is accepted and
+        on its way, which Stripe calls processing; a card goes through.
+      */
+      const confirmed = params.get("confirm") === "true";
+      const bank = params.get("payment_method_types[0]") === "us_bank_account";
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({
         id: intent.id, object: "payment_intent", client_secret: intent.clientSecret,
-        amount: intent.amount, currency: intent.currency, status: "requires_payment_method", metadata,
+        amount: intent.amount, currency: intent.currency,
+        status: confirmed ? (bank ? "processing" : "succeeded") : "requires_payment_method", metadata,
       }));
     });
   });
@@ -89,6 +137,7 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     intents,
+    setups,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

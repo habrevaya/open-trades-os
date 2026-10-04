@@ -436,13 +436,28 @@ export async function bookRequest(ctx: ServiceContext, input: { id: string }) {
   const confirmed = await booking.confirm(ctx, { id: input.id });
   let visitId: string | null = null;
   if (found.window) {
-    const visit = await jobs.addVisit({ ...ctx, idempotencyKey: `booking-request:${input.id}:visit` }, {
+    const slot = {
       id: confirmed.jobId,
       windowStart: booking.windowStart(found.request.requestedDate, found.window.startsAt, found.timezone).toISOString(),
       windowEnd: booking.windowStart(found.request.requestedDate, found.window.endsAt, found.timezone).toISOString(),
       estimatedDurationMinutes: 60,
-      technicianIds: [],
-    });
+    };
+    const keyed = { ...ctx, idempotencyKey: `booking-request:${input.id}:visit` };
+    /**
+     * The technician a returning customer asked for goes on it when they are
+     * still free and qualified that day: the same checks any assignment
+     * makes refuse otherwise, and then the visit goes on the board for
+     * anybody, with the wish still on the request for whoever dispatches it.
+     */
+    const preferred = found.request.preferredTechnicianId;
+    let visit: { id: string } | null = null;
+    if (preferred) {
+      visit = await jobs.addVisit(keyed, { ...slot, technicianIds: [preferred] }).catch((error: unknown) => {
+        if (error instanceof ConflictError) return null;
+        throw error;
+      });
+    }
+    visit ??= await jobs.addVisit(keyed, { ...slot, technicianIds: [] });
     visitId = visit.id;
   }
   return { bookingRequestId: input.id, customerId: confirmed.customerId, jobId: confirmed.jobId, visitId };
