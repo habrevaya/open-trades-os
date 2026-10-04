@@ -127,13 +127,24 @@ export const BillingPlan = z.object({
     /** What their invoice will ask for: `total` and `taxTotal`. */
     totalWithTax: MoneyString,
     taxExempt: z.boolean(),
-    lines: z.array(z.object({ key: z.string(), amount: MoneyString, whole: z.boolean(), tax: MoneyString })),
+    /** `memberDiscount` is what the customer's plan takes off their own part of the line; `amount` is before it. */
+    lines: z.array(z.object({ key: z.string(), amount: MoneyString, whole: z.boolean(), tax: MoneyString, memberDiscount: MoneyString })),
+    /** What the customer's plan takes off their own part, in all. Nothing for any other payer. */
+    memberDiscount: MoneyString,
     ceiling: z.object({ state: z.enum(["within", "over"]), held: z.boolean(), message: z.string().nullable() }).nullable(),
   })),
   pricedTotal: MoneyString,
   invoicedTotal: MoneyString,
   /** Covered by a plan or our own warranty, so billed to nobody. */
   absorbed: MoneyString,
+  /**
+   * The membership plan the job's own customer holds, when it took anything
+   * off their part (M08). A third party's part is priced by its own authority
+   * and never takes a member discount.
+   */
+  member: z.object({ agreementId: Uuid, planName: z.string() }).nullable(),
+  /** What that plan took off the customer's part. The invoices, this and `absorbed` come to the priced work. */
+  memberDiscount: MoneyString,
   /** True when the payers' parts and what was absorbed come to the priced work exactly. */
   reconciles: z.boolean(),
   /**
@@ -174,7 +185,7 @@ export const billJob = defineRoute({
   path: "/v1/jobs/{id}/billing",
   summary: "Bill a job to whoever pays for it, one invoice per payer",
   description:
-    "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent.",
+    "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent. When the job's own customer holds a membership plan, its discount comes off their own part, at our price, as the line's member discount; a third party's part never takes one.",
   module: "M31",
   permissions: ["invoice:write"],
   idempotent: true,

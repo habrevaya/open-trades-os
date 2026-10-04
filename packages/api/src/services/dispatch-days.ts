@@ -10,6 +10,7 @@ import * as dispatch from "./dispatch";
 import { announce, sideOf } from "./visit-notices";
 import { officeMoved } from "./visit-changes";
 import { remember, replayed } from "./once";
+import { roomOutsideHold } from "./booking";
 
 /**
  * SEVERAL DAYS, REBALANCED: WORK MOVED TO ANOTHER DAY
@@ -161,6 +162,29 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
           }),
         ],
       });
+    }
+  }
+
+  /**
+   * THE SHARE HELD FOR MEMBERS, kept on the days work moves to. A visit for
+   * somebody no plan lets into the hold may move into a window on another
+   * day only while that window has room outside the hold, as online booking
+   * would have offered it; the planner counts each one it moves in.
+   */
+  const asks = visits.flatMap((v) => v.options.slice(1).map((option) => {
+    const own = byId.get(v.id)!.visit;
+    const moved = windowOn(own, planOf.get(byId.get(v.id)!.date)!.day, option.date, zone);
+    return {
+      ref: `${v.id}|${option.date}`, customerId: own.customerId, propertyId: own.propertyId,
+      jobTypeId: own.jobTypeId, durationMinutes: own.estimatedDurationMinutes, windowStart: moved.start,
+    };
+  }));
+  const rooms = await guardedRead(ctx, "visit:read", (tx) =>
+    roomOutsideHold(tx, { organizationId: ctx.actor.organizationId, timezone: zone, asks }));
+  for (const v of visits) {
+    for (const option of v.options.slice(1)) {
+      const held = rooms.get(`${v.id}|${option.date}`);
+      if (held) option.held = held;
     }
   }
 

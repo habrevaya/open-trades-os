@@ -1365,6 +1365,10 @@ export interface CancelAgreementOutput {
   endsOn: string | null;
   price: string;
   discountRate: string | null;
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
   billingFrequency: string;
   autoRenews: boolean;
   renewalCount: number;
@@ -1971,6 +1975,11 @@ export interface CreateAgreementPlanInput {
   benefits?: string[];
   autoRenews?: boolean;
   renewalNoticeDays?: number;
+  discountExclusions?: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  memberHoldPercent?: number | null;
 }
 
 export interface CreateAgreementPlanOutput {
@@ -1991,6 +2000,11 @@ export interface CreateAgreementPlanOutput {
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
   benefits: string[];
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  memberHoldPercent: number | null;
   active: boolean;
 }
 
@@ -2791,6 +2805,7 @@ export interface CreateJobInput {
     windowEnd: string;
     estimatedDurationMinutes?: number;
     technicianIds?: string[];
+    bookAnyway?: boolean;
     externalRef?: {
       source: string;
       id: string;
@@ -5048,6 +5063,10 @@ export interface GetAgreementOutput {
   endsOn: string | null;
   price: string;
   discountRate: string | null;
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
   billingFrequency: string;
   autoRenews: boolean;
   renewalCount: number;
@@ -5078,6 +5097,14 @@ export interface GetAgreementOutput {
     status: string;
     invoiceId: string | null;
   }>;
+  terms: Array<{
+    term: number;
+    startsOn: string | null;
+    endsOn: string;
+    breakageReleasedOn: string | null;
+    breakageAmount: string | null;
+    breakageVisits: number | null;
+  }>;
 }
 
 export interface GetAgreementPlanOutput {
@@ -5098,8 +5125,27 @@ export interface GetAgreementPlanOutput {
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
   benefits: string[];
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  memberHoldPercent: number | null;
   active: boolean;
   members: number;
+}
+
+export interface GetAgreementRenewalNoticesOutput {
+  channel: "text_first" | "email_first" | "both";
+  templates: Array<{
+    code: "agreement_renewal.renews.sms" | "agreement_renewal.renews.email" | "agreement_renewal.ends.sms" | "agreement_renewal.ends.email";
+    situation: "renews" | "ends";
+    channel: "sms" | "email";
+    name: string;
+    subject: string | null;
+    body: string;
+    isDefault: boolean;
+  }>;
+  variables: string[];
 }
 
 export interface GetAiStatusOutput {
@@ -6588,6 +6634,7 @@ export interface GetFieldSnapshotOutput {
       rate: string;
       waivesDiagnosticFee: boolean;
       waivesAfterHoursRate: boolean;
+      excludedItemIds: string[];
     } | null;
     estimates: Array<{
       id: string;
@@ -6627,6 +6674,7 @@ export interface GetFieldSnapshotOutput {
       taxable: boolean;
       itemKind: string | null;
       feeRole: string | null;
+      itemId: string | null;
     }>;
     invoices: Array<{
       id: string;
@@ -7575,6 +7623,11 @@ export interface GetMemberHoldOutput {
   reservePercent: number;
   releaseHours: number;
   plansWithPriority: number;
+  plans: Array<{
+    id: string;
+    name: string;
+    holdPercent: number | null;
+  }>;
 }
 
 export interface GetMemberPricingOutput {
@@ -7585,6 +7638,7 @@ export interface GetMemberPricingOutput {
   percent: string | null;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+  leavesOut: string[];
 }
 
 export interface GetMultiDayRebalanceOutput {
@@ -10097,6 +10151,11 @@ export interface ListAgreementPlansOutput {
     waivesDiagnosticFee: boolean;
     waivesAfterHoursRate: boolean;
     benefits: string[];
+    discountExclusions: {
+      categoryIds: string[];
+      itemIds: string[];
+    };
+    memberHoldPercent: number | null;
     active: boolean;
   }>;
 }
@@ -10130,6 +10189,10 @@ export interface ListAgreementsOutput {
     endsOn: string | null;
     price: string;
     discountRate: string | null;
+    discountExclusions: {
+      categoryIds: string[];
+      itemIds: string[];
+    };
     billingFrequency: string;
     autoRenews: boolean;
     renewalCount: number;
@@ -14781,7 +14844,9 @@ export interface PreviewJobBillingOutput {
       amount: string;
       whole: boolean;
       tax: string;
+      memberDiscount: string;
     }>;
+    memberDiscount: string;
     ceiling: {
       state: "within" | "over";
       held: boolean;
@@ -14791,6 +14856,11 @@ export interface PreviewJobBillingOutput {
   pricedTotal: string;
   invoicedTotal: string;
   absorbed: string;
+  member: {
+    agreementId: string;
+    planName: string;
+  } | null;
+  memberDiscount: string;
   reconciles: boolean;
   taxTotal: string;
   outOfScope: number;
@@ -16914,6 +16984,11 @@ export interface RetireAgreementPlanOutput {
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
   benefits: string[];
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  memberHoldPercent: number | null;
   active: boolean;
 }
 
@@ -17582,6 +17657,7 @@ export interface ScheduleVisitInput {
   technicianIds?: string[];
   crewId?: string;
   status?: "cancelled";
+  bookAnyway?: boolean;
   externalRef?: {
     source: string;
     id: string;
@@ -17640,6 +17716,10 @@ export interface SellAgreementOutput {
   endsOn: string | null;
   price: string;
   discountRate: string | null;
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
   billingFrequency: string;
   autoRenews: boolean;
   renewalCount: number;
@@ -18332,6 +18412,11 @@ export interface SetMemberHoldOutput {
   reservePercent: number;
   releaseHours: number;
   plansWithPriority: number;
+  plans: Array<{
+    id: string;
+    name: string;
+    holdPercent: number | null;
+  }>;
 }
 
 export interface SetMemberLocationInput {
@@ -19751,6 +19836,11 @@ export interface UpdateAgreementPlanInput {
   benefits?: string[];
   autoRenews?: boolean;
   renewalNoticeDays?: number;
+  discountExclusions?: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  memberHoldPercent?: number | null;
   active?: boolean;
 }
 
@@ -19772,7 +19862,35 @@ export interface UpdateAgreementPlanOutput {
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
   benefits: string[];
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  memberHoldPercent: number | null;
   active: boolean;
+}
+
+export interface UpdateAgreementRenewalNoticesInput {
+  channel?: "text_first" | "email_first" | "both";
+  templates?: Array<{
+    code: "agreement_renewal.renews.sms" | "agreement_renewal.renews.email" | "agreement_renewal.ends.sms" | "agreement_renewal.ends.email";
+    subject?: string | null;
+    body: string;
+  }>;
+}
+
+export interface UpdateAgreementRenewalNoticesOutput {
+  channel: "text_first" | "email_first" | "both";
+  templates: Array<{
+    code: "agreement_renewal.renews.sms" | "agreement_renewal.renews.email" | "agreement_renewal.ends.sms" | "agreement_renewal.ends.email";
+    situation: "renews" | "ends";
+    channel: "sms" | "email";
+    name: string;
+    subject: string | null;
+    body: string;
+    isDefault: boolean;
+  }>;
+  variables: string[];
 }
 
 export interface UpdateAppInput {
@@ -21501,6 +21619,8 @@ export interface ViewPortalAccountOutput {
     status: string;
     startedOn: string;
     endsOn: string | null;
+    discount: string | null;
+    notDiscounted: string[];
   }>;
   deposits: Array<{
     id: string;
@@ -22552,6 +22672,8 @@ export interface GetAgreementInput {
 export interface GetAgreementPlanInput {
   id: string;
 }
+
+export type GetAgreementRenewalNoticesInput = Record<string, never>;
 
 export type GetAiStatusInput = Record<string, never>;
 
@@ -25341,6 +25463,7 @@ export interface OperationTypes {
   getAccountingStatus: { input: GetAccountingStatusInput; output: GetAccountingStatusOutput };
   getAgreement: { input: GetAgreementInput; output: GetAgreementOutput };
   getAgreementPlan: { input: GetAgreementPlanInput; output: GetAgreementPlanOutput };
+  getAgreementRenewalNotices: { input: GetAgreementRenewalNoticesInput; output: GetAgreementRenewalNoticesOutput };
   getAiStatus: { input: GetAiStatusInput; output: GetAiStatusOutput };
   getAiUsage: { input: GetAiUsageInput; output: GetAiUsageOutput };
   getAppSelf: { input: GetAppSelfInput; output: GetAppSelfOutput };
@@ -26025,6 +26148,7 @@ export interface OperationTypes {
   unskipAgreementVisit: { input: UnskipAgreementVisitParams & UnskipAgreementVisitInput; output: UnskipAgreementVisitOutput };
   upcomingTimeOff: { input: UpcomingTimeOffInput; output: UpcomingTimeOffOutput };
   updateAgreementPlan: { input: UpdateAgreementPlanParams & UpdateAgreementPlanInput; output: UpdateAgreementPlanOutput };
+  updateAgreementRenewalNotices: { input: UpdateAgreementRenewalNoticesInput; output: UpdateAgreementRenewalNoticesOutput };
   updateApp: { input: UpdateAppParams & UpdateAppInput; output: UpdateAppOutput };
   updateAsset: { input: UpdateAssetParams & UpdateAssetInput; output: UpdateAssetOutput };
   updateBusinessUnit: { input: UpdateBusinessUnitParams & UpdateBusinessUnitInput; output: UpdateBusinessUnitOutput };
@@ -26303,6 +26427,7 @@ export const OPERATIONS = {
   getAccountingStatus: { method: "GET", path: "/v1/accounting/status", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   getAgreement: { method: "GET", path: "/v1/agreements/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   getAgreementPlan: { method: "GET", path: "/v1/agreement-plans/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
+  getAgreementRenewalNotices: { method: "GET", path: "/v1/agreement-renewal-notices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getAiStatus: { method: "GET", path: "/v1/ai/connections", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getAiUsage: { method: "GET", path: "/v1/ai/usage", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getAppSelf: { method: "GET", path: "/v1/apps/me", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
@@ -26987,6 +27112,7 @@ export const OPERATIONS = {
   unskipAgreementVisit: { method: "POST", path: "/v1/agreement-visits/{id}/unskip", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   upcomingTimeOff: { method: "GET", path: "/v1/time-off/upcoming", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   updateAgreementPlan: { method: "PATCH", path: "/v1/agreement-plans/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
+  updateAgreementRenewalNotices: { method: "PUT", path: "/v1/agreement-renewal-notices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateApp: { method: "PATCH", path: "/v1/apps/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   updateAsset: { method: "PATCH", path: "/v1/assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   updateBusinessUnit: { method: "PATCH", path: "/v1/business-units/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -28939,6 +29065,15 @@ export abstract class GeneratedOperations {
    */
   getAgreementPlan(input: GetAgreementPlanInput, options?: CallOptions): Promise<GetAgreementPlanOutput> {
     return this.call("getAgreementPlan", input, options);
+  }
+
+  /**
+   * How renewal notices go, and their words.
+   *
+   * GET /v1/agreement-renewal-notices. Needs settings:read.
+   */
+  getAgreementRenewalNotices(input: GetAgreementRenewalNoticesInput = {} as GetAgreementRenewalNoticesInput, options?: CallOptions): Promise<GetAgreementRenewalNoticesOutput> {
+    return this.call("getAgreementRenewalNotices", input, options);
   }
 
   /**
@@ -35095,6 +35230,15 @@ export abstract class GeneratedOperations {
    */
   updateAgreementPlan(input: UpdateAgreementPlanParams & UpdateAgreementPlanInput, options?: CallOptions): Promise<UpdateAgreementPlanOutput> {
     return this.call("updateAgreementPlan", input, options);
+  }
+
+  /**
+   * Change how renewal notices go, or their words.
+   *
+   * PUT /v1/agreement-renewal-notices. Needs settings:write.
+   */
+  updateAgreementRenewalNotices(input: UpdateAgreementRenewalNoticesInput = {} as UpdateAgreementRenewalNoticesInput, options?: CallOptions): Promise<UpdateAgreementRenewalNoticesOutput> {
+    return this.call("updateAgreementRenewalNotices", input, options);
   }
 
   /**

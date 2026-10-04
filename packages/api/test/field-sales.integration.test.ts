@@ -253,7 +253,7 @@ run("an estimate built on the phone", () => {
     const shown = visit.estimates.find((e) => e.id === estimateId)!;
     expect(shown.options.map((o) => o.id).sort()).toEqual([good.id, best.id].sort());
     expect(JSON.stringify(visit.estimates)).not.toMatch(/cost|margin/i);
-    expect(visit.member).toEqual({ planName: "Comfort Club", rate: "0.100000", waivesDiagnosticFee: true, waivesAfterHoursRate: false });
+    expect(visit.member).toEqual({ planName: "Comfort Club", rate: "0.100000", waivesDiagnosticFee: true, waivesAfterHoursRate: false, excludedItemIds: [] });
     const kit = day.priceBook.find((entry) => entry.id === book.kit.itemId)!;
     expect(kit.components).toEqual([{ name: "Expansion tank", quantity: 1 }, { name: "Diagnostic visit", quantity: 1 }]);
     expect(day.abilities).toMatchObject({ writeEstimates: true, presentEstimates: true, raiseInvoices: true, takePayments: true });

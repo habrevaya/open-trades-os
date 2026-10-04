@@ -1886,7 +1886,7 @@
       "patch": {
         "operationId": "updateAgreementPlan",
         "summary": "Edit a membership plan",
-        "description": "Only the fields sent change. What an edit reaches differs by field, deliberately: the price, the discount and how often it bills are frozen on each agreement at sale, so they reach new sales only; the term and the visits reach new sales and each member's next term when it renews; the perks (priority dispatch, the waived fees, the benefit list) are read from the plan when used, so they reach every member at once. `active: false` retires it, the same as the retire call.\n\nRequires a session holding: membership:write.",
+        "description": "Only the fields sent change. What an edit reaches differs by field, deliberately: the price, the discount and how often it bills are frozen on each agreement at sale, so they reach new sales only; the term and the visits reach new sales and each member's next term when it renews; the perks (priority dispatch and the share of each window it holds, the waived fees, the benefit list) are read from the plan when used, so they reach every member at once. What the discount leaves out (`discountExclusions`) is part of the discount and reaches new sales only. `active: false` retires it, the same as the retire call.\n\nRequires a session holding: membership:write.",
         "tags": [
           "M08"
         ],
@@ -2151,6 +2151,217 @@
         "x-authorization": "session",
         "x-permissions": [
           "membership:write"
+        ]
+      }
+    },
+    "/v1/agreement-renewal-notices": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getAgreementRenewalNotices",
+        "summary": "How renewal notices go, and their words",
+        "description": "The company's choice of how the notice a plan owes before a term ends is sent, and its four message templates: a term that renews on its own and one that does not, each by text and by email. A new company starts with the wording the product has always sent.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M08"
+        ],
+        "responses": {
+          "200": {
+            "description": "How renewal notices go, and their words",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAgreementRenewalNoticesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "updateAgreementRenewalNotices",
+        "summary": "Change how renewal notices go, or their words",
+        "description": "Only what is sent changes. The words are checked as every message template is: a placeholder that is not one of `variables` is refused, because it would reach every member at renewal as a gap in a sentence. Whichever of text and email is tried first, the other is tried when the first cannot go; `both` sends both.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M08"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgreementRenewalNoticesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change how renewal notices go, or their words",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAgreementRenewalNoticesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -3075,7 +3286,7 @@
       "get": {
         "operationId": "getAgreement",
         "summary": "Get an agreement, with everything it owes",
-        "description": "Every visit of every term with whether it was booked, delivered or skipped, every instalment with its invoice, and `unearned`: what has been billed and not yet earned, summed from the rows rather than recomputed from the price.\n\nRequires a session holding: membership:read.",
+        "description": "Every visit of every term with whether it was booked, delivered or skipped, every instalment with its invoice, `unearned`: what has been billed and not yet earned, summed from the rows rather than recomputed from the price, and each term with what it released when it ended.\n\nRequires a session holding: membership:read.",
         "tags": [
           "M08"
         ],
@@ -12628,7 +12839,7 @@
       "get": {
         "operationId": "getMemberHold",
         "summary": "The share of each window online booking holds for members",
-        "description": "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held.\n\nRequires a session holding: booking:read.",
+        "description": "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held. The share here is the company's figure; a plan can hold its own share instead (`memberHoldPercent` on the plan), and `plans` lists each with its own, null meaning the company's. A window keeps back the largest share any of them holds, and a member is let into as much as their own plan holds.\n\nRequires a session holding: booking:read.",
         "tags": [
           "M08"
         ],
@@ -51158,7 +51369,7 @@
       "post": {
         "operationId": "billJob",
         "summary": "Bill a job to whoever pays for it, one invoice per payer",
-        "description": "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent.\n\nRequires a session holding: invoice:write.",
+        "description": "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent. When the job's own customer holds a membership plan, its discount comes off their own part, at our price, as the line's member discount; a third party's part never takes one.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M31"
         ],
@@ -125039,6 +125250,31 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
           "billingFrequency": {
             "type": "string"
           },
@@ -125082,6 +125318,7 @@
           "endsOn",
           "price",
           "discountRate",
+          "discountExclusions",
           "billingFrequency",
           "autoRenews",
           "renewalCount",
@@ -127863,6 +128100,39 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 365
+          },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "memberHoldPercent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 90
           }
         },
         "required": [
@@ -127948,6 +128218,37 @@
               "type": "string"
             }
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "memberHoldPercent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "active": {
             "type": "boolean"
           }
@@ -127970,6 +128271,8 @@
           "waivesDiagnosticFee",
           "waivesAfterHoursRate",
           "benefits",
+          "discountExclusions",
+          "memberHoldPercent",
           "active"
         ]
       },
@@ -132180,6 +132483,9 @@
                   "format": "uuid"
                 },
                 "default": []
+              },
+              "bookAnyway": {
+                "type": "boolean"
               },
               "externalRef": {
                 "type": "object",
@@ -143633,6 +143939,31 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
           "billingFrequency": {
             "type": "string"
           },
@@ -143782,6 +144113,56 @@
                 "invoiceId"
               ]
             }
+          },
+          "terms": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "term": {
+                  "type": "integer"
+                },
+                "startsOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "endsOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "breakageReleasedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "breakageAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "breakageVisits": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "term",
+                "startsOn",
+                "endsOn",
+                "breakageReleasedOn",
+                "breakageAmount",
+                "breakageVisits"
+              ]
+            }
           }
         },
         "required": [
@@ -143794,6 +144175,7 @@
           "endsOn",
           "price",
           "discountRate",
+          "discountExclusions",
           "billingFrequency",
           "autoRenews",
           "renewalCount",
@@ -143805,7 +144187,8 @@
           "customerName",
           "unearned",
           "visits",
-          "instalments"
+          "instalments",
+          "terms"
         ]
       },
       "GetAgreementPlanOutput": {
@@ -143883,6 +144266,37 @@
               "type": "string"
             }
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "memberHoldPercent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -143908,8 +144322,89 @@
           "waivesDiagnosticFee",
           "waivesAfterHoursRate",
           "benefits",
+          "discountExclusions",
+          "memberHoldPercent",
           "active",
           "members"
+        ]
+      },
+      "GetAgreementRenewalNoticesOutput": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "text_first",
+              "email_first",
+              "both"
+            ]
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "agreement_renewal.renews.sms",
+                    "agreement_renewal.renews.email",
+                    "agreement_renewal.ends.sms",
+                    "agreement_renewal.ends.email"
+                  ]
+                },
+                "situation": {
+                  "type": "string",
+                  "enum": [
+                    "renews",
+                    "ends"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "sms",
+                    "email"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "situation",
+                "channel",
+                "name",
+                "subject",
+                "body",
+                "isDefault"
+              ]
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "channel",
+          "templates",
+          "variables"
         ]
       },
       "GetAiStatusOutput": {
@@ -151705,13 +152200,21 @@
                     },
                     "waivesAfterHoursRate": {
                       "type": "boolean"
+                    },
+                    "excludedItemIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
                     }
                   },
                   "required": [
                     "planName",
                     "rate",
                     "waivesDiagnosticFee",
-                    "waivesAfterHoursRate"
+                    "waivesAfterHoursRate",
+                    "excludedItemIds"
                   ]
                 },
                 "estimates": {
@@ -151908,6 +152411,13 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "itemId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
                       }
                     },
                     "required": [
@@ -151917,7 +152427,8 @@
                       "unitPrice",
                       "taxable",
                       "itemKind",
-                      "feeRole"
+                      "feeRole",
+                      "itemId"
                     ]
                   }
                 },
@@ -156989,12 +157500,39 @@
           },
           "plansWithPriority": {
             "type": "integer"
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "holdPercent": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "holdPercent"
+              ]
+            }
           }
         },
         "required": [
           "reservePercent",
           "releaseHours",
-          "plansWithPriority"
+          "plansWithPriority",
+          "plans"
         ]
       },
       "GetMemberPricingOutput": {
@@ -157034,6 +157572,12 @@
           },
           "waivesAfterHoursRate": {
             "type": "boolean"
+          },
+          "leavesOut": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -157043,7 +157587,8 @@
           "rate",
           "percent",
           "waivesDiagnosticFee",
-          "waivesAfterHoursRate"
+          "waivesAfterHoursRate",
+          "leavesOut"
         ]
       },
       "GetMultiDayRebalanceOutput": {
@@ -170015,6 +170560,37 @@
                     "type": "string"
                   }
                 },
+                "discountExclusions": {
+                  "type": "object",
+                  "properties": {
+                    "categoryIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "maxItems": 200
+                    },
+                    "itemIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "maxItems": 500
+                    }
+                  },
+                  "required": [
+                    "categoryIds",
+                    "itemIds"
+                  ]
+                },
+                "memberHoldPercent": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "active": {
                   "type": "boolean"
                 }
@@ -170037,6 +170613,8 @@
                 "waivesDiagnosticFee",
                 "waivesAfterHoursRate",
                 "benefits",
+                "discountExclusions",
+                "memberHoldPercent",
                 "active"
               ]
             }
@@ -170179,6 +170757,31 @@
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                 },
+                "discountExclusions": {
+                  "type": "object",
+                  "properties": {
+                    "categoryIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "maxItems": 200
+                    },
+                    "itemIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "maxItems": 500
+                    }
+                  },
+                  "required": [
+                    "categoryIds",
+                    "itemIds"
+                  ]
+                },
                 "billingFrequency": {
                   "type": "string"
                 },
@@ -170224,6 +170827,7 @@
                 "endsOn",
                 "price",
                 "discountRate",
+                "discountExclusions",
                 "billingFrequency",
                 "autoRenews",
                 "renewalCount",
@@ -194557,15 +195161,24 @@
                       "tax": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "memberDiscount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       }
                     },
                     "required": [
                       "key",
                       "amount",
                       "whole",
-                      "tax"
+                      "tax",
+                      "memberDiscount"
                     ]
                   }
+                },
+                "memberDiscount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
                 "ceiling": {
                   "type": [
@@ -194606,6 +195219,7 @@
                 "totalWithTax",
                 "taxExempt",
                 "lines",
+                "memberDiscount",
                 "ceiling"
               ]
             }
@@ -194619,6 +195233,29 @@
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "absorbed": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "member": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "agreementId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "planName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agreementId",
+              "planName"
+            ]
+          },
+          "memberDiscount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
@@ -194681,6 +195318,8 @@
           "pricedTotal",
           "invoicedTotal",
           "absorbed",
+          "member",
+          "memberDiscount",
           "reconciles",
           "taxTotal",
           "outOfScope",
@@ -204885,6 +205524,37 @@
               "type": "string"
             }
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "memberHoldPercent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "active": {
             "type": "boolean"
           }
@@ -204907,6 +205577,8 @@
           "waivesDiagnosticFee",
           "waivesAfterHoursRate",
           "benefits",
+          "discountExclusions",
+          "memberHoldPercent",
           "active"
         ]
       },
@@ -208018,6 +208690,9 @@
               "cancelled"
             ]
           },
+          "bookAnyway": {
+            "type": "boolean"
+          },
           "externalRef": {
             "type": "object",
             "properties": {
@@ -208311,6 +208986,31 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
           "billingFrequency": {
             "type": "string"
           },
@@ -208350,6 +209050,7 @@
           "endsOn",
           "price",
           "discountRate",
+          "discountExclusions",
           "billingFrequency",
           "autoRenews",
           "renewalCount",
@@ -211545,12 +212246,39 @@
           },
           "plansWithPriority": {
             "type": "integer"
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "holdPercent": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "holdPercent"
+              ]
+            }
           }
         },
         "required": [
           "reservePercent",
           "releaseHours",
-          "plansWithPriority"
+          "plansWithPriority",
+          "plans"
         ]
       },
       "SetMemberLocationInput": {
@@ -218046,6 +218774,39 @@
             "minimum": 0,
             "maximum": 365
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "memberHoldPercent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 90
+          },
           "active": {
             "type": "boolean"
           }
@@ -218126,6 +218887,37 @@
               "type": "string"
             }
           },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "memberHoldPercent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "active": {
             "type": "boolean"
           }
@@ -218148,7 +218940,135 @@
           "waivesDiagnosticFee",
           "waivesAfterHoursRate",
           "benefits",
+          "discountExclusions",
+          "memberHoldPercent",
           "active"
+        ]
+      },
+      "UpdateAgreementRenewalNoticesInput": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "text_first",
+              "email_first",
+              "both"
+            ]
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "agreement_renewal.renews.sms",
+                    "agreement_renewal.renews.email",
+                    "agreement_renewal.ends.sms",
+                    "agreement_renewal.ends.email"
+                  ]
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200
+                },
+                "body": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              },
+              "required": [
+                "code",
+                "body"
+              ]
+            },
+            "maxItems": 4
+          }
+        }
+      },
+      "UpdateAgreementRenewalNoticesOutput": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "text_first",
+              "email_first",
+              "both"
+            ]
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "agreement_renewal.renews.sms",
+                    "agreement_renewal.renews.email",
+                    "agreement_renewal.ends.sms",
+                    "agreement_renewal.ends.email"
+                  ]
+                },
+                "situation": {
+                  "type": "string",
+                  "enum": [
+                    "renews",
+                    "ends"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "sms",
+                    "email"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "situation",
+                "channel",
+                "name",
+                "subject",
+                "body",
+                "isDefault"
+              ]
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "channel",
+          "templates",
+          "variables"
         ]
       },
       "UpdateAppInput": {
@@ -227249,6 +228169,18 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "discount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "notDiscounted": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
@@ -227256,7 +228188,9 @@
                 "planName",
                 "status",
                 "startedOn",
-                "endsOn"
+                "endsOn",
+                "discount",
+                "notDiscounted"
               ]
             }
           },

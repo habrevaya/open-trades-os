@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms } from "@opentradesos/core";
 import {
@@ -247,6 +247,57 @@ export async function update(
     await audit(tx, ctx, "message_template.updated", "message_template", input.id, before, after!);
     return shape(after!);
   });
+}
+
+/**
+ * Write a template by its code inside a caller's transaction, whether or not
+ * one is there yet: the screen that edits a feature's own wording (the
+ * renewal notice) saves it this way, under the permission that screen
+ * checked. The same rules as `define` and `update`, from `normalise`.
+ *
+ * A removed template is put back rather than refused, because the code is
+ * the feature's, and the person saving is choosing its words again.
+ */
+export async function saveWithin(tx: Database, ctx: ServiceContext, input: TemplateInput) {
+  const proposed = normalise(input);
+  const [before] = await tx.select().from(schema.messageTemplate)
+    .where(and(
+      eq(schema.messageTemplate.organizationId, ctx.actor.organizationId),
+      eq(schema.messageTemplate.code, proposed.code),
+    )).limit(1);
+  if (!before) {
+    const [row] = await tx.insert(schema.messageTemplate).values({
+      organizationId: ctx.actor.organizationId, ...proposed,
+    }).returning();
+    await audit(tx, ctx, "message_template.defined", "message_template", row!.id, null, row!);
+    return shape(row!);
+  }
+  const [after] = await tx.update(schema.messageTemplate)
+    .set({ ...proposed, deletedAt: null, updatedAt: new Date() })
+    .where(eq(schema.messageTemplate.id, before.id)).returning();
+  await audit(tx, ctx, "message_template.updated", "message_template", before.id, before, after!);
+  return shape(after!);
+}
+
+/**
+ * Put a feature's own templates in place for a company that has none of
+ * them yet, with the wording the feature has always used, so the words are
+ * there to edit from the first day. Leaves alone any the company already
+ * has, edited or removed.
+ */
+export async function seedWithin(tx: Database, organizationId: string, templates: readonly TemplateInput[]) {
+  for (const template of templates) {
+    await tx.insert(schema.messageTemplate).values({ organizationId, ...normalise(template) })
+      .onConflictDoNothing();
+  }
+}
+
+/** The templates with these codes, for a feature's own screen. Removed ones are left out. */
+export async function byCodesWithin(tx: Database, codes: readonly string[]) {
+  if (codes.length === 0) return [];
+  const rows = await tx.select().from(schema.messageTemplate)
+    .where(and(inArray(schema.messageTemplate.code, [...codes]), isNull(schema.messageTemplate.deletedAt)));
+  return rows.map(shape);
 }
 
 export async function list(

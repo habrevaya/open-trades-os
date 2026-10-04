@@ -208,6 +208,13 @@ export const JobCreate = z.object({
     windowEnd: z.string().datetime(),
     estimatedDurationMinutes: z.number().int().min(5).max(1440).default(60),
     technicianIds: z.array(Uuid).default([]),
+    /**
+     * Book it into an arrival window held for members although this
+     * customer is not one there that day. Without it, such a booking is
+     * refused in words; with it, it is booked and the audit log says who
+     * chose to.
+     */
+    bookAnyway: z.boolean().optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
   }).optional(),
@@ -321,6 +328,8 @@ export const scheduleVisit = defineRoute({
      * ones who were going to go.
      */
     status: z.literal("cancelled").optional(),
+    /** Book it into time held for members anyway. See `bookAnyway` on a new job's visit. */
+    bookAnyway: z.boolean().optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
   }),

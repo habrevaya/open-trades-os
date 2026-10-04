@@ -1,7 +1,7 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { agents as a, time } from "@opentradesos/core";
-import { openSlots } from "./booking";
+import { memberTestAmong, openSlots, type MemberShare } from "./booking";
 import { inForceAt } from "./pricebook";
 
 /**
@@ -51,7 +51,11 @@ export async function companyOf(tx: Database, organizationId: string, now: Date)
  */
 export async function servicesAndWindows(
   tx: Database, organizationId: string, timezone: string, today: string,
-  options: { days?: number; perService?: number } = {},
+  options: {
+    days?: number; perService?: number;
+    /** A member reached the assistant: the windows include their plan's share of what is held. */
+    member?: MemberShare | null | undefined;
+  } = {},
 ): Promise<{
   services: (typeof schema.bookableService.$inferSelect)[];
   windows: a.OpenWindow[];
@@ -66,6 +70,7 @@ export async function servicesAndWindows(
   for (const service of services.slice(0, 12)) {
     const slots = await openSlots(tx, {
       organizationId, timezone, service, from: today, days: options.days ?? 8,
+      ...(options.member ? { member: options.member } : {}),
     });
     for (const slot of slots.slice(0, options.perService ?? 6)) {
       windows.push({
@@ -77,6 +82,54 @@ export async function servicesAndWindows(
     }
   }
   return { services, windows };
+}
+
+/**
+ * A MEMBER, RECOGNISED BY HOW THEY REACHED US
+ *
+ * The number a caller rings or texts from, or an email or number a visitor
+ * gives, matched to the customers who have it, and whether any of them holds
+ * a running plan that promises priority. When one does, the windows offered
+ * include their plan's share of what is held for members, as their own
+ * account would offer them.
+ *
+ * NOTHING IS SAID ABOUT IT. A number can be borrowed and an email typed by
+ * anybody, so neither proves who is asking. The assistant is never told
+ * there is a membership, a plan or an account: the only difference is which
+ * windows are on its list, which is no more than the booking page would show
+ * the member, and nothing the caller hears tells them whose number it was.
+ * The office is told, in the assistant's own record of what it did.
+ *
+ * Read with the organization named, because the chat's public side reaches
+ * this without a person's scope; a match is a lookup, not a disclosure.
+ */
+export async function memberByContact(
+  tx: Database, organizationId: string,
+  contact: { phone?: string | null | undefined; email?: string | null | undefined; customerId?: string | null | undefined },
+): Promise<MemberShare | null> {
+  const digits = (contact.phone ?? "").replace(/\D/g, "");
+  const local = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  const email = contact.email?.trim() ?? "";
+  const ors = [
+    contact.customerId ? eq(schema.customer.id, contact.customerId) : undefined,
+    local.length >= 10
+      ? sql`right(regexp_replace(coalesce(${schema.customer.phone}, ''), '[^0-9]', '', 'g'), 10) = ${local.slice(-10)}`
+      : undefined,
+    /.+@.+\..+/.test(email) ? ilike(schema.customer.email, email.replace(/[%_\\]/g, "")) : undefined,
+  ].filter((x) => x !== undefined);
+  if (ors.length === 0) return null;
+  const rows = await tx.select({ id: schema.customer.id }).from(schema.customer)
+    .where(and(eq(schema.customer.organizationId, organizationId), isNull(schema.customer.deletedAt), or(...ors)))
+    .limit(5);
+  return memberTestAmong(tx, organizationId, rows.map((r) => r.id));
+}
+
+/** The phone numbers and emails somebody wrote in their own messages, for `memberByContact`. */
+export function contactsIn(texts: readonly string[]): { phone: string | null; email: string | null } {
+  const joined = texts.join("\n");
+  const email = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.exec(joined)?.[0] ?? null;
+  const phone = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.exec(joined)?.[0] ?? null;
+  return { phone, email };
 }
 
 /** Opening hours as sentences, one per day, closed days said. */

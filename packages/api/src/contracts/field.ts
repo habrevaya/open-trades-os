@@ -290,6 +290,11 @@ export const VisitForField = z.object({
     rate: RateString,
     waivesDiagnosticFee: z.boolean(),
     waivesAfterHoursRate: z.boolean(),
+    /**
+     * The price book items the plan's discount leaves out, flattened from
+     * the categories and items the plan names. Empty for none.
+     */
+    excludedItemIds: z.array(Uuid),
   }).nullable(),
   /**
    * Estimates the technician can show the customer: the ones on this visit's
@@ -310,6 +315,8 @@ export const VisitForField = z.object({
     itemKind: z.string().nullable(),
     /** A fee a plan may waive: "diagnostic" or "after_hours". */
     feeRole: z.string().nullable(),
+    /** The price book item, which decides whether the plan's discount leaves the line out. Null for a typed line. */
+    itemId: Uuid.nullable(),
   })),
   /** The job's invoices, other than void ones. Empty for a caller who may not read invoices. */
   invoices: z.array(z.object({

@@ -12,7 +12,7 @@ import { customerScopeFilter } from "./scope";
 import * as booking from "./booking";
 import * as base from "./agents";
 import * as tel from "./telephony";
-import { companyOf, servicesAndWindows, hoursOf, serviceAreaOf, bookItems } from "./agent-facts";
+import { companyOf, servicesAndWindows, hoursOf, serviceAreaOf, bookItems, memberByContact } from "./agent-facts";
 import type { AiDeps } from "./ai";
 import { relayUrl } from "../voice/relay";
 
@@ -360,7 +360,15 @@ async function turn(
   const context = await inTenant(ctx, async (tx) => {
     const session = await sessionOf(tx, live.sessionId);
     const company = await companyOf(tx, live.organizationId, now);
-    const { services, windows } = await servicesAndWindows(tx, live.organizationId, company.timezone, company.today, { perService: 4 });
+    /**
+     * A member ringing from the number on their record is offered the windows
+     * held for members, by the number alone and never by a name they say.
+     * Nothing about it reaches the model; see `memberByContact`.
+     */
+    const member = await memberByContact(tx, live.organizationId, { phone: live.callerNumber });
+    const { services, windows } = await servicesAndWindows(tx, live.organizationId, company.timezone, company.today, {
+      perService: 4, member,
+    });
     const published = await bookItems(tx, live.organizationId, { ids: settings.chat.publicPriceItemIds, limit: 200 });
     const facts: a.ChatFacts = {
       hours: await hoursOf(tx, live.organizationId),
@@ -371,8 +379,12 @@ async function turn(
       windows,
     };
     const found = look.found ?? await candidates(tx, ctx, { phone: live.callerNumber, name: null, postalCode: null });
-    return { session, company, facts, found };
+    return { session, company, facts, found, member };
   });
+  if ((context.member?.(context.company.today) ?? null) !== null && !context.session.actions.some((x) => x.action === "member")) {
+    await act(db, live, "member",
+      "Knew the number it was called from as a member's, so it offered the windows held for members. It said nothing to the caller about it.");
+  }
 
   const prompt = a.voicePrompt({
     company: context.company, tone: settings.tone, facts: context.facts,
@@ -433,7 +445,7 @@ async function turn(
           ...(decision.request.notes ? { notes: decision.request.notes } : {}),
           intakeAnswers: {},
           utm: {},
-        }, { idempotencyKey: `ai-voice:${live.sessionId}` });
+        }, { idempotencyKey: `ai-voice:${live.sessionId}` }, { member: context.member });
         await act(db, live, "booking_request",
           `Took a booking request from ${decision.request.contactName} for ${decision.window.label}. It is waiting in Online booking for the office to confirm.`,
           { bookingRequestId: made.request.id });

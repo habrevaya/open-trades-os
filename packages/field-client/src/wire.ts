@@ -71,6 +71,8 @@ export interface MemberTerms {
   rate: string;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+  /** The price book items the plan's discount leaves out. Absent from older servers. */
+  excludedItemIds?: string[] | undefined;
 }
 
 export interface FieldEstimateLine {
@@ -118,6 +120,8 @@ export interface BillableLine {
   taxable: boolean;
   itemKind: string | null;
   feeRole: string | null;
+  /** The price book item, for what the plan's discount leaves out. Absent from older servers. */
+  itemId?: string | null | undefined;
 }
 
 export interface FieldInvoice {

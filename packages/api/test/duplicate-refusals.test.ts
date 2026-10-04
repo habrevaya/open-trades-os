@@ -158,6 +158,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   backup_destination_org_idx: "One destination per company, and saving reads it first and updates it in place. Nobody types a duplicate; two saves racing is the only way to meet this, and that is a bug to see.",
   journal_entry_number_idx: "Allocated by the numbering service, in its own sequence.",
   financing_application_external_idx: "The lender's own id for an application, written once when the lender opens it. Nobody types it.",
+  agreement_term_idx: "A term's row is written by the code that writes the term, numbered from the renewal count, and a legacy term's row is added with on conflict do nothing. Nobody types a term number.",
   budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
   budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
   /* --- numbers and sequences this product generates --- */

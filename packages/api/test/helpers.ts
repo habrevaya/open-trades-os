@@ -60,7 +60,7 @@ const ORDER = [
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   /** A layout an estimate points at, after the estimates that copied it. */
   "proposal_template",
-  "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
+  "agreement_billing", "agreement_visit", "agreement_term", "agreement", "agreement_plan",
   /**
    * Safety records point at a job, an address and the technicians on them,
    * so they go before all three; a person on a report and a line on a sign in

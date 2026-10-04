@@ -19,6 +19,7 @@ import { announce, NEW_VISIT } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
 import { gate as qualificationGate, workSkills } from "./qualification";
+import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
@@ -329,6 +330,49 @@ async function assertQualified(
   });
 }
 
+/**
+ * THE OFFICE BOOKING INTO TIME HELD FOR MEMBERS, said and then allowed.
+ *
+ * Online booking keeps a share of each arrival window from anybody who is not
+ * a member (`booking.heldAgainst` says the rule). The office booking by hand
+ * is told the same thing and refused until the person booking says "book
+ * anyway", because a dispatcher who knows the member has gone elsewhere, or
+ * that this caller is the member's tenant, is allowed to decide; the choice
+ * is then on the audit log with their name, which is what makes it a decision
+ * rather than a leak.
+ *
+ * Not for history from another system, a visit with no time, a cancelled one,
+ * or a job made from a booking request, which was held to the share when the
+ * request was made and is only being given its visit.
+ */
+async function checkMemberHold(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    jobId: string | null; customerId: string; propertyId: string | null; jobTypeId: string | null;
+    windowStart: Date; durationMinutes: number; bookAnyway: boolean;
+  },
+): Promise<{ date: string; windowName: string } | null> {
+  if (input.jobId) {
+    const [request] = await tx.select({ id: schema.bookingRequest.id }).from(schema.bookingRequest)
+      .where(eq(schema.bookingRequest.jobId, input.jobId)).limit(1);
+    if (request) return null;
+  }
+  const held = await heldAgainst(tx, {
+    organizationId: ctx.actor.organizationId,
+    timezone: await timezoneOf(tx, ctx.actor.organizationId),
+    customerId: input.customerId, propertyId: input.propertyId, jobTypeId: input.jobTypeId,
+    durationMinutes: input.durationMinutes, windowStart: input.windowStart,
+    ...(input.jobId ? { exceptJobId: input.jobId } : {}),
+  });
+  if (held && !input.bookAnyway) {
+    throw new ConflictError(
+      `The ${held.windowName} window on ${held.date} is held for members, and this customer is not a member there that day. `
+      + "Choose another time, or tick Book anyway to give them a member's place.",
+    );
+  }
+  return held;
+}
+
 export async function create(ctx: ServiceContext, input: CreateInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -363,6 +407,13 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
       );
     }
+    const heldOnCreate = input.visit && input.visit.externalRef === undefined && input.externalRef === undefined
+      ? await checkMemberHold(tx, ctx, {
+        jobId: null, customerId: input.customerId, propertyId: input.propertyId ?? null,
+        jobTypeId: input.jobTypeId ?? null, windowStart: new Date(input.visit.windowStart),
+        durationMinutes: input.visit.estimatedDurationMinutes, bookAnyway: input.visit.bookAnyway === true,
+      })
+      : null;
     const number = await claimNumber(tx, ctx, "job", input.number);
 
     /**
@@ -463,6 +514,12 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         estimatedDurationMinutes: input.visit.estimatedDurationMinutes,
         ...provenance(input.visit.externalRef),
       }).returning({ id: schema.visit.id });
+
+      if (heldOnCreate) {
+        await audit(tx, ctx, "visit.booked_into_member_hold", "visit", visit!.id, null, {
+          jobId: job!.id, customerId: input.customerId, date: heldOnCreate.date, window: heldOnCreate.windowName,
+        });
+      }
 
       if (input.visit.technicianIds.length > 0) {
         await tx.insert(schema.visitAssignment).values(
@@ -837,6 +894,13 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
         new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills,
       );
     }
+    const held = input.windowStart && input.status !== "cancelled" && input.externalRef === undefined
+      ? await checkMemberHold(tx, ctx, {
+        jobId: job.id, customerId: job.customerId, propertyId: job.propertyId, jobTypeId: job.jobTypeId,
+        windowStart: new Date(input.windowStart), durationMinutes: input.estimatedDurationMinutes,
+        bookAnyway: input.bookAnyway === true,
+      })
+      : null;
 
     const rows = await tx.execute<{ next: number }>(sql`
       select coalesce(max(sequence), 0) + 1 as next from public.visit where job_id = ${input.id}
@@ -869,6 +933,12 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
           visitId: visit!.id, technicianId, isLead: i === 0,
         })),
       );
+    }
+
+    if (held) {
+      await audit(tx, ctx, "visit.booked_into_member_hold", "visit", visit!.id, null, {
+        jobId: job.id, customerId: job.customerId, date: held.date, window: held.windowName,
+      });
     }
 
     /** On their day from now, unless it is history brought in from another system. */
