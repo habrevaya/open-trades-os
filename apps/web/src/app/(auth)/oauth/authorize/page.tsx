@@ -54,9 +54,10 @@ export default async function AuthorizePage({
    * or a `grant=...` it added would otherwise post ahead of the person's own
    * button and boxes: the first value of a field is the one read.
    */
-  const hidden = oauth.AUTHORIZE_PARAMS
-    .map((name) => [name, params[name]] as const)
-    .filter((entry): entry is readonly [string, string] => typeof entry[1] === "string");
+  const hidden = oauth.AUTHORIZE_PARAMS.flatMap((name): [string, string][] => {
+    const value = params[name];
+    return typeof value === "string" ? [[name, value]] : [];
+  });
 
   return (
     <>

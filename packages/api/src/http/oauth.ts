@@ -63,7 +63,9 @@ function refusal(error: unknown): Response {
      * RFC 6749 section 5.2 asks, so a library that tried the form first
      * knows the header is accepted too.
      */
-    const challenge = error.status === 401 ? { "www-authenticate": 'Basic realm="OpenTradesOS", charset="UTF-8"' } : {};
+    const challenge: Record<string, string> = error.status === 401
+      ? { "www-authenticate": 'Basic realm="OpenTradesOS", charset="UTF-8"' }
+      : {};
     return jsonResponse({ error: error.error, error_description: error.description }, error.status, challenge);
   }
   if (error instanceof TooManyRequestsError) {
