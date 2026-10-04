@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, contacts, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
   dispatchMap, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -880,6 +880,13 @@ export const handlers = {
   mergeCustomerTags: customerTags.handlers.mergeCustomerTags,
   listCustomerDuplicatePairs: customerDuplicates.handlers.listCustomerDuplicatePairs,
   dismissCustomerDuplicate: customerDuplicates.handlers.dismissCustomerDuplicate,
+
+  // A customer's people (M03), under the rules the customer's page holds them to
+  listCustomerContacts: contacts.handlers.listCustomerContacts,
+  addCustomerContact: contacts.handlers.addCustomerContact,
+  updateContact: contacts.handlers.updateContact,
+  removeContact: contacts.handlers.removeContact,
+  makeContactPrimary: contacts.handlers.makeContactPrimary,
 
   // Price book categories and bulk changes (M06)
   listPriceBookCategories: priceCategories.handlers.listPriceBookCategories,

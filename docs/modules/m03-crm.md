@@ -143,6 +143,22 @@ customer's page. `GET /v1/customer-duplicates` and
 `POST /v1/customer-duplicates/dismiss`, both behind `customer:merge`, because
 the sweep reads across every customer and exists to be acted on.
 
+### Keep a customer's people
+
+The customer's page adds a contact, takes one off and makes one primary, and the
+API does the same through the same service functions, so the rules are one set:
+a contact belongs to the customer in the path, sits at an address only when the
+address is one of that customer's, needs a phone or an email and a preferred
+channel they can be reached on, and is removed softly so the texts already sent
+to them still say who they went to. One primary per customer and per address;
+making a new one demotes the old. `GET /v1/customers/{id}/contacts` lists them in
+the order the "on the way" text picks its recipient,
+`POST /v1/customers/{id}/contacts` adds one, `PATCH /v1/contacts/{id}` changes
+their details (not who they belong to, and not whether they are primary),
+`POST /v1/contacts/{id}/primary` makes one the first told, and
+`POST /v1/contacts/{id}/remove` takes one off. A technician reads the people at
+the customers they have been sent to and no others.
+
 ### Correct an address
 
 `PATCH /v1/properties/{id}`. Gate codes, access notes and the safety flags a
@@ -182,6 +198,11 @@ attached afterwards, which would have sent it to everybody.
 | `GET /v1/customers/{id}/merged-into` | `customer:read` |
 | `POST /v1/customers/{keepId}/merge` | `customer:merge` |
 | `POST /v1/customers/{id}/remove` | `customer:delete` |
+| `GET /v1/customers/{id}/contacts` | `customer:read` |
+| `POST /v1/customers/{id}/contacts` | `customer:write` |
+| `PATCH /v1/contacts/{id}` | `customer:write` |
+| `POST /v1/contacts/{id}/primary` | `customer:write` |
+| `POST /v1/contacts/{id}/remove` | `customer:write` |
 | `GET /v1/customer-tags` | `customer:read` |
 | `POST /v1/customers/{id}/tags` | `customer:write` |
 | `POST /v1/customer-tags/rename` | `customer:write` |
@@ -228,10 +249,10 @@ which is also the case where merging is the right answer.
 
 ## What is not built
 
-Contacts are added, removed and made primary on the customer's page, and the
-API has no route for any of that: the one contact route is
-`POST /v1/contacts/{id}/portal-access`, which lets a contact sign in to the
-portal (M05). A customer's custom fields are stored, checked and read back,
+A contact cannot be edited on the customer's page, only added, removed and made
+primary there; changing one's details is the API's `PATCH /v1/contacts/{id}`. A
+contact attached to an address and no customer is reached through neither the
+page nor these routes, which are about a customer's people. A customer's custom fields are stored, checked and read back,
 and `/customers` and `GET /v1/customers` filter by one field holding one value
 (`fieldKey` and `fieldValue`); nothing filters by two at once, and the report
 builder does not filter by one (M29).
