@@ -54,6 +54,8 @@ const ORDER = [
   "coverage_claim",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
+  /** A layout an estimate points at, after the estimates that copied it. */
+  "proposal_template",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
   /**
    * Safety records point at a job, an address and the technicians on them,
@@ -76,6 +78,11 @@ const ORDER = [
    * so it goes before all four.
    */
   "visit_change_request",
+  /**
+   * A company's own records (a permit, an inspection) point at a customer,
+   * an address, a job and a unit, so they go before all four.
+   */
+  "custom_object_record",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
   "visit", "entitlement", "job_party", "job",
@@ -276,7 +283,7 @@ const ORDER = [
   "continuing_education", "technician_skill",
   "onboarding_item", "onboarding_template_item", "emergency_contact", "employment_record",
   "certification_type",
-  "custom_field_definition", "time_off", "on_call_rotation", "technician",
+  "custom_field_definition", "custom_object_type", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",
   /**
    * Roles before memberships. The foreign key is ON DELETE SET NULL so the

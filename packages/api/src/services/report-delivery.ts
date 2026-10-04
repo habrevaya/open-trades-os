@@ -7,7 +7,7 @@ import { ConflictError, type ServiceContext } from "./context";
 import * as email from "./email";
 import { memberActor } from "./session";
 import { run, type ReportResult } from "./reports";
-import { CATALOGUE } from "./report-catalogue";
+import { catalogueFor } from "./report-company";
 import { BUILT_IN } from "./report-built-in";
 import { publicBaseUrl } from "./setup-tokens";
 import { companyOf, reportFile } from "./documents";
@@ -145,7 +145,7 @@ export async function mayReceive(
   if (!actor) return "is no longer an active member of the company";
   const held = permissionsFor(actor);
   if (!held.has("report:read")) return "may not read reports";
-  const decision = reporting.resolveReport(definition, CATALOGUE, held);
+  const decision = reporting.resolveReport(definition, await catalogueFor(tx, organizationId), held);
   return decision.ok ? null : `may not see this report (${reporting.explainRefusal(decision)})`;
 }
 
@@ -289,7 +289,7 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
    */
   const pdfName = filename.replace(/\.csv$/, ".pdf");
   const company = await companyOf(tx, input.organizationId);
-  const dataset = CATALOGUE.find((d) => d.key === definition.dataset);
+  const dataset = (await catalogueFor(tx, input.organizationId)).find((d) => d.key === definition.dataset);
   const kinds = new Map((dataset?.measures ?? []).map((measure) => [measure.key, measure.kind]));
   const additive = (key: string) => kinds.get(key) === "count" || kinds.get(key) === "sum";
   /** A person by name, or by their address when they have not set one. */
@@ -502,7 +502,7 @@ export async function checkReportStep(
   if (!step.source) return "Pick the report this step emails.";
   const named = await sourceOf(tx, step.source);
   if (!named) return "The report this step emails does not exist.";
-  const decision = reporting.resolveReport(named.definition, CATALOGUE, permissionsFor(ctx.actor));
+  const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
   if (!decision.ok) return `You cannot email a report you cannot run yourself. ${reporting.explainRefusal(decision)}`;
   let addresses: string[];
   try {

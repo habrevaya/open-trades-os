@@ -8,6 +8,7 @@ import { SHAPES } from "./workflow-dwell";
 import { checkReportStep } from "./report-delivery";
 import { refusingDuplicate } from "./duplicates";
 import { policyFor, reviewUrlFor } from "./reviews";
+import { remember, replayed } from "./once";
 import * as phoneNumbers from "./phone-numbers";
 
 /**
@@ -467,7 +468,12 @@ async function createWithin(
  * place is what makes that question unanswerable.
  */
 export async function publish(ctx: ServiceContext, input: { id: string } & WorkflowInput) {
-  return guardedWrite(ctx, "workflow:write", async (tx) => {
+  return guardedWrite(ctx, "workflow:write", (tx) => publishWithin(tx, ctx, input));
+}
+
+/** The body of `publish`, inside a transaction the caller holds, so the API's replay is in the same one. */
+async function publishWithin(tx: Database, ctx: ServiceContext, input: { id: string } & WorkflowInput) {
+  {
     const [before] = await tx.select().from(schema.workflow)
       .where(and(eq(schema.workflow.id, input.id), isNull(schema.workflow.deletedAt))).limit(1);
     if (!before) throw new NotFoundError("Workflow");
@@ -507,7 +513,7 @@ export async function publish(ctx: ServiceContext, input: { id: string } & Workf
 
     await audit(tx, ctx, "workflow.published", "workflow", input.id, before, after);
     return after!;
-  });
+  }
 }
 
 export async function remove(ctx: ServiceContext, input: { id: string }) {
@@ -849,7 +855,96 @@ export async function installTemplate(
   });
 }
 
+/**
+ * ONE AUTOMATION AS THE ENGINE RUNS IT: the trigger, and the conditions and
+ * flat list of steps of the version that runs. The published shape a caller
+ * edits and sends back as a new version, which is why it is the flat list and
+ * not the canvas's tree: the list is what runs, and core's translation is the
+ * screen's business.
+ */
+export async function definition(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "workflow:read", async (tx) => definitionWithin(tx, input.id));
+}
+
+async function definitionWithin(tx: Database, id: string) {
+  const [row] = await tx.select({ workflow: schema.workflow, version: schema.workflowVersion })
+    .from(schema.workflow)
+    .leftJoin(schema.workflowVersion, eq(schema.workflowVersion.id, schema.workflow.activeVersionId))
+    .where(and(eq(schema.workflow.id, id), isNull(schema.workflow.deletedAt)))
+    .limit(1);
+  if (!row) throw new NotFoundError("Workflow");
+  const { workflow, version } = row;
+  return {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description,
+    enabled: workflow.enabled,
+    triggerKind: workflow.triggerKind,
+    triggerEvents: workflow.triggerEvents,
+    schedule: workflow.schedule,
+    dwell: workflow.dwell,
+    templateKey: workflow.templateKey,
+    version: version?.version ?? null,
+    conditions: (version?.conditions ?? {}) as automation.ConditionGroup,
+    steps: ((version?.steps ?? []) as { kind: string; config?: Record<string, unknown> }[]),
+    requiredPermissions: version?.requiredPermissions ?? [],
+  };
+}
+type DefinitionView = Awaited<ReturnType<typeof definitionWithin>>;
+
+/** A definition off the wire, with nothing an optional field could carry as `undefined` that the input type does not allow. */
+function fromWire(input: {
+  name: string; description?: string | undefined; triggerKind: WorkflowInput["triggerKind"];
+  triggerEvents?: string[] | undefined; schedule?: string | undefined;
+  dwell?: { shape: string; afterDays: number } | undefined;
+  conditions?: automation.ConditionGroup | undefined;
+  steps: { kind: string; config?: Record<string, unknown> | undefined }[];
+}): WorkflowInput {
+  return {
+    name: input.name,
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    triggerKind: input.triggerKind,
+    ...(input.triggerEvents ? { triggerEvents: input.triggerEvents } : {}),
+    ...(input.schedule ? { schedule: input.schedule } : {}),
+    ...(input.dwell ? { dwell: input.dwell } : {}),
+    ...(input.conditions ? { conditions: input.conditions } : {}),
+    steps: input.steps.map((step) => ({ kind: step.kind, ...(step.config ? { config: step.config } : {}) })),
+  };
+}
+
 export const handlers = {
+  getWorkflow: (ctx: ServiceContext, input: { id: string }) => definition(ctx, input),
+
+  /**
+   * Over the API, a create and a publish replay their first answer on a
+   * retried key, because the second would otherwise be a second automation
+   * or a version nobody meant.
+   */
+  createWorkflow: (ctx: ServiceContext, input: Parameters<typeof fromWire>[0]) =>
+    guardedWrite(ctx, "workflow:write", async (tx) => {
+      const again = await replayed<DefinitionView>(tx, ctx, "workflow_definition");
+      if (again) return again;
+      const made = await createWithin(tx, ctx, fromWire(input));
+      const answer = await definitionWithin(tx, made.id);
+      await remember(tx, ctx, "workflow_definition", made.id, answer);
+      return answer;
+    }),
+
+  publishWorkflow: (ctx: ServiceContext, input: Parameters<typeof fromWire>[0] & { id: string }) =>
+    guardedWrite(ctx, "workflow:write", async (tx) => {
+      const again = await replayed<DefinitionView>(tx, ctx, "workflow_version");
+      if (again) return again;
+      await publishWithin(tx, ctx, { id: input.id, ...fromWire(input) });
+      const answer = await definitionWithin(tx, input.id);
+      await remember(tx, ctx, "workflow_version", input.id, answer);
+      return answer;
+    }),
+
+  deleteWorkflow: async (ctx: ServiceContext, input: { id: string }) => {
+    await remove(ctx, input);
+    return { id: input.id, deleted: true as const };
+  },
+
   listWorkflows: async (ctx: ServiceContext) => ({
     workflows: (await list(ctx)).map((row) => ({
       ...row,

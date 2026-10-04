@@ -274,6 +274,28 @@ export const EVENTS = {
     emitted: true, subscribable: false,
   },
 
+  /* ------------------------------------------- the company's own records */
+
+  /**
+   * A permit, a warranty registration, a truck inspection: one of the kinds
+   * of record a company defines for itself (M29). One pair of events for
+   * every kind rather than a name per kind, because the kinds are the
+   * company's and this catalogue is the product's; the payload says which
+   * kind (`record.type`, its key) and carries every value (`record.fields`),
+   * so "when a permit's status becomes approved" is a condition on
+   * `record.type` and `record.fields.status`.
+   */
+  "record.created": {
+    summary: "One of the company's own records was added, like a permit",
+    entity: "custom_object_record",
+    emitted: true,
+  },
+  "record.updated": {
+    summary: "One of the company's own records changed",
+    entity: "custom_object_record",
+    emitted: true,
+  },
+
   /* ----------------------------------------------------- not yet emitted */
 
   "visit.scheduled": {

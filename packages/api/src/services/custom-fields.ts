@@ -1,9 +1,11 @@
 import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customFields as rules } from "@opentradesos/core";
+import { assertCan, customFields as rules, customObjects, type Permission } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, ConflictError, NotFoundError, UnprocessableError, type ServiceContext,
+  guardedRead, guardedWrite, inTenant, audit, scopeOf,
+  ConflictError, NotFoundError, UnprocessableError, type ServiceContext,
 } from "./context";
+import { estimateScopeFilter, invoiceScopeFilter, jobVisibility } from "./scope";
 
 /**
  * THE FIELDS A COMPANY ADDED, WHICH NOTHING COULD DECLARE
@@ -54,10 +56,30 @@ import {
  * as a bug, because from the outside it looks like it worked.
  *
  * This list grows when a table grows a `custom_fields` column, and not
- * before.
+ * before. The invoice, the estimate, the visit, the unit and the technician
+ * grew one together, because "custom fields everywhere" was otherwise three
+ * records out of the eight a company actually writes things down about.
+ *
+ * Beside these, a company's own kind of record (`object:<key>`, M29's custom
+ * objects) holds its values in `custom_object_record.custom_fields`, one table
+ * for every kind, told apart by the kind's id. See `targetOf`.
  */
-export const ENTITY_TYPES = ["customer", "property", "job"] as const;
+export const ENTITY_TYPES = [
+  "customer", "property", "job", "invoice", "estimate", "visit", "equipment", "technician",
+] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
+
+/** What each built in entity is called on a screen, for a refusal or a heading. */
+export const ENTITY_LABEL: Record<EntityType, string> = {
+  customer: "Customers",
+  property: "Addresses",
+  job: "Jobs",
+  invoice: "Invoices",
+  estimate: "Estimates",
+  visit: "Visits",
+  equipment: "Equipment",
+  technician: "Technicians",
+};
 
 /**
  * The table behind each entity type.
@@ -72,16 +94,82 @@ const TABLE_OF: Record<EntityType, string> = {
   customer: "customer",
   property: "property",
   job: "job",
+  invoice: "invoice",
+  estimate: "estimate",
+  visit: "visit",
+  equipment: "equipment",
+  technician: "technician",
 };
 
-function entityOf(entityType: string): EntityType {
-  if (!(ENTITY_TYPES as readonly string[]).includes(entityType)) {
-    throw new ConflictError(
-      `"${entityType}" is not something this product can hold a custom field on. `
-      + `One of: ${ENTITY_TYPES.join(", ")}.`,
-    );
+/**
+ * Who may read and who may change each built in entity's values, which are
+ * that entity's OWN permissions: filling in a field on an invoice is editing
+ * the invoice. A technician is a person on the team, read with `user:read`
+ * and changed with `user:write`, as the team screen does.
+ */
+const READ_OF: Record<EntityType, Permission> = {
+  customer: "customer:read", property: "property:read", job: "job:read",
+  invoice: "invoice:read", estimate: "estimate:read", visit: "visit:read",
+  equipment: "equipment:read", technician: "user:read",
+};
+const WRITE_OF: Record<EntityType, Permission> = {
+  customer: "customer:write", property: "property:write", job: "job:write",
+  invoice: "invoice:write", estimate: "estimate:write", visit: "visit:write",
+  equipment: "equipment:write", technician: "user:write",
+};
+
+const isBuiltIn = (entityType: string): entityType is EntityType =>
+  (ENTITY_TYPES as readonly string[]).includes(entityType);
+
+/**
+ * A built in entity or a kind of record's entity type, by its shape alone.
+ * Whether the kind exists is `targetOf`'s question, asked of the database.
+ */
+function entityOf(entityType: string): string {
+  if (isBuiltIn(entityType) || customObjects.keyOfEntityType(entityType) !== null) return entityType;
+  throw new ConflictError(
+    `"${entityType}" is not something this product can hold a custom field on. `
+    + `One of: ${ENTITY_TYPES.join(", ")}, or one of the company's own kinds of record.`,
+  );
+}
+
+/**
+ * WHERE ONE ENTITY'S VALUES LIVE: a table from `TABLE_OF` (or the one table
+ * every kind of record shares) and the condition that picks this entity's
+ * rows out of it.
+ *
+ * For a kind of record the condition is its id, read here from the
+ * company's own definitions; a key the company has not defined is refused
+ * rather than treated as an empty kind, because a field defined on a kind
+ * that does not exist is the "saved and gone" failure above.
+ */
+interface Target {
+  entityType: string;
+  table: string;
+  rows: SQL;
+  /** A kind of record's id, when it is one. */
+  objectTypeId: string | null;
+}
+
+async function targetOf(tx: Database, organizationId: string, entityType: string): Promise<Target> {
+  const entity = entityOf(entityType);
+  if (isBuiltIn(entity)) return { entityType: entity, table: TABLE_OF[entity], rows: sql`true`, objectTypeId: null };
+  const key = customObjects.keyOfEntityType(entity)!;
+  const [kind] = await tx.select({ id: schema.customObjectType.id }).from(schema.customObjectType)
+    .where(and(
+      eq(schema.customObjectType.organizationId, organizationId),
+      eq(schema.customObjectType.key, key),
+      isNull(schema.customObjectType.deletedAt),
+    )).limit(1);
+  if (!kind) {
+    throw new ConflictError(`There is no kind of record called "${key}" in this company. Define it first.`);
   }
-  return entityType as EntityType;
+  return {
+    entityType: entity,
+    table: "custom_object_record",
+    rows: sql`t.object_type_id = ${kind.id}`,
+    objectTypeId: kind.id,
+  };
 }
 
 /* ---------------------------------------------------------------- the types */
@@ -153,7 +241,7 @@ export interface DefinitionInput {
 }
 
 interface Normalised {
-  entityType: EntityType;
+  entityType: string;
   key: string;
   label: string;
   dataType: DataType;
@@ -258,17 +346,18 @@ function valueProblem(definition: Pick<Normalised, "dataType" | "options">, valu
  * what is stored: a thousand rows holding "annual" are one fact, and a
  * refusal that lists a thousand identical values is a refusal nobody reads.
  *
- * The identifier is interpolated from `TABLE_OF` after `entityOf` has already
- * refused anything not in it. The key is a bound parameter.
+ * The identifier is interpolated from `TABLE_OF` (or is the one table every
+ * kind of record shares) after `entityOf` has already refused anything else,
+ * by way of `targetOf`. The key and a kind's id are bound parameters.
  */
 async function storedValues(
-  tx: Database, organizationId: string, entityType: EntityType, key: string,
+  tx: Database, organizationId: string, target: Target, key: string,
 ): Promise<unknown[]> {
-  const table = TABLE_OF[entityType];
   const rows = await tx.execute<{ value: unknown }>(sql`
     select distinct t.custom_fields -> ${key} as value
-    from public.${sql.raw(`"${table}"`)} t
+    from public.${sql.raw(`"${target.table}"`)} t
     where t.organization_id = ${organizationId}
+      and ${target.rows}
       and t.deleted_at is null
       and t.custom_fields -> ${key} is not null
       and t.custom_fields -> ${key} <> 'null'::jsonb
@@ -278,13 +367,13 @@ async function storedValues(
 
 /** How many rows actually carry a value under a key. A definition nothing uses is worth seeing. */
 async function rowsCarrying(
-  tx: Database, organizationId: string, entityType: EntityType, key: string,
+  tx: Database, organizationId: string, target: Target, key: string,
 ): Promise<number> {
-  const table = TABLE_OF[entityType];
   const [row] = await tx.execute<{ n: number }>(sql`
     select count(*)::int as n
-    from public.${sql.raw(`"${table}"`)} t
+    from public.${sql.raw(`"${target.table}"`)} t
     where t.organization_id = ${organizationId}
+      and ${target.rows}
       and t.deleted_at is null
       and t.custom_fields -> ${key} is not null
       and t.custom_fields -> ${key} <> 'null'::jsonb
@@ -294,14 +383,14 @@ async function rowsCarrying(
 
 /** Every key present in the data for an entity type, with how many rows carry it. */
 async function keysInData(
-  tx: Database, organizationId: string, entityType: EntityType,
+  tx: Database, organizationId: string, target: Target,
 ): Promise<Map<string, number>> {
-  const table = TABLE_OF[entityType];
   const rows = await tx.execute<{ key: string; n: number }>(sql`
     select k.key as key, count(*)::int as n
-    from public.${sql.raw(`"${table}"`)} t
+    from public.${sql.raw(`"${target.table}"`)} t
     cross join lateral jsonb_object_keys(t.custom_fields) k(key)
     where t.organization_id = ${organizationId}
+      and ${target.rows}
       and t.deleted_at is null
       and t.custom_fields -> k.key <> 'null'::jsonb
     group by k.key
@@ -311,13 +400,12 @@ async function keysInData(
 
 /** The live rows of an entity type, which is the denominator for a required field. */
 async function rowCount(
-  tx: Database, organizationId: string, entityType: EntityType,
+  tx: Database, organizationId: string, target: Target,
 ): Promise<number> {
-  const table = TABLE_OF[entityType];
   const [row] = await tx.execute<{ n: number }>(sql`
     select count(*)::int as n
-    from public.${sql.raw(`"${table}"`)} t
-    where t.organization_id = ${organizationId} and t.deleted_at is null
+    from public.${sql.raw(`"${target.table}"`)} t
+    where t.organization_id = ${organizationId} and ${target.rows} and t.deleted_at is null
   `);
   return row?.n ?? 0;
 }
@@ -354,9 +442,9 @@ async function rowCount(
  * company's data with no record of what it used to say.
  */
 async function assertFitsStoredData(
-  tx: Database, organizationId: string, proposed: Normalised,
+  tx: Database, organizationId: string, proposed: Normalised, target: Target,
 ): Promise<void> {
-  const values = await storedValues(tx, organizationId, proposed.entityType, proposed.key);
+  const values = await storedValues(tx, organizationId, target, proposed.key);
   const offending = values
     .map((value) => ({ value, problem: valueProblem(proposed, value) }))
     .filter((entry) => entry.problem !== null);
@@ -400,7 +488,7 @@ async function load(tx: Database, organizationId: string, id: string) {
  * Scoped to live definitions, so a key that was removed can be defined again.
  */
 async function assertKeyFree(
-  tx: Database, organizationId: string, entityType: EntityType, key: string, exceptId?: string,
+  tx: Database, organizationId: string, entityType: string, key: string, exceptId?: string,
 ): Promise<void> {
   const rows = await tx.select({ id: schema.customFieldDefinition.id })
     .from(schema.customFieldDefinition)
@@ -422,8 +510,9 @@ async function assertKeyFree(
 export async function define(ctx: ServiceContext, input: DefinitionInput) {
   return guardedWrite(ctx, "customfield:write", async (tx) => {
     const proposed = normalise(input);
+    const target = await targetOf(tx, ctx.actor.organizationId, proposed.entityType);
     await assertKeyFree(tx, ctx.actor.organizationId, proposed.entityType, proposed.key);
-    await assertFitsStoredData(tx, ctx.actor.organizationId, proposed);
+    await assertFitsStoredData(tx, ctx.actor.organizationId, proposed, target);
 
     const [row] = await tx.insert(schema.customFieldDefinition).values({
       organizationId: ctx.actor.organizationId,
@@ -513,8 +602,9 @@ export async function update(
       sortOrder: input.sortOrder ?? before.sortOrder,
     };
     const proposed = normalise(merged);
+    const target = await targetOf(tx, ctx.actor.organizationId, proposed.entityType);
     await assertKeyFree(tx, ctx.actor.organizationId, proposed.entityType, proposed.key, before.id);
-    await assertFitsStoredData(tx, ctx.actor.organizationId, proposed);
+    await assertFitsStoredData(tx, ctx.actor.organizationId, proposed, target);
 
     const [after] = await tx.update(schema.customFieldDefinition).set({
       label: proposed.label,
@@ -552,12 +642,12 @@ export async function update(
 export async function remove(ctx: ServiceContext, input: { id: string; force?: boolean | undefined }) {
   return guardedWrite(ctx, "customfield:write", async (tx) => {
     const before = await load(tx, ctx.actor.organizationId, input.id);
-    const entityType = entityOf(before.entityType);
-    const carrying = await rowsCarrying(tx, ctx.actor.organizationId, entityType, before.key);
+    const target = await targetOf(tx, ctx.actor.organizationId, before.entityType);
+    const carrying = await rowsCarrying(tx, ctx.actor.organizationId, target, before.key);
 
     if (carrying > 0 && !input.force) {
       throw new ConflictError(
-        `${carrying} ${entityType} row${carrying === 1 ? "" : "s"} still hold a value for "${before.key}". `
+        `${carrying} ${before.entityType} row${carrying === 1 ? "" : "s"} still hold a value for "${before.key}". `
         + "Removing the field does not remove those values: they stay in the record, stop being shown, "
         + "and start failing validation as an unknown key. Clear them first, or remove it anyway and "
         + "accept that.",
@@ -625,7 +715,18 @@ export async function list(ctx: ServiceContext, input: { entityType?: string | u
 export async function usage(ctx: ServiceContext, input: { entityType?: string | undefined } = {}) {
   return guardedRead(ctx, "settings:read", async (tx) => {
     const only = input.entityType === undefined ? undefined : entityOf(input.entityType);
-    const entityTypes = only ? [only] : [...ENTITY_TYPES];
+    /**
+     * Every built in entity and every kind of record the company defined,
+     * because a field on a permit nobody fills in costs exactly what one on a
+     * customer does.
+     */
+    const kinds = only ? [] : await tx.select({ key: schema.customObjectType.key })
+      .from(schema.customObjectType)
+      .where(isNull(schema.customObjectType.deletedAt))
+      .orderBy(asc(schema.customObjectType.sortOrder), asc(schema.customObjectType.key));
+    const entityTypes: string[] = only
+      ? [only]
+      : [...ENTITY_TYPES, ...kinds.map((kind) => customObjects.entityTypeFor(kind.key))];
 
     const definitions = await tx.select().from(schema.customFieldDefinition)
       .where(and(
@@ -639,8 +740,9 @@ export async function usage(ctx: ServiceContext, input: { entityType?: string | 
 
     const report = [];
     for (const entityType of entityTypes) {
-      const present = await keysInData(tx, ctx.actor.organizationId, entityType);
-      const total = await rowCount(tx, ctx.actor.organizationId, entityType);
+      const target = await targetOf(tx, ctx.actor.organizationId, entityType);
+      const present = await keysInData(tx, ctx.actor.organizationId, target);
+      const total = await rowCount(tx, ctx.actor.organizationId, target);
       const mine = definitions.filter((row) => row.entityType === entityType);
 
       const defined = mine.map((row) => ({
@@ -683,12 +785,12 @@ export async function usage(ctx: ServiceContext, input: { entityType?: string | 
 async function withBacklog(
   tx: Database, organizationId: string, row: typeof schema.customFieldDefinition.$inferSelect,
 ) {
-  const entityType = entityOf(row.entityType);
-  const carrying = await rowsCarrying(tx, organizationId, entityType, row.key);
+  const target = await targetOf(tx, organizationId, row.entityType);
+  const carrying = await rowsCarrying(tx, organizationId, target, row.key);
   return {
     ...shape(row),
     rowsWithValue: carrying,
-    rowsMissingValue: row.required ? (await rowCount(tx, organizationId, entityType)) - carrying : 0,
+    rowsMissingValue: row.required ? (await rowCount(tx, organizationId, target)) - carrying : 0,
   };
 }
 
@@ -914,16 +1016,135 @@ export async function enforceWithin(
  */
 export async function formFields(ctx: ServiceContext, entityType: string) {
   const entity = entityOf(entityType);
-  const permission = ({ customer: "customer:read", property: "property:read", job: "job:read" } as const)[entity];
-  return guardedRead(ctx, permission, async (tx) => {
-    const rows = await tx.select().from(schema.customFieldDefinition)
-      .where(and(
-        eq(schema.customFieldDefinition.organizationId, ctx.actor.organizationId),
-        eq(schema.customFieldDefinition.entityType, entity),
-        isNull(schema.customFieldDefinition.deletedAt),
-      ))
-      .orderBy(asc(schema.customFieldDefinition.sortOrder), asc(schema.customFieldDefinition.key));
-    return rows.map(shape);
+  if (isBuiltIn(entity)) {
+    return guardedRead(ctx, READ_OF[entity], (tx) => definitionsWithin(tx, ctx.actor.organizationId, entity));
+  }
+  /**
+   * A kind of record's own read permission, which the company chose on its
+   * definition. Read first, then asserted, inside one transaction.
+   */
+  assertCan(ctx.actor, "record:read");
+  return inTenant(ctx, async (tx) => {
+    const key = customObjects.keyOfEntityType(entity)!;
+    const [kind] = await tx.select({ readPermission: schema.customObjectType.readPermission })
+      .from(schema.customObjectType)
+      .where(and(eq(schema.customObjectType.key, key), isNull(schema.customObjectType.deletedAt))).limit(1);
+    if (!kind) throw new NotFoundError("Kind of record");
+    assertCan(ctx.actor, kind.readPermission as Permission);
+    return definitionsWithin(tx, ctx.actor.organizationId, entity);
+  });
+}
+
+/** One entity's definitions in the company's order, inside a transaction the caller holds and has authorised. */
+export async function definitionsWithin(tx: Database, organizationId: string, entityType: string) {
+  const rows = await tx.select().from(schema.customFieldDefinition)
+    .where(and(
+      eq(schema.customFieldDefinition.organizationId, organizationId),
+      eq(schema.customFieldDefinition.entityType, entityType),
+      isNull(schema.customFieldDefinition.deletedAt),
+    ))
+    .orderBy(asc(schema.customFieldDefinition.sortOrder), asc(schema.customFieldDefinition.key));
+  return rows.map(shape);
+}
+
+/* ---------------------------------------------- the five that grew a column */
+
+/**
+ * THE RECORDS WHOSE FIELDS ARE SAVED HERE RATHER THAN BY THEIR OWN UPDATE.
+ *
+ * A customer, an address and a job carry their fields through their own
+ * create and update, which were already the paths every screen used. The
+ * invoice, the estimate, the visit, the unit and the technician grew a
+ * column later, and their writes are each guarded by rules that have nothing
+ * to do with a custom field: an issued invoice's lines are frozen, a sent
+ * estimate is hashed, a visit moves on the board under its own permission.
+ * Threading a field through each of those would make "may I fill in the
+ * permit number" depend on "may I change the price".
+ *
+ * So the fields have one write of their own, under the RECORD'S write
+ * permission and its scope (a technician fills in a field on a visit they
+ * were on, not on anybody's), held to the same check every other write is:
+ * only what this write changed, every refusal at once.
+ */
+export const VALUE_ENTITIES = ["invoice", "estimate", "visit", "equipment", "technician"] as const;
+export type ValueEntity = (typeof VALUE_ENTITIES)[number];
+
+/** The record's stored values, if the caller may see it, inside their scope. */
+async function valuesOf(
+  tx: Database, ctx: ServiceContext, entityType: ValueEntity, id: string,
+): Promise<Record<string, unknown> | null> {
+  switch (entityType) {
+    case "invoice": {
+      const [row] = await tx.select({ values: schema.invoice.customFields }).from(schema.invoice)
+        .where(and(eq(schema.invoice.id, id), isNull(schema.invoice.deletedAt),
+          invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor))).limit(1);
+      return row?.values ?? null;
+    }
+    case "estimate": {
+      const [row] = await tx.select({ values: schema.estimate.customFields }).from(schema.estimate)
+        .where(and(eq(schema.estimate.id, id), isNull(schema.estimate.deletedAt),
+          estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor))).limit(1);
+      return row?.values ?? null;
+    }
+    case "visit": {
+      const [row] = await tx.select({ values: schema.visit.customFields }).from(schema.visit)
+        .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+        .where(and(eq(schema.visit.id, id), isNull(schema.job.deletedAt),
+          jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.job.id}`))).limit(1);
+      return row?.values ?? null;
+    }
+    case "equipment": {
+      const [row] = await tx.select({ values: schema.equipment.customFields }).from(schema.equipment)
+        .where(and(eq(schema.equipment.id, id), isNull(schema.equipment.deletedAt))).limit(1);
+      return row?.values ?? null;
+    }
+    case "technician": {
+      const [row] = await tx.select({ values: schema.technician.customFields }).from(schema.technician)
+        .where(eq(schema.technician.id, id)).limit(1);
+      return row?.values ?? null;
+    }
+  }
+}
+
+async function writeValues(tx: Database, entityType: ValueEntity, id: string, values: Record<string, unknown>) {
+  const set = { customFields: values, updatedAt: new Date() };
+  switch (entityType) {
+    case "invoice": await tx.update(schema.invoice).set(set).where(eq(schema.invoice.id, id)); return;
+    case "estimate": await tx.update(schema.estimate).set(set).where(eq(schema.estimate.id, id)); return;
+    case "visit": await tx.update(schema.visit).set(set).where(eq(schema.visit.id, id)); return;
+    case "equipment": await tx.update(schema.equipment).set(set).where(eq(schema.equipment.id, id)); return;
+    case "technician": await tx.update(schema.technician).set(set).where(eq(schema.technician.id, id)); return;
+  }
+}
+
+const NOUN: Record<ValueEntity, string> = {
+  invoice: "Invoice", estimate: "Estimate", visit: "Visit", equipment: "Unit", technician: "Technician",
+};
+
+/**
+ * Save the fields on one of the five.
+ *
+ * `values` is the whole bag as the caller wants it to be. A key the company
+ * has not defined is kept as it is (never refused on save, as everywhere
+ * else); the screens build the bag on top of what is stored, so nothing they
+ * do not draw is lost.
+ */
+export async function setValues(
+  ctx: ServiceContext,
+  input: { entityType: ValueEntity; id: string; values: Record<string, unknown> },
+) {
+  if (!(VALUE_ENTITIES as readonly string[]).includes(input.entityType)) {
+    throw new ConflictError(`Fields on ${input.entityType} are saved with that record's own update.`);
+  }
+  assertCan(ctx.actor, READ_OF[input.entityType]);
+  return guardedWrite(ctx, WRITE_OF[input.entityType], async (tx) => {
+    const before = await valuesOf(tx, ctx, input.entityType, input.id);
+    if (before === null) throw new NotFoundError(NOUN[input.entityType]);
+    await enforceWithin(tx, ctx.actor.organizationId, input.entityType, input.values, before);
+    await writeValues(tx, input.entityType, input.id, input.values);
+    await audit(tx, ctx, `${input.entityType}.custom_fields_saved`, input.entityType, input.id,
+      { customFields: before }, { customFields: input.values });
+    return { id: input.id, customFields: input.values };
   });
 }
 
@@ -957,6 +1178,7 @@ export async function filterCondition(
   column: SQL,
 ): Promise<SQL> {
   const entity = entityOf(entityType);
+  const noun = isBuiltIn(entity) ? entity : "record";
   const [definition] = await tx.select().from(schema.customFieldDefinition)
     .where(and(
       eq(schema.customFieldDefinition.organizationId, organizationId),
@@ -966,7 +1188,7 @@ export async function filterCondition(
     )).limit(1);
   if (!definition) {
     throw new ConflictError(
-      `There is no ${entity} field called "${key}" to filter by. Choose one of the fields the company has set up.`,
+      `There is no ${noun} field called "${key}" to filter by. Choose one of the fields the company has set up.`,
     );
   }
 
@@ -1025,4 +1247,15 @@ export const handlers = {
     ctx: ServiceContext,
     input: { entityType: string; customFields: Record<string, unknown> },
   ) => validate(ctx, input.entityType, input.customFields),
+
+  setInvoiceCustomFields: (ctx: ServiceContext, input: { id: string; customFields: Record<string, unknown> }) =>
+    setValues(ctx, { entityType: "invoice", id: input.id, values: input.customFields }),
+  setEstimateCustomFields: (ctx: ServiceContext, input: { id: string; customFields: Record<string, unknown> }) =>
+    setValues(ctx, { entityType: "estimate", id: input.id, values: input.customFields }),
+  setVisitCustomFields: (ctx: ServiceContext, input: { id: string; customFields: Record<string, unknown> }) =>
+    setValues(ctx, { entityType: "visit", id: input.id, values: input.customFields }),
+  setEquipmentCustomFields: (ctx: ServiceContext, input: { id: string; customFields: Record<string, unknown> }) =>
+    setValues(ctx, { entityType: "equipment", id: input.id, values: input.customFields }),
+  setTechnicianCustomFields: (ctx: ServiceContext, input: { id: string; customFields: Record<string, unknown> }) =>
+    setValues(ctx, { entityType: "technician", id: input.id, values: input.customFields }),
 } as const;

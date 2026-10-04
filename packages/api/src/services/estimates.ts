@@ -8,6 +8,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf,
 } from "./context";
+import { layoutForNew } from "./proposal-templates";
 import { admitDate, requireImport } from "./history";
 import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
@@ -158,6 +159,11 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       expiresOn: input.expiresOn ?? (input.outcome?.status === "expired" ? input.outcome.on : null),
       status: "draft",
       terms,
+      /**
+       * The layout its job type starts with, or the company's default,
+       * copied on like the terms. See `proposal-templates.ts`.
+       */
+      ...(await layoutForNew(tx, input.jobId ?? null)),
       ...provenance(input.externalRef),
     }).returning({ id: schema.estimate.id });
 

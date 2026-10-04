@@ -95,6 +95,12 @@ const REFUSED: Record<string, Refused> = {
   organization_slug_idx: { file: "organizations.ts", how: "catch" },
   organization_external_ref_idx: { file: "operator.ts", how: "catch" },
   user_email_idx: { file: "operator.ts", how: "catch" },
+  /** A second kind of record defined under a key the company already uses. */
+  custom_object_type_key_idx: { file: "custom-objects.ts", how: "catch" },
+  /** Two proposal layouts with one name, the default chosen twice, or two layouts for one job type. */
+  proposal_template_name_idx: { file: "proposal-templates.ts", how: "catch" },
+  proposal_template_job_type_idx: { file: "proposal-templates.ts", how: "catch" },
+  proposal_template_default_idx: { file: "proposal-templates.ts", how: "catch" },
 
   /* ---- selected first and refused in the service's own words ---- */
   certification_type_code_idx: {

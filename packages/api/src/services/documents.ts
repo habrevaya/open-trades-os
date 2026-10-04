@@ -1,5 +1,5 @@
 import { deflateSync } from "node:zlib";
-import { and, asc, eq, isNull, ne, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, money as m, pdf, reporting, time } from "@opentradesos/core";
 import { guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
@@ -226,12 +226,49 @@ export async function invoicePdfForAccount(db: Database, input: { token: string;
 
 /* ------------------------------------------------------------ proposal */
 
-function proposalFile(doc: Awaited<ReturnType<typeof proposalWithin>>): PdfFile {
+/**
+ * The proposal as a file, in the layout its page draws: the cover, the
+ * sections in the company's order, the reviews they show and each option's
+ * photographs. A photograph is read from the company's own store; one the
+ * PDF cannot print (a PNG with transparency, a HEIC) is said in a line
+ * rather than dropped.
+ */
+async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposalWithin>>): Promise<PdfFile> {
+  const keys = [
+    ...(doc.layout.cover?.photoKey ? [doc.layout.cover.photoKey] : []),
+    ...Object.values(doc.layout.optionPhotos).flat().map((photo) => photo.storageKey),
+  ];
+  const images = new Map<string, pdf.PdfImage | null>();
+  if (keys.length > 0) {
+    const files = await tx.select({ key: schema.storedFile.storageKey, bytes: schema.storedFile.bytes })
+      .from(schema.storedFile)
+      .where(and(inArray(schema.storedFile.storageKey, [...new Set(keys)]), isNull(schema.storedFile.deletedAt)));
+    for (const file of files) images.set(file.key, pdf.readImage(new Uint8Array(file.bytes)));
+  }
+  const coverKey = doc.layout.cover?.photoKey ?? null;
   return {
     filename: `proposal-${doc.number}.pdf`,
     bytes: pdf.proposalPdf({
       ...doc,
       company: { name: doc.company.name, color: doc.company.color },
+      options: doc.options.map((option) => ({
+        ...option,
+        photos: (doc.layout.optionPhotos[option.id] ?? []).map((photo) => images.get(photo.storageKey) ?? null),
+      })),
+      layout: {
+        cover: doc.layout.cover ? {
+          headline: doc.layout.cover.headline,
+          intro: doc.layout.cover.intro,
+          photo: coverKey ? images.get(coverKey) ?? null : null,
+          photoUnprintable: coverKey !== null && !images.get(coverKey),
+        } : null,
+        sections: doc.layout.sections.map((section) => ({
+          kind: section.kind,
+          title: section.title,
+          body: section.body,
+          ...(section.reviews ? { reviews: section.reviews } : {}),
+        })),
+      },
       generatedAt: new Date(),
     }, RENDER),
   };
@@ -245,7 +282,7 @@ export function proposalPdf(ctx: ServiceContext, input: { id: string }): Promise
       .where(and(eq(schema.estimate.id, input.id), estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor)))
       .limit(1);
     if (!visible) throw new NotFoundError("Estimate");
-    return proposalFile(await proposalWithin(tx, ctx, input.id));
+    return proposalFile(tx, await proposalWithin(tx, ctx, input.id));
   });
 }
 
@@ -253,7 +290,7 @@ export function proposalPdf(ctx: ServiceContext, input: { id: string }): Promise
 export async function proposalPdfForToken(db: Database, input: { token: string }): Promise<PdfFile> {
   const grant = await peek(db, input.token);
   const estimateId = requireScope(grant, "estimate");
-  return inGrant(db, grant, async (tx, ctx) => proposalFile(await proposalWithin(tx, ctx, estimateId)));
+  return inGrant(db, grant, async (tx, ctx) => proposalFile(tx, await proposalWithin(tx, ctx, estimateId)));
 }
 
 /* ----------------------------------------------------------- statement */

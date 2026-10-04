@@ -45,7 +45,11 @@ export function keyOfEntityType(entityType: string): string | null {
   return KEY.test(key) ? key : null;
 }
 
-/** The permissions a company's records start with, when the definition names none. */
+/**
+ * The gate every record passes, and what a kind names when it narrows
+ * nothing further. A kind can name any other permission on top: a reader
+ * then needs `record:read` AND the kind's own.
+ */
 export const DEFAULT_READ: Permission = "record:read";
 export const DEFAULT_WRITE: Permission = "record:write";
 
@@ -183,7 +187,7 @@ export function parseCsv(text: string): string[][] {
   let cell = "";
   let quoted = false;
   let i = 0;
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
   while (i < source.length) {
     const char = source[i]!;
     if (quoted) {

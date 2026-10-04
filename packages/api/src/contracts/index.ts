@@ -82,6 +82,9 @@ import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
 import { peopleRecordRoutes } from "./people-records";
+import { customObjectRoutes } from "./custom-objects";
+import { proposalTemplateRoutes } from "./proposal-templates";
+import { sandboxRoutes } from "./sandbox";
 
 export * from "./common";
 export * from "./visits";
@@ -109,6 +112,9 @@ export * from "./contracts";
 export * from "./commercial-billing";
 export * from "./webhooks";
 export * from "./custom-fields";
+export * from "./custom-objects";
+export * from "./proposal-templates";
+export * from "./sandbox";
 export * from "./payments";
 export * from "./email";
 export * from "./accounting";
@@ -263,6 +269,9 @@ export const routes = {
   ...purchasingRoutes,
   ...rentalBillingRoutes,
   ...peopleRecordRoutes,
+  ...customObjectRoutes,
+  ...proposalTemplateRoutes,
+  ...sandboxRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

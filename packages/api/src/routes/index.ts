@@ -31,6 +31,7 @@ import {
   safety, retention,
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, rentalBilling, peopleRecords,
+  customObjects, proposalTemplates, sandbox,
 } from "../services/index";
 
 /**
@@ -374,6 +375,14 @@ export const handlers = {
   deleteCustomField: customFields.handlers.deleteCustomField,
   getCustomFieldUsage: customFields.handlers.getCustomFieldUsage,
   validateCustomFields: customFields.handlers.validateCustomFields,
+  setInvoiceCustomFields: customFields.handlers.setInvoiceCustomFields,
+  setEstimateCustomFields: customFields.handlers.setEstimateCustomFields,
+  setVisitCustomFields: customFields.handlers.setVisitCustomFields,
+  setEquipmentCustomFields: customFields.handlers.setEquipmentCustomFields,
+  setTechnicianCustomFields: customFields.handlers.setTechnicianCustomFields,
+  ...customObjects.handlers,
+  ...proposalTemplates.handlers,
+  ...sandbox.handlers,
 
   registerWebhookEndpoint: webhooks.handlers.registerWebhookEndpoint,
   listWebhookEndpoints: webhooks.handlers.listWebhookEndpoints,
@@ -666,6 +675,10 @@ export const handlers = {
   quoteDeficiency: inspections.handlers.quoteDeficiency,
 
   listWorkflows: workflows.handlers.listWorkflows,
+  getWorkflow: workflows.handlers.getWorkflow,
+  createWorkflow: workflows.handlers.createWorkflow,
+  publishWorkflow: workflows.handlers.publishWorkflow,
+  deleteWorkflow: workflows.handlers.deleteWorkflow,
   getWorkflowRuns: workflows.handlers.getWorkflowRuns,
   setWorkflowEnabled: workflows.handlers.setWorkflowEnabled,
   listWorkflowEvents: workflows.handlers.listWorkflowEvents,
