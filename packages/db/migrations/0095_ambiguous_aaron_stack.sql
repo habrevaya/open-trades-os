@@ -1,0 +1,1 @@
+ALTER TABLE "price_change_batch" ADD COLUMN "effective_from" timestamp with time zone;

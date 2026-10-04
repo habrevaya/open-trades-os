@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { priceBook, vendorCatalogue } from "@opentradesos/api/services";
+import { ConflictError, priceBook, vendorCatalogue } from "@opentradesos/api/services";
 import {
   createPriceBookItem, revisePriceBookItem, updatePriceBookItem, setPriceBookItemActive, setVendorItem,
 } from "@opentradesos/api/contracts";
@@ -74,6 +74,29 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
           ...(from && start ? { effectiveFrom: start.toISOString() } : {}),
         }));
         return { message: from ? `Saved as a new version, in force from ${from}.` : "Saved as a new version, in force now." };
+      }
+      case "components": {
+        /**
+         * Each row is a code and a quantity. A code is looked up exactly,
+         * not by the search the list uses, so "KV-1" never finds "KV-10".
+         */
+        const components: { itemId: string; quantity: number }[] = [];
+        for (const key of [...form.keys()].filter((k) => k.startsWith("partCode"))) {
+          const code = field(form, key)?.trim();
+          if (!code) continue;
+          const quantity = Number(field(form, `partQuantity${key.slice("partCode".length)}`) ?? "1");
+          const found = (await priceBook.list(ctx, { q: code, limit: 20, includeInactive: true })).data
+            .find((row) => row.code.toLowerCase() === code.toLowerCase());
+          if (!found) throw new ConflictError(`No item in the price book has the code "${code}".`);
+          components.push({ itemId: found.id, quantity });
+        }
+        const on = field(form, "effectiveOn");
+        const start = on ? time.startOfDayIn(on, timezone) : null;
+        const from = start && start.getTime() > Date.now() ? on : undefined;
+        await priceBook.revise(ctx, parsed(revisePriceBookItem.input, {
+          id, components, ...(from && start ? { effectiveFrom: start.toISOString() } : {}),
+        }));
+        return { message: from ? `The parts are saved as a new version, in force from ${from}.` : "The parts are saved as a new version, in force now." };
       }
       case "identity":
         await priceBook.updateItem(ctx, parsed(updatePriceBookItem.input, {

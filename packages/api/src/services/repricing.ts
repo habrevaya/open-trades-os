@@ -36,9 +36,13 @@ import { remember, replayed } from "./once";
  * outright: a price computed from cost, shown beside the rule that computed
  * it, gives the cost back in one division.
  *
- * NOT STAGED. A bulk change takes effect when it is applied. An item with a
- * revision already scheduled for a later date is left out and says why,
- * because a new version now would collide with the one that is waiting.
+ * DATED AHEAD, OR NOW. A bulk change takes effect when it is applied, or from
+ * the start of a day ahead in the company's calendar, each item's new version
+ * then waiting as a scheduled revision exactly as a single one dated ahead
+ * does, and the change records the day. An item with a revision already
+ * scheduled is left out and says why, because a new version would collide
+ * with the one that is waiting. Undoing a change dated ahead before its day
+ * calls the waiting versions off rather than writing more.
  */
 
 export interface Selection {
@@ -188,6 +192,7 @@ async function writeBatch(
     rule: Record<string, unknown>;
     selection: Record<string, unknown>;
     reversesBatchId?: string;
+    effectiveFrom?: Date | null;
     lines: { itemId: string; price: string }[];
   },
 ): Promise<{ batchId: string; changed: number }> {
@@ -199,10 +204,11 @@ async function writeBatch(
     selection: input.selection,
     itemCount: 0,
     reversesBatchId: input.reversesBatchId ?? null,
+    effectiveFrom: input.effectiveFrom ?? null,
     appliedByUserId: ctx.actor.userId,
   }).returning({ id: schema.priceChangeBatch.id });
 
-  const now = new Date();
+  const now = input.effectiveFrom ?? new Date();
   let changed = 0;
   for (const line of input.lines) {
     const current = await load(tx, line.itemId);
@@ -243,11 +249,12 @@ async function writeBatch(
  * screen showed. `itemIds` narrows it to the items somebody left ticked.
  */
 export async function apply(
-  ctx: ServiceContext, input: { selection: Selection; rule: repricing.RepriceRule },
+  ctx: ServiceContext, input: { selection: Selection; rule: repricing.RepriceRule; effectiveOn?: string | undefined },
 ): Promise<AppliedChange> {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
     const seen = await replayed<AppliedChange>(tx, ctx, "price_change_batch");
     if (seen) return seen;
+    const effectiveFrom = await startOf(tx, ctx, input.effectiveOn);
 
     if (input.rule.adjust.kind === "margin") assertCan(ctx.actor, "pricebook.cost:read");
     checked(input.rule);
@@ -257,9 +264,13 @@ export async function apply(
       throw new ConflictError("Nothing in that selection would change, so there is nothing to apply.");
     }
 
-    const description = repricing.describeRule(input.rule);
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const description = effectiveFrom
+      ? `${repricing.describeRule(input.rule)}, from ${time.dateIn(effectiveFrom, zone)}`
+      : repricing.describeRule(input.rule);
     const { batchId, changed } = await writeBatch(tx, ctx, {
       kind: "change",
+      effectiveFrom,
       description,
       rule: input.rule as unknown as Record<string, unknown>,
       selection: input.selection as unknown as Record<string, unknown>,
@@ -275,6 +286,96 @@ export async function apply(
     await remember(tx, ctx, "price_change_batch", batchId, answer);
     return answer;
   });
+}
+
+/**
+ * The instant a change dated `effectiveOn` takes effect: the start of that
+ * day in the company's calendar. Null for now, which is what today means: a
+ * change for today would otherwise be dated at a midnight already past.
+ * A day gone by is refused, because a price is never changed backwards.
+ */
+async function startOf(tx: Database, ctx: ServiceContext, effectiveOn: string | undefined): Promise<Date | null> {
+  if (!effectiveOn) return null;
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  const today = time.dateIn(new Date(), zone);
+  if (effectiveOn < today) {
+    throw new UnprocessableError("A price change cannot start in the past", [{
+      path: "effectiveOn", message: `${effectiveOn} has gone. Choose today or a day ahead.`,
+    }]);
+  }
+  return effectiveOn === today ? null : time.startOfDayIn(effectiveOn, zone);
+}
+
+/**
+ * Call off a change dated ahead before its day: every version it scheduled is
+ * withdrawn and the price in force runs on, as calling off one scheduled
+ * revision does. Recorded as an undo with a line per item, from the price it
+ * would have become back to the price that stays.
+ */
+async function callOff(
+  tx: Database, ctx: ServiceContext, batch: typeof schema.priceChangeBatch.$inferSelect,
+): Promise<AppliedChange> {
+  const lines = await tx.select({ line: schema.priceChangeLine, code: schema.priceBookItem.code })
+    .from(schema.priceChangeLine)
+    .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceChangeLine.itemId))
+    .where(eq(schema.priceChangeLine.batchId, batch.id));
+  const description = `Called off "${batch.description}" before it took effect`;
+  const [undo] = await tx.insert(schema.priceChangeBatch).values({
+    organizationId: ctx.actor.organizationId,
+    kind: "reversal",
+    rule: { reverses: batch.id, skipped: [] },
+    description,
+    selection: {},
+    itemCount: 0,
+    reversesBatchId: batch.id,
+    appliedByUserId: ctx.actor.userId,
+  }).returning({ id: schema.priceChangeBatch.id });
+
+  const skipped: AppliedChange["skipped"] = [];
+  let changed = 0;
+  for (const { line, code } of lines) {
+    const [waiting] = await tx.select().from(schema.priceBookItemVersion)
+      .where(and(eq(schema.priceBookItemVersion.id, line.toVersionId), isNull(schema.priceBookItemVersion.deletedAt)))
+      .limit(1);
+    const [previous] = waiting
+      ? await tx.select().from(schema.priceBookItemVersion)
+        .where(and(
+          eq(schema.priceBookItemVersion.itemId, line.itemId),
+          eq(schema.priceBookItemVersion.effectiveTo, waiting.effectiveFrom),
+          isNull(schema.priceBookItemVersion.deletedAt),
+        )).limit(1)
+      : [];
+    if (!waiting || waiting.effectiveTo !== null || !previous) {
+      skipped.push({ itemId: line.itemId, code, reason: "Its price has been changed again since, so it was left as it is." });
+      continue;
+    }
+    await tx.update(schema.priceBookItemVersion).set({ effectiveTo: null, updatedAt: new Date() })
+      .where(eq(schema.priceBookItemVersion.id, previous.id));
+    await tx.update(schema.priceBookItemVersion).set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.priceBookItemVersion.id, waiting.id));
+    await tx.insert(schema.priceChangeLine).values({
+      organizationId: ctx.actor.organizationId,
+      batchId: undo!.id,
+      itemId: line.itemId,
+      fromVersionId: waiting.id,
+      toVersionId: previous.id,
+      priceBefore: waiting.price,
+      priceAfter: previous.price,
+    });
+    await audit(tx, ctx, "pricebook.revision_discarded", "price_book_item", line.itemId,
+      { versionId: waiting.id, price: waiting.price }, null);
+    changed += 1;
+  }
+  if (changed === 0) {
+    throw new ConflictError("Every item in that change has been changed again since, so there is nothing to call off.");
+  }
+  await tx.update(schema.priceChangeBatch).set({ itemCount: changed, rule: { reverses: batch.id, skipped }, updatedAt: new Date() })
+    .where(eq(schema.priceChangeBatch.id, undo!.id));
+  await tx.update(schema.priceChangeBatch).set({ reversedByBatchId: undo!.id, updatedAt: new Date() })
+    .where(eq(schema.priceChangeBatch.id, batch.id));
+  await audit(tx, ctx, "pricebook.reprice_reversed", "price_change_batch", undo!.id, null,
+    { description, items: changed, reverses: batch.id });
+  return { id: undo!.id, description, changed, skipped };
 }
 
 /**
@@ -294,6 +395,11 @@ export async function reverse(ctx: ServiceContext, input: { id: string }): Promi
       .where(eq(schema.priceChangeBatch.id, input.id)).limit(1);
     if (!batch) throw new NotFoundError("Price change");
     if (batch.reversedByBatchId) throw new ConflictError("That change has already been undone.");
+    if (batch.effectiveFrom && batch.effectiveFrom > new Date()) {
+      const answer = await callOff(tx, ctx, batch);
+      await remember(tx, ctx, "price_change_reversal", answer.id, answer);
+      return answer;
+    }
 
     const lines = await tx.select({
       line: schema.priceChangeLine,
@@ -346,6 +452,7 @@ export interface ChangeSummary {
   appliedAt: string;
   reversesId: string | null;
   reversedById: string | null;
+  effectiveFrom: string | null;
 }
 
 /** The changes made, newest first. */
@@ -368,6 +475,7 @@ export async function history(ctx: ServiceContext, input: { limit?: number | und
       appliedAt: batch.createdAt.toISOString(),
       reversesId: batch.reversesBatchId,
       reversedById: batch.reversedByBatchId,
+      effectiveFrom: batch.effectiveFrom?.toISOString() ?? null,
     }));
   });
 }
@@ -394,6 +502,7 @@ export async function lines(ctx: ServiceContext, input: { id: string }) {
       appliedAt: batch.createdAt.toISOString(),
       reversesId: batch.reversesBatchId,
       reversedById: batch.reversedByBatchId,
+      effectiveFrom: batch.effectiveFrom?.toISOString() ?? null,
       /**
        * The items an undo left alone because they had been changed again
        * since, kept on the undo itself, so the answer to "why is this one
@@ -433,6 +542,7 @@ export function ruleFrom(input: RuleInput): repricing.RepriceRule {
 }
 
 type FlatInput = RuleInput & {
+  effectiveOn?: string | undefined;
   categoryId?: string | undefined;
   includeSubcategories?: boolean | undefined;
   q?: string | undefined;
@@ -450,7 +560,7 @@ export const handlers = {
   previewPriceChange: (ctx: ServiceContext, input: FlatInput) =>
     preview(ctx, { selection: selectionFrom(input), rule: ruleFrom(input) }),
   applyPriceChange: (ctx: ServiceContext, input: FlatInput) =>
-    apply(ctx, { selection: selectionFrom(input), rule: ruleFrom(input) }),
+    apply(ctx, { selection: selectionFrom(input), rule: ruleFrom(input), effectiveOn: input.effectiveOn }),
   listPriceChanges: async (ctx: ServiceContext, input: { limit?: number | undefined }) =>
     ({ changes: await history(ctx, input) }),
   getPriceChange: (ctx: ServiceContext, input: { id: string }) => lines(ctx, input),

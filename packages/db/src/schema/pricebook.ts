@@ -134,6 +134,12 @@ export const priceChangeBatch = pgTable("price_change_batch", {
   itemCount: integer("item_count").notNull().default(0),
   reversesBatchId: uuid("reverses_batch_id"),
   reversedByBatchId: uuid("reversed_by_batch_id"),
+  /**
+   * When the new prices take effect: the start of a day ahead in the company's
+   * calendar, as a single revision dated ahead does. Null for a change that
+   * took effect when it was applied, which every change did before this.
+   */
+  effectiveFrom: timestamp("effective_from", { withTimezone: true }),
   appliedByUserId: uuid("applied_by_user_id").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

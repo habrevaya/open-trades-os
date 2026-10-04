@@ -3,6 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError,
+  UnprocessableError,
 } from "./context";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import type {
@@ -137,6 +138,7 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     taxClass: row.version.taxClass ?? null,
     laborMinutes: row.version.laborMinutes ?? null,
     warrantyMonths: row.version.warrantyMonths ?? null,
+    components: row.version.components,
     active: row.item.active,
     externalRef: row.item.sourceSystem && row.item.sourceId
       ? { source: row.item.sourceSystem, id: row.item.sourceId }
@@ -295,6 +297,7 @@ export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePr
       ...(input.taxable !== undefined ? { taxable: input.taxable } : {}),
       ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}),
       ...(input.warrantyMonths !== undefined ? { warrantyMonths: input.warrantyMonths } : {}),
+      ...(input.components !== undefined ? { components: await checkedComponents(tx, current.item.id, input.components) } : {}),
     }, effectiveFrom);
 
     if (ctx.idempotencyKey) {
@@ -324,6 +327,76 @@ export interface RevisionChanges {
    */
   taxClass?: string | null;
   warrantyMonths?: number | null;
+  /** A kit's parts, already checked by `checkedComponents`. */
+  components?: Array<{ itemId: string; quantity: number }>;
+}
+
+/**
+ * A KIT'S PARTS, CHECKED BEFORE THEY ARE WRITTEN.
+ *
+ * Each part is an item in this price book that is still sold, named once
+ * (two lines of the same part are one line with the quantities added, which
+ * is what a person meant), in a positive quantity. Never the kit itself, and
+ * never a kit that already contains this one, however deep: a kit inside
+ * itself is a parts list nobody can ever finish picking, and the tablet that
+ * lists a kit's parts would follow it for ever.
+ */
+export async function checkedComponents(
+  tx: Database, kitId: string, components: ReadonlyArray<{ itemId: string; quantity: number }>,
+): Promise<Array<{ itemId: string; quantity: number }>> {
+  const merged = new Map<string, number>();
+  for (const [index, part] of components.entries()) {
+    if (!(part.quantity > 0)) {
+      throw new UnprocessableError("A part needs a quantity", [{
+        path: `components.${index}.quantity`, message: "Put at least some of it in the kit, or take the line off.",
+      }]);
+    }
+    if (part.itemId === kitId) {
+      throw new UnprocessableError("A kit cannot contain itself", [{
+        path: `components.${index}.itemId`, message: "Choose another item: this is the kit.",
+      }]);
+    }
+    merged.set(part.itemId, (merged.get(part.itemId) ?? 0) + part.quantity);
+  }
+  if (merged.size === 0) return [];
+
+  const found = await tx.select({ id: schema.priceBookItem.id, active: schema.priceBookItem.active })
+    .from(schema.priceBookItem)
+    .where(and(inArray(schema.priceBookItem.id, [...merged.keys()]), isNull(schema.priceBookItem.deletedAt)));
+  const known = new Map(found.map((row) => [row.id, row.active]));
+  for (const [index, part] of components.entries()) {
+    if (!known.has(part.itemId)) {
+      throw new UnprocessableError("That part is not in the price book", [{
+        path: `components.${index}.itemId`, message: "Choose an item from the price book.",
+      }]);
+    }
+    if (known.get(part.itemId) === false) {
+      throw new UnprocessableError("That part is no longer sold", [{
+        path: `components.${index}.itemId`, message: "It was retired. Sell it again first, or choose another.",
+      }]);
+    }
+  }
+
+  /** Down through every kit inside this one, looking for this one. */
+  let frontier = [...merged.keys()];
+  const seen = new Set<string>();
+  while (frontier.length > 0) {
+    const rows = await tx.select({ itemId: schema.priceBookItemVersion.itemId, components: schema.priceBookItemVersion.components })
+      .from(schema.priceBookItemVersion)
+      .where(and(inArray(schema.priceBookItemVersion.itemId, frontier), isNull(schema.priceBookItemVersion.effectiveTo)));
+    frontier.forEach((id) => seen.add(id));
+    const next: string[] = [];
+    for (const row of rows) {
+      for (const inner of row.components) {
+        if (inner.itemId === kitId) {
+          throw new ConflictError("One of those parts is a kit that already contains this one. A kit cannot be inside itself.");
+        }
+        if (!seen.has(inner.itemId)) next.push(inner.itemId);
+      }
+    }
+    frontier = [...new Set(next)];
+  }
+  return [...merged.entries()].map(([itemId, quantity]) => ({ itemId, quantity }));
 }
 
 /**
@@ -363,7 +436,7 @@ export async function reviseWithin(
     taxClass: changes.taxClass !== undefined ? changes.taxClass : current.version.taxClass,
     commissionRate: current.version.commissionRate,
     warrantyMonths: changes.warrantyMonths !== undefined ? changes.warrantyMonths : current.version.warrantyMonths,
-    components: current.version.components,
+    components: changes.components ?? current.version.components,
     effectiveFrom,
   }).returning();
 
