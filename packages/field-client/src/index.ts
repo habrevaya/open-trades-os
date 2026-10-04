@@ -14,3 +14,4 @@ export * from "./web-files";
 export * from "./inspection";
 export * from "./positions";
 export * from "./sales";
+export * from "./sale";

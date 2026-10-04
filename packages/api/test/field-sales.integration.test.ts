@@ -259,6 +259,29 @@ run("an estimate built on the phone", () => {
     expect(day.abilities.tipping).toEqual({ enabled: true, presets: [15, 20, 25] });
   });
 
+  it("writes two estimates and two invoices from one send, whatever key the send itself carried", async () => {
+    const { visitId } = await visitFor([rayTech]);
+    const first = goodAndBest();
+    const second = goodAndBest();
+    const lines = [crypto.randomUUID(), crypto.randomUUID()];
+    const device = await fieldOps.register(ray(), { installationId: `batch-${crypto.randomUUID()}` });
+    const op = (sequence: number, kind: field.OperationKind, subjectId: string, payload: Record<string, unknown>) => ({
+      clientId: crypto.randomUUID(), sequence, kind, subjectId, occurredAt: new Date(Date.now() - (10 - sequence) * 60_000).toISOString(), payload,
+    });
+    const result = await fieldOps.sync({ ...ray(), idempotencyKey: `sync-${crypto.randomUUID()}` }, {
+      deviceId: device.deviceId,
+      operations: [
+        op(1, "estimate.create", crypto.randomUUID(), { visitId, options: [first.good] }),
+        op(2, "estimate.create", crypto.randomUUID(), { visitId, options: [second.best] }),
+        op(3, "visit.add_line", visitId, { lineId: lines[0], kind: "part", name: "Fitting", quantity: "1", unitPrice: "10.0000" }),
+        op(4, "visit.add_line", visitId, { lineId: lines[1], kind: "part", name: "Valve", quantity: "1", unitPrice: "20.0000" }),
+        op(5, "invoice.raise", crypto.randomUUID(), { visitId, source: "work", jobLineIds: [lines[0]], shownTotal: "9.00" }),
+        op(6, "invoice.raise", crypto.randomUUID(), { visitId, source: "work", jobLineIds: [lines[1]], shownTotal: "18.00" }),
+      ],
+    });
+    expect(result.results.map((r) => [r.status, r.rejection])).toEqual(Array(6).fill(["applied", null]));
+  });
+
   it("refuses a price from a price book more than a week old, rather than writing a figure nobody can stand behind", async () => {
     const { visitId } = await visitFor([rayTech]);
     const [stale] = await raw`insert into public.price_book_item_version

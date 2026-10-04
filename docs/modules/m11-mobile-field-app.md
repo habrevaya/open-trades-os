@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Seventeen operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, and the seventeenth, `inspection.record`, is an inspection filed whole): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty four operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, and the last seven are selling and closing on site, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -193,6 +193,102 @@ sheet; the payment lands when the card processor's webhook says it did. Only
 the technician on the visit, or somebody who may send invoices, can ask.
 
 `/my-day` takes cash, checks and the card link the same way.
+
+### Selling and closing on site
+
+The sale at the kitchen table, on the phone and on `/my-day`, all through the
+same queue, so all of it works in a basement and lands when the van finds a
+signal. Seven operation kinds:
+
+| Kind | Rule | What it is |
+|---|---|---|
+| `estimate.create` | append | Good, better and best built on the phone, with ids the phone made |
+| `estimate.approve` | transition | The customer's choice and signature, drawn on the glass |
+| `estimate.decline` | transition | The customer saying no, with why |
+| `invoice.raise` | transition | The invoice for the visit's work, shown and signed for |
+| `task.claim` | transition | Taking a task off the office's queue |
+| `task.close` | transition | Finishing your own task |
+| `tip.record` | append | A cash tip the technician kept |
+
+**Building the options.** The price book the phone carries is searched with
+no signal, by name, code, description and what a kit contains; a kit is one
+line at its own price and says what it covers. Each line is priced from the
+version the phone holds, and the server writes that version's price when it
+was in force in the week before, so a price rise the phone had not heard of
+does not change what the customer was shown; an older one is refused in
+words. The customer's membership is on the day (`member` on each visit), and
+the phone takes the plan's discount off each line, and waives a diagnostic or
+after hours fee, exactly as the server will. The phone offers no discount of
+its own and never shows a cost or a margin.
+
+**The figure is the server's figure.** The phone's arithmetic is one file,
+`packages/core/src/field/pricing.ts`, which imports nothing so the phone can
+bundle it, and a test in core holds every line and every total it gives to
+the server's estimate, invoice and member pricing over thousands of random
+documents. So the total a customer signs for on the phone is the total the
+server writes.
+
+**The customer's screen.** The options in the order a proposal uses
+(recommended first, then the dearest), each line at its price with the
+member's saving said, the extras to tick and the total for what is ticked,
+the terms, and a box to sign in with their name. Choosing and signing puts
+the drawn signature into the queue first (the hash checked upload path, as a
+photograph), then `estimate.approve` naming it and the total the customer was
+shown. The server works the option out again with what they ticked and
+records the approval only when the two agree to the cent, through
+`estimates.decide`, the same approval the customer's own link makes,
+recorded as given in person and signed at the moment they signed. A
+different figure is refused and said ("The customer was shown $1,500.00, and
+this option with what they ticked comes to $1,620.00 ...").
+
+**Who may carry a customer's yes.** `estimate:present`, which the technician
+preset holds: the technician on the visit, with the customer's own name and
+drawn signature. It is not `estimate:approve`, which records a yes on the
+customer's behalf and which a technician does not hold.
+
+**The invoice on site.** `invoice:raise_on_site`, which the technician preset
+holds, raises and issues one invoice for the technician's own visit, and is
+not `invoice:write`. It bills one of two things, never both, because an
+option is usually a flat price that covers the parts used to do it: the
+option the customer signed for, copied as signed by the estimate's own
+conversion, or the parts and charges recorded on the job (a part recorded on
+the phone carries an id the phone made, so it can be billed before there is a
+signal), priced by the same `billing.createIn` as an invoice the office
+raises. The phone sends the total the customer saw. When the server's total
+agrees, the invoice is issued and the customer's signature recorded against
+a hash of it; when it does not (a price changed, a warranty the phone could
+not see), the invoice is kept as a DRAFT for the office, never issued at a
+figure the customer did not sign for, and the operation is recorded as a
+conflict the office sees and the phone says in the office's words.
+
+**Taking the money, and a tip.** Cash or a check against the invoice raised
+there, through `payment.collect` as before, now with a tip on top when the
+company takes tips (the setting on `/settings/portal`, the same one the
+portal's pay button reads): the tip is held in Tips payable and split evenly
+between everybody on the job's visits, the way a tip on the portal is, with
+the same suggestions and the same refusals. A card goes through the
+invoice's own link, where the customer can add a tip. With a lender
+connected (M13), `POST /v1/visits/{id}/financing-link` opens the lender's
+application for what is owing and texts it or hands it over; like the card
+link it needs a signal.
+
+**A cash tip kept.** A customer hands the technician a twenty for
+themselves. It never reaches the company, so nothing is booked; `tip.record`
+puts it on the technician's own pay statement as `cash_tip`, already in their
+hand (M17). Always the phone's own person.
+
+**The office's tasks.** The snapshot carries the person's own tasks and the
+ones nobody has taken, and the phone takes one (`task.claim`) and finishes
+its own (`task.close`) through the queue's own services, so the second of two
+people taking the same task offline is told somebody else has it. A task with
+a checklist is finished on its own page, where the items are.
+
+**What the person may do.** The snapshot's `abilities` says, from the
+person's permissions and the company's settings, whether they may build
+estimates, take a customer's signature, raise invoices and take tasks,
+whether the company takes tips and with which suggestions, whether a lender
+is connected and whether the field assistant (M27) is on, so the phone
+offers only what the server would accept.
 
 ### Inspections
 
@@ -381,7 +477,7 @@ wrote is a different decision from writing it.
 
 | Role | Access |
 |---|---|
-| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`) |
+| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`) |
 | Crew lead | The same, scoped to the crew |
 | Dispatcher | Reads and resolves conflicts |
 | Office manager | Reads service reports and publishes them |
@@ -441,9 +537,20 @@ yes or no, a choice, and a chemical application; a photo or signature field on
 a template is taken with the camera and the signature pad instead. A report
 cannot be changed on the phone after it is sent.
 
-The phone records cash and checks and fetches a card link; it does not take a
-tip, and the technician cannot raise an invoice, so a card link needs the
-office to have issued one.
+Selling on site is on the phone and on `/my-day`, and the phone app has, like
+everything else in it, not been run on a device: the estimate builder, the
+customer's screen, the signature pad, the invoice and the tip are typechecked
+and their logic unit tested, and the same flow is driven end to end in a
+browser on `/my-day`. On the phone an estimate has at most three options
+(the server takes five) and no discount the technician types; a line not in
+the price book is typed with its price. An invoice raised on site bills the
+option signed for or the work recorded, never both; recorded parts left off
+stay unbilled for the office. Invoices carry no sales tax yet (BUILD.md), so
+neither does the phone's. A signature for an invoice the customer was not
+there for can be skipped, and the invoice is raised unsigned. A task with a
+checklist is finished on its own page in a browser, not on the phone. The
+lender's link and the field assistant need a signal; nothing about them is
+queued.
 
 Object storage: the bytes are columns in Postgres, which is right
 for a self hoster with a few gigabytes of photographs and wrong for a company

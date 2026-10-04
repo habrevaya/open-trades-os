@@ -70,3 +70,18 @@ async function hashOf(bytes: Uint8Array): Promise<string> {
   }
   return sha256Hex(bytes);
 }
+
+/**
+ * A signature drawn on the page, from the canvas's PNG data URL, hashed the
+ * same way as a photograph so it travels the same hash checked path. Not
+ * made smaller: a signature is a few kilobytes, and re-encoding it as a JPEG
+ * would put grey fringes round the ink.
+ */
+export async function prepareSignature(dataUrl: string): Promise<PreparedPhoto> {
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) throw new Error("Not a PNG signature.");
+  const binary = atob(match[1]!);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return { base64: match[1]!, contentType: "image/png", byteSize: bytes.length, contentHash: await hashOf(bytes) };
+}

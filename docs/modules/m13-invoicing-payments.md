@@ -93,7 +93,7 @@ refund id.
 
 **A tip is the technicians' money, held, never the company's revenue.** A
 customer paying from the portal can add one when the company has turned
-tipping on. The card is charged the balance and the tip together; when the
+tipping on, and so can one paying cash or a check to the technician on site. The card is charged the balance and the tip together; when the
 money arrives the payment's amount is the balance, which goes on the invoice,
 and its tip amount is credited to Tips payable (2250), a liability, by the
 same `postPayment` that has always had a tip leg. Nothing of it touches
@@ -141,6 +141,21 @@ company takes them (`POST /v1/portal/invoice/pay` and
 `POST /v1/portal/cards/{cardId}/pay`. The invoice screen lists the tips that
 came with its payments and who each is for, under **Tips**, and
 `GET /v1/invoices/{id}/tips` is the same list. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
+
+### On site
+
+The technician on a visit raises the invoice for its work on the phone or on
+`/my-day` (`invoice:raise_on_site`, which the technician preset holds, and
+which raises and issues one invoice for their own visit and nothing else),
+from the option the customer signed for, copied as signed, or from the parts
+and charges recorded, priced by the same rules as an invoice raised here.
+The customer signs for it on the screen. A total that disagrees with what
+the customer was shown is kept as a draft for the office rather than issued.
+Cash and checks are taken against it with a tip on top when the company
+takes tips, split between everybody on the job as a portal tip is; a card
+through its link, and financing through the lender's application,
+`POST /v1/visits/{id}/financing-link`, texted or handed over. M11 has the
+whole of it.
 
 ### Give money back
 
@@ -276,7 +291,7 @@ customers see a link.
 | Owner, administrator | Everything |
 | Office manager | Raises, issues, sends, voids, credits, takes payments and deposits |
 | Dispatcher, CSR | Neither |
-| Technician | Reads an invoice and takes a payment on site. Does not raise one |
+| Technician | Reads an invoice, takes a payment on site, and raises and issues the invoice for their own visit's work (`invoice:raise_on_site`). Does not write, edit or issue invoices otherwise |
 | Accountant | Everything on this module, including refunds, credits and write offs |
 
 Five separate permissions on one document, deliberately: `invoice:write`,
@@ -314,6 +329,7 @@ different people doing those. The office manager and finance roles hold
 | `GET /v1/invoices/{invoiceId}/financing` | `invoice:read` |
 | `GET /v1/financing/applications` | `payment:read` |
 | `POST /v1/financing/applications` | `payment:collect` |
+| `POST /v1/visits/{id}/financing-link` | `payment:collect`, and the technician on the visit or `invoice:send` |
 | `POST /v1/financing/applications/{id}/refresh` | `payment:collect` |
 | `GET /v1/financing/report` | `report.financial:read` |
 | `GET /v1/deposits` | `deposit:read` |
@@ -352,7 +368,7 @@ invoice, or a refund is recorded against a payment. A credit note that has been 
 cannot be voided; the invoice it settled has to be dealt with on its own.
 A statement is emailed as a link with a PDF attached, and it is not sent
 by text. The monthly run covers the calendar month before and nothing else, and it
-emails nothing until an email provider is connected. A tip is taken only from the portal: the office's own card
+emails nothing until an email provider is connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books

@@ -72,6 +72,17 @@ async function savepoint(tx: Database, run: (sp: Database) => Promise<Outcome>):
   }
 }
 
+/**
+ * The context a service is called in for one operation, keyed by the
+ * operation rather than by the request that carried it. The office's
+ * services record their idempotency key as they write; a sync request's own
+ * key would be recorded once for the first estimate or invoice in the batch
+ * and then collide with the second, so each operation brings its own, made
+ * from its client id, which is already what makes it apply once.
+ */
+const keyed = (ctx: ServiceContext, op: field.FieldOperation, purpose: string, db?: Database): ServiceContext =>
+  ({ ...ctx, ...(db ? { db } : {}), idempotencyKey: `field-${purpose}:${op.clientId}` });
+
 const text = (value: unknown, max: number): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, max) : null;
 
@@ -178,7 +189,7 @@ export async function createEstimate_(tx: Database, ctx: ServiceContext, op: fie
   if (!parsed.success) return "Some of that estimate could not be read. Build it again.";
 
   return savepoint(tx, async (sp) => {
-    await estimates.createIn(sp, { ...ctx, db: sp }, parsed.data, {
+    await estimates.createIn(sp, keyed(ctx, op, "estimate", sp), parsed.data, {
       estimateId, optionIds, lineIds, versionIds, pricedAt: op.occurredAt,
     });
     return null;
@@ -241,7 +252,7 @@ export async function approveEstimate(tx: Database, ctx: ServiceContext, op: fie
         + `${m.format(would)}, so it was not recorded as approved. Show it to them again and have them sign again.`;
     }
 
-    await estimates.decide(sp, ctx, {
+    await estimates.decide(sp, keyed(ctx, op, "approval", sp), {
       estimateId,
       optionId,
       selectedLineIds: selected,
@@ -279,7 +290,7 @@ export async function declineEstimate(tx: Database, ctx: ServiceContext, op: fie
     const current = await estimates.loadEstimate(sp, ctx, estimateId);
     if (current.customerId !== visit.customerId) return "That estimate is for another customer.";
     const reason = text(op.payload["reason"], 1000);
-    await estimates.decline({ ...ctx, db: sp }, { id: estimateId, ...(reason ? { reason } : {}) });
+    await estimates.decline(keyed(ctx, op, "decline", sp), { id: estimateId, ...(reason ? { reason } : {}) });
     return null;
   });
 }
@@ -367,7 +378,7 @@ async function fromEstimate(
       await sp.update(schema.estimate).set({ jobId: visit.jobId, updatedAt: new Date() })
         .where(eq(schema.estimate.id, estimate.id));
     }
-    await estimates.convertIn(sp, ctx, { id: estimate.id, createJob: false, createInvoice: true }, { invoiceId });
+    await estimates.convertIn(sp, keyed(ctx, op, "invoice", sp), { id: estimate.id, createJob: false, createInvoice: true }, { invoiceId });
     const [draft] = await sp.select({ total: schema.invoice.total }).from(schema.invoice)
       .where(eq(schema.invoice.id, invoiceId)).limit(1);
     const total = m.money(draft!.total);
@@ -377,7 +388,7 @@ async function fromEstimate(
           + `${m.format(total)}, so the invoice was kept as a draft for the office to check before it is sent.`,
       };
     }
-    await billing.issueIn(sp, ctx, { id: invoiceId });
+    await billing.issueIn(sp, keyed(ctx, op, "invoice", sp), { id: invoiceId });
     return null;
   });
 }
@@ -421,7 +432,7 @@ async function fromWork(
   if (!parsed.success) return "Some of that work could not be read, so the invoice was not raised.";
 
   const issued = await savepoint(tx, async (sp) => {
-    await billing.createIn(sp, ctx, parsed.data, { id: invoiceId });
+    await billing.createIn(sp, keyed(ctx, op, "invoice", sp), parsed.data, { id: invoiceId });
     return null;
   });
   if (issued === null) return null;
@@ -435,7 +446,7 @@ async function fromWork(
   if (!differs) return issued;
   const draft = createInvoice.input.parse({ ...base, draft: true });
   const kept = await savepoint(tx, async (sp) => {
-    await billing.createIn(sp, ctx, draft, { id: invoiceId });
+    await billing.createIn(sp, keyed(ctx, op, "invoice", sp), draft, { id: invoiceId });
     return null;
   });
   if (kept !== null) return kept;
@@ -568,7 +579,7 @@ export async function taskOperation(tx: Database, ctx: ServiceContext, op: field
   const taskId = uuid(op.subjectId);
   if (!taskId) return "That names no task.";
   return savepoint(tx, async (sp) => {
-    const scoped = { ...ctx, db: sp };
+    const scoped = keyed(ctx, op, "task", sp);
     if (op.kind === "task.claim") {
       await tasks.claim(scoped, { id: taskId });
       return null;
