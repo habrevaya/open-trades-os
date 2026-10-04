@@ -268,6 +268,11 @@ export const equipment = pgTable("equipment", {
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   active: boolean("active").notNull().default(true),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   propIdx: index("equipment_property_idx").on(t.propertyId),

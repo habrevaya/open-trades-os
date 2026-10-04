@@ -41,6 +41,8 @@ export * as repricing from "./repricing/index.js";
 export * as taskRules from "./tasks/index.js";
 export * as webhooks from "./webhooks/index.js";
 export * as customFields from "./custom-fields/index.js";
+export * as customObjects from "./custom-objects/index.js";
+export * as sandbox from "./sandbox/index.js";
 export * as setup from "./setup/index.js";
 export * as voice from "./voice/index.js";
 export * as tracking from "./tracking/index.js";

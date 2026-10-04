@@ -1,5 +1,6 @@
 import { Flow, INK, MUTED, RULE, LOSS, longDate, usd, quantity, type Column } from "./layout.js";
 import { hex, fit, type RenderOptions, type Rgb } from "./writer.js";
+import type { PdfImage } from "./image.js";
 import {
   barLayout, seriesLayout, labelEvery, type ChartPlan, type ChartColumn, type ChartRow,
 } from "../reporting/chart.js";
@@ -157,9 +158,28 @@ export interface ProposalPdfInput {
       name: string; description: string | null; quantity: string; unitPrice: string; lineTotal: string;
       memberDiscountAmount: string; memberPlan: string | null; isOptional: boolean; isSelected: boolean;
     }>;
+    /** The option's photographs, already read; null for one this cannot print. */
+    photos?: Array<PdfImage | null> | undefined;
   }>;
+  /**
+   * The company's layout, when the estimate has one: a cover and the sections
+   * in their order. Absent is the fixed layout, the options then the terms.
+   * A section's words are what it says; the options and the terms draw the
+   * estimate's own.
+   */
+  layout?: {
+    cover: { headline: string; intro: string | null; photo: PdfImage | null; photoUnprintable: boolean } | null;
+    sections: Array<{
+      kind: string;
+      title: string;
+      body: string | null;
+      reviews?: Array<{ author: string | null; rating: number | null; body: string | null }> | undefined;
+    }>;
+  } | undefined;
   generatedAt: Date;
 }
+
+const UNPRINTABLE = "A photograph is shown here on the proposal's screen copy; it is not a kind this file can print.";
 
 export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}): Uint8Array {
   const flow = new Flow({
@@ -170,8 +190,25 @@ export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}
       .filter(Boolean).join(", ") || undefined,
   });
 
+  /**
+   * A cover is its own page: the headline, the photograph and a sentence,
+   * and who it is for, before anything about money.
+   */
+  const cover = input.layout?.cover ?? null;
+  if (cover) {
+    flow.gap(30);
+    flow.paragraph(cover.headline, { font: "bold", size: 20 });
+    flow.gap(12);
+    if (cover.photo) flow.image(cover.photo, { maxHeight: 360 });
+    else if (cover.photoUnprintable) flow.paragraph(UNPRINTABLE, { size: 9, color: MUTED });
+    if (cover.intro) { flow.gap(8); flow.paragraph(cover.intro, { size: 11 }); }
+    flow.gap(12);
+    flow.facts([["Prepared for", input.customerName], ["Work at", input.propertyAddress]]);
+    flow.newPage();
+  }
+
   if (input.title) { flow.paragraph(input.title, { font: "bold", size: 13 }); flow.gap(4); }
-  flow.facts([["Prepared for", input.customerName], ["Work at", input.propertyAddress]]);
+  if (!cover) flow.facts([["Prepared for", input.customerName], ["Work at", input.propertyAddress]]);
 
   if (input.signerName && input.decidedAt) {
     const chosen = input.options.find((o) => o.id === input.selectedOptionId);
@@ -182,45 +219,77 @@ export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}
     );
   }
 
-  for (const option of input.options) {
-    flow.gap(16);
-    const named = [option.tier, option.name].filter(Boolean).join(": ");
-    flow.heading(`${named}${option.isRecommended ? " (recommended)" : ""}`, 12);
-    if (option.description) flow.paragraph(option.description, { color: MUTED });
-    flow.gap(6);
-    flow.table(
-      [
-        { label: "Item" },
-        { label: "Qty", width: 48, align: "right" },
-        { label: "Price", width: 84, align: "right" },
-        { label: "Amount", width: 90, align: "right" },
-      ],
-      option.lines.map((line) => {
-        const said = [line.name];
-        if (line.description) said.push(line.description);
-        if (Number(line.memberDiscountAmount) > 0) {
-          said.push(`Includes ${usd(line.memberDiscountAmount)} off${line.memberPlan ? ` as a ${line.memberPlan} member` : " as a member"}.`);
-        }
-        if (line.isOptional) said.push(line.isSelected ? "Optional, included." : "Optional, not in the total.");
-        return [said.join("\n"), quantity(line.quantity), usd(line.unitPrice), usd(line.lineTotal)];
-      }),
-    );
-    const discounted = Number(option.discountTotal) !== 0;
-    flow.totals([
-      ["Subtotal", usd(option.subtotal)],
-      ...(discounted ? [["Discount", `-${usd(option.discountTotal)}`] as [string, string]] : []),
-      ["Tax", usd(option.taxTotal)],
-      ["Total", usd(option.total), true],
-    ]);
-    if (Number(option.optionalTotal) > 0) {
-      flow.paragraph(`Optional extras not in the total: ${usd(option.optionalTotal)}.`, { size: 9, color: MUTED });
+  const drawOptions = () => {
+    for (const option of input.options) {
+      flow.gap(16);
+      const named = [option.tier, option.name].filter(Boolean).join(": ");
+      flow.heading(`${named}${option.isRecommended ? " (recommended)" : ""}`, 12);
+      if (option.description) flow.paragraph(option.description, { color: MUTED });
+      for (const photo of option.photos ?? []) {
+        flow.gap(6);
+        if (photo) flow.image(photo, { maxHeight: 200 });
+        else flow.paragraph(UNPRINTABLE, { size: 9, color: MUTED });
+      }
+      flow.gap(6);
+      flow.table(
+        [
+          { label: "Item" },
+          { label: "Qty", width: 48, align: "right" },
+          { label: "Price", width: 84, align: "right" },
+          { label: "Amount", width: 90, align: "right" },
+        ],
+        option.lines.map((line) => {
+          const said = [line.name];
+          if (line.description) said.push(line.description);
+          if (Number(line.memberDiscountAmount) > 0) {
+            said.push(`Includes ${usd(line.memberDiscountAmount)} off${line.memberPlan ? ` as a ${line.memberPlan} member` : " as a member"}.`);
+          }
+          if (line.isOptional) said.push(line.isSelected ? "Optional, included." : "Optional, not in the total.");
+          return [said.join("\n"), quantity(line.quantity), usd(line.unitPrice), usd(line.lineTotal)];
+        }),
+      );
+      const discounted = Number(option.discountTotal) !== 0;
+      flow.totals([
+        ["Subtotal", usd(option.subtotal)],
+        ...(discounted ? [["Discount", `-${usd(option.discountTotal)}`] as [string, string]] : []),
+        ["Tax", usd(option.taxTotal)],
+        ["Total", usd(option.total), true],
+      ]);
+      if (Number(option.optionalTotal) > 0) {
+        flow.paragraph(`Optional extras not in the total: ${usd(option.optionalTotal)}.`, { size: 9, color: MUTED });
+      }
     }
-  }
+  };
 
-  if (input.terms) {
+  const sections = input.layout?.sections
+    ?? [{ kind: "options", title: "Your options", body: null }, { kind: "terms", title: "Terms", body: null }];
+  for (const section of sections) {
+    if (section.kind === "options") { drawOptions(); continue; }
+    if (section.kind === "terms") {
+      if (!input.terms) continue;
+      flow.gap(16);
+      flow.heading(section.title, 11);
+      flow.paragraph(input.terms, { size: 9 });
+      continue;
+    }
+    if (section.kind === "reviews") {
+      const reviews = section.reviews ?? [];
+      if (reviews.length === 0 && !section.body) continue;
+      flow.gap(16);
+      flow.heading(section.title, 12);
+      if (section.body) flow.paragraph(section.body);
+      for (const review of reviews) {
+        flow.gap(6);
+        const stars = review.rating ? `${review.rating} out of 5` : null;
+        flow.paragraph([stars, review.author].filter(Boolean).join(", "), { font: "bold", size: 9 });
+        if (review.body) flow.paragraph(review.body, { size: 9, color: MUTED });
+      }
+      continue;
+    }
+    if (!section.body) continue;
     flow.gap(16);
-    flow.heading("Terms", 11);
-    flow.paragraph(input.terms, { size: 9 });
+    flow.heading(section.title, 12);
+    flow.paragraph(section.body);
   }
 
   return flow.finish({
