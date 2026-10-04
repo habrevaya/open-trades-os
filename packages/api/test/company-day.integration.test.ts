@@ -3,6 +3,7 @@ import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as reports from "../src/services/reports";
 import * as entitlements from "../src/services/entitlements";
+import * as billing from "../src/services/billing";
 import type { ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
@@ -139,6 +140,14 @@ run("the report builder in the company's calendar", () => {
     } finally {
       await raw`delete from public.invoice where id = ${row!.id}`;
     }
+  });
+});
+
+run("today, as the company counts it", () => {
+  it("ages receivables as of the company's today when no date is given", async () => {
+    /** From seven in the evening in Austin, UTC's date is tomorrow; the report is as of today there. */
+    const aging = await billing.arAging(owner(), {});
+    expect(aging.asOf).toBe(companyToday());
   });
 });
 
