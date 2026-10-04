@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { billing, creditNotes, creditPayouts, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, money } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
@@ -33,6 +33,16 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
     throw error;
   });
   const tz = user.organizationTimezone;
+  /**
+   * Settled and still with the processor, apart. The note counts both against
+   * what is left to use, but only the settled amount has reached the customer,
+   * so the page does not say "paid back" for money still on its way.
+   */
+  const payoutTotal = (status: string) => money.toString(money.sum(
+    note.payouts.filter((p) => p.status === status).map((p) => money.money(p.amount)),
+  ));
+  const paidBack = payoutTotal("paid");
+  const onItsWay = payoutTotal("pending");
   const credits = can(user.actor, "invoice:credit");
   const usable = note.status === "open" || note.status === "partially_applied";
   /** Invoices this customer still owes on: the only ones a credit can go against. */
@@ -70,7 +80,8 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
         <Fact label="Issued">{note.issuedOn ? formatDay(note.issuedOn, tz) : null}</Fact>
         <Fact label="Credit"><Money value={note.total} /></Fact>
         <Fact label="Used">{Number(note.amountApplied) === 0 ? null : <Money value={note.amountApplied} />}</Fact>
-        <Fact label="Paid back">{Number(note.amountPaidOut) === 0 ? null : <Money value={note.amountPaidOut} />}</Fact>
+        <Fact label="Paid back">{Number(paidBack) === 0 ? null : <Money value={paidBack} />}</Fact>
+        <Fact label="On its way back">{Number(onItsWay) === 0 ? null : <Money value={onItsWay} />}</Fact>
         <Fact label="Not yet used">{usable ? <Money value={note.balance} /> : null}</Fact>
       </Facts>
 
@@ -123,6 +134,12 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
       {note.payouts.length > 0 && (
         <section aria-label="Paid back">
           <h2 className="mt-10 text-base font-semibold">Paid back</h2>
+          {Number(onItsWay) !== 0 && (
+            <p role="status" className="mt-2 text-sm text-ink-700">
+              The card processor has been asked to refund <Money value={onItsWay} />. It shows as paid back once the
+              processor says the money moved, and comes back to this credit if the refund does not go through.
+            </p>
+          )}
           <Table label="Paid back" head={<><Th>How</Th><Th>When</Th><Th>State</Th><Th className="text-right">Amount</Th></>}>
             {note.payouts.map((p) => (
               <tr key={p.id}>

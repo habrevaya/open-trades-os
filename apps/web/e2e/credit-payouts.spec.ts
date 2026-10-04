@@ -79,7 +79,8 @@ test("a credit on a paid card invoice is paid back to the card, and reads as pai
     await expect(owner.getByLabel("Amount")).toHaveValue("40.00");
     await expect(owner.getByLabel("Card payment it goes back through")).toContainText("up to $240.00 back");
     await owner.getByRole("button", { name: "Pay it back" }).click();
-    await expect(owner.getByRole("status").filter({ hasText: "Asked the card processor" })).toBeVisible();
+    // The credit is all set aside now, so the form goes and the page says where the money is.
+    await expect(owner.getByRole("status").filter({ hasText: "The card processor has been asked to refund" })).toBeVisible();
 
     // The processor was asked for exactly the credit, against the card payment.
     expect(stripe.refunds).toHaveLength(1);
@@ -89,6 +90,9 @@ test("a credit on a paid card invoice is paid back to the card, and reads as pai
     await owner.reload();
     const paidBack = owner.getByRole("table", { name: "Paid back" });
     await expect(paidBack.getByRole("row").filter({ hasText: "Back to their card" })).toContainText("With the card processor");
+    // On its way, not yet paid back: the processor has not said the money moved.
+    await expect(owner.locator('dt:text-is("On its way back") + dd').first()).toHaveText("$40.00");
+    await expect(owner.locator('dt:text-is("Paid back")')).toHaveCount(0);
     // Set aside: nothing is left to use while it is on its way.
     await expect(owner.getByText("Used", { exact: true }).first()).toBeVisible();
 
@@ -103,6 +107,8 @@ test("a credit on a paid card invoice is paid back to the card, and reads as pai
     await owner.goto(creditNoteUrl);
     await expect(paidBack.getByRole("row").filter({ hasText: "Back to their card" })).toContainText("Paid back");
     await expect(owner.locator('dt:text-is("Paid back") + dd').first()).toHaveText("$40.00");
+    await expect(owner.locator('dt:text-is("On its way back")')).toHaveCount(0);
+    await expect(owner.getByRole("status").filter({ hasText: "The card processor has been asked" })).toHaveCount(0);
 
     // The invoice the card paid is still paid; nothing was reopened.
     await owner.goto(`/invoices/${invoice.id}`);

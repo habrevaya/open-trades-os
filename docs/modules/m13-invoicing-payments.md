@@ -193,7 +193,8 @@ them with what each still has to refund): the credit is set aside at once, so
 it cannot also be used on an invoice, and it is posted only when the
 processor's webhook says the refund moved, like any card refund; a refund the
 processor declines keeps nothing, and one it reports failed puts the credit
-back on the account. Cash, a cheque or another way is recorded as handed
+back on the account. Until then the credit note's page shows it as on its way
+back, not paid back. Cash, a cheque or another way is recorded as handed
 over and posted on the day given. Either way the posting takes the credit out
 of customer deposits against cash and touches no invoice: the card payment
 records the money as refunded and as paid out, and still says it paid what it

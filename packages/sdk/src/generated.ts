@@ -376,6 +376,23 @@ export interface AnswerNumberHereOutput {
   menuId: string | null;
 }
 
+export interface ApplyContractEscalationInput {
+  anniversary: string;
+  rate: string;
+}
+
+export interface ApplyContractEscalationOutput {
+  contractId: string;
+  anniversary: string;
+  rate: string;
+  cards: Array<{
+    fromRateCardId: string;
+    rateCardId: string;
+    name: string;
+    effectiveFrom: string;
+  }>;
+}
+
 export interface ApplyCreditNoteInput {
   applications: Array<{
     invoiceId: string;
@@ -399,6 +416,7 @@ export interface ApplyCreditNoteOutput {
   taxTotal: string;
   total: string;
   amountApplied: string;
+  amountPaidOut: string;
   balance: string;
   voidedAt: string | null;
   lines: Array<{
@@ -419,6 +437,18 @@ export interface ApplyCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+  }>;
+  payouts: Array<{
+    id: string;
+    method: "card" | "cash" | "check" | "other";
+    status: "pending" | "paid" | "failed";
+    amount: string;
+    paymentId: string | null;
+    reference: string | null;
+    paidOn: string | null;
+    note: string | null;
+    failureReason: string | null;
+    createdAt: string;
   }>;
   createdAt: string;
   updatedAt: string;
@@ -522,6 +552,7 @@ export interface ApplyPaymentOutput {
   tipAmount: string;
   surchargeAmount: string;
   refundedAmount: string;
+  paidOutAmount: string;
   processor: string;
   processorPaymentId: string | null;
   receivedAt: string;
@@ -548,6 +579,7 @@ export interface ApplyPriceChangeInput {
   mode: "percent" | "amount" | "margin" | "round";
   value?: string;
   ending?: string;
+  effectiveOn?: string;
 }
 
 export interface ApplyPriceChangeOutput {
@@ -1103,6 +1135,7 @@ export interface BackfillCallTrackingOutput {
 
 export interface BillJobInput {
   draft?: boolean;
+  taxRate?: string;
 }
 
 export interface BillJobOutput {
@@ -1119,6 +1152,7 @@ export interface BillJobOutput {
   pricedTotal: string;
   invoicedTotal: string;
   absorbed: string;
+  taxTotal: string;
 }
 
 export interface BookAgreementVisitInput {
@@ -2179,6 +2213,7 @@ export interface CreateCreditNoteOutput {
   taxTotal: string;
   total: string;
   amountApplied: string;
+  amountPaidOut: string;
   balance: string;
   voidedAt: string | null;
   lines: Array<{
@@ -2199,6 +2234,18 @@ export interface CreateCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+  }>;
+  payouts: Array<{
+    id: string;
+    method: "card" | "cash" | "check" | "other";
+    status: "pending" | "paid" | "failed";
+    amount: string;
+    paymentId: string | null;
+    reference: string | null;
+    paidOn: string | null;
+    note: string | null;
+    failureReason: string | null;
+    createdAt: string;
   }>;
   createdAt: string;
   updatedAt: string;
@@ -3077,6 +3124,10 @@ export interface CreatePriceBookItemOutput {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  components: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
   active: boolean;
   cost?: string | null;
   margin?: string | null;
@@ -3110,6 +3161,8 @@ export interface CreateProjectApplicationOutput {
   notes: string | null;
   invoiceId: string | null;
   invoicedAt: string | null;
+  retainageBooking: "receivable" | "net";
+  retainageBooked: string | null;
   lines: Array<{
     id: string;
     key: string;
@@ -4629,8 +4682,10 @@ export interface EmailCustomerStatementInput {
 export interface EmailCustomerStatementOutput {
   deliveryId: string;
   customerId: string;
+  channel: "email" | "sms";
   destination: string | null;
   state: "queued" | "refused";
+  note: string | null;
   explanation: string | null;
   portalUrl: string;
 }
@@ -5451,6 +5506,7 @@ export interface GetCreditNoteOutput {
   taxTotal: string;
   total: string;
   amountApplied: string;
+  amountPaidOut: string;
   balance: string;
   voidedAt: string | null;
   lines: Array<{
@@ -5471,6 +5527,18 @@ export interface GetCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+  }>;
+  payouts: Array<{
+    id: string;
+    method: "card" | "cash" | "check" | "other";
+    status: "pending" | "paid" | "failed";
+    amount: string;
+    paymentId: string | null;
+    reference: string | null;
+    paidOn: string | null;
+    note: string | null;
+    failureReason: string | null;
+    createdAt: string;
   }>;
   createdAt: string;
   updatedAt: string;
@@ -5718,7 +5786,7 @@ export interface GetCustomerStatementOutput {
   heldOnAccount: string;
   lines: Array<{
     date: string;
-    kind: "invoice" | "payment" | "refund" | "void" | "write_off" | "credit_note" | "credit_note_void" | "deposit" | "deposit_refund" | "deposit_kept" | "agreement";
+    kind: "invoice" | "payment" | "refund" | "void" | "write_off" | "credit_note" | "credit_note_void" | "deposit" | "deposit_refund" | "deposit_kept" | "agreement" | "credit_payout";
     description: string;
     invoiceId: string | null;
     amount: string;
@@ -7743,6 +7811,10 @@ export interface GetPriceBookItemOutput {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  components: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
   active: boolean;
   cost?: string | null;
   margin?: string | null;
@@ -7773,6 +7845,7 @@ export interface GetPriceChangeOutput {
   appliedAt: string;
   reversesId: string | null;
   reversedById: string | null;
+  effectiveFrom: string | null;
   skipped: Array<{
     itemId: string;
     code: string;
@@ -7813,6 +7886,8 @@ export interface GetProjectApplicationOutput {
   notes: string | null;
   invoiceId: string | null;
   invoicedAt: string | null;
+  retainageBooking: "receivable" | "net";
+  retainageBooked: string | null;
   lines: Array<{
     id: string;
     key: string;
@@ -8597,6 +8672,7 @@ export interface GetStatementScheduleOutput {
   dayOfMonth: number;
   time: string;
   minimumBalance: string;
+  textWhenPreferred: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastError: string | null;
@@ -9152,6 +9228,7 @@ export interface IssueCreditNoteOutput {
   taxTotal: string;
   total: string;
   amountApplied: string;
+  amountPaidOut: string;
   balance: string;
   voidedAt: string | null;
   lines: Array<{
@@ -9172,6 +9249,18 @@ export interface IssueCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+  }>;
+  payouts: Array<{
+    id: string;
+    method: "card" | "cash" | "check" | "other";
+    status: "pending" | "paid" | "failed";
+    amount: string;
+    paymentId: string | null;
+    reference: string | null;
+    paidOn: string | null;
+    note: string | null;
+    failureReason: string | null;
+    createdAt: string;
   }>;
   createdAt: string;
   updatedAt: string;
@@ -9362,7 +9451,7 @@ export interface ListAccountingPeriodsOutput {
 export interface ListAccountingProblemsOutput {
   problems: Array<{
     id: string;
-    kind: "customer" | "invoice" | "payment" | "credit_memo" | "refund" | "credit_note" | "credit_note_application" | "credit_note_void";
+    kind: "customer" | "invoice" | "payment" | "credit_memo" | "refund" | "credit_note" | "credit_note_application" | "credit_note_void" | "credit_note_refund" | "journal";
     entityId: string;
     idempotencyKey: string;
     attempts: number;
@@ -10275,6 +10364,7 @@ export interface ListCreditNotesOutput {
     taxTotal: string;
     total: string;
     amountApplied: string;
+    amountPaidOut: string;
     balance: string;
     voidedAt: string | null;
     lines: Array<{
@@ -10295,6 +10385,18 @@ export interface ListCreditNotesOutput {
       invoiceNumber: number;
       amount: string;
       appliedOn: string | null;
+    }>;
+    payouts: Array<{
+      id: string;
+      method: "card" | "cash" | "check" | "other";
+      status: "pending" | "paid" | "failed";
+      amount: string;
+      paymentId: string | null;
+      reference: string | null;
+      paidOn: string | null;
+      note: string | null;
+      failureReason: string | null;
+      createdAt: string;
     }>;
     createdAt: string;
     updatedAt: string;
@@ -11569,6 +11671,7 @@ export interface ListPaymentsOutput {
     tipAmount: string;
     surchargeAmount: string;
     refundedAmount: string;
+    paidOutAmount: string;
     processor: string;
     processorPaymentId: string | null;
     receivedAt: string;
@@ -11855,6 +11958,10 @@ export interface ListPriceBookOutput {
     taxClass: string | null;
     laborMinutes: number | null;
     warrantyMonths: number | null;
+    components: Array<{
+      itemId: string;
+      quantity: number;
+    }>;
     active: boolean;
     cost?: string | null;
     margin?: string | null;
@@ -11880,6 +11987,7 @@ export interface ListPriceChangesOutput {
     appliedAt: string;
     reversesId: string | null;
     reversedById: string | null;
+    effectiveFrom: string | null;
   }>;
 }
 
@@ -12542,10 +12650,12 @@ export interface ListStatementDeliveriesOutput {
     period: string | null;
     periodFrom: string;
     periodTo: string;
+    channel: "email" | "sms";
     destination: string | null;
     closingBalance: string | null;
     messageStatus: string | null;
     error: string | null;
+    note: string | null;
     createdAt: string;
   }>;
 }
@@ -13624,6 +13734,69 @@ export interface PayCommissionsOutput {
   }>;
 }
 
+export interface PayOutCreditNoteInput {
+  method: "card" | "cash" | "check" | "other";
+  amount?: string;
+  paymentId?: string;
+  reference?: string;
+  paidOn?: string;
+  note?: string;
+}
+
+export interface PayOutCreditNoteOutput {
+  id: string;
+  number: number;
+  status: "draft" | "open" | "partially_applied" | "applied" | "void";
+  customerId: string;
+  customerName: string;
+  invoiceId: string | null;
+  invoiceNumber: number | null;
+  reason: "billing_error" | "price_adjustment" | "goodwill" | "work_not_done" | "duplicate_invoice" | "contract_adjustment";
+  note: string | null;
+  issuedOn: string | null;
+  currency: string;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  amountApplied: string;
+  amountPaidOut: string;
+  balance: string;
+  voidedAt: string | null;
+  lines: Array<{
+    id: string;
+    invoiceLineId: string | null;
+    name: string;
+    description: string | null;
+    quantity: string;
+    unitPrice: string;
+    taxable: boolean;
+    taxRate: string;
+    taxAmount: string;
+    lineTotal: string;
+  }>;
+  applications: Array<{
+    id: string;
+    invoiceId: string;
+    invoiceNumber: number;
+    amount: string;
+    appliedOn: string | null;
+  }>;
+  payouts: Array<{
+    id: string;
+    method: "card" | "cash" | "check" | "other";
+    status: "pending" | "paid" | "failed";
+    amount: string;
+    paymentId: string | null;
+    reference: string | null;
+    paidOn: string | null;
+    note: string | null;
+    failureReason: string | null;
+    createdAt: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PayPortalAccountInvoiceInput {
   token: string;
   invoiceId: string;
@@ -13862,6 +14035,40 @@ export interface PreviewCampaignOutput {
   }>;
 }
 
+export interface PreviewContractEscalationOutput {
+  contractId: string;
+  rate: string | null;
+  anniversary: string | null;
+  contractYear: number | null;
+  daysAway: number | null;
+  ready: boolean;
+  problem: string | null;
+  escalatedThrough: string | null;
+  cards: Array<{
+    rateCardId: string;
+    name: string;
+    effectiveFrom: string | null;
+    effectiveTo: string | null;
+    lines: Array<{
+      before: string;
+      after: string;
+      id: string;
+      description: string;
+    }>;
+    labourRates: Array<{
+      before: string;
+      after: string;
+      id: string;
+      band: string;
+      jobTypeName: string | null;
+    }>;
+    tripCharge: {
+      before: string;
+      after: string;
+    } | null;
+  }>;
+}
+
 export interface PreviewJobBillingOutput {
   jobId: string;
   jobNumber: number;
@@ -13888,16 +14095,21 @@ export interface PreviewJobBillingOutput {
     rateCardLineId: string | null;
     outOfScope: boolean;
     taxable: boolean;
+    taxRate: string;
   }>;
   payers: Array<{
     customerId: string;
     name: string;
     role: "third_party" | "customer" | "share";
     total: string;
+    taxTotal: string;
+    totalWithTax: string;
+    taxExempt: boolean;
     lines: Array<{
       key: string;
       amount: string;
       whole: boolean;
+      tax: string;
     }>;
     ceiling: {
       state: "within" | "over";
@@ -13909,6 +14121,7 @@ export interface PreviewJobBillingOutput {
   invoicedTotal: string;
   absorbed: string;
   reconciles: boolean;
+  taxTotal: string;
   outOfScope: number;
   problems: string[];
   existing: Array<{
@@ -14806,6 +15019,7 @@ export interface RecordRefundOutput {
   tipAmount: string;
   surchargeAmount: string;
   refundedAmount: string;
+  paidOutAmount: string;
   processor: string;
   processorPaymentId: string | null;
   receivedAt: string;
@@ -15029,6 +15243,16 @@ export interface RefundPaymentOutput {
   amount: string;
   status: string;
   settled: false;
+}
+
+export interface RefundableCardPaymentsOutput {
+  payments: Array<{
+    id: string;
+    method: string;
+    amount: string;
+    refundable: string;
+    receivedAt: string;
+  }>;
 }
 
 export interface RefuseAppRequestInput {
@@ -15922,7 +16146,7 @@ export type RetryAccountingDocumentInput = Record<string, unknown>;
 
 export interface RetryAccountingDocumentOutput {
   id: string;
-  kind: "customer" | "invoice" | "payment" | "credit_memo" | "refund" | "credit_note" | "credit_note_application" | "credit_note_void";
+  kind: "customer" | "invoice" | "payment" | "credit_memo" | "refund" | "credit_note" | "credit_note_application" | "credit_note_void" | "credit_note_refund" | "journal";
   attempts: number;
 }
 
@@ -16071,6 +16295,10 @@ export interface RevisePriceBookItemInput {
   taxClass?: string | null;
   laborMinutes?: number;
   warrantyMonths?: number | null;
+  components?: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
   effectiveFrom?: string;
 }
 
@@ -16090,6 +16318,10 @@ export interface RevisePriceBookItemOutput {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  components: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
   active: boolean;
   cost?: string | null;
   margin?: string | null;
@@ -17653,6 +17885,7 @@ export interface SetStatementScheduleInput {
   dayOfMonth?: number;
   time?: string;
   minimumBalance?: string;
+  textWhenPreferred?: boolean;
 }
 
 export interface SetStatementScheduleOutput {
@@ -17660,6 +17893,7 @@ export interface SetStatementScheduleOutput {
   dayOfMonth: number;
   time: string;
   minimumBalance: string;
+  textWhenPreferred: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastError: string | null;
@@ -18315,6 +18549,23 @@ export interface TestLeadMappingOutput {
     value: string | null;
   }>;
   unmapped: string[];
+}
+
+export interface TextCustomerStatementInput {
+  phone?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface TextCustomerStatementOutput {
+  deliveryId: string;
+  customerId: string;
+  channel: "email" | "sms";
+  destination: string | null;
+  state: "queued" | "refused";
+  note: string | null;
+  explanation: string | null;
+  portalUrl: string;
 }
 
 export interface TickTaskChecklistItemInput {
@@ -19499,6 +19750,10 @@ export type UpdatePriceBookItemOutput = {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  components: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
   active: boolean;
   cost?: string | null;
   margin?: string | null;
@@ -19540,6 +19795,8 @@ export interface UpdateProjectApplicationOutput {
   notes: string | null;
   invoiceId: string | null;
   invoicedAt: string | null;
+  retainageBooking: "receivable" | "net";
+  retainageBooked: string | null;
   lines: Array<{
     id: string;
     key: string;
@@ -20553,6 +20810,7 @@ export interface VoidCreditNoteOutput {
   taxTotal: string;
   total: string;
   amountApplied: string;
+  amountPaidOut: string;
   balance: string;
   voidedAt: string | null;
   lines: Array<{
@@ -20573,6 +20831,18 @@ export interface VoidCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+  }>;
+  payouts: Array<{
+    id: string;
+    method: "card" | "cash" | "check" | "other";
+    status: "pending" | "paid" | "failed";
+    amount: string;
+    paymentId: string | null;
+    reference: string | null;
+    paidOn: string | null;
+    note: string | null;
+    failureReason: string | null;
+    createdAt: string;
   }>;
   createdAt: string;
   updatedAt: string;
@@ -20874,6 +21144,10 @@ export interface AnnotateServiceReportParams {
 
 export interface AnswerNumberHereParams {
   id: string;
+}
+
+export interface ApplyContractEscalationParams {
+  contractId: string;
 }
 
 export interface ApplyCreditNoteParams {
@@ -22779,6 +23053,10 @@ export interface OpenPortalLinkInput {
   token: string;
 }
 
+export interface PayOutCreditNoteParams {
+  id: string;
+}
+
 export interface PayPortalInvoiceWithCardParams {
   cardId: string;
 }
@@ -22809,8 +23087,13 @@ export interface PlanVisitUnitsParams {
   visitId: string;
 }
 
+export interface PreviewContractEscalationInput {
+  contractId: string;
+}
+
 export interface PreviewJobBillingInput {
   id: string;
+  taxRate?: string;
 }
 
 export interface PreviewMailCampaignInput {
@@ -22825,6 +23108,7 @@ export interface PreviewPriceChangeInput {
   mode: "percent" | "amount" | "margin" | "round";
   value?: string;
   ending?: string;
+  effectiveOn?: string;
 }
 
 export interface PreviewRecurringScheduleInput {
@@ -22936,6 +23220,10 @@ export interface RefundDepositParams {
 
 export interface RefundPaymentParams {
   paymentId: string;
+}
+
+export interface RefundableCardPaymentsInput {
+  id: string;
 }
 
 export interface RefuseAppRequestParams {
@@ -23439,6 +23727,10 @@ export interface TestAiConnectionParams {
   provider: string;
 }
 
+export interface TextCustomerStatementParams {
+  id: string;
+}
+
 export interface TickTaskChecklistItemParams {
   id: string;
   itemId: string;
@@ -23735,6 +24027,7 @@ export interface OperationTypes {
   advanceRegulatorySubmission: { input: AdvanceRegulatorySubmissionParams & AdvanceRegulatorySubmissionInput; output: AdvanceRegulatorySubmissionOutput };
   annotateServiceReport: { input: AnnotateServiceReportParams & AnnotateServiceReportInput; output: AnnotateServiceReportOutput };
   answerNumberHere: { input: AnswerNumberHereParams & AnswerNumberHereInput; output: AnswerNumberHereOutput };
+  applyContractEscalation: { input: ApplyContractEscalationParams & ApplyContractEscalationInput; output: ApplyContractEscalationOutput };
   applyCreditNote: { input: ApplyCreditNoteParams & ApplyCreditNoteInput; output: ApplyCreditNoteOutput };
   applyDeposit: { input: ApplyDepositParams & ApplyDepositInput; output: ApplyDepositOutput };
   applyDispatchPlan: { input: ApplyDispatchPlanParams & ApplyDispatchPlanInput; output: ApplyDispatchPlanOutput };
@@ -24300,6 +24593,7 @@ export interface OperationTypes {
   openPortalRecord: { input: OpenPortalRecordInput; output: OpenPortalRecordOutput };
   openRegulatorySubmission: { input: OpenRegulatorySubmissionInput; output: OpenRegulatorySubmissionOutput };
   payCommissions: { input: PayCommissionsInput; output: PayCommissionsOutput };
+  payOutCreditNote: { input: PayOutCreditNoteParams & PayOutCreditNoteInput; output: PayOutCreditNoteOutput };
   payPortalAccountInvoice: { input: PayPortalAccountInvoiceInput; output: PayPortalAccountInvoiceOutput };
   payPortalInvoice: { input: PayPortalInvoiceInput; output: PayPortalInvoiceOutput };
   payPortalInvoiceWithCard: { input: PayPortalInvoiceWithCardParams & PayPortalInvoiceWithCardInput; output: PayPortalInvoiceWithCardOutput };
@@ -24313,6 +24607,7 @@ export interface OperationTypes {
   planProjectDraw: { input: PlanProjectDrawParams & PlanProjectDrawInput; output: PlanProjectDrawOutput };
   planVisitUnits: { input: PlanVisitUnitsParams & PlanVisitUnitsInput; output: PlanVisitUnitsOutput };
   previewCampaign: { input: PreviewCampaignInput; output: PreviewCampaignOutput };
+  previewContractEscalation: { input: PreviewContractEscalationInput; output: PreviewContractEscalationOutput };
   previewJobBilling: { input: PreviewJobBillingInput; output: PreviewJobBillingOutput };
   previewMailCampaign: { input: PreviewMailCampaignInput; output: PreviewMailCampaignOutput };
   previewMessageTemplate: { input: PreviewMessageTemplateInput; output: PreviewMessageTemplateOutput };
@@ -24358,6 +24653,7 @@ export interface OperationTypes {
   refreshFinancingApplication: { input: RefreshFinancingApplicationParams & RefreshFinancingApplicationInput; output: RefreshFinancingApplicationOutput };
   refundDeposit: { input: RefundDepositParams & RefundDepositInput; output: RefundDepositOutput };
   refundPayment: { input: RefundPaymentParams & RefundPaymentInput; output: RefundPaymentOutput };
+  refundableCardPayments: { input: RefundableCardPaymentsInput; output: RefundableCardPaymentsOutput };
   refuseAppRequest: { input: RefuseAppRequestParams & RefuseAppRequestInput; output: RefuseAppRequestOutput };
   registerAsset: { input: RegisterAssetInput; output: RegisterAssetOutput };
   registerComplianceDocument: { input: RegisterComplianceDocumentInput; output: RegisterComplianceDocumentOutput };
@@ -24555,6 +24851,7 @@ export interface OperationTypes {
   tagAssetOutOfService: { input: TagAssetOutOfServiceParams & TagAssetOutOfServiceInput; output: TagAssetOutOfServiceOutput };
   testAiConnection: { input: TestAiConnectionParams & TestAiConnectionInput; output: TestAiConnectionOutput };
   testLeadMapping: { input: TestLeadMappingInput; output: TestLeadMappingOutput };
+  textCustomerStatement: { input: TextCustomerStatementParams & TextCustomerStatementInput; output: TextCustomerStatementOutput };
   tickTaskChecklistItem: { input: TickTaskChecklistItemParams & TickTaskChecklistItemInput; output: TickTaskChecklistItemOutput };
   traceStockUnit: { input: TraceStockUnitInput; output: TraceStockUnitOutput };
   transcribeCall: { input: TranscribeCallParams & TranscribeCallInput; output: TranscribeCallOutput };
@@ -24654,6 +24951,7 @@ export const OPERATIONS = {
   advanceRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/state", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   annotateServiceReport: { method: "PATCH", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   answerNumberHere: { method: "POST", path: "/v1/phone-numbers/{id}/answer-here", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  applyContractEscalation: { method: "POST", path: "/v1/contracts/{contractId}/escalation", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   applyCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   applyDeposit: { method: "POST", path: "/v1/deposits/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:collect","invoice:write"] },
   applyDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
@@ -25219,6 +25517,7 @@ export const OPERATIONS = {
   openPortalRecord: { method: "POST", path: "/v1/portal/account/open", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   payCommissions: { method: "POST", path: "/v1/payroll/commission-payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
+  payOutCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/payouts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   payPortalAccountInvoice: { method: "POST", path: "/v1/portal/account/pay", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   payPortalInvoice: { method: "POST", path: "/v1/portal/invoice/pay", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   payPortalInvoiceWithCard: { method: "POST", path: "/v1/portal/cards/{cardId}/pay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -25232,10 +25531,11 @@ export const OPERATIONS = {
   planProjectDraw: { method: "POST", path: "/v1/projects/{projectId}/draws", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   planVisitUnits: { method: "PUT", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   previewCampaign: { method: "POST", path: "/v1/campaigns/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
-  previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  previewContractEscalation: { method: "GET", path: "/v1/contracts/{contractId}/escalation", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
+  previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: ["taxRate"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   previewMailCampaign: { method: "GET", path: "/v1/marketing/mail/{id}/preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
-  previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending","effectiveOn"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   previewRecurringSchedule: { method: "GET", path: "/v1/recurring-schedules/{id}/preview", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   previewRetentionPurge: { method: "GET", path: "/v1/compliance/retention/preview", pathParams: [], queryParams: ["policyId","sample"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   previewScaleTickets: { method: "POST", path: "/v1/scale-tickets/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -25277,6 +25577,7 @@ export const OPERATIONS = {
   refreshFinancingApplication: { method: "POST", path: "/v1/financing/applications/{id}/refresh", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   refundDeposit: { method: "POST", path: "/v1/deposits/{id}/refund", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:refund"] },
   refundPayment: { method: "POST", path: "/v1/payments/{paymentId}/refund", pathParams: ["paymentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
+  refundableCardPayments: { method: "GET", path: "/v1/credit-notes/{id}/refundable-payments", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   refuseAppRequest: { method: "POST", path: "/v1/apps/{id}/refuse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   registerAsset: { method: "POST", path: "/v1/assets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   registerComplianceDocument: { method: "POST", path: "/v1/compliance/documents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -25474,6 +25775,7 @@ export const OPERATIONS = {
   tagAssetOutOfService: { method: "POST", path: "/v1/rentable-assets/{id}/out-of-service", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   testAiConnection: { method: "POST", path: "/v1/ai/connections/{provider}/test", pathParams: ["provider"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   testLeadMapping: { method: "POST", path: "/v1/lead-connectors/test", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
+  textCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/text", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   tickTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist/{itemId}/tick", pathParams: ["id","itemId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   traceStockUnit: { method: "GET", path: "/v1/stock/units/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   transcribeCall: { method: "POST", path: "/v1/calls/{id}/transcribe", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
@@ -25751,6 +26053,15 @@ export abstract class GeneratedOperations {
    */
   answerNumberHere(input: AnswerNumberHereParams & AnswerNumberHereInput, options?: CallOptions): Promise<AnswerNumberHereOutput> {
     return this.call("answerNumberHere", input, options);
+  }
+
+  /**
+   * Apply the annual escalation the preview showed.
+   *
+   * POST /v1/contracts/{contractId}/escalation. Needs pricebook:write.
+   */
+  applyContractEscalation(input: ApplyContractEscalationParams & ApplyContractEscalationInput, options?: CallOptions): Promise<ApplyContractEscalationOutput> {
+    return this.call("applyContractEscalation", input, options);
   }
 
   /**
@@ -30263,7 +30574,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Statements emailed, by hand or by the monthly run.
+   * Statements emailed or texted, by hand or by the monthly run.
    *
    * GET /v1/statement-deliveries. Needs invoice:read.
    */
@@ -30839,6 +31150,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Pay a credit out to the customer as money.
+   *
+   * POST /v1/credit-notes/{id}/payouts. Needs payment:refund.
+   */
+  payOutCreditNote(input: PayOutCreditNoteParams & PayOutCreditNoteInput, options?: CallOptions): Promise<PayOutCreditNoteOutput> {
+    return this.call("payOutCreditNote", input, options);
+  }
+
+  /**
    * Pay one of the customer's invoices, from their account.
    *
    * POST /v1/portal/account/pay.
@@ -30953,6 +31273,15 @@ export abstract class GeneratedOperations {
    */
   previewCampaign(input: PreviewCampaignInput = {} as PreviewCampaignInput, options?: CallOptions): Promise<PreviewCampaignOutput> {
     return this.call("previewCampaign", input, options);
+  }
+
+  /**
+   * What the contract's next annual escalation would do to its cards.
+   *
+   * GET /v1/contracts/{contractId}/escalation. Needs pricebook:read.
+   */
+  previewContractEscalation(input: PreviewContractEscalationInput, options?: CallOptions): Promise<PreviewContractEscalationOutput> {
+    return this.call("previewContractEscalation", input, options);
   }
 
   /**
@@ -31358,6 +31687,15 @@ export abstract class GeneratedOperations {
    */
   refundPayment(input: RefundPaymentParams & RefundPaymentInput, options?: CallOptions): Promise<RefundPaymentOutput> {
     return this.call("refundPayment", input, options);
+  }
+
+  /**
+   * The card payments a credit can go back through.
+   *
+   * GET /v1/credit-notes/{id}/refundable-payments. Needs payment:read.
+   */
+  refundableCardPayments(input: RefundableCardPaymentsInput, options?: CallOptions): Promise<RefundableCardPaymentsOutput> {
+    return this.call("refundableCardPayments", input, options);
   }
 
   /**
@@ -33131,6 +33469,15 @@ export abstract class GeneratedOperations {
    */
   testLeadMapping(input: TestLeadMappingInput, options?: CallOptions): Promise<TestLeadMappingOutput> {
     return this.call("testLeadMapping", input, options);
+  }
+
+  /**
+   * Text a customer their statement.
+   *
+   * POST /v1/customers/{id}/statement/text. Needs invoice:send.
+   */
+  textCustomerStatement(input: TextCustomerStatementParams & TextCustomerStatementInput, options?: CallOptions): Promise<TextCustomerStatementOutput> {
+    return this.call("textCustomerStatement", input, options);
   }
 
   /**
