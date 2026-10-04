@@ -39,7 +39,7 @@ test("the customer list is filtered by two custom fields at once, and one comes 
 
     await owner.goto("/customers");
     const filter = owner.getByRole("form", { name: "Filter by a custom field" });
-    await filter.getByRole("combobox").selectOption({ label: plan });
+    await filter.locator("select[name=field]").selectOption({ label: plan });
     await filter.getByLabel("Is").fill("Annual");
     await filter.getByRole("button", { name: "Filter" }).click();
     await expect(owner.getByText(`Showing customers whose ${plan} is Annual.`)).toBeVisible();
@@ -48,7 +48,7 @@ test("the customer list is filtered by two custom fields at once, and one comes 
     await expect(listed(molly)).toHaveCount(0);
 
     // A second field is added to the first, not put in its place.
-    await filter.getByRole("combobox").selectOption({ label: pets });
+    await filter.locator("select[name=field]").selectOption({ label: pets });
     await filter.getByLabel("Is").fill("yes");
     await filter.getByRole("button", { name: "Add this filter" }).click();
     await expect(owner.getByText(`Showing customers whose ${plan} is Annual, and whose ${pets} is yes.`)).toBeVisible();
