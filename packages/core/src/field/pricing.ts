@@ -220,3 +220,19 @@ export function rateFromPercent(typed: string): string | null {
   const fraction = `${scaled.slice(0, -6) || "0"}.${scaled.slice(-6)}`.replace(/0+$/, "").replace(/\.$/, "");
   return fraction === "" ? "0" : fraction;
 }
+
+/**
+ * What each suggested tip comes to on an amount, to the cent: the same
+ * figures `customerPortal.tipChoices` puts on the portal's pay button, so a
+ * customer offered fifteen per cent at the door is offered what they would
+ * have been offered online.
+ */
+export function tipChoices(amount: string, presets: readonly number[]): { percent: number; amount: string }[] {
+  const base = parse(amount);
+  return presets.map((percent) => ({ percent, amount: show(toCents(times(base, String(percent / 100)))) }));
+}
+
+/** A sum of decimal strings, exactly, for a screen adding a tip to a payment. */
+export function addAmounts(...amounts: string[]): string {
+  return show(amounts.reduce((sum, a) => sum + parse(a), 0n));
+}

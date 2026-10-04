@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { priceOnSite, memberEligible, sameAmount, rateFromPercent, type OnSiteLine, type OnSiteMember } from "../src/field/pricing.js";
+import { priceOnSite, memberEligible, sameAmount, rateFromPercent, tipChoices, addAmounts, type OnSiteLine, type OnSiteMember } from "../src/field/pricing.js";
+import { tipChoices as portalTipChoices } from "../src/customer-portal/index.js";
 import { computeOption } from "../src/estimate/index.js";
 import { computeInvoice } from "../src/ledger/index.js";
 import { memberDiscounts, eligibleForMemberPricing } from "../src/membership/index.js";
@@ -137,6 +138,18 @@ describe("the phone prices an estimate option the way the server does", () => {
 });
 
 describe("the small helpers", () => {
+  it("suggests the tips the portal suggests, to the cent", () => {
+    for (const amount of ["162.00", "1999.99", "0.35", "4210.0000", "87.4950"]) {
+      const portal = portalTipChoices(money(amount), [10, 15, 18, 20, 25]).map((c) => ({ percent: c.percent, amount: toString(c.amount) }));
+      expect(tipChoices(amount, [10, 15, 18, 20, 25])).toEqual(portal);
+    }
+  });
+
+  it("adds a tip to a payment exactly", () => {
+    expect(addAmounts("162.00", "24.30")).toBe("186.3000");
+    expect(addAmounts("0.1", "0.2")).toBe("0.3000");
+  });
+
   it("never discounts a discount item or a free line", () => {
     expect(memberEligible({ unitPrice: "0", itemKind: "service" })).toBe(false);
     expect(memberEligible({ unitPrice: "-10", itemKind: null })).toBe(false);

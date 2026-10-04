@@ -51,6 +51,107 @@ export interface FieldVisit {
   parts: Array<{ id: string; name: string; quantity: string }>;
   /** Inspections filed against this visit. Absent from servers older than the field inspection. */
   inspections?: FiledInspection[] | undefined;
+  /**
+   * The plan this customer is a member on here today, which prices what the
+   * phone shows the way the server will. Absent from older servers and null
+   * for a customer who is not a member.
+   */
+  member?: MemberTerms | null | undefined;
+  /** Estimates to show the customer. Absent from older servers. */
+  estimates?: FieldEstimate[] | undefined;
+  /** Parts and charges on the job not yet billed. Absent from older servers. */
+  billable?: BillableLine[] | undefined;
+  /** The job's invoices, other than void ones. Absent from older servers. */
+  invoices?: FieldInvoice[] | undefined;
+}
+
+export interface MemberTerms {
+  planName: string;
+  /** The discount as a fraction, "0.15". */
+  rate: string;
+  waivesDiagnosticFee: boolean;
+  waivesAfterHoursRate: boolean;
+}
+
+export interface FieldEstimateLine {
+  id: string;
+  name: string;
+  description: string | null;
+  quantity: string;
+  unitPrice: string;
+  /** Every discount on the line, the member's included. */
+  discountAmount: string;
+  memberDiscountAmount: string;
+  taxable: boolean;
+  taxRate: string;
+  isOptional: boolean;
+  isSelected: boolean;
+}
+
+export interface FieldEstimateOption {
+  id: string;
+  name: string;
+  description: string | null;
+  isRecommended: boolean;
+  total: string;
+  lines: FieldEstimateLine[];
+}
+
+/** An estimate as the phone presents it: prices only, never a cost or a margin. */
+export interface FieldEstimate {
+  id: string;
+  number: number;
+  status: string;
+  title: string | null;
+  jobId: string | null;
+  selectedOptionId: string | null;
+  signerName: string | null;
+  terms: string | null;
+  options: FieldEstimateOption[];
+}
+
+export interface BillableLine {
+  id: string;
+  name: string;
+  quantity: string;
+  unitPrice: string;
+  taxable: boolean;
+  itemKind: string | null;
+  feeRole: string | null;
+}
+
+export interface FieldInvoice {
+  id: string;
+  number: number;
+  status: string;
+  total: string;
+  balance: string;
+}
+
+/** A task from the office queue: this person's, or one nobody has taken. */
+export interface FieldTask {
+  id: string;
+  title: string;
+  body: string | null;
+  priority: string;
+  status: string;
+  mine: boolean;
+  dueAt: string | null;
+  overdue: boolean;
+  checklistTotal: number;
+  checklistDone: number;
+}
+
+/** What this person may do on site, as the server said with the day. */
+export interface FieldAbilities {
+  writeEstimates: boolean;
+  presentEstimates: boolean;
+  raiseInvoices: boolean;
+  takePayments: boolean;
+  tasks: boolean;
+  tipping: { enabled: boolean; presets: number[] };
+  financing: boolean;
+  assistant: boolean;
 }
 
 export interface FiledInspection {
@@ -99,6 +200,14 @@ export interface PriceBookEntry {
   name: string;
   unitPrice: string;
   taxable: boolean;
+  /** What the customer reads under the line. Absent from older servers. */
+  description?: string | null | undefined;
+  /** service, material, equipment, labor, fee or discount. Absent from older servers. */
+  kind?: string | undefined;
+  /** A fee a plan may waive. Absent from older servers. */
+  feeRole?: string | null | undefined;
+  /** What a kit includes, by name. Absent from older servers and empty for anything else. */
+  components?: Array<{ name: string; quantity: number }> | undefined;
 }
 
 /**
@@ -123,6 +232,10 @@ export interface FieldSnapshot {
   inspectionPrograms?: FieldInspectionProgram[] | undefined;
   /** Absent from older servers, which is read as sharing off. */
   locationSharing?: LocationSharing | undefined;
+  /** The office queue. Absent from older servers. */
+  tasks?: FieldTask[] | undefined;
+  /** What this person may do on site. Absent from older servers, which is read as nothing new. */
+  abilities?: FieldAbilities | undefined;
 }
 
 export interface CodeRequestResult {
@@ -138,6 +251,23 @@ export interface PaymentLinkResult {
   amountDue: string;
   texted: boolean;
   reason: string | null;
+}
+
+export interface FinancingLinkResult {
+  url: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  amount: string;
+  lender: string;
+  texted: boolean;
+  reason: string | null;
+}
+
+/** The field assistant's answer, and what it came from. */
+export interface AssistantAnswer {
+  answered: boolean;
+  text: string;
+  sources: Array<{ kind: string; title: string }>;
 }
 
 export interface SignInResult {
