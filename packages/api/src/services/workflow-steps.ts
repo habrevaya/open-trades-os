@@ -5,7 +5,7 @@ import { renderWithin } from "./message-templates";
 import { automation, comms } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
-import { timezoneOf } from "./context";
+import { timezoneOf, ConflictError } from "./context";
 import { deliverReport, readReportStep } from "./report-delivery";
 import { mintGrant } from "./portal";
 import { sendTransactional } from "./comms-send";
@@ -104,8 +104,10 @@ export async function sendMessage(
     .limit(1);
   if (!customer) return { ok: false, reason: "customer not found" };
 
+  if (channel === "email") return emailCustomer(tx, ctx, config, payload, customer, runId);
+
   // E.164 for a number, so a STOP the carrier recorded is found. See comms.phoneAddress.
-  const address = channel === "email" ? customer.email : customer.phone && comms.phoneAddress(customer.phone);
+  const address = customer.phone && comms.phoneAddress(customer.phone);
   if (!address) return { ok: false, reason: `customer has no ${channel} address` };
 
   /**
@@ -118,9 +120,7 @@ export async function sendMessage(
     smsRequired: channel === "sms" || channel === "mms",
   });
 
-  if (!from && channel !== "email") {
-    return { ok: false, reason: "no registered sending number" };
-  }
+  if (!from) return { ok: false, reason: "no registered sending number" };
 
   const consents = await tx.select().from(schema.communicationConsent)
     .where(and(
@@ -154,7 +154,7 @@ export async function sendMessage(
       purpose: s.purpose as comms.Purpose | null,
       liftedAt: s.liftedAt,
     })),
-    channelRegistered: channel === "email" ? true : Boolean(from?.smsRegistered),
+    channelRegistered: Boolean(from.smsRegistered),
   });
 
   if (!decision.allowed) {
@@ -190,7 +190,7 @@ export async function sendMessage(
 
   const conversationId = await threadFor(tx, {
     organizationId, channel, address, customerId,
-    phoneNumberId: from?.id ?? null,
+    phoneNumberId: from.id,
     jobId: (readPath(payload, "job.id") as string | undefined) ?? null,
   });
 
@@ -200,7 +200,7 @@ export async function sendMessage(
     direction: "outbound",
     channel,
     purpose,
-    fromAddress: channel === "email" ? "" : from!.e164,
+    fromAddress: from.e164,
     toAddress: address,
     body: rendered,
     status: "queued",
@@ -225,6 +225,64 @@ export async function sendMessage(
    * wrote to a table would make the whole log untrustworthy.
    */
   return { ok: true, output: { sent: false, queued: true, messageId: message!.id } };
+}
+
+/**
+ * The plain message step, by email.
+ *
+ * THROUGH THE EMAIL SENDER, not a row written here. The text path writes its
+ * own message row because it predates the shared sender; an email written the
+ * same way would have no From address, no subject and no Reply-To, and would
+ * skip the suppression list the sender keeps for bounces and complaints. So
+ * the email goes through `email.queue`, the one gate every email takes, which
+ * checks consent and suppression at the moment it is sent, picks the
+ * company's own From address, and threads it.
+ *
+ * TRANSACTIONAL ONLY. An automation's email is about the customer's own work;
+ * a promotion needs an unsubscribe link and goes through a campaign. The
+ * publish check refuses a marketing email step, and this sends as
+ * transactional whatever an older definition says.
+ *
+ * A customer with no email address, or a refusal by the sender, is a step
+ * that did not send rather than a failure, like the text: the automation did
+ * what it should and checked.
+ */
+async function emailCustomer(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  customer: typeof schema.customer.$inferSelect,
+  runId: string,
+): Promise<StepResult> {
+  if (!customer.email) return { ok: true, output: { sent: false, channel: "email", because: "customer has no email address" } };
+  const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+    .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+  const scope = { ...payload, customer, organization: { name: org?.name ?? "" } };
+  const body = render(typeof config["body"] === "string" ? config["body"] : "", scope).trim();
+  if (body === "") return { ok: false, reason: "step has no body" };
+  const subject = render(
+    typeof config["subject"] === "string" && config["subject"].trim() !== ""
+      ? config["subject"] : "A message from {{ organization.name }}",
+    scope,
+  ).trim() || "A message from us";
+
+  let outcome: Awaited<ReturnType<typeof email.queue>>;
+  try {
+    outcome = await email.queue({ ...ctx, db: tx }, {
+      to: customer.email, subject, text: body, customerId: customer.id, purpose: "transactional",
+    });
+  } catch (error) {
+    // A customer's address the sender cannot read is theirs to fix, not a broken automation.
+    if (error instanceof ConflictError) {
+      return { ok: true, output: { sent: false, channel: "email", refused: error.message } };
+    }
+    throw error;
+  }
+  if (!outcome.queued) return { ok: true, output: { sent: false, channel: "email", refused: outcome.explanation } };
+  await tx.update(schema.message).set({ automationRef: `run:${runId}` })
+    .where(eq(schema.message.id, outcome.messageId));
+  return { ok: true, output: { sent: false, queued: true, channel: "email", messageId: outcome.messageId } };
 }
 
 function findConsentId(
@@ -465,9 +523,24 @@ export async function emailReport(
   config: Record<string, unknown>,
   runId: string,
   step: { index: number; publishedByUserId: string | null; now: Date },
+  event?: typeof schema.domainEvent.$inferSelect,
 ): Promise<StepResult> {
   const read = readReportStep(config);
   if (!read.source) return { ok: false, reason: "step names no report" };
+
+  /**
+   * TO THE CUSTOMER THE EVENT IS ABOUT. Who that is comes from the event and
+   * nowhere else, and an event that names two different customers is refused
+   * rather than guessed at: a report sent to the wrong one of two people is
+   * the leak this step is built not to have.
+   */
+  let customerId: string | undefined;
+  if (read.audience === "customer") {
+    const found = event ? customerOfEvent(event) : { none: true as const };
+    if ("none" in found) return { ok: false, reason: "the event names no customer to send the report to" };
+    if ("several" in found) return { ok: false, reason: "the event names more than one customer, so nobody was sent it" };
+    customerId = found.customerId;
+  }
 
   const result = await deliverReport(tx, {
     organizationId: ctx.actor.organizationId,
@@ -479,6 +552,7 @@ export async function emailReport(
     timezone: await timezoneOf(tx, ctx.actor.organizationId),
     key: `run:${runId}:${step.index}`,
     workflowRunId: runId,
+    ...(customerId ? { customerId } : {}),
   });
 
   if (result.status === "failed") return { ok: false, reason: result.error ?? "the report did not run" };
@@ -491,6 +565,28 @@ export async function emailReport(
       refused: result.recipients.filter((r) => r.refused).map((r) => `${r.address || "somebody"}: ${r.refused}`),
     },
   };
+}
+
+/**
+ * The customer an event is about, from the places events carry one. Every
+ * place is read, and two different answers are "several", never the first.
+ */
+export function customerOfEvent(
+  event: typeof schema.domainEvent.$inferSelect,
+): { customerId: string } | { none: true } | { several: true } {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const found = new Set<string>();
+  for (const path of [
+    "customer.id", "customerId", "job.customerId", "invoice.customerId", "estimate.customerId",
+    "visit.customerId", "agreement.customerId", "equipment.customerId", "record.customerId",
+  ]) {
+    const value = readPath(payload, path);
+    if (typeof value === "string" && value !== "") found.add(value);
+  }
+  if (event.entityType === "customer" && event.entityId) found.add(event.entityId);
+  if (found.size === 0) return { none: true };
+  if (found.size > 1) return { several: true };
+  return { customerId: [...found][0]! };
 }
 
 /* ------------------------------------------------------------- asking again */
@@ -563,7 +659,73 @@ async function holds(
     }
     case "caller_not_reached":
       return callerNotReached(tx, event);
+    case "invoice_unpaid": {
+      const id = idOf(event, ["invoice.id", "invoiceId"], "invoice");
+      if (!id) return { holds: false, because: "the event names no invoice" };
+      const [row] = await tx.select({
+        status: schema.invoice.status, balance: schema.invoice.balance, number: schema.invoice.number,
+        deletedAt: schema.invoice.deletedAt,
+      }).from(schema.invoice).where(eq(schema.invoice.id, id)).limit(1);
+      if (!row || row.deletedAt) return { holds: false, because: "the invoice is gone" };
+      if (row.status !== "open" && row.status !== "partially_paid") {
+        return { holds: false, because: `invoice #${row.number} is ${row.status.replace("_", " ")} now` };
+      }
+      /** Compared as a decimal string through the database's own numeric, never a float. */
+      const [owing] = await tx.execute<{ owing: boolean }>(sql`select ${row.balance}::numeric > 0 as owing`);
+      if (owing?.owing !== true) return { holds: false, because: `invoice #${row.number} has nothing left to pay` };
+      return { holds: true };
+    }
+    case "visit_still_booked": {
+      const id = idOf(event, ["visit.id", "visitId"], "visit");
+      if (!id) return { holds: false, because: "the event names no visit" };
+      const [row] = await tx.select({
+        status: schema.visit.status, windowStart: schema.visit.windowStart, deletedAt: schema.visit.deletedAt,
+      }).from(schema.visit).where(eq(schema.visit.id, id)).limit(1);
+      if (!row || row.deletedAt) return { holds: false, because: "the visit is gone" };
+      if (["cancelled", "completed", "completed_after_cancellation", "no_show"].includes(row.status)) {
+        return { holds: false, because: `the visit is ${row.status.replaceAll("_", " ")} now` };
+      }
+      /**
+       * MOVED SINCE is a no as well: the event named a time, and a reminder
+       * for that time is wrong now. The move raised its own event, and a
+       * reminder for the new time comes from that one.
+       */
+      const said = readPath(payload, "windowStart") ?? readPath(payload, "visit.windowStart");
+      if (typeof said === "string" && row.windowStart
+          && Math.abs(row.windowStart.getTime() - new Date(said).getTime()) > 1_000) {
+        return { holds: false, because: "the visit was moved to another time" };
+      }
+      return { holds: true };
+    }
+    case "job_not_done": {
+      const id = idOf(event, ["job.id", "jobId"], "job");
+      if (!id) return { holds: false, because: "the event names no job" };
+      const [row] = await tx.select({
+        status: schema.job.status, number: schema.job.number, deletedAt: schema.job.deletedAt,
+      }).from(schema.job).where(eq(schema.job.id, id)).limit(1);
+      if (!row || row.deletedAt) return { holds: false, because: "the job is gone" };
+      if (!["lead", "estimating", "scheduled", "in_progress", "on_hold"].includes(row.status)) {
+        return { holds: false, because: `job #${row.number} is ${row.status.replace("_", " ")} now` };
+      }
+      return { holds: true };
+    }
   }
+}
+
+/**
+ * The record a check is about, from the event: the first of the paths the
+ * payload carries it under, or the event's own entity when it is that kind.
+ * Never from the step's settings, so a check always asks about the record
+ * the event was about.
+ */
+function idOf(
+  event: typeof schema.domainEvent.$inferSelect, paths: string[], entityType: string,
+): string | undefined {
+  for (const path of paths) {
+    const value = readPath(event.payload, path);
+    if (typeof value === "string" && value !== "") return value;
+  }
+  return event.entityType === entityType ? event.entityId ?? undefined : undefined;
 }
 
 /**

@@ -128,6 +128,30 @@ export const BRANCH_FILTERS: Record<string, (businessUnitId: string) => SQL> = {
   visits: (unit) => branchOfJob(unit, sql`visit.job_id`),
 };
 
+/**
+ * ONE CUSTOMER'S RECORDS ONLY, for a report sent to that customer.
+ *
+ * A narrowing written by us, by the record's own customer id, never by a name:
+ * two customers called John Smith are one group label and two people, and a
+ * filter on the label would send one of them the other's invoices. A dataset
+ * missing here cannot be sent to a customer at all, and asking is refused
+ * rather than run unnarrowed, which is the leak this exists to make impossible.
+ */
+export const CUSTOMER_FILTERS: Record<string, (customerId: string) => SQL> = {
+  jobs: (id) => sql`job.customer_id = ${id}::uuid`,
+  invoices: (id) => sql`invoice.customer_id = ${id}::uuid`,
+  estimates: (id) => sql`estimate.customer_id = ${id}::uuid`,
+  visits: (id) => sql`exists (
+    select 1 from public.job visit_job where visit_job.id = visit.job_id and visit_job.customer_id = ${id}::uuid
+  )`,
+};
+
+/** Narrowings that are the caller's and never the definition's, so no saved report or API caller can set one. */
+export interface RunNarrowing {
+  /** Only this customer's records. Refused on a dataset `CUSTOMER_FILTERS` does not name. */
+  customerId?: string | undefined;
+}
+
 export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset): SQL | undefined {
   /**
    * A company's own kind of record is read through the same visibility its
@@ -157,8 +181,16 @@ function conditionsFor(
   dataset: reporting.Dataset,
   definition: reporting.ReportDefinition,
   zone: string,
+  narrowing: RunNarrowing = {},
 ): SQL[] {
   const conditions: SQL[] = [];
+  if (narrowing.customerId !== undefined) {
+    const narrow = CUSTOMER_FILTERS[dataset.key];
+    if (!narrow) {
+      throw new ConflictError(`${dataset.label} cannot be narrowed to one customer, so this report cannot be sent to one.`);
+    }
+    conditions.push(narrow(narrowing.customerId));
+  }
   /** The rows of `from` that are this dataset's at all, written by us in the catalogue. */
   if (dataset.where) conditions.push(sql.raw(`(${dataset.where})`));
   const scoped = scopeFilterFor(ctx, dataset);
@@ -231,6 +263,7 @@ function conditionsFor(
 export async function run(
   ctx: ServiceContext,
   definition: reporting.ReportDefinition,
+  narrowing: RunNarrowing = {},
 ): Promise<ReportResult> {
   const held = permissionsFor(ctx.actor);
   /**
@@ -273,7 +306,7 @@ export async function run(
       selects.push(sql`${sql.raw(wrapped)} as ${sql.raw(`"${m.key}"`)}`);
     }
 
-    const conditions = conditionsFor(ctx, dataset, definition, await timezoneOf(tx, ctx.actor.organizationId));
+    const conditions = conditionsFor(ctx, dataset, definition, await timezoneOf(tx, ctx.actor.organizationId), narrowing);
 
     const groupBy = dimensions.length > 0
       ? sql` group by ${sql.raw(dimensions.map((_, i) => String(i + 1)).join(", "))}`

@@ -151,7 +151,10 @@ passed, counted in the company's calendar, once per unit per end date: an
 extended warranty is a new date and a new call. Retired units are left out.
 The event carries the unit, the customer linked to its address and the date
 (`{{ until }}` in a task's title), and the task a "Create a task" step raises is
-about the unit, so it opens the unit's page.
+about the unit, so it opens the unit's page. The top of `/automations` offers
+it ready made as **Ring before a warranty runs out**: turned on with how many
+days before (thirty unless set), it raises that call in the office queue, due in
+two days, and is an ordinary automation from then on.
 
 ## Permissions
 
@@ -227,8 +230,8 @@ move or adds it. A serial with no letters or digits in it matches nothing,
 and two units with no serial at all are never matched, which is the cost of
 a register without serials.
 
-The warranty automation is a trigger to build on rather than one that ships
-turned on: there is no recommended automation for it, so a company that wants
-the call raised by itself builds the two step automation on the canvas. A
-unit's page reads; editing a unit and moving it are still done from its
+The warranty call is a recommended automation that is off until somebody turns
+it on, like every recommended automation but the estimate follow up, and it only
+raises a task: it does not text or email the customer, because what to offer
+them is the office's call. A unit's page reads; editing a unit and moving it are still done from its
 address's register and the API.

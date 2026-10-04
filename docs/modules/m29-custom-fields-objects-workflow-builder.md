@@ -174,6 +174,15 @@ permissions its steps need, the author must hold all of them, and the run gets e
 that set. Publishing is checked against what the author holds rather than against
 whether they may touch workflows at all, which is the part that stops the escalation.
 
+**A branch asks three kinds of question, and the canvas shows which is which.**
+Every condition under "All of these have to hold", at least one under "At least one
+of these has to hold", and none under "None of these may hold": the three lists the
+engine has always evaluated, each drawn as its own box with its rule as its
+heading, its own rows and its own add button, and a sentence under them reading the
+whole condition back the way the engine takes it. Three lists and never deeper,
+because that is what the engine runs. Adding a row puts the cursor in it, and every
+field is named for its group and row.
+
 **"Run and email a report" runs the report as whoever published the version.** A
 run's own actor holds only the permissions its steps declared and no scope, and a
 report run under no scope is a report of nothing; running it as the company would
@@ -185,6 +194,21 @@ would see it, the delivery is recorded with each recipient's outcome, and it is 
 on the run and the step, so a run resumed after a wait does not send it twice. The
 report and the people are checked against the author at publish, with the step's
 number in the refusal.
+
+**A report can go to the customer the event is about, and is then about them
+only.** The step names "the customer this is about" instead of people, and the
+customer is read from the event: an event naming two different customers is a
+failed step that sends nothing, never a guess. The report runs as the publisher,
+narrowed in SQL by that customer's id (never by a name, so two customers called the
+same thing are two people), on top of the publisher's own scope. Only a report on
+jobs, invoices, estimates or visits can go to a customer, and only with columns and
+filters the product ships for that dataset and that need no permission of their
+own: cost, margin, an estimate's value and the company's own fields are the
+company's business. Both rules are checked at publish and again on the day it runs,
+because a saved report can be edited after the automation was published. It goes
+to the address on the customer's record, as transactional mail with the
+spreadsheet and the PDF and no link to sign in to, and nobody else gets it in the
+same step. An automation on a clock cannot send one, because it is about nobody.
 
 **A step this build does not know is refused at publish rather than skipped at run
 time.** Skipping would let a definition written against a newer version run here with
@@ -351,7 +375,7 @@ by step.
 
 ### Turn on a recommended one
 
-The top of `/automations` offers three, each with what it does, what it needs from
+The top of `/automations` offers four, each with what it does, what it needs from
 the company, and its one or two settings:
 
 - **Follow up an estimate that has not been answered.** On `estimate.sent`: wait
@@ -369,13 +393,19 @@ the company, and its one or two settings:
   company will ring back, and raise a high priority call back in the office
   queue. Offered only once the company has a number cleared to text that is not
   a tracking number. M19 has where the event comes from.
+- **Ring before a warranty runs out.** Waits on "a unit's warranty about to run
+  out" (M04), some days before (thirty unless set, one to a hundred and eighty),
+  and raises a call in the office queue about the unit, so it opens the unit's
+  page. Each end date is called about once. Off until somebody turns it on, like
+  the two above.
 
 `GET /v1/workflow-templates` lists them with whether each is on, and
 `POST /v1/workflow-templates/{key}/install` turns one on.
 
 ### The steps
 
-Send a message, raise a task, wait, only if, and four added for these:
+Send a message (by text or by email, with a subject), raise a task, wait, only
+if, and four added for these:
 `stop_unless` (carry on only while a declared fact still holds), `send_estimate`
 (a fresh link to the estimate by text or email, only while it is undecided, and
 refused as a failed step if the wording has lost its link), `request_review`
@@ -384,8 +414,18 @@ refused as a failed step if the wording has lost its link), `request_review`
 `text_caller` (text the number on a `call.missed` event, through the consent
 checked transactional sender, from the company's ordinary number and never a
 tracking one; a refusal by STOP is a step that did not send, not a failure).
-`stop_unless` asks `estimate_undecided` or `caller_not_reached` (no later call
-from that number was answered and nobody here rang it). `text_caller` needs
+`stop_unless` asks one of five questions: `estimate_undecided`,
+`caller_not_reached` (no later call from that number was answered and nobody here
+rang it), `invoice_unpaid` (the invoice is open or part paid with money still
+owing), `visit_still_booked` (not cancelled, finished or a no show, and still at
+the time the event said, because a move raises its own event) and `job_not_done`
+(not finished, invoiced, paid or cancelled). Each reads the record the event names
+(its own entity, or the id the payload carries), and a no ends the run as
+finished with the rest written down as skipped. A plain message by email goes
+through the email sender, from the company's address, checked against the do not
+email list when it is sent; it is always transactional, and a step asking for a
+marketing email is refused at publish, because a promotion needs an unsubscribe
+link and goes as a campaign. `text_caller` needs
 `message:send`.
 `send_estimate` needs `estimate:send`, `portal:grant` and `message:send`;
 `request_review` needs `review:respond`; `send_review_request` needs both of
@@ -526,16 +566,16 @@ the person who made it. One sandbox per company at a time; throwing it away sign
 people out and leaves its rows in the database, unread. A copied back automation that
 emails a saved report needs a report with the same name in the real company.
 
-The canvas offers `all` conditions only. The engine evaluates `any` and `none`
-too, and a screen offering all three needs a nested group editor to say which
-applies to what; every condition on a branch has to hold, which is what somebody
-means by "only if" nine times out of ten, and the API takes the other two.
+A branch's conditions are three groups and never deeper: there is no "any of
+these, or all of those" inside one group, on the canvas or in the engine.
 There is no loop and there will not be one: a flat list only goes forwards, which
 is the second loop guard, because the two upstream ones catch a workflow
-re-triggering itself and not one looping inside a single run. The report step
-emails a report to people picked on the canvas; it cannot send a report to the
-customer the event is about.
-There are three recommended automations and the list is code, not something a
-company or a trade pack can add to. `stop_unless` can ask two questions so far.
-The canvas's plain message step is text only; the estimate and review steps
-can email.
+re-triggering itself and not one looping inside a single run. A report sent to
+a customer can be on jobs, invoices, estimates or visits only, with the product's
+own columns that need no permission, and never with the company's own fields, a
+cost or a margin; it goes to the address on their record and nowhere else, and a
+copy to somebody in the company is a second step. There are four recommended
+automations and the list is code, not something a company or a trade pack can add
+to. `stop_unless` asks five questions, from a catalogue in core: there is none yet
+about an agreement, a task or one of the company's own records. The plain message
+step emails only transactional mail.

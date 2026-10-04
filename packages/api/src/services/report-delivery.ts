@@ -6,7 +6,7 @@ import {
 import { ConflictError, type ServiceContext } from "./context";
 import * as email from "./email";
 import { memberActor } from "./session";
-import { run, type ReportResult } from "./reports";
+import { run, CATALOGUE, CUSTOMER_FILTERS, type ReportResult } from "./reports";
 import { catalogueFor } from "./report-company";
 import { BUILT_IN } from "./report-built-in";
 import { publicBaseUrl } from "./setup-tokens";
@@ -73,6 +73,13 @@ export interface DeliverReportInput {
   key: string;
   scheduleId?: string | undefined;
   workflowRunId?: string | undefined;
+  /**
+   * Send it to this customer, about this customer only, and to nobody else.
+   * The recipients above are ignored: a report to a customer is never also a
+   * report to somebody in the company, because the two would be different
+   * runs of different reports with one delivery row between them.
+   */
+  customerId?: string | undefined;
 }
 
 export interface DeliverReportResult {
@@ -195,6 +202,7 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
   };
 
   if (!named) return fail("The report this sends has been deleted, so there was nothing to run.");
+  if (input.customerId !== undefined) return deliverToCustomer(tx, input, claimed.id, named, fail);
 
   const owner = input.ownerUserId ? await memberActor(tx, input.organizationId, input.ownerUserId) : null;
   if (!owner) {
@@ -361,6 +369,145 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
   return { delivered: true, deliveryId: claimed.id, status, error, recipients };
 }
 
+/* ------------------------------------------------------- to the customer */
+
+/**
+ * WHAT A CUSTOMER MAY BE SENT
+ *
+ * A report emailed to a customer is a report about them and nothing else, and
+ * "nothing else" is three promises, each checked here and again on the day it
+ * runs, because a saved report can be edited after the automation that sends
+ * it was published.
+ *
+ * THEIR RECORDS ONLY. Four datasets carry a customer on every row (jobs,
+ * invoices, estimates, visits) and the run is narrowed by that customer's id
+ * in SQL (`CUSTOMER_FILTERS`), on top of the publisher's own scope, never by a
+ * name. Any other dataset is refused.
+ *
+ * NONE OF THE COMPANY'S OWN NUMBERS. Every column and filter has to be one the
+ * product ships for that dataset and one that needs no permission beyond the
+ * dataset's own: cost, margin and anything else a role is needed to see are
+ * the company's business about the customer, not the customer's.
+ *
+ * NONE OF THE COMPANY'S OWN FIELDS. A custom field on a job can be "Notes for
+ * the crew" or "Good payer?", and the company declared it for itself, so a
+ * report to a customer may not group, total or filter by one.
+ */
+export function customerReportProblem(definition: reporting.ReportDefinition): string | null {
+  const base = CATALOGUE.find((dataset) => dataset.key === definition.dataset);
+  if (!base || !(definition.dataset in CUSTOMER_FILTERS)) {
+    return "A report sent to a customer can only be about their own jobs, invoices, estimates or visits.";
+  }
+  const dimension = (key: string) => base.dimensions.find((d) => d.key === key);
+  const measure = (key: string) => base.measures.find((m) => m.key === key);
+  const columns = [
+    ...definition.dimensions.map((key) => ({ key, found: dimension(key) })),
+    ...(definition.filters ?? []).map((filter) => ({ key: filter.dimension, found: dimension(filter.dimension) })),
+    ...definition.measures.map((key) => ({ key, found: measure(key) })),
+  ];
+  const problem = columns.find(({ found }) => !found || found.permission !== undefined);
+  if (problem) {
+    return problem.found
+      ? `${problem.found.label} is for people in the company, so a report with it cannot be sent to a customer.`
+      : "This report uses one of your own fields, so it cannot be sent to a customer.";
+  }
+  return null;
+}
+
+/**
+ * The report, run as the person who set it up, narrowed to one customer, and
+ * emailed to that customer at the address on their record. No link to open it
+ * (a customer cannot sign in), and the PDF does not name whose view it is.
+ */
+async function deliverToCustomer(
+  tx: Database,
+  input: DeliverReportInput,
+  deliveryId: string,
+  named: NonNullable<Awaited<ReturnType<typeof sourceOf>>>,
+  fail: (error: string) => Promise<DeliverReportResult>,
+): Promise<DeliverReportResult> {
+  const customerId = input.customerId!;
+  const problem = customerReportProblem(named.definition);
+  if (problem) return fail(problem);
+
+  const owner = input.ownerUserId ? await memberActor(tx, input.organizationId, input.ownerUserId) : null;
+  if (!owner) {
+    return fail(
+      "The person who set this up is no longer an active member of the company, so it has nobody's "
+      + "authority to run under. Somebody who can see the report can set it up again.",
+    );
+  }
+
+  const [customer] = await tx.select({ id: schema.customer.id, email: schema.customer.email })
+    .from(schema.customer)
+    .where(and(eq(schema.customer.id, customerId), isNull(schema.customer.deletedAt))).limit(1);
+  if (!customer) return fail("The customer this was about is gone.");
+
+  const range = reporting.periodFor(input.period, input.at, input.timezone);
+  const { from: _from, to: _to, ...rest } = named.definition;
+  const definition: reporting.ReportDefinition = {
+    ...rest,
+    ...(range.from ? { from: range.from } : {}),
+    ...(range.to ? { to: range.to } : {}),
+  };
+  await tx.update(schema.reportDelivery).set({
+    periodFrom: range.from ?? null, periodTo: range.to ?? null,
+  }).where(eq(schema.reportDelivery.id, deliveryId));
+
+  let result: ReportResult;
+  try {
+    result = await run({ actor: owner, db: tx }, definition, { customerId });
+  } catch (error) {
+    if (error instanceof ConflictError) return fail(`It did not run as the person who set it up: ${error.message}`);
+    throw error;
+  }
+
+  const address = customer.email ? email.normalizeAddress(customer.email) : "";
+  const recipient: DeliveryRecipient = { address };
+  if (address === "") {
+    recipient.refused = "The customer has no email address.";
+  } else {
+    const filename = `${slugify(named.name)}${range.from ? `-${range.from}` : ""}.csv`;
+    const pdfName = filename.replace(/\.csv$/, ".pdf");
+    const company = await companyOf(tx, input.organizationId);
+    const dataset = (await catalogueFor(tx, input.organizationId)).find((d) => d.key === definition.dataset);
+    const kinds = new Map((dataset?.measures ?? []).map((m) => [m.key, m.kind]));
+    const composed = composeReportEmail({
+      name: named.name, question: named.question, period: range.label, result, link: null, filename, pdfName,
+    });
+    const printed = reportFile({
+      company, name: named.name, question: named.question, period: range.label, ranAs: null, result,
+      additive: (key: string) => kinds.get(key) === "count" || kinds.get(key) === "sum",
+      filename: pdfName,
+    });
+    try {
+      const outcome = await email.queue(senderContext(tx, input.organizationId), {
+        to: address,
+        subject: composed.subject,
+        text: composed.text,
+        html: composed.html,
+        purpose: "transactional",
+        customerId,
+        attachments: [
+          { filename, contentType: "text/csv; charset=utf-8", content: Buffer.from(reporting.toCsv(result.columns, result.rows), "utf8") },
+          { filename: pdfName, contentType: "application/pdf", content: Buffer.from(printed.bytes) },
+        ],
+      });
+      if (outcome.queued) recipient.messageId = outcome.messageId;
+      else recipient.refused = outcome.explanation;
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error;
+      recipient.refused = error.message;
+    }
+  }
+
+  const status = recipient.messageId ? "queued" : "refused";
+  await tx.update(schema.reportDelivery).set({
+    status, rowCount: result.rows.length, recipients: [recipient], error: recipient.refused ?? null,
+  }).where(eq(schema.reportDelivery.id, deliveryId));
+  return { delivered: true, deliveryId, status, error: recipient.refused ?? null, recipients: [recipient] };
+}
+
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "report";
 }
@@ -474,6 +621,8 @@ export function readReportStep(config: Record<string, unknown>): {
   userIds: string[];
   addresses: string[];
   period: reporting.Period;
+  /** `customer`: to the customer the event is about, and about them only. `people` otherwise. */
+  audience: "people" | "customer";
 } {
   const report = typeof config["report"] === "string" ? config["report"] : "";
   const source: ReportSource | null = report.startsWith("builtIn:")
@@ -483,7 +632,8 @@ export function readReportStep(config: Record<string, unknown>): {
     .map((v) => String(v).trim()).filter((v) => v !== "");
   const period = typeof config["period"] === "string" && reporting.isPeriod(config["period"])
     ? config["period"] : "all";
-  return { source, userIds: list(config["userIds"]), addresses: list(config["addresses"]), period };
+  const audience = config["to"] === "customer" ? "customer" as const : "people" as const;
+  return { source, userIds: list(config["userIds"]), addresses: list(config["addresses"]), period, audience };
 }
 
 /**
@@ -504,6 +654,17 @@ export async function checkReportStep(
   if (!named) return "The report this step emails does not exist.";
   const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
   if (!decision.ok) return `You cannot email a report you cannot run yourself. ${reporting.explainRefusal(decision)}`;
+  if (step.audience === "customer") {
+    /**
+     * To the customer, and to nobody else in the same step: one step, one
+     * report, one person it is about. Somebody who also wants a copy adds a
+     * second step, which sends them the company's own view.
+     */
+    if (step.userIds.length > 0 || step.addresses.length > 0) {
+      return "A report sent to the customer goes to them alone. Add a second step to send a copy to somebody else.";
+    }
+    return customerReportProblem(named.definition);
+  }
   let addresses: string[];
   try {
     addresses = cleanAddresses(step.addresses);

@@ -53,7 +53,17 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
   const text = (field: string) => String(raw[field] ?? "").trim();
   switch (kind) {
     case "send_message":
-      return { channel: "sms", purpose: "transactional", body: text("body") };
+      /**
+       * Text or email, and transactional either way: an automation's message
+       * is about the customer's own work, and a promotion by email needs an
+       * unsubscribe link, which a campaign carries and a step does not.
+       */
+      return text("channel") === "email"
+        ? {
+          channel: "email", purpose: "transactional", body: text("body"),
+          ...(text("subject") ? { subject: text("subject") } : {}),
+        }
+        : { channel: "sms", purpose: "transactional", body: text("body") };
     case "text_caller":
       return { body: text("body") };
     case "create_task":
@@ -70,6 +80,13 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
        * ticked boxes; outside addresses are one box, split the way people paste
        * a list. The service checks every one of them against the publisher.
        */
+      /**
+       * To the customer the event is about: nobody else in the same step, so the
+       * people and addresses are dropped rather than carried along unseen.
+       */
+      if (text("to") === "customer") {
+        return { report: text("report"), to: "customer", userIds: [], addresses: [], period: text("period") || "all" };
+      }
       const ids = Array.isArray(raw["userIds"]) ? raw["userIds"] : [];
       return {
         report: text("report"),
@@ -99,37 +116,48 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
       return { platform: text("platform") };
     case "branch": {
       /**
-       * The conditions, rebuilt condition by condition. `all` only, which is what
-       * the canvas offers; `any` and `none` are evaluated by the engine and reachable
-       * through the API, and a screen offering them needs a nested group editor.
+       * The three groups the engine evaluates, rebuilt condition by condition.
+       * `all`, `any` and `none` and nothing else, each a list of named fields, so
+       * a posted plan cannot nest a group inside a group or add a key the engine
+       * would ignore.
        *
        * A condition with no path is dropped rather than saved: it is a row somebody
        * added and did not fill in, and keeping it would make the branch compare
-       * against nothing and silently always hold.
+       * against nothing. An empty `any` or `none` is left out, because the engine
+       * reads an empty `any` as "not asked" and the screen should say the same.
        */
-      const group = (raw["conditions"] ?? {}) as { all?: unknown };
-      const all = Array.isArray(group.all) ? group.all : [];
-      const conditions = all
-        .map((entry) => (entry ?? {}) as Record<string, unknown>)
-        .filter((entry) => String(entry["path"] ?? "").trim() !== "")
-        .map((entry) => {
-          const op = String(entry["op"] ?? "eq");
-          const base = { path: String(entry["path"]).trim(), op };
-          if (op === "exists" || op === "not_exists") return base;
-          const given = String(entry["value"] ?? "");
-          /**
-           * A numeric comparator gets a number. The browser posts every value as a
-           * string, and `"1000" > 1000` is false for a string comparison, so a
-           * branch on an invoice total would read as never holding.
-           */
-          const numericOp = op === "gt" || op === "gte" || op === "lt" || op === "lte";
-          return { ...base, value: numericOp && given !== "" ? Number(given) : given };
-        });
-      return { conditions: { all: conditions } };
+      const group = (raw["conditions"] ?? {}) as Record<string, unknown>;
+      const conditions: Record<string, unknown[]> = { all: cleanConditions(group["all"]) };
+      for (const key of ["any", "none"] as const) {
+        const rows = cleanConditions(group[key]);
+        if (rows.length > 0) conditions[key] = rows;
+      }
+      return { conditions };
     }
     default:
       return {};
   }
+}
+
+/** One group's conditions, each rebuilt from its three fields. */
+function cleanConditions(list: unknown) {
+  const rows = Array.isArray(list) ? list : [];
+  return rows
+    .map((entry) => (entry ?? {}) as Record<string, unknown>)
+    .filter((entry) => String(entry["path"] ?? "").trim() !== "")
+    .map((entry) => {
+      const op = String(entry["op"] ?? "eq");
+      const base = { path: String(entry["path"]).trim(), op };
+      if (op === "exists" || op === "not_exists") return base;
+      const given = String(entry["value"] ?? "");
+      /**
+       * A numeric comparator gets a number. The browser posts every value as a
+       * string, and `"1000" > 1000` is false for a string comparison, so a
+       * branch on an invoice total would read as never holding.
+       */
+      const numericOp = op === "gt" || op === "gte" || op === "lt" || op === "lte";
+      return { ...base, value: numericOp && given !== "" ? Number(given) : given };
+    });
 }
 
 function planFrom(form: FormData): automation.PlanNode[] {
