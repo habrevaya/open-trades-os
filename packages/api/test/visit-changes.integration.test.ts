@@ -314,3 +314,123 @@ run("the office answering", () => {
     expect((await visitChanges.list(office(), { status: "pending" })).map((r) => r.id)).toEqual([asked.id]);
   });
 });
+
+run("the office offering another time", () => {
+  /** A request to move, waiting, and the time the office will offer instead. */
+  async function askedToMove() {
+    const coming = await aComingVisit();
+    const asked = await visitChanges.request(db(), {
+      token: coming.token, kind: "reschedule", requestedDate: dayFromNow(9), arrivalWindowId: windowId,
+    });
+    return { ...coming, asked, offered: dayFromNow(11) };
+  }
+
+  it("lists the times online booking would offer, sends one with a link, and moves nothing", async () => {
+    const { token, visitId, day, asked, offered } = await askedToMove();
+    const times = await visitChanges.proposalTimes(office(), { id: asked.id });
+    expect(times.map((t) => t.date)).toContain(offered);
+
+    const proposed = await visitChanges.propose(office(), {
+      id: asked.id, date: offered, arrivalWindowId: windowId, response: "We are full on the 9th.",
+    });
+    expect(proposed).toMatchObject({ status: "proposed", notified: "queued", proposedDate: offered });
+    expect(proposed.proposedStart).toBe(at(offered, "08:00").toISOString());
+
+    // Nothing moved, and the technician is still on it.
+    const visit = await visitRow(visitId);
+    expect(visit.status).toBe("dispatched");
+    expect(visit.window_start.toISOString()).toBe(at(day, "13:00").toISOString());
+    expect(await raw`select id from public.visit_assignment where visit_id = ${visitId}`).toHaveLength(1);
+
+    // The office has answered, so its task is done; the customer has the offer and a link to it.
+    const [task] = await raw<{ status: string; outcome: string }[]>`select status, outcome from public.task where organization_id = ${ORG}`;
+    expect(task).toMatchObject({ status: "done" });
+    expect(task!.outcome).toMatch(/^Offered/);
+    const [message] = await outbound();
+    expect(message!.body).toContain("We are full on the 9th.");
+    expect(message!.body).toMatch(/Say yes or no here: \S+\/j\/\S+\/change\?visit=/);
+
+    const options = await visitChanges.options(db(), { token });
+    expect(options.proposal).toMatchObject({ id: asked.id, open: true, proposedStart: at(offered, "08:00").toISOString() });
+    expect(options.canChange).toBe(false);
+
+    // A replay is the offer already made; a second answer from the office is refused.
+    expect((await visitChanges.propose(office(), { id: asked.id, date: offered, arrivalWindowId: windowId })).status).toBe("proposed");
+    await expect(visitChanges.approve(office(), { id: asked.id })).rejects.toThrow(/customer has not replied yet/);
+  });
+
+  it("holds the offered time against the window while the customer decides", async () => {
+    await raw`update public.bookable_service set max_per_window = 1 where id = ${serviceId}`;
+    const { asked, offered } = await askedToMove();
+    await visitChanges.propose(office(), { id: asked.id, date: offered, arrivalWindowId: windowId });
+    const [service] = await inTenant(as(["owner"]), (tx) =>
+      tx.select().from(schema.bookableService).where(eq(schema.bookableService.id, serviceId)));
+    const slots = await booking.openSlots(db(), { organizationId: ORG, timezone: ZONE, service: service!, from: offered, days: 1 });
+    expect(slots).toEqual([]);
+  });
+
+  it("moves the visit when the customer says yes, and asks the office to put somebody on it", async () => {
+    const { token, visitId, asked, offered } = await askedToMove();
+    await visitChanges.propose(office(), { id: asked.id, date: offered, arrivalWindowId: windowId });
+    const answered = await visitChanges.answer(db(), { token, visitId, accept: true, answer: "Friday is fine" });
+    expect(answered).toMatchObject({ status: "accepted", answer: "Friday is fine" });
+
+    const visit = await visitRow(visitId);
+    expect(visit.status).toBe("unassigned");
+    expect(visit.window_start.toISOString()).toBe(at(offered, "08:00").toISOString());
+    expect(await raw`select id from public.visit_assignment where visit_id = ${visitId}`).toHaveLength(0);
+
+    const open = await raw<{ title: string; entity_type: string; entity_id: string }[]>`
+      select title, entity_type, entity_id from public.task where organization_id = ${ORG} and status = 'open'`;
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ entity_type: "visit", entity_id: visitId });
+    expect(open[0]!.title).toMatch(/Dana Change took .* put somebody on the visit/);
+
+    // The technician who had it is told it is off their day.
+    const [event] = await raw`select payload from public.domain_event
+      where organization_id = ${ORG} and name = 'visit.unassigned' and entity_id = ${visitId}`;
+    expect(event).toBeTruthy();
+
+    // The same answer again is the answer already given; the other answer is refused.
+    expect((await visitChanges.answer(db(), { token, visitId, accept: true })).status).toBe("accepted");
+    await expect(visitChanges.answer(db(), { token, visitId, accept: false })).rejects.toThrow(/already answered/);
+    expect((await visitChanges.options(db(), { token, visitId })).decided).toMatchObject({ status: "accepted" });
+  });
+
+  it("leaves the visit where it was when the customer says no, and raises it for the office", async () => {
+    const { token, visitId, day, asked, offered } = await askedToMove();
+    await visitChanges.propose(office(), { id: asked.id, date: offered, arrivalWindowId: windowId });
+    expect((await visitChanges.answer(db(), { token, visitId, accept: false, answer: "Only mornings that week" })).status)
+      .toBe("turned_down");
+    expect((await visitRow(visitId)).window_start.toISOString()).toBe(at(day, "13:00").toISOString());
+    const [task] = await raw<{ title: string; priority: string; body: string }[]>`
+      select title, priority, body from public.task where organization_id = ${ORG} and status = 'open'`;
+    expect(task).toMatchObject({ priority: "high" });
+    expect(task!.title).toContain("said no to");
+    expect(task!.body).toContain("Only mornings that week");
+    // A new request can be made now that this one is answered.
+    expect((await visitChanges.options(db(), { token, visitId })).canChange).toBe(true);
+  });
+
+  it("offers another time only for a move, and only one online booking would offer", async () => {
+    const { token } = await aComingVisit();
+    const cancel = await visitChanges.request(db(), { token, kind: "cancel", reason: "Moving house" });
+    await expect(visitChanges.propose(office(), { id: cancel.id, date: dayFromNow(11), arrivalWindowId: windowId }))
+      .rejects.toThrow(/only when the customer asked to move/);
+
+    await raw`delete from public.visit_change_request where organization_id = ${ORG}`;
+    const { asked } = await askedToMove();
+    await expect(visitChanges.propose(office(), { id: asked.id, date: dayFromNow(0), arrivalWindowId: windowId }))
+      .rejects.toThrow(/not open/);
+    await expect(visitChanges.propose(as(["technician"]), { id: asked.id, date: dayFromNow(11), arrivalWindowId: windowId }))
+      .rejects.toThrow();
+  });
+
+  it("will not take a yes once the visit is under way", async () => {
+    const { token, visitId, asked, offered } = await askedToMove();
+    await visitChanges.propose(office(), { id: asked.id, date: offered, arrivalWindowId: windowId });
+    await raw`update public.visit set status = 'en_route' where id = ${visitId}`;
+    expect((await visitChanges.options(db(), { token, visitId })).proposal?.open).toBe(false);
+    await expect(visitChanges.answer(db(), { token, visitId, accept: true })).rejects.toThrow(/no longer be used/);
+  });
+});

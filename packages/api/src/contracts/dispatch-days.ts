@@ -19,8 +19,13 @@ const DayMove = z.object({
   fromDate: z.string().date(),
   toDate: z.string().date(),
   fromTechnicianId: Uuid.nullable(),
+  /** Set instead of the technician when a crew had it. */
+  fromCrewId: Uuid.nullable(),
   fromName: z.string().nullable(),
-  toTechnicianId: Uuid,
+  /** The person it goes to, or null when it goes to a crew. */
+  toTechnicianId: Uuid.nullable(),
+  /** The crew it goes to, or null when it goes to a person. Crew work only ever goes to a crew. */
+  toCrewId: Uuid.nullable(),
   toName: z.string(),
   /** The window on the new day: the same wall clock times. */
   windowStart: z.string().datetime(),
@@ -29,12 +34,18 @@ const DayMove = z.object({
   because: z.enum(["range", "weekdays"]),
 });
 
+/** A visit to a person (`technicianId`) or to a crew (`crewId`), exactly one of the two. */
+const DayMoveApply = z.object({ visitId: Uuid, toDate: z.string().date(), technicianId: Uuid.optional(), crewId: Uuid.optional() });
+const MoveApply = z.object({ visitId: Uuid, technicianId: Uuid.optional(), crewId: Uuid.optional() });
+/** A crew's day in order, set as its visits' route order. */
+const CrewOrder = z.object({ date: z.string().date(), crewId: Uuid, visitIds: z.array(Uuid).max(60) });
+
 export const getMultiDayRebalance = defineRoute({
   method: "get",
   path: "/v1/dispatch/rebalance/days",
   summary: "Propose several days rebalanced, moving visits between days where the customer agreed",
   description:
-    "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.",
+    "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, never past the per window limit online booking sells for that work, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Crews are planned like people: a crew's visit goes only to a crew, checked for its kit and its people on the day. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ from: z.string().date(), days: z.number().int().min(2).max(7).default(5) }),
@@ -54,8 +65,10 @@ export const getMultiDayRebalance = defineRoute({
       customerName: z.string(),
       date: z.string().date(),
       fromTechnicianId: Uuid.nullable(),
+      fromCrewId: Uuid.nullable(),
       fromName: z.string().nullable(),
-      toTechnicianId: Uuid,
+      toTechnicianId: Uuid.nullable(),
+      toCrewId: Uuid.nullable(),
       toName: z.string(),
     })),
     /** Each day as it is and as it would be. */
@@ -75,8 +88,18 @@ export const getMultiDayRebalance = defineRoute({
         before: RebalancedDay,
         after: RebalancedDay,
       })),
+      /** Each crew's day as it is and as it would be, planned like a person's. */
+      crews: z.array(z.object({
+        crewId: Uuid,
+        name: z.string(),
+        color: z.string().nullable(),
+        before: RebalancedDay,
+        after: RebalancedDay,
+      })),
       unplaced: z.array(z.object({ visitId: Uuid, customerName: z.string(), reason: z.string() })),
       leftOut: z.array(z.object({ technicianId: Uuid, displayName: z.string(), reason: z.string() })),
+      /** Crews with work that day that are not planned, with their work where it is, and why. */
+      crewsLeftOut: z.array(z.object({ crewId: Uuid, name: z.string(), reason: z.string() })),
     })),
     /** Every visit planned, so a screen can name the stops. */
     visits: z.array(z.object({
@@ -93,9 +116,10 @@ export const getMultiDayRebalance = defineRoute({
     overtimeAfterMinutes: z.number().int(),
     /** Ready for the apply call. */
     apply: z.object({
-      dayMoves: z.array(z.object({ visitId: Uuid, toDate: z.string().date(), technicianId: Uuid })),
-      moves: z.array(z.object({ visitId: Uuid, technicianId: Uuid })),
+      dayMoves: z.array(DayMoveApply),
+      moves: z.array(MoveApply),
       orders: z.array(z.object({ date: z.string().date(), technicianId: Uuid, visitIds: z.array(Uuid) })),
+      crewOrders: z.array(CrewOrder),
     }),
     workday: Workday,
     ...DriveSource,
@@ -107,7 +131,7 @@ export const applyMultiDayRebalance = defineRoute({
   path: "/v1/dispatch/rebalance/days/apply",
   summary: "Apply several rebalanced days somebody looked at",
   description:
-    "Moves each visit to its new day at the same wall clock times and puts it on the person proposed through the assignment a drag uses, so skills and time off are checked again on the new day; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person on their own day and sets each changed day's order. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.",
+    "Moves each visit to its new day at the same wall clock times and puts it on the person or crew proposed through the assignment a drag uses, so skills and time off (and a crew's kit and people) are checked again on the new day, and online booking's per window limit is read again; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person or crew on their own day and sets each changed day's order, a crew's included. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.",
   module: "M09",
   permissions: ["visit:dispatch", "visit:reschedule"],
   idempotent: true,
@@ -115,9 +139,10 @@ export const applyMultiDayRebalance = defineRoute({
     from: z.string().date(),
     days: z.number().int().min(2).max(7),
     basis: z.string().min(1).max(100),
-    dayMoves: z.array(z.object({ visitId: Uuid, toDate: z.string().date(), technicianId: Uuid })).max(200),
-    moves: z.array(z.object({ visitId: Uuid, technicianId: Uuid })).max(400),
+    dayMoves: z.array(DayMoveApply).max(200),
+    moves: z.array(MoveApply).max(400),
     orders: z.array(z.object({ date: z.string().date(), technicianId: Uuid, visitIds: z.array(Uuid).max(60) })).max(400),
+    crewOrders: z.array(CrewOrder).max(200).optional(),
   }),
   output: z.object({
     ok: z.literal(true),

@@ -422,6 +422,36 @@ export interface AnswerNumberHereOutput {
   menuId: string | null;
 }
 
+export interface AnswerPortalVisitChangeProposalInput {
+  token: string;
+  visitId?: string;
+  accept: boolean;
+  answer?: string;
+}
+
+export interface AnswerPortalVisitChangeProposalOutput {
+  id: string;
+  visitId: string;
+  jobId: string;
+  kind: "reschedule" | "cancel";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  reason: string | null;
+  requestedDate: string | null;
+  requestedStart: string | null;
+  requestedEnd: string | null;
+  previousStart: string | null;
+  previousEnd: string | null;
+  response: string | null;
+  notified: string | null;
+  decidedAt: string | null;
+  proposedDate: string | null;
+  proposedStart: string | null;
+  proposedEnd: string | null;
+  answeredAt: string | null;
+  answer: string | null;
+  createdAt: string;
+}
+
 export interface ApplyContractEscalationInput {
   anniversary: string;
   rate: string;
@@ -587,15 +617,22 @@ export interface ApplyMultiDayRebalanceInput {
   dayMoves: Array<{
     visitId: string;
     toDate: string;
-    technicianId: string;
+    technicianId?: string;
+    crewId?: string;
   }>;
   moves: Array<{
     visitId: string;
-    technicianId: string;
+    technicianId?: string;
+    crewId?: string;
   }>;
   orders: Array<{
     date: string;
     technicianId: string;
+    visitIds: string[];
+  }>;
+  crewOrders?: Array<{
+    date: string;
+    crewId: string;
     visitIds: string[];
   }>;
 }
@@ -1016,7 +1053,7 @@ export interface ApproveVisitChangeRequestOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -1026,6 +1063,11 @@ export interface ApproveVisitChangeRequestOutput {
   response: string | null;
   notified: string | null;
   decidedAt: string | null;
+  proposedDate: string | null;
+  proposedStart: string | null;
+  proposedEnd: string | null;
+  answeredAt: string | null;
+  answer: string | null;
   createdAt: string;
   assignmentsRemoved: number;
 }
@@ -4186,7 +4228,7 @@ export interface DeclineVisitChangeRequestOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -4196,6 +4238,11 @@ export interface DeclineVisitChangeRequestOutput {
   response: string | null;
   notified: string | null;
   decidedAt: string | null;
+  proposedDate: string | null;
+  proposedStart: string | null;
+  proposedEnd: string | null;
+  answeredAt: string | null;
+  answer: string | null;
   createdAt: string;
 }
 
@@ -6137,6 +6184,11 @@ export interface GetDispatchMapOutput {
       visitId: string | null;
       freshness: "live" | "recent" | "stale";
       lastSeen: string;
+      trail: Array<{
+        lat: number;
+        lng: number;
+        at: string;
+      }>;
     }>;
   } | null;
 }
@@ -7391,6 +7443,11 @@ export interface GetLivePositionsOutput {
     visitId: string | null;
     freshness: "live" | "recent" | "stale";
     lastSeen: string;
+    trail: Array<{
+      lat: number;
+      lng: number;
+      at: string;
+    }>;
   }>;
 }
 
@@ -7603,8 +7660,10 @@ export interface GetMultiDayRebalanceOutput {
     fromDate: string;
     toDate: string;
     fromTechnicianId: string | null;
+    fromCrewId: string | null;
     fromName: string | null;
-    toTechnicianId: string;
+    toTechnicianId: string | null;
+    toCrewId: string | null;
     toName: string;
     windowStart: string;
     windowEnd: string | null;
@@ -7615,8 +7674,10 @@ export interface GetMultiDayRebalanceOutput {
     customerName: string;
     date: string;
     fromTechnicianId: string | null;
+    fromCrewId: string | null;
     fromName: string | null;
-    toTechnicianId: string;
+    toTechnicianId: string | null;
+    toCrewId: string | null;
     toName: string;
   }>;
   perDay: Array<{
@@ -7661,6 +7722,39 @@ export interface GetMultiDayRebalanceOutput {
         refused: string[];
       };
     }>;
+    crews: Array<{
+      crewId: string;
+      name: string;
+      color: string | null;
+      before: {
+        order: string[];
+        driveMinutes: number;
+        finishAt: string;
+        overtimeMinutes: number;
+        overLimitMinutes: number;
+        lunchAt: string | null;
+        lunchLateMinutes: number;
+        late: Array<{
+          visitId: string;
+          lateByMinutes: number;
+        }>;
+        refused: string[];
+      };
+      after: {
+        order: string[];
+        driveMinutes: number;
+        finishAt: string;
+        overtimeMinutes: number;
+        overLimitMinutes: number;
+        lunchAt: string | null;
+        lunchLateMinutes: number;
+        late: Array<{
+          visitId: string;
+          lateByMinutes: number;
+        }>;
+        refused: string[];
+      };
+    }>;
     unplaced: Array<{
       visitId: string;
       customerName: string;
@@ -7669,6 +7763,11 @@ export interface GetMultiDayRebalanceOutput {
     leftOut: Array<{
       technicianId: string;
       displayName: string;
+      reason: string;
+    }>;
+    crewsLeftOut: Array<{
+      crewId: string;
+      name: string;
       reason: string;
     }>;
   }>;
@@ -7688,15 +7787,22 @@ export interface GetMultiDayRebalanceOutput {
     dayMoves: Array<{
       visitId: string;
       toDate: string;
-      technicianId: string;
+      technicianId?: string;
+      crewId?: string;
     }>;
     moves: Array<{
       visitId: string;
-      technicianId: string;
+      technicianId?: string;
+      crewId?: string;
     }>;
     orders: Array<{
       date: string;
       technicianId: string;
+      visitIds: string[];
+    }>;
+    crewOrders: Array<{
+      date: string;
+      crewId: string;
       visitIds: string[];
     }>;
   };
@@ -8246,6 +8352,15 @@ export interface GetPortalVisitChangeOutput {
     status: string;
     response: string | null;
     decidedAt: string | null;
+  } | null;
+  proposal: {
+    id: string;
+    requestedStart: string | null;
+    requestedEnd: string | null;
+    proposedStart: string;
+    proposedEnd: string | null;
+    response: string | null;
+    open: boolean;
   } | null;
   canChange: boolean;
   changeBlockedBy: string | null;
@@ -13724,7 +13839,7 @@ export interface ListVisitChangeRequestsOutput {
     visitId: string;
     jobId: string;
     kind: "reschedule" | "cancel";
-    status: "pending" | "approved" | "declined" | "superseded";
+    status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
     reason: string | null;
     requestedDate: string | null;
     requestedStart: string | null;
@@ -13734,6 +13849,11 @@ export interface ListVisitChangeRequestsOutput {
     response: string | null;
     notified: string | null;
     decidedAt: string | null;
+    proposedDate: string | null;
+    proposedStart: string | null;
+    proposedEnd: string | null;
+    answeredAt: string | null;
+    answer: string | null;
     createdAt: string;
     customerId: string;
     customerName: string;
@@ -13741,6 +13861,17 @@ export interface ListVisitChangeRequestsOutput {
     jobSummary: string;
     visitStatus: string;
     taskId: string | null;
+  }>;
+}
+
+export interface ListVisitChangeTimesOutput {
+  slots: Array<{
+    date: string;
+    arrivalWindowId: string;
+    label: string;
+    startsAt: string;
+    endsAt: string;
+    remaining: number;
   }>;
 }
 
@@ -15053,6 +15184,35 @@ export interface PreviewVendorCatalogueOutput {
     unchanged: number;
     skip: number;
   };
+}
+
+export interface ProposeVisitChangeTimeInput {
+  date: string;
+  arrivalWindowId: string;
+  response?: string;
+}
+
+export interface ProposeVisitChangeTimeOutput {
+  id: string;
+  visitId: string;
+  jobId: string;
+  kind: "reschedule" | "cancel";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  reason: string | null;
+  requestedDate: string | null;
+  requestedStart: string | null;
+  requestedEnd: string | null;
+  previousStart: string | null;
+  previousEnd: string | null;
+  response: string | null;
+  notified: string | null;
+  decidedAt: string | null;
+  proposedDate: string | null;
+  proposedStart: string | null;
+  proposedEnd: string | null;
+  answeredAt: string | null;
+  answer: string | null;
+  createdAt: string;
 }
 
 export interface PublishRegulatoryConstantInput {
@@ -16655,7 +16815,7 @@ export interface RequestPortalVisitChangeOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -16665,6 +16825,11 @@ export interface RequestPortalVisitChangeOutput {
   response: string | null;
   notified: string | null;
   decidedAt: string | null;
+  proposedDate: string | null;
+  proposedStart: string | null;
+  proposedEnd: string | null;
+  answeredAt: string | null;
+  answer: string | null;
   createdAt: string;
 }
 
@@ -20391,6 +20556,7 @@ export interface UpdateJobInput {
   priceSource?: "price_book" | "rate_card" | "warranty_schedule" | "manufacturer_allowance" | "insurance_schedule" | "bid";
   status?: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   completedAt?: string;
+  cancelVisits?: boolean;
 }
 
 export interface UpdateJobOutput {
@@ -24021,8 +24187,14 @@ export interface ListVendorItemsInput {
 export type ListVendorsInput = Record<string, never>;
 
 export interface ListVisitChangeRequestsInput {
-  status?: "pending" | "approved" | "declined" | "superseded";
+  status?: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
   jobId?: string;
+}
+
+export interface ListVisitChangeTimesInput {
+  id: string;
+  from?: string;
+  days?: number;
 }
 
 export interface ListWageScalesInput {
@@ -24208,6 +24380,10 @@ export interface PreviewRetentionPurgeInput {
 }
 
 export interface PreviewTradePackUpgradeInput {
+  id: string;
+}
+
+export interface ProposeVisitChangeTimeParams {
   id: string;
 }
 
@@ -25156,6 +25332,7 @@ export interface OperationTypes {
   advanceRegulatorySubmission: { input: AdvanceRegulatorySubmissionParams & AdvanceRegulatorySubmissionInput; output: AdvanceRegulatorySubmissionOutput };
   annotateServiceReport: { input: AnnotateServiceReportParams & AnnotateServiceReportInput; output: AnnotateServiceReportOutput };
   answerNumberHere: { input: AnswerNumberHereParams & AnswerNumberHereInput; output: AnswerNumberHereOutput };
+  answerPortalVisitChangeProposal: { input: AnswerPortalVisitChangeProposalInput; output: AnswerPortalVisitChangeProposalOutput };
   applyContractEscalation: { input: ApplyContractEscalationParams & ApplyContractEscalationInput; output: ApplyContractEscalationOutput };
   applyCreditNote: { input: ApplyCreditNoteParams & ApplyCreditNoteInput; output: ApplyCreditNoteOutput };
   applyDeposit: { input: ApplyDepositParams & ApplyDepositInput; output: ApplyDepositOutput };
@@ -25703,6 +25880,7 @@ export interface OperationTypes {
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
   listVendors: { input: ListVendorsInput; output: ListVendorsOutput };
   listVisitChangeRequests: { input: ListVisitChangeRequestsInput; output: ListVisitChangeRequestsOutput };
+  listVisitChangeTimes: { input: ListVisitChangeTimesInput; output: ListVisitChangeTimesOutput };
   listWageScales: { input: ListWageScalesInput; output: ListWageScalesOutput };
   listWebhookDeliveries: { input: ListWebhookDeliveriesInput; output: ListWebhookDeliveriesOutput };
   listWebhookEndpoints: { input: ListWebhookEndpointsInput; output: ListWebhookEndpointsOutput };
@@ -25765,6 +25943,7 @@ export interface OperationTypes {
   previewScaleTickets: { input: PreviewScaleTicketsInput; output: PreviewScaleTicketsOutput };
   previewTradePackUpgrade: { input: PreviewTradePackUpgradeInput; output: PreviewTradePackUpgradeOutput };
   previewVendorCatalogue: { input: PreviewVendorCatalogueInput; output: PreviewVendorCatalogueOutput };
+  proposeVisitChangeTime: { input: ProposeVisitChangeTimeParams & ProposeVisitChangeTimeInput; output: ProposeVisitChangeTimeOutput };
   publishRegulatoryConstant: { input: PublishRegulatoryConstantInput; output: PublishRegulatoryConstantOutput };
   publishRevision: { input: PublishRevisionParams & PublishRevisionInput; output: PublishRevisionOutput };
   publishServiceReport: { input: PublishServiceReportParams & PublishServiceReportInput; output: PublishServiceReportOutput };
@@ -26118,6 +26297,7 @@ export const OPERATIONS = {
   advanceRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/state", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   annotateServiceReport: { method: "PATCH", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   answerNumberHere: { method: "POST", path: "/v1/phone-numbers/{id}/answer-here", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  answerPortalVisitChangeProposal: { method: "POST", path: "/v1/portal/visit-change/answer", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   applyContractEscalation: { method: "POST", path: "/v1/contracts/{contractId}/escalation", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   applyCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   applyDeposit: { method: "POST", path: "/v1/deposits/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:collect","invoice:write"] },
@@ -26665,6 +26845,7 @@ export const OPERATIONS = {
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVendors: { method: "GET", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVisitChangeRequests: { method: "GET", path: "/v1/visit-change-requests", pathParams: [], queryParams: ["status","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  listVisitChangeTimes: { method: "GET", path: "/v1/visit-change-requests/{id}/times", pathParams: ["id"], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listWageScales: { method: "GET", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: ["classification"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   listWebhookDeliveries: { method: "GET", path: "/v1/webhooks/endpoints/{id}/deliveries", pathParams: ["id"], queryParams: ["cursor","limit","status","eventId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["integration:read"] },
   listWebhookEndpoints: { method: "GET", path: "/v1/webhooks/endpoints", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -26727,6 +26908,7 @@ export const OPERATIONS = {
   previewScaleTickets: { method: "POST", path: "/v1/scale-tickets/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   previewTradePackUpgrade: { method: "GET", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewVendorCatalogue: { method: "POST", path: "/v1/vendor-catalogue/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write","pricebook:write"] },
+  proposeVisitChangeTime: { method: "POST", path: "/v1/visit-change-requests/{id}/propose", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   publishRegulatoryConstant: { method: "POST", path: "/v1/compliance/constants", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   publishRevision: { method: "POST", path: "/v1/pricebook/scheduled/{versionId}/publish", pathParams: ["versionId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:publish"] },
   publishServiceReport: { method: "POST", path: "/v1/service-reports/{id}/publish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
@@ -27274,6 +27456,15 @@ export abstract class GeneratedOperations {
    */
   answerNumberHere(input: AnswerNumberHereParams & AnswerNumberHereInput, options?: CallOptions): Promise<AnswerNumberHereOutput> {
     return this.call("answerNumberHere", input, options);
+  }
+
+  /**
+   * Take or turn down the time the office offered.
+   *
+   * POST /v1/portal/visit-change/answer.
+   */
+  answerPortalVisitChangeProposal(input: AnswerPortalVisitChangeProposalInput, options?: CallOptions): Promise<AnswerPortalVisitChangeProposalOutput> {
+    return this.call("answerPortalVisitChangeProposal", input, options);
   }
 
   /**
@@ -32200,6 +32391,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The times the office could offer instead.
+   *
+   * GET /v1/visit-change-requests/{id}/times. Needs visit:read.
+   */
+  listVisitChangeTimes(input: ListVisitChangeTimesInput, options?: CallOptions): Promise<ListVisitChangeTimesOutput> {
+    return this.call("listVisitChangeTimes", input, options);
+  }
+
+  /**
    * The rates each classification is paid at, dated.
    *
    * GET /v1/payroll/wage-scales. Needs timesheet:read.
@@ -32755,6 +32955,15 @@ export abstract class GeneratedOperations {
    */
   previewVendorCatalogue(input: PreviewVendorCatalogueInput, options?: CallOptions): Promise<PreviewVendorCatalogueOutput> {
     return this.call("previewVendorCatalogue", input, options);
+  }
+
+  /**
+   * Offer the customer a different time.
+   *
+   * POST /v1/visit-change-requests/{id}/propose. Needs visit:reschedule.
+   */
+  proposeVisitChangeTime(input: ProposeVisitChangeTimeParams & ProposeVisitChangeTimeInput, options?: CallOptions): Promise<ProposeVisitChangeTimeOutput> {
+    return this.call("proposeVisitChangeTime", input, options);
   }
 
   /**

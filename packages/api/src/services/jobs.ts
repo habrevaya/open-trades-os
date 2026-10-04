@@ -1,7 +1,7 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
-import { time } from "@opentradesos/core";
+import { assertCan, time } from "@opentradesos/core";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
@@ -15,7 +15,7 @@ import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
 import { assertPlaceable } from "./branches";
 import { emit } from "./events";
-import { announce, NEW_VISIT } from "./visit-notices";
+import { announce, NEW_VISIT, sideOf } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
 import { gate as qualificationGate, workSkills } from "./qualification";
@@ -615,6 +615,20 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }
 
     /**
+     * Calling off the visits is a schedule decision as well as a job one,
+     * so it needs the permission that cancels a visit anywhere else, and it
+     * only goes with the move to cancelled.
+     */
+    if (input.cancelVisits) {
+      if (input.status !== "cancelled") {
+        throw new UnprocessableError("cancelVisits goes with the move to cancelled", [{
+          path: "cancelVisits", message: 'Send it with status "cancelled".',
+        }]);
+      }
+      assertCan(ctx.actor, "visit:reschedule");
+    }
+
+    /**
      * WHEN IT WAS FINISHED, on the move to finished and at no other time.
      *
      * Completing a job stamped now, so a job finished in 2022 and recorded
@@ -768,8 +782,73 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       }
     }
 
+    if (input.cancelVisits && input.status === "cancelled") {
+      await cancelVisitsStillToCome(tx, ctx, input.id);
+    }
+
     return clean(ctx, "job", after!);
   });
+}
+
+/** Not started: nobody is on the way and nothing has been done. */
+const NOT_STARTED = ["unassigned", "scheduled", "dispatched"] as const;
+
+/**
+ * THE JOB IS OFF, SO ITS VISITS STILL TO COME ARE TOO.
+ *
+ * Cancelling a job used to leave its visits on the board, so a technician
+ * still drove to work nobody wanted and their phone was never told. Offered
+ * rather than automatic, because the office sometimes cancels a job to
+ * rebook the work on a new one and moves the visit across by hand.
+ *
+ * Only visits not started, whose window has not ended (or that have no
+ * time yet). A visit somebody is on the way to or working is left as it is:
+ * the person in the van is the one to talk to, and a status changed under
+ * them reads as a conflict on their phone. A visit whose window passed
+ * without anybody marking it is a gap in the record, not future work, and
+ * is left for the office to settle.
+ *
+ * Each one is cancelled the way a visit is cancelled on a customer's
+ * request: off the route order, its technicians told through the visit's
+ * notices ("Do not go"), and any request of the customer's still waiting
+ * on it closed with that said, so nobody approves a move of a visit that is
+ * no longer happening.
+ */
+async function cancelVisitsStillToCome(tx: Database, ctx: ServiceContext, jobId: string): Promise<string[]> {
+  const now = new Date();
+  const visits = await tx.select({ id: schema.visit.id }).from(schema.visit)
+    .where(and(
+      eq(schema.visit.jobId, jobId),
+      inArray(schema.visit.status, [...NOT_STARTED]),
+      sql`(coalesce(${schema.visit.windowEnd}, ${schema.visit.windowStart}) is null
+        or coalesce(${schema.visit.windowEnd}, ${schema.visit.windowStart}) > ${now.toISOString()}::timestamptz)`,
+    ));
+  const cancelled: string[] = [];
+  for (const visit of visits) {
+    const before = await sideOf(tx, visit.id);
+    await tx.update(schema.visit).set({ status: "cancelled", routeOrder: null, updatedAt: now })
+      .where(eq(schema.visit.id, visit.id));
+    if (before) await announce(tx, ctx, visit.id, before);
+
+    const overtaken = await tx.update(schema.visitChangeRequest).set({
+      status: "superseded", decidedAt: now, updatedAt: now, decidedByUserId: ctx.actor.userId,
+    }).where(and(
+      eq(schema.visitChangeRequest.visitId, visit.id),
+      inArray(schema.visitChangeRequest.status, ["pending", "proposed"]),
+    )).returning({ taskId: schema.visitChangeRequest.taskId });
+    for (const request of overtaken) {
+      if (!request.taskId) continue;
+      await tx.update(schema.task).set({
+        status: "done", outcome: "Overtaken: the office cancelled the job", completedAt: now,
+        completedByUserId: ctx.actor.userId, updatedAt: now,
+      }).where(and(eq(schema.task.id, request.taskId), isNull(schema.task.completedAt)));
+    }
+    cancelled.push(visit.id);
+  }
+  if (cancelled.length > 0) {
+    await audit(tx, ctx, "job.visits_cancelled", "job", jobId, null, { visitIds: cancelled });
+  }
+  return cancelled;
 }
 
 export async function addVisit(ctx: ServiceContext, input: z.infer<typeof scheduleVisit.input>) {

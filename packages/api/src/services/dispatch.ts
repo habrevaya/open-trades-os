@@ -356,15 +356,23 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       ? "dispatched" as const
       : visit.status;
 
+    /**
+     * PEOPLE TAKE OVER FROM A CREW. A crew card dropped on a person on the
+     * board hands the visit to that person: it comes off the crew's lane
+     * and onto their day, and the crew's members hear it is no longer
+     * theirs. A visit carries a crew or people, never both, so leaving the
+     * crew on it would send two vans.
+     */
     await tx.update(schema.visit).set({
       status,
+      crewId: null,
       dispatchedAt: visit.dispatchedAt ?? new Date(),
       ...(input.routeOrder !== undefined ? { routeOrder: input.routeOrder } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.visit.id, input.id));
 
     await audit(tx, ctx, "visit.assigned", "visit", input.id,
-      { status: visit.status }, { status, technicianIds: input.technicianIds });
+      { status: visit.status, crewId: visit.crewId }, { status, technicianIds: input.technicianIds });
     await announce(tx, ctx, input.id, before);
 
     if (qualified.overridden) {

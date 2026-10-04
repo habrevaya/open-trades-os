@@ -1,4 +1,4 @@
-import { and, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, time, marketing as mk, customerPortal as cp, membership, SYSTEM_USER_ID } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
@@ -18,7 +18,7 @@ import type {
   createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
 import { portalBase } from "../lib/portal-base";
-import { qualify } from "./qualification";
+import { qualifyDays } from "./qualification";
 
 
 /**
@@ -194,42 +194,12 @@ export async function openSlots(db: Database, input: {
   const from = new Date(`${input.from}T00:00:00Z`);
   const until = new Date(from.getTime() + days * 864e5);
 
-  const booked = await db.select({
-    date: schema.bookingRequest.requestedDate,
-    windowId: schema.bookingRequest.arrivalWindowId,
-    n: sql<number>`count(*)::int`,
-  }).from(schema.bookingRequest)
-    .where(and(
-      eq(schema.bookingRequest.organizationId, org.id),
-      eq(schema.bookingRequest.bookableServiceId, service.id),
-      inArray(schema.bookingRequest.status, ["pending", "confirmed"]),
-      gte(schema.bookingRequest.requestedDate, input.from),
-      lte(schema.bookingRequest.requestedDate, isoDate(until)),
-    ))
-    .groupBy(schema.bookingRequest.requestedDate, schema.bookingRequest.arrivalWindowId);
-
-  const held = await db.select({
-    date: schema.visitChangeRequest.requestedDate,
-    windowId: schema.visitChangeRequest.arrivalWindowId,
-    n: sql<number>`count(*)::int`,
-  }).from(schema.visitChangeRequest)
-    .where(and(
-      eq(schema.visitChangeRequest.organizationId, org.id),
-      eq(schema.visitChangeRequest.bookableServiceId, service.id),
-      eq(schema.visitChangeRequest.kind, "reschedule"),
-      inArray(schema.visitChangeRequest.status, ["pending", "approved"]),
-      gte(schema.visitChangeRequest.requestedDate, input.from),
-      lte(schema.visitChangeRequest.requestedDate, isoDate(until)),
-      input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
-    ))
-    .groupBy(schema.visitChangeRequest.requestedDate, schema.visitChangeRequest.arrivalWindowId);
-
+  const counts = await takenCounts(db, {
+    organizationId: org.id, serviceIds: [service.id], from: input.from, until: isoDate(until),
+    exceptRequestId: input.exceptRequestId,
+  });
+  const taken = new Map([...counts].map(([key, n]) => [key.slice(service.id.length + 1), n]));
   const takenKey = (date: string, windowId: string) => `${date}|${windowId}`;
-  const taken = new Map<string, number>();
-  for (const b of [...booked, ...held]) {
-    const key = takenKey(b.date ?? "", b.windowId ?? "");
-    taken.set(key, (taken.get(key) ?? 0) + b.n);
-  }
 
   /**
    * WHO COULD ACTUALLY GO, from the board's own facts: the technicians, their
@@ -289,6 +259,129 @@ export async function openSlots(db: Database, input: {
 }
 
 /**
+ * HOW MANY OF A WINDOW'S ONLINE PLACES ARE ALREADY SPOKEN FOR, by service,
+ * day and window: booking requests waiting or confirmed, customers' asks to
+ * move a visit into it (waiting or agreed), and times the office offered a
+ * customer instead (waiting or taken). Keyed `service|date|window`.
+ *
+ * The one count behind the per window ceiling, read by online booking
+ * (`openSlots`) and by the multi day rebalance (`onlineCeilings`), so the
+ * two cannot disagree about whether Thursday morning is full.
+ * `exceptRequestId` leaves one visit change request out.
+ */
+export async function takenCounts(db: Database, input: {
+  organizationId: string;
+  serviceIds: string[];
+  from: string;
+  until: string;
+  exceptRequestId?: string | undefined;
+}): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (input.serviceIds.length === 0) return out;
+  const org = { id: input.organizationId };
+
+  const booked = await db.select({
+    serviceId: schema.bookingRequest.bookableServiceId,
+    date: schema.bookingRequest.requestedDate,
+    windowId: schema.bookingRequest.arrivalWindowId,
+    n: sql<number>`count(*)::int`,
+  }).from(schema.bookingRequest)
+    .where(and(
+      eq(schema.bookingRequest.organizationId, org.id),
+      inArray(schema.bookingRequest.bookableServiceId, input.serviceIds),
+      inArray(schema.bookingRequest.status, ["pending", "confirmed"]),
+      gte(schema.bookingRequest.requestedDate, input.from),
+      lte(schema.bookingRequest.requestedDate, input.until),
+    ))
+    .groupBy(schema.bookingRequest.bookableServiceId, schema.bookingRequest.requestedDate, schema.bookingRequest.arrivalWindowId);
+
+  const held = await db.select({
+    serviceId: schema.visitChangeRequest.bookableServiceId,
+    date: schema.visitChangeRequest.requestedDate,
+    windowId: schema.visitChangeRequest.arrivalWindowId,
+    n: sql<number>`count(*)::int`,
+  }).from(schema.visitChangeRequest)
+    .where(and(
+      eq(schema.visitChangeRequest.organizationId, org.id),
+      inArray(schema.visitChangeRequest.bookableServiceId, input.serviceIds),
+      eq(schema.visitChangeRequest.kind, "reschedule"),
+      inArray(schema.visitChangeRequest.status, ["pending", "approved"]),
+      gte(schema.visitChangeRequest.requestedDate, input.from),
+      lte(schema.visitChangeRequest.requestedDate, input.until),
+      input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
+    ))
+    .groupBy(schema.visitChangeRequest.bookableServiceId, schema.visitChangeRequest.requestedDate, schema.visitChangeRequest.arrivalWindowId);
+
+  /**
+   * A time the office offered a customer instead, waiting for their answer
+   * or taken: held like a time a customer asked for, so the window cannot
+   * be sold to somebody else while they decide.
+   */
+  const offered = await db.select({
+    serviceId: schema.visitChangeRequest.bookableServiceId,
+    date: schema.visitChangeRequest.proposedDate,
+    windowId: schema.visitChangeRequest.proposedArrivalWindowId,
+    n: sql<number>`count(*)::int`,
+  }).from(schema.visitChangeRequest)
+    .where(and(
+      eq(schema.visitChangeRequest.organizationId, org.id),
+      inArray(schema.visitChangeRequest.bookableServiceId, input.serviceIds),
+      inArray(schema.visitChangeRequest.status, ["proposed", "accepted"]),
+      gte(schema.visitChangeRequest.proposedDate, input.from),
+      lte(schema.visitChangeRequest.proposedDate, input.until),
+      input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
+    ))
+    .groupBy(schema.visitChangeRequest.bookableServiceId, schema.visitChangeRequest.proposedDate, schema.visitChangeRequest.proposedArrivalWindowId);
+
+  for (const b of [...booked, ...held, ...offered]) {
+    const key = `${b.serviceId ?? ""}|${b.date ?? ""}|${b.windowId ?? ""}`;
+    out.set(key, (out.get(key) ?? 0) + b.n);
+  }
+  return out;
+}
+
+/**
+ * ONLINE BOOKING'S CEILING, FOR A VISIT MOVED BY THE OFFICE'S REBALANCE.
+ *
+ * Answers, for a visit of some kind of work arriving at some instant, which
+ * of the company's online windows that is and how many more places it has
+ * under the per window limit: the limit less `takenCounts`. Null when the
+ * work is not booked online, or the time is in no window the company
+ * offers on that day, because then there is no ceiling to keep. The first
+ * active service for a job type is its rules, as when a customer moves a
+ * visit from their link.
+ */
+export async function onlineCeilings(db: Database, input: {
+  organizationId: string; timezone: string; from: string; until: string;
+}): Promise<(jobTypeId: string | null, start: Date) => { key: string; remaining: number } | null> {
+  const services = await db.select().from(schema.bookableService)
+    .where(and(eq(schema.bookableService.organizationId, input.organizationId), eq(schema.bookableService.isActive, true)))
+    .orderBy(asc(schema.bookableService.createdAt));
+  const byType = new Map<string, typeof services[number]>();
+  for (const service of services) if (!byType.has(service.jobTypeId)) byType.set(service.jobTypeId, service);
+  if (byType.size === 0) return () => null;
+  const windows = await db.select().from(schema.arrivalWindow)
+    .where(and(eq(schema.arrivalWindow.organizationId, input.organizationId), eq(schema.arrivalWindow.isActive, true)))
+    .orderBy(schema.arrivalWindow.sortOrder);
+  const taken = await takenCounts(db, {
+    organizationId: input.organizationId, serviceIds: [...byType.values()].map((s) => s.id),
+    from: input.from, until: input.until,
+  });
+  return (jobTypeId, start) => {
+    const service = jobTypeId ? byType.get(jobTypeId) : undefined;
+    if (!service) return null;
+    const date = time.dateIn(start, input.timezone);
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const clock = time.minutesInDay(start, input.timezone);
+    const window = windows.find((w) => w.daysOfWeek.includes(dow)
+      && minutesInto(w.startsAt) <= clock && clock < minutesInto(w.endsAt));
+    if (!window) return null;
+    const key = `${service.id}|${date}|${window.id}`;
+    return { key, remaining: Math.max(service.maxPerWindow - (taken.get(key) ?? 0), 0) };
+  };
+}
+
+/**
  * Somebody can still go: checked inside the transaction that writes a
  * request, against the technicians' days as they are now, because the
  * window free when the page drew can be full by the time the form posts.
@@ -327,12 +420,13 @@ export async function assertRoom(db: Database, input: {
  *
  *  - the active technicians, or the one a returning customer asked for;
  *  - whether each is qualified for the service's job type, asked of the
- *    same `qualify` the board's drop and the assignment API ask, once for
- *    the first day shown (a certification lapsing mid fortnight is caught
- *    when the visit is assigned, as it is for any booking);
+ *    same `qualify` the board's drop and the assignment API ask, for each
+ *    day shown (`qualifyDays`), so a licence lapsing mid fortnight stops
+ *    offering that person from the day after it expires;
  *  - their approved time off;
  *  - the visits on their days, each taking its estimated length from when
- *    it is due to arrive;
+ *    it is due to arrive: their own, their crew's (every member is on a
+ *    crew's visit), and a route's stops laid end to end in route order;
  *  - the work waiting for somebody in the same window: unassigned visits,
  *    booking requests not yet booked onto the board, and customers' asks to
  *    move into it.
@@ -368,8 +462,9 @@ export async function capacityReader(db: Database, input: {
       input.technicianId ? eq(schema.technician.id, input.technicianId) : undefined,
     ));
   if (people.length === 0) return null;
-  const verdicts = await qualify(db, org, {
-    technicianIds: people.map((p) => p.id), skills: type?.skills ?? [], on: input.from,
+  /** Asked for each day shown, because a certification can lapse in the middle of the calendar. */
+  const verdictsOn = await qualifyDays(db, org, {
+    technicianIds: people.map((p) => p.id), skills: type?.skills ?? [], from: input.from, until: input.until,
   });
 
   /** A day either side, because a company's day is not a UTC day. */
@@ -377,13 +472,14 @@ export async function capacityReader(db: Database, input: {
   const upper = new Date(time.startOfDayIn(input.until, input.timezone).getTime() + 2 * 864e5);
   const live = sql`${schema.visit.status} not in ('cancelled', 'no_show')`;
 
-  const visits = await db.select({
+  const rows = await db.select({
     id: schema.visit.id,
     start: schema.visit.windowStart,
     minutes: schema.visit.estimatedDurationMinutes,
     technicianId: schema.visitAssignment.technicianId,
-    /** A crew's, a route's or a rental's visit is not waiting for a technician. */
-    otherwise: sql<boolean>`(${schema.visit.crewId} is not null or ${schema.visit.routeId} is not null or ${schema.visit.rentalId} is not null)`,
+    crewId: schema.visit.crewId,
+    routeId: schema.visit.routeId,
+    routeOrder: schema.visit.routeOrder,
     customerId: schema.job.customerId,
     propertyId: schema.job.propertyId,
   })
@@ -397,6 +493,53 @@ export async function capacityReader(db: Database, input: {
       live,
       input.exceptVisitId ? sql`${schema.visit.id} <> ${input.exceptVisitId}` : undefined,
     ));
+
+  /**
+   * WORK THAT IS NOT ONE PERSON'S, COUNTED AGAINST THE PEOPLE WHO DO IT.
+   *
+   * A crew's visit has no assignment rows: it is `visit.crew_id`, and every
+   * member of the crew is on it. Read only the assignments and a crew's
+   * whole Tuesday looked like four free technicians.
+   *
+   * A route's stops are each written with the whole working day as their
+   * window, because a route sells a day and a place in the order, not an
+   * arrival time. Counted from that window's start each, forty stops would
+   * all pile into the first hour; laid end to end in route order (with the
+   * route's declared drive between stops, none when it declares none) they
+   * take the morning they really take. A route run by a crew is on every
+   * member's day like any crew work.
+   *
+   * A rental's leg (a drop or a collection) is done by whoever is assigned
+   * to drive it, so it counts against them through their assignment, and
+   * one nobody drives yet is work waiting for somebody, like any other.
+   */
+  const crewIds = [...new Set(rows.map((r) => r.crewId).filter((id): id is string => id !== null))];
+  const members = crewIds.length === 0 ? [] : await db.select({
+    crewId: schema.crewMember.crewId, technicianId: schema.crewMember.technicianId,
+  }).from(schema.crewMember)
+    .where(and(eq(schema.crewMember.organizationId, org), inArray(schema.crewMember.crewId, crewIds)));
+  const routeIds = [...new Set(rows.map((r) => r.routeId).filter((id): id is string => id !== null))];
+  const drives = routeIds.length === 0 ? [] : await db.select({ id: schema.route.id, minutes: schema.route.travelMinutesBetweenStops })
+    .from(schema.route).where(and(eq(schema.route.organizationId, org), inArray(schema.route.id, routeIds)));
+  const driveOf = new Map(drives.map((d) => [d.id, d.minutes ?? 0]));
+  const laidOut = cp.layRouteStops(
+    [...new Map(rows.filter((r) => r.routeId !== null && r.start !== null).map((r) => [r.id, r])).values()]
+      .map((r) => ({
+        id: r.id, routeId: r.routeId!, day: time.dateIn(r.start!, input.timezone),
+        order: r.routeOrder, start: r.start!, minutes: r.minutes,
+      })),
+    (routeId) => driveOf.get(routeId) ?? 0,
+  );
+  const visits = rows.flatMap((r) => {
+    const laid = laidOut.get(r.id);
+    const start = laid?.start ?? r.start;
+    const minutes = laid?.minutes ?? r.minutes;
+    if (r.crewId === null) return [{ ...r, start, minutes, waiting: r.technicianId === null }];
+    /** One row per member, once per visit however many assignment rows the join produced. */
+    if (rows.find((x) => x.id === r.id) !== r) return [];
+    return members.filter((m) => m.crewId === r.crewId)
+      .map((m) => ({ ...r, start, minutes, technicianId: m.technicianId as string | null, waiting: false }));
+  });
 
   const off = await db.select({
     startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt, technicianId: schema.timeOff.technicianId,
@@ -447,6 +590,22 @@ export async function capacityReader(db: Database, input: {
       lte(schema.visitChangeRequest.requestedDate, input.until),
       input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
     ));
+  /** A time the office offered, while the customer decides: it will need somebody if they say yes. */
+  const offers = await db.select({
+    date: schema.visitChangeRequest.proposedDate,
+    windowId: schema.visitChangeRequest.proposedArrivalWindowId,
+    minutes: schema.visit.estimatedDurationMinutes,
+  })
+    .from(schema.visitChangeRequest)
+    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitChangeRequest.visitId))
+    .where(and(
+      eq(schema.visitChangeRequest.organizationId, org),
+      eq(schema.visitChangeRequest.status, "proposed"),
+      gte(schema.visitChangeRequest.proposedDate, input.from),
+      lte(schema.visitChangeRequest.proposedDate, input.until),
+      input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
+    ));
+  holds.push(...offers);
 
   /**
    * THE SHARE HELD FOR MEMBERS, when the company holds one and has a plan
@@ -469,7 +628,7 @@ export async function capacityReader(db: Database, input: {
     const inWindow = (at: Date | null) => at !== null && at >= span.start && at < span.end;
     let waiting = 0;
     for (const v of visits) {
-      if (!v.technicianId && !v.otherwise && !input.technicianId && inWindow(v.start)) waiting += v.minutes;
+      if (v.waiting && !input.technicianId && inWindow(v.start)) waiting += v.minutes;
     }
     for (const r of requests) {
       if (r.date !== date || r.windowId !== window.id) continue;
@@ -484,7 +643,7 @@ export async function capacityReader(db: Database, input: {
       waitingMinutes: waiting,
       technicians: people.map((person) => ({
         id: person.id,
-        qualified: verdicts.get(person.id)?.qualified ?? true,
+        qualified: verdictsOn(date).get(person.id)?.qualified ?? true,
         away: off.some((o) => o.technicianId === person.id && o.startsAt < span.end && o.endsAt > span.start),
         busy: visits
           .filter((v) => v.technicianId === person.id && v.start !== null)

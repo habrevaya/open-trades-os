@@ -194,3 +194,66 @@ describe("a visit moved to another day", () => {
     expect(run()).toEqual(run());
   });
 });
+
+describe("online booking's per window ceiling", () => {
+  /**
+   * Ray's Tuesday runs past the overtime allowed; d and e both agreed to
+   * Thursday, and Thursday morning is a window the company sells online
+   * with room for one more.
+   */
+  const plan = (remaining: number | null) => {
+    const ceiling = remaining === null ? {} : { ceiling: { key: "thu-morning", remaining } };
+    const visits: routing.DaysVisit[] = ["a", "b", "c", "d", "e"].map((id) => ({
+      id, date: TUE, locked: false,
+      options: [
+        { date: TUE, stop: stop(id, 120), refusals: anybody("ray") },
+        ...(id === "d" || id === "e" ? [{ date: THU, stop: stop(id, 120), refusals: anybody("ray"), ...ceiling }] : []),
+      ],
+    }));
+    return routing.rebalanceDays({
+      days: [
+        { date: TUE, technicians: [person(TUE, "ray", ["a", "b", "c", "d", "e"])], travel },
+        { date: THU, technicians: [person(THU, "ray", [])], travel },
+      ],
+      visits,
+    });
+  };
+
+  it("moves both when nothing limits the window", () => {
+    expect(plan(null).dayMoves.map((m) => m.visitId).sort()).toEqual(["d", "e"]);
+  });
+
+  it("moves only as many into a window as it has places left", () => {
+    expect(plan(1).dayMoves).toHaveLength(1);
+  });
+
+  it("moves none into a window that is already full", () => {
+    expect(plan(0).dayMoves).toEqual([]);
+  });
+});
+
+describe("crews planned beside people", () => {
+  it("moves a crew's visit only between crews, never to a person", () => {
+    /**
+     * The crew's Tuesday runs long; Ray's Thursday is empty and so is the
+     * crew's. The visit has no refusal entry for Ray, which is how crew work
+     * says a person is not considered for it.
+     */
+    const visits: routing.DaysVisit[] = ["a", "b", "c", "d", "e"].map((id) => ({
+      id, date: TUE, locked: false,
+      options: [
+        { date: TUE, stop: stop(id, 120), refusals: { "crew:x": null } },
+        ...(id === "e" ? [{ date: THU, stop: stop(id, 120), refusals: { "crew:x": null } }] : []),
+      ],
+    }));
+    const result = routing.rebalanceDays({
+      days: [
+        { date: TUE, technicians: [person(TUE, "ray", []), person(TUE, "crew:x", ["a", "b", "c", "d", "e"])], travel },
+        { date: THU, technicians: [person(THU, "ray", []), person(THU, "crew:x", [])], travel },
+      ],
+      visits,
+    });
+    expect(result.dayMoves).toEqual([{ visitId: "e", fromDate: TUE, toDate: THU, fromTechnicianId: "crew:x", toTechnicianId: "crew:x" }]);
+    expect(result.moves.every((m) => m.to === "crew:x")).toBe(true);
+  });
+});

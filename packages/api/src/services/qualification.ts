@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, lt } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, qualification as q, time } from "@opentradesos/core";
 import { ConflictError, timezoneOf, type ServiceContext } from "./context";
@@ -80,6 +80,46 @@ export async function qualify(
     }))));
   }
   return out;
+}
+
+/**
+ * QUALIFIED ON EACH DAY OF A RANGE, NOT ONLY THE FIRST.
+ *
+ * A calendar of three weeks asked once, for its first day, offered the
+ * Thursday after somebody's licence expired as if it had not. Asking
+ * `qualify` for every day is twenty one questions per person when the
+ * answer can only change on the day after a certification expires (the
+ * day it expires is still a good day, `people.lapse`). So it is asked on
+ * the first day and again on the day after each expiry inside the range,
+ * and each day reads the answer from the latest of those on or before it.
+ */
+export async function qualifyDays(
+  tx: Database,
+  organizationId: string,
+  input: { technicianIds: readonly string[]; skills: readonly string[]; from: string; until: string },
+): Promise<(date: string) => Map<string, q.QualificationVerdict>> {
+  const first = await qualify(tx, organizationId, { ...input, on: input.from });
+  const skills = q.normaliseSkills(input.skills);
+  if (skills.length === 0 || input.technicianIds.length === 0 || input.until <= input.from) return () => first;
+
+  const expiring = await tx.select({ expiresOn: schema.personCertification.expiresOn })
+    .from(schema.personCertification)
+    .where(and(
+      eq(schema.personCertification.organizationId, organizationId),
+      inArray(schema.personCertification.technicianId, [...input.technicianIds]),
+      gte(schema.personCertification.expiresOn, input.from),
+      lt(schema.personCertification.expiresOn, input.until),
+    ));
+  const changes = [...new Set(expiring.map((e) => time.addDays(e.expiresOn!, 1)))].sort();
+  const answers: { from: string; verdicts: Map<string, q.QualificationVerdict> }[] = [{ from: input.from, verdicts: first }];
+  for (const on of changes) {
+    answers.push({ from: on, verdicts: await qualify(tx, organizationId, { ...input, on }) });
+  }
+  return (date) => {
+    let chosen = first;
+    for (const answer of answers) if (answer.from <= date) chosen = answer.verdicts;
+    return chosen;
+  };
 }
 
 /**

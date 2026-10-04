@@ -22,6 +22,11 @@
  * bar than moving a visit between two people on one day, because the
  * customer is the one whose plans change.
  *
+ * A WINDOW'S ONLINE CEILING HOLDS. A move into a window the company sells
+ * online counts against how many it will sell there (`DayOption.ceiling`),
+ * the same limit a customer moving their own visit meets, so a rebalance
+ * cannot fill a Thursday morning past what the company said it takes.
+ *
  * HOW. Each day is first rebalanced on its own. Then each visit that may
  * move is tried on every other day it may go to, at the cheapest place on
  * each person's day there, and the best move that is worth it is taken.
@@ -52,6 +57,13 @@ export interface DayOption {
   stop: PlanStop;
   /** Per technician working that day: null when they may, the sentence why not when they may not. */
   refusals: Record<string, string | null>;
+  /**
+   * A limit on how many visits may be moved INTO the slot this option puts
+   * the visit in: online booking's per window ceiling, less what that
+   * window already holds. Options sharing a `key` share the limit. Absent
+   * when nothing limits it. Never applies to the day a visit is already on.
+   */
+  ceiling?: { key: string; remaining: number } | undefined;
 }
 
 export interface DaysVisit {
@@ -207,6 +219,19 @@ export function rebalanceDays(input: {
     };
   };
 
+  /**
+   * Which ceiling each visit moved to another day is using, so a window's
+   * limit counts the visits in it now, not every visit that ever passed
+   * through it on the way somewhere else.
+   */
+  const usingCeiling = new Map<string, string>();
+  const used = (key: string) => [...usingCeiling.values()].filter((k) => k === key).length;
+  const fits = (visitId: string, option: DayOption) => {
+    if (!option.ceiling) return true;
+    const already = usingCeiling.get(visitId) === option.ceiling.key ? 1 : 0;
+    return used(option.ceiling.key) - already < option.ceiling.remaining;
+  };
+
   /* 2. Each visit that may move, tried on the other days it may go to. */
   for (let pass = 0; pass < maxPasses; pass++) {
     let moved = false;
@@ -226,6 +251,7 @@ export function rebalanceDays(input: {
 
       let best: { date: string; technicianId: string; order: string[]; now: Cost; was: Cost } | null = null;
       for (const option of elsewhere) {
+        if (option.date !== v.date && !fits(v.id, option)) continue;
         const there = routes.get(option.date)!;
         const people = [...there.keys()].sort();
         for (const technicianId of people) {
@@ -253,6 +279,9 @@ export function rebalanceDays(input: {
       unplacedNow.delete(v.id);
       routes.get(best.date)!.set(best.technicianId, best.order);
       dayOf.set(v.id, best.date);
+      const ceiling = best.date === v.date ? undefined : optionOf(v.id, best.date)?.ceiling;
+      if (ceiling) usingCeiling.set(v.id, ceiling.key);
+      else usingCeiling.delete(v.id);
       moved = true;
     }
     if (!moved) break;
