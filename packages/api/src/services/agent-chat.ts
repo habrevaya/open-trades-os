@@ -8,7 +8,7 @@ import {
 import * as booking from "./booking";
 import * as base from "./agents";
 import { companyFor, throttle } from "./website-tracking";
-import { companyOf, servicesAndWindows, hoursOf, serviceAreaOf, bookItems } from "./agent-facts";
+import { companyOf, servicesAndWindows, hoursOf, serviceAreaOf, bookItems, memberByContact, contactsIn } from "./agent-facts";
 import { sendTransactional, quietHoursFor } from "./comms-send";
 import type { AiDeps } from "./ai";
 
@@ -261,10 +261,25 @@ async function turn(
       text: row.body ?? "",
     }));
     const company = await companyOf(tx, organizationId, now);
-    const { services, windows } = await servicesAndWindows(tx, organizationId, company.timezone, company.today, { perService: 4 });
+    /**
+     * A member texting from the number on their record, or a visitor giving
+     * a member's email or number in the chat, is offered the windows held
+     * for members. Nothing about it reaches the model or the customer; see
+     * `memberByContact`.
+     */
+    const [conversation] = await tx.select({
+      address: schema.conversation.externalAddress, customerId: schema.conversation.customerId,
+    }).from(schema.conversation).where(eq(schema.conversation.id, session.conversationId)).limit(1);
+    const given = contactsIn(turns.filter((t) => t.from === "customer").map((t) => t.text));
+    const member = session.channel === "text"
+      ? await memberByContact(tx, organizationId, { phone: conversation?.address ?? null, customerId: conversation?.customerId ?? null })
+      : await memberByContact(tx, organizationId, given);
+    const { services, windows } = await servicesAndWindows(tx, organizationId, company.timezone, company.today, {
+      perService: 4, member,
+    });
     const published = await bookItems(tx, organizationId, { ids: settings.chat.publicPriceItemIds, limit: 200 });
     return {
-      turns, company, windows, services,
+      turns, company, windows, services, member,
       facts: {
         hours: await hoursOf(tx, organizationId),
         serviceArea: await serviceAreaOf(tx, organizationId),
@@ -350,13 +365,15 @@ async function turn(
         intakeAnswers: {},
         utm: {},
         ...(session.visitorId ? { visitorId: session.visitorId } : {}),
-      }, { idempotencyKey: `ai-chat:${session.id}` });
+      }, { idempotencyKey: `ai-chat:${session.id}` }, { member: context.member });
+      const asMember = (context.member?.(input.date) ?? null) !== null;
       await inTenant(ctx, async (tx) => {
         await tx.update(schema.aiChatSession).set({ bookingRequestId: made.request.id, updatedAt: new Date() })
           .where(eq(schema.aiChatSession.id, session.id));
         await base.note(tx, ctx, {
           agent: "chat", kind: "answered",
-          detail: `Took a booking request from ${input.contactName} for ${input.date}. It is waiting in Online booking for the office to confirm.`,
+          detail: `Took a booking request from ${input.contactName} for ${input.date}. It is waiting in Online booking for the office to confirm.`
+            + (asMember ? " The number or email it was given belongs to a member, so it offered the windows held for members; it said nothing about it." : ""),
         });
       });
       return { session, reply: { kind: "reply", text: input.text } };

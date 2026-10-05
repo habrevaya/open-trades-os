@@ -200,6 +200,10 @@ export const viewPortalAccount = defineRoute({
     agreements: z.array(z.object({
       id: Uuid, planName: z.string(), status: z.string(),
       startedOn: z.string().date(), endsOn: z.string().date().nullable(),
+      /** The member discount as a member reads it, "15%", or null for none. */
+      discount: z.string().nullable(),
+      /** What the discount leaves out, by name. */
+      notDiscounted: z.array(z.string()),
     })),
     deposits: z.array(z.object({
       id: Uuid, status: z.string(), amountRequested: MoneyString, amountReceived: MoneyString, currency: z.string(),

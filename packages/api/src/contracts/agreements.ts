@@ -16,6 +16,16 @@ import { Uuid, MoneyString, RateString } from "./common";
 
 const Frequency = z.enum(["monthly", "quarterly", "semiannual", "annual", "one_time"]);
 
+/**
+ * What a plan's discount leaves out: price book categories (with everything
+ * filed under them) and single items. Empty lists for a discount on all
+ * eligible work.
+ */
+const Exclusions = z.object({
+  categoryIds: z.array(Uuid).max(200),
+  itemIds: z.array(Uuid).max(500),
+});
+
 export const AgreementPlanView = z.object({
   id: Uuid,
   name: z.string(),
@@ -41,6 +51,14 @@ export const AgreementPlanView = z.object({
   waivesAfterHoursRate: z.boolean(),
   /** What else a member gets, in the company's words, for the screen and the sale. */
   benefits: z.array(z.string()),
+  /** What the discount leaves out. Frozen on each agreement at sale with the rate. */
+  discountExclusions: Exclusions,
+  /**
+   * The share of each arrival window held for this plan's members, a whole
+   * per cent from 0 to 90, while it promises priority dispatch. Null for the
+   * company's own figure (`GET /v1/booking/member-hold`).
+   */
+  memberHoldPercent: z.number().int().nullable(),
   active: z.boolean(),
 });
 
@@ -57,6 +75,8 @@ export const AgreementView = z.object({
   price: MoneyString,
   /** The member discount, frozen at sale like the price. Null when the plan had none. */
   discountRate: RateString.nullable(),
+  /** What the discount leaves out, frozen at sale with it. */
+  discountExclusions: Exclusions,
   billingFrequency: z.string(),
   autoRenews: z.boolean(),
   renewalCount: z.number().int(),
@@ -117,6 +137,8 @@ export const createAgreementPlan = defineRoute({
     benefits: z.array(z.string().min(1).max(200)).max(20).optional(),
     autoRenews: z.boolean().optional(),
     renewalNoticeDays: z.number().int().min(0).max(365).optional(),
+    discountExclusions: Exclusions.optional(),
+    memberHoldPercent: z.number().int().min(0).max(90).nullable().optional(),
   }),
   output: AgreementPlanView,
 });
@@ -148,7 +170,7 @@ export const updateAgreementPlan = defineRoute({
   path: "/v1/agreement-plans/{id}",
   summary: "Edit a membership plan",
   description:
-    "Only the fields sent change. What an edit reaches differs by field, deliberately: the price, the discount and how often it bills are frozen on each agreement at sale, so they reach new sales only; the term and the visits reach new sales and each member's next term when it renews; the perks (priority dispatch, the waived fees, the benefit list) are read from the plan when used, so they reach every member at once. `active: false` retires it, the same as the retire call.",
+    "Only the fields sent change. What an edit reaches differs by field, deliberately: the price, the discount and how often it bills are frozen on each agreement at sale, so they reach new sales only; the term and the visits reach new sales and each member's next term when it renews; the perks (priority dispatch and the share of each window it holds, the waived fees, the benefit list) are read from the plan when used, so they reach every member at once. What the discount leaves out (`discountExclusions`) is part of the discount and reaches new sales only. `active: false` retires it, the same as the retire call.",
   module: "M08",
   permissions: ["membership:write"],
   idempotent: true,
@@ -171,6 +193,9 @@ export const updateAgreementPlan = defineRoute({
     benefits: z.array(z.string().min(1).max(200)).max(20).optional(),
     autoRenews: z.boolean().optional(),
     renewalNoticeDays: z.number().int().min(0).max(365).optional(),
+    discountExclusions: Exclusions.optional(),
+    /** Null puts the plan back on the company's figure. */
+    memberHoldPercent: z.number().int().min(0).max(90).nullable().optional(),
     active: z.boolean().optional(),
   }),
   output: AgreementPlanView,
@@ -277,6 +302,8 @@ export const getMemberPricing = defineRoute({
     /** Whether the price book's diagnostic fee and after hours rate come off in full. */
     waivesDiagnosticFee: z.boolean(),
     waivesAfterHoursRate: z.boolean(),
+    /** The price book categories and items the discount leaves out, by name. */
+    leavesOut: z.array(z.string()),
   }),
 });
 
@@ -300,7 +327,7 @@ export const getAgreement = defineRoute({
   method: "get",
   path: "/v1/agreements/{id}",
   summary: "Get an agreement, with everything it owes",
-  description: "Every visit of every term with whether it was booked, delivered or skipped, every instalment with its invoice, and `unearned`: what has been billed and not yet earned, summed from the rows rather than recomputed from the price.",
+  description: "Every visit of every term with whether it was booked, delivered or skipped, every instalment with its invoice, `unearned`: what has been billed and not yet earned, summed from the rows rather than recomputed from the price, and each term with what it released when it ended.",
   module: "M08",
   permissions: ["membership:read"],
   input: z.object({ id: Uuid }),
@@ -310,6 +337,19 @@ export const getAgreement = defineRoute({
     unearned: MoneyString,
     visits: z.array(AgreementVisitView),
     instalments: z.array(AgreementInstalmentView),
+    /**
+     * Each term recorded, with what was released when it ended: the deferred
+     * revenue behind visits never taken, earned on the day the term ends and
+     * not before. A term sold before terms were recorded has no row.
+     */
+    terms: z.array(z.object({
+      term: z.number().int(),
+      startsOn: z.string().date().nullable(),
+      endsOn: z.string().date(),
+      breakageReleasedOn: z.string().date().nullable(),
+      breakageAmount: MoneyString.nullable(),
+      breakageVisits: z.number().int().nullable(),
+    })),
   }),
 });
 
@@ -421,10 +461,67 @@ export const cancelAgreement = defineRoute({
   output: AgreementView.extend({ released: MoneyString }),
 });
 
+
+const NoticeCode = z.enum([
+  "agreement_renewal.renews.sms", "agreement_renewal.renews.email",
+  "agreement_renewal.ends.sms", "agreement_renewal.ends.email",
+]);
+
+const RenewalNotices = z.object({
+  /** Text first and email when it cannot go, email first and text when it cannot, or both. */
+  channel: z.enum(["text_first", "email_first", "both"]),
+  templates: z.array(z.object({
+    code: NoticeCode,
+    /** `renews` for a term that renews on its own, `ends` for one that does not. */
+    situation: z.enum(["renews", "ends"]),
+    channel: z.enum(["sms", "email"]),
+    name: z.string(),
+    subject: z.string().nullable(),
+    body: z.string(),
+    /** Nothing saved for this one, so the product's own wording is sent. */
+    isDefault: z.boolean(),
+  })),
+  /** The placeholders a notice's words may use, as `{{ customer.firstName }}`. */
+  variables: z.array(z.string()),
+});
+
+export const getAgreementRenewalNotices = defineRoute({
+  method: "get",
+  path: "/v1/agreement-renewal-notices",
+  summary: "How renewal notices go, and their words",
+  description:
+    "The company's choice of how the notice a plan owes before a term ends is sent, and its four message templates: a term that renews on its own and one that does not, each by text and by email. A new company starts with the wording the product has always sent.",
+  module: "M08",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: RenewalNotices,
+});
+
+export const updateAgreementRenewalNotices = defineRoute({
+  method: "put",
+  path: "/v1/agreement-renewal-notices",
+  summary: "Change how renewal notices go, or their words",
+  description:
+    "Only what is sent changes. The words are checked as every message template is: a placeholder that is not one of `variables` is refused, because it would reach every member at renewal as a gap in a sentence. Whichever of text and email is tried first, the other is tried when the first cannot go; `both` sends both.",
+  module: "M08",
+  permissions: ["settings:write"],
+  input: z.object({
+    channel: z.enum(["text_first", "email_first", "both"]).optional(),
+    templates: z.array(z.object({
+      code: NoticeCode,
+      /** An email's subject line. Ignored for a text. */
+      subject: z.string().max(200).nullable().optional(),
+      body: z.string().min(1).max(2000),
+    })).max(4).optional(),
+  }),
+  output: RenewalNotices,
+});
+
 export const agreementRoutes = {
   createAgreementPlan, listAgreementPlans, getAgreementPlan, updateAgreementPlan, retireAgreementPlan,
   sellAgreement, listAgreements, getAgreement, renewAgreement, cancelAgreement,
   listOwedAgreementVisits, bookAgreementVisit, deliverAgreementVisit, skipAgreementVisit, unskipAgreementVisit,
   invoiceAgreementInstalment,
   listAgreementRenewals, getMemberPricing,
+  getAgreementRenewalNotices, updateAgreementRenewalNotices,
 } as const;

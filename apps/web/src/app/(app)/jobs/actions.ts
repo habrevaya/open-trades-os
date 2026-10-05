@@ -48,6 +48,7 @@ export async function bookJob(_previous: FormState, form: FormData): Promise<For
               windowEnd: window.windowEnd,
               estimatedDurationMinutes: Number(field(form, "duration") ?? "60"),
               technicianIds: fields(form, "technicianIds"),
+              bookAnyway: form.get("bookAnyway") === "on",
             },
           }
         : {}),
@@ -77,6 +78,7 @@ export async function addVisit(_previous: FormState, form: FormData): Promise<Fo
       ...(window.kind === "window" ? { windowStart: window.windowStart, windowEnd: window.windowEnd } : {}),
       estimatedDurationMinutes: Number(field(form, "duration") ?? "60"),
       technicianIds: fields(form, "technicianIds"),
+      bookAnyway: form.get("bookAnyway") === "on",
     });
     await jobs.addVisit({ actor: user.actor, db: getDb() }, input);
   });

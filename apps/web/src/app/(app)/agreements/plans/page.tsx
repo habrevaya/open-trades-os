@@ -1,12 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { agreements } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, membership } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm } from "@/components/ActionForm";
 import { Empty, PageHeader, Table, Td, Th } from "@/components/Table";
 import { PlanFields } from "./PlanFields";
 import { definePlan } from "./actions";
+import { planBookChoices } from "@/lib/plan-book";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function PlansPage() {
   const ctx = { actor: user.actor, db: getDb() };
   const writes = can(user.actor, "membership:write");
   const plans = await agreements.plans(ctx, { includeInactive: true });
+  const book = writes ? await planBookChoices(ctx) : { categories: [], items: [] };
   const ordered = [...plans].sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
 
   return (
@@ -55,7 +57,9 @@ export default async function PlansPage() {
               <Td className="text-ink-700">{plan.includedVisitsPerTerm} in {plan.termMonths} months</Td>
               <Td className="text-ink-700">
                 {[
-                  plan.discountRate && Number(plan.discountRate) > 0 ? `${agreements.percentOf(plan.discountRate)} off` : null,
+                  plan.discountRate && Number(plan.discountRate) > 0
+                    ? `${agreements.percentOf(plan.discountRate)} off${membership.hasExclusions(membership.readExclusions(plan.discountExclusions)) ? " (not everything)" : ""}`
+                    : null,
                   plan.priorityDispatch ? "seen first" : null,
                   plan.waivesDiagnosticFee ? "no diagnostic fee" : null,
                   plan.waivesAfterHoursRate ? "no after hours rate" : null,
@@ -71,7 +75,7 @@ export default async function PlansPage() {
         <section aria-label="Define a plan" className="mt-10 rounded-md border border-steel-200 bg-canvas p-5">
           <h2 className="text-base font-semibold">Define a plan</h2>
           <ActionForm action={definePlan} submit="Define plan" className="mt-4 space-y-6">
-            <PlanFields />
+            <PlanFields book={book} />
           </ActionForm>
         </section>
       ) : null}

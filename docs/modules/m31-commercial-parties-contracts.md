@@ -370,6 +370,22 @@ cent of its own rate. That is checked again after the invoices are written,
 like the total, and the ledger posts each payer's tax as collected from them.
 A limit is checked against what the invoice will carry, tax included.
 
+**A member pays their own part at the member's price (M08).** When the job's
+own customer holds a running plan with a discount, the plan's discount comes
+off the customer's own part of each line priced at our price, by the same
+rule and arithmetic as an ordinary invoice: per line, rounded to the cent, with
+what the plan leaves out left out and a waived fee waived. A third party's
+part is priced by its own authority and never takes it, and neither does the
+customer's share of a line a third party's schedule priced, such as the
+deductible on covered work, because that figure is the third party's terms. A
+property manager or landlord billed for the job is not the member. It is
+taken before the tax is shared, so each payer is taxed on what they actually
+pay. The preview shows it on the customer's part as "Member discount" with
+the plan named (`memberDiscount` on the payer and the plan, `member` naming
+the agreement), the invoice line carries it as its member discount naming
+the agreement, and the check after the invoices are written counts it: the
+invoices, the member discount and anything absorbed come to the priced work.
+
 Billing is refused while the preview lists a problem, with the problem as the
 reason: covered work with nobody named to pay it, a payer with no customer
 record, shares that do not add up, a limit that holds.
@@ -464,9 +480,11 @@ cannot be billed in parts at each one. Nothing looks up a jurisdiction's
 rate, and a payer is exempt for everything or nothing, as the customer record
 says.
 
-**Member pricing on a job billed in parts.** The plan discount is applied to
-an invoice raised the ordinary way, and not when a job is billed by payer:
-there, every line is priced once by the payer's authority before it is cut.
+**Member pricing on the deductible.** The plan discount comes off the
+customer's own part of a job billed by payer at our price, and never off their
+share of a line a third party's schedule priced, so a member's deductible is
+never discounted. Whether a plan should reduce a deductible is the warranty
+company's terms and the company's decision, and nobody has made it.
 
 **Labour beyond an allowance.** A manufacturer's allowance pays the card's
 listed price for the repair; the minutes it allows are shown, and time worked

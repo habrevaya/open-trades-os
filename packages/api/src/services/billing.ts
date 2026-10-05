@@ -20,7 +20,7 @@ import { claimNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
-import { memberPricingWithin } from "./agreements";
+import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 import type {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
   updateInvoice, issueInvoice, deleteInvoice,
@@ -94,6 +94,15 @@ export interface PreparedLine {
    */
   taxRate?: string | undefined;
   taxAmount?: m.Money | undefined;
+  /**
+   * The member discount the caller already took off this payer's part: a job
+   * billed in parts prices the customer's own part for their plan before the
+   * tax is shared, so the invoices still add up to the work. Written onto
+   * the line as its member discount, naming the agreement, as a discount the
+   * plan gave rather than one somebody typed.
+   */
+  memberDiscountAmount?: m.Money | undefined;
+  memberAgreementId?: string | undefined;
 }
 
 /**
@@ -818,6 +827,8 @@ async function priceInvoice(
         }),
       /** The diagnostic fee or the after hours rate, which a plan may waive outright. */
       feeRole: line.priceAsGiven ? null : linked?.feeRole ?? null,
+      /** The price book item, which decides whether the plan's discount leaves the line out. */
+      itemId: line.priceAsGiven ? null : (linked?.itemId ?? null),
       memberDiscountAmount: usd("0"),
       memberAgreementId: null as string | null,
       authority: authority.authority as string,
@@ -851,12 +862,15 @@ async function priceInvoice(
     on: memberOn,
   });
   if (member) {
+    /** What the plan's discount leaves out, by the line's item or its category. */
+    const leftOut = await exclusionTestWithin(tx, member.exclusions, resolved.map((r) => r.itemId));
     const off = membership.memberDiscounts(resolved.map((r) => ({
       quantity: r.quantity,
       unitPrice: r.unitPrice,
       discountAmount: r.discountAmount,
       eligible: r.memberEligible,
       feeRole: r.feeRole,
+      excluded: leftOut(r.itemId),
     })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
     for (const [i, r] of resolved.entries()) {
       const amount = off[i]!;
@@ -865,6 +879,14 @@ async function priceInvoice(
       r.memberAgreementId = member.agreementId;
       r.discountAmount = m.add(r.discountAmount, amount);
     }
+  }
+
+  for (const [i, r] of resolved.entries()) {
+    const prepared = options.prepared?.[i];
+    if (!prepared?.memberDiscountAmount || !m.isPositive(prepared.memberDiscountAmount)) continue;
+    r.memberDiscountAmount = prepared.memberDiscountAmount;
+    r.memberAgreementId = prepared.memberAgreementId ?? null;
+    r.discountAmount = m.add(r.discountAmount, prepared.memberDiscountAmount);
   }
 
   /**
@@ -902,6 +924,7 @@ async function priceInvoice(
       jobLineId: null,
       memberEligible: false,
       feeRole: null,
+      itemId: null,
       memberDiscountAmount: usd("0"),
       memberAgreementId: null,
       authority: "entered",

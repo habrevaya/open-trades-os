@@ -47,6 +47,7 @@ function randomLine(g: ReturnType<typeof generator>): OnSiteLine {
     isSelected: g.next() < 0.5,
     itemKind: g.pick([null, "service", "material", "fee", "discount", "labor"]),
     feeRole: g.pick([null, null, null, "diagnostic", "after_hours"]),
+    itemId: g.pick([null, "item-a", "item-b", "item-c"]),
   };
 }
 
@@ -56,6 +57,7 @@ function randomMember(g: ReturnType<typeof generator>): OnSiteMember | null {
     rate: g.pick(["0", "0.1", "0.15", "0.125", "0.2", "0.333333"]),
     waivesDiagnosticFee: g.next() < 0.5,
     waivesAfterHoursRate: g.next() < 0.5,
+    excludedItemIds: g.pick([[], ["item-a"], ["item-a", "item-c"]]),
   };
 }
 
@@ -70,6 +72,7 @@ function serverOption(lines: OnSiteLine[], member: OnSiteMember | null) {
         discountAmount: usd(l.discountAmount ?? "0"),
         eligible: eligibleForMemberPricing({ unitPrice: usd(l.unitPrice), itemKind: l.itemKind ?? null }),
         feeRole: (l.feeRole ?? null) as "diagnostic" | "after_hours" | null,
+        excluded: l.itemId !== null && l.itemId !== undefined && (member.excludedItemIds ?? []).includes(l.itemId),
       })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate })
     : lines.map(() => zero("USD"));
   const computed = computeOption(lines.map((l, i) => ({
@@ -134,6 +137,18 @@ describe("the phone prices an estimate option the way the server does", () => {
     ], { rate: "0.15", waivesDiagnosticFee: true, waivesAfterHoursRate: false });
     expect(priced.lines.map((l) => l.memberDiscount)).toEqual(["89.0000", "15.0000"]);
     expect(priced.totals.total).toBe("85.0000");
+  });
+});
+
+describe("what a plan's discount leaves out, on the phone", () => {
+  it("takes nothing off an item the plan leaves out, and still waives a fee it waives", () => {
+    const priced = priceOnSite([
+      { quantity: "1", unitPrice: "1000.00", taxable: false, taxRate: "0", itemKind: "equipment", itemId: "furnace" },
+      { quantity: "2", unitPrice: "100.00", taxable: false, taxRate: "0", itemKind: "labor", itemId: "hour" },
+      { quantity: "1", unitPrice: "89.00", taxable: false, taxRate: "0", feeRole: "diagnostic", itemKind: "fee", itemId: "diag" },
+    ], { rate: "0.1", waivesDiagnosticFee: true, waivesAfterHoursRate: false, excludedItemIds: ["furnace", "diag"] });
+    expect(priced.lines.map((l) => l.memberDiscount)).toEqual(["0.0000", "20.0000", "89.0000"]);
+    expect(priced.totals.memberSavings).toBe("109.0000");
   });
 });
 

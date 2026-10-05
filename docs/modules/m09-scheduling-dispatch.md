@@ -180,7 +180,10 @@ that day, the window at the same wall clock times, the overtime limit and
 lunch), and a visit moves day only when that keeps a promise or a limit,
 places work no day could take, cuts overtime, or saves at least fifteen
 minutes of driving, a higher bar than moving it between two people because
-the customer's plans change. It is shown as each day before and after, and
+the customer's plans change. The share of each arrival window held for
+members (M08) is kept on the new day: a visit for somebody no plan lets into
+it moves into a window only while that window has room outside the hold, as
+online booking would have offered it, counting every visit the plan moves in. It is shown as each day before and after, and
 a person applies it: each moved visit goes to its new day through the
 assignment a drag uses, its technicians hear through the visit's notices,
 and its customer is told by text or email through the same path an answer
@@ -258,7 +261,10 @@ window, among those whose skills and time off allow it, and every technician
 considered is listed with their figure or the reason they were ruled out.
 Members whose plan promises priority dispatch are placed first, so the
 cheapest gap on the day goes to them, and the suggestion names the plan;
-the rebalance places them first in the unassigned pile too (M08).
+the rebalance places them first in the unassigned pile too (M08). Booking a
+job or adding a visit by hand into an arrival window held for members, for a
+customer who is not a member there that day, is refused until the person
+booking ticks "Book anyway", which the audit log records (M08).
 
 **A route's density uses drive times by road when it can.** The route's own
 declared drive time between stops still comes first. Without one, and with
@@ -453,7 +459,8 @@ and the company and each person can turn it off, which deletes what was kept.
 Because its customer agreed to no other day: set the days it may happen on
 on the visit, or the days of the week that suit the customer on their page.
 Or the other day is today, or the company is closed then, or the move saves
-less than fifteen minutes of driving and keeps no promise or limit.
+less than fifteen minutes of driving and keeps no promise or limit, or the
+window on that day has no room left outside the share held for members.
 
 **Why did the rebalance not move a visit to the nearer technician?** Because
 it saves less than five minutes of driving, or it is locked, or that person may

@@ -5,7 +5,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling,
+  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -136,6 +136,7 @@ export default async function JobPage({ params, searchParams }: {
   const writes = can(user.actor, "job:write");
   const schedules = can(user.actor, "visit:write") && job.status !== "cancelled" && job.status !== "paid";
   const technicians = await technicianChoices(ctx, user.organizationTimezone);
+  const memberHold = schedules && await booking.memberHoldInForce(ctx);
   const nameOf = new Map(technicians.map((t) => [t.id, t.displayName]));
   const completes = can(user.actor, "job:complete");
   const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
@@ -457,7 +458,7 @@ export default async function JobPage({ params, searchParams }: {
           <summary className="cursor-pointer text-sm font-medium">Add a visit</summary>
           <ActionForm action={addVisit} submit="Add visit" hidden={{ jobId: id }} className="mt-3 space-y-4">
             <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
-                         legend="Next visit" />
+                         legend="Next visit" memberHold={memberHold} />
           </ActionForm>
         </details>
       )}

@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { seedNoticeTemplates } from "./agreement-notices";
 
 /**
  * CREATING A COMPANY
@@ -130,6 +131,13 @@ export async function createOrganization(
   await tx.insert(schema.membership).values({
     organizationId, userId: input.ownerUserId, role: "owner",
   });
+
+  /**
+   * The renewal notice's words, as message templates to edit from the first
+   * day, worded as the product always worded it. Every way a company is
+   * made comes through here, so none starts without them.
+   */
+  await seedNoticeTemplates(tx, organizationId);
 
   return { organizationId, slug };
 }

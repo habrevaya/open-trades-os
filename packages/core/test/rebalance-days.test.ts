@@ -128,6 +128,42 @@ describe("a visit moved to another day", () => {
     expect(thursday.after[0]!.evaluation.late).toEqual([]);
   });
 
+  it("does not move somebody who is not a member into a window held for members", () => {
+    /**
+     * Two visits nobody may take on Tuesday, both allowed on Thursday morning,
+     * where the hold leaves room for one more visit from somebody who is not
+     * a member. One moves; the other stays where it was, unplaced, for the
+     * office, rather than taking a member's share.
+     */
+    const held = { key: `${THU}|morning`, room: 1 };
+    const visit = (id: string): routing.DaysVisit => ({
+      id, date: TUE, locked: false,
+      options: [
+        { date: TUE, stop: stop(id), refusals: { ray: "Ray is off." } },
+        { date: THU, stop: stop(id), refusals: { ray: null }, held },
+      ],
+    });
+    const result = routing.rebalanceDays({
+      days: [
+        { date: TUE, technicians: [person(TUE, "ray", [])], travel },
+        { date: THU, technicians: [person(THU, "ray", [])], travel },
+      ],
+      visits: [visit("a"), visit("b")],
+    });
+    expect(result.dayMoves.map((m) => m.visitId)).toEqual(["a"]);
+    expect(result.days.find((d) => d.date === TUE)!.unplaced.map((u) => u.visitId)).toEqual(["b"]);
+
+    /** With no hold on the window, both go. */
+    const free = routing.rebalanceDays({
+      days: [
+        { date: TUE, technicians: [person(TUE, "ray", [])], travel },
+        { date: THU, technicians: [person(THU, "ray", [])], travel },
+      ],
+      visits: [visit("a"), visit("b")].map((v) => ({ ...v, options: v.options.map(({ held: _, ...o }) => o) })),
+    });
+    expect(free.dayMoves.map((m) => m.visitId).sort()).toEqual(["a", "b"]);
+  });
+
   it("places work its own day cannot take on another day it may go to", () => {
     /**
      * An unassigned visit on Tuesday nobody may take that day (Ray is the

@@ -30,6 +30,13 @@ export interface MemberCandidate {
   waivesDiagnosticFee?: boolean | undefined;
   waivesAfterHoursRate?: boolean | undefined;
   priorityDispatch?: boolean | undefined;
+  /** What the discount leaves out, frozen on the agreement with the rate. */
+  exclusions?: DiscountExclusions | undefined;
+  /**
+   * The share of each window the plan holds for its members, from 0 to 1,
+   * or null for the company's own figure. Read by `priorityShareFor`.
+   */
+  holdShare?: number | null | undefined;
 }
 
 export interface MemberPricing {
@@ -39,6 +46,8 @@ export interface MemberPricing {
   rate: string;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+  /** What the rate does not touch. Empty for a discount on everything eligible. */
+  exclusions: DiscountExclusions;
 }
 
 /** Which fee a price book item is, when it is one a plan can waive. */
@@ -114,6 +123,7 @@ export function memberPricingFor(
     rate: usableRate(best.discountRate) ? best.discountRate : "0",
     waivesDiagnosticFee: best.waivesDiagnosticFee === true,
     waivesAfterHoursRate: best.waivesAfterHoursRate === true,
+    exclusions: best.exclusions ?? NO_EXCLUSIONS,
   };
 }
 
@@ -154,6 +164,104 @@ export function priorityFor(
   return found ? { agreementId: found.agreementId, planName: found.planName } : null;
 }
 
+/**
+ * How much of each held window a member's plan lets them into, on a day at
+ * an address, or null when no covering plan promises priority.
+ *
+ * EACH PLAN SAYS ITS OWN SHARE, with the company's figure for a plan that
+ * says none. A window keeps back the largest share any live plan asks for,
+ * and a member is kept out of only the part above their own plan's share, so
+ * a gold plan holding a third of the morning and a silver plan holding a
+ * tenth both mean what they say. A customer on two such plans gets the larger.
+ */
+export function priorityShareFor(
+  candidates: readonly MemberCandidate[],
+  at: { on: string; propertyId?: string | null | undefined },
+  companyShare: number,
+): number | null {
+  const covering = coveringOn(candidates, at).filter((c) => c.priorityDispatch === true);
+  if (covering.length === 0) return null;
+  return Math.max(...covering.map((c) => shareOf(c.holdShare, companyShare)));
+}
+
+/** A plan's own share, or the company's when it set none, kept between nothing and all of it. */
+export function shareOf(planShare: number | null | undefined, companyShare: number): number {
+  const share = planShare === null || planShare === undefined ? companyShare : planShare;
+  return Number.isFinite(share) ? Math.min(Math.max(share, 0), 1) : 0;
+}
+
+/* ------------------------------------------------- what the discount leaves out */
+
+/**
+ * The price book categories and single items a plan's discount does not
+ * touch. A category leaves out everything filed under it, however deep, so
+ * "Equipment" takes "Equipment / Furnaces" with it.
+ */
+export interface DiscountExclusions {
+  categoryIds: readonly string[];
+  itemIds: readonly string[];
+}
+
+export const NO_EXCLUSIONS: DiscountExclusions = Object.freeze({ categoryIds: [], itemIds: [] });
+
+/**
+ * Exclusions read from a stored value, whatever shape it arrived in.
+ *
+ * A jsonb column is whatever was written to it. Anything that is not a list
+ * of strings is dropped rather than trusted, duplicates go, and the order is
+ * fixed, so two agreements with the same exclusions compare equal.
+ */
+export function readExclusions(value: unknown): DiscountExclusions {
+  const list = (v: unknown): string[] =>
+    Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && x.trim() !== ""))].sort() : [];
+  if (!value || typeof value !== "object") return NO_EXCLUSIONS;
+  const record = value as Record<string, unknown>;
+  return { categoryIds: list(record["categoryIds"]), itemIds: list(record["itemIds"]) };
+}
+
+export const hasExclusions = (e: DiscountExclusions | null | undefined): boolean =>
+  e !== null && e !== undefined && (e.categoryIds.length > 0 || e.itemIds.length > 0);
+
+/**
+ * Whether a price book item is left out of the discount.
+ *
+ * By the item itself, or by its category or any category above it. The walk
+ * up stops at a category it has already seen, so a price book whose parents
+ * were edited into a loop is answered rather than hung on. A line typed by
+ * hand names no item and no category, and is never left out: there is
+ * nothing to say it is equipment.
+ */
+export function excludedFromDiscount(
+  item: { itemId?: string | null | undefined; categoryId?: string | null | undefined },
+  exclusions: DiscountExclusions,
+  parentOf: ReadonlyMap<string, string | null>,
+): boolean {
+  if (!hasExclusions(exclusions)) return false;
+  if (item.itemId && exclusions.itemIds.includes(item.itemId)) return true;
+  const seen = new Set<string>();
+  let at = item.categoryId ?? null;
+  while (at !== null && !seen.has(at)) {
+    if (exclusions.categoryIds.includes(at)) return true;
+    seen.add(at);
+    at = parentOf.get(at) ?? null;
+  }
+  return false;
+}
+
+/**
+ * Every item the discount leaves out, as one flat list, for a phone that
+ * carries the price book without its categories' family tree.
+ */
+export function excludedItemIds(
+  items: readonly { id: string; categoryId: string | null }[],
+  exclusions: DiscountExclusions,
+  parentOf: ReadonlyMap<string, string | null>,
+): string[] {
+  if (!hasExclusions(exclusions)) return [];
+  return items.filter((item) => excludedFromDiscount({ itemId: item.id, categoryId: item.categoryId }, exclusions, parentOf))
+    .map((item) => item.id).sort();
+}
+
 export interface MemberLine {
   quantity: string;
   unitPrice: Money;
@@ -162,6 +270,12 @@ export interface MemberLine {
   eligible: boolean;
   /** Set when the line is the diagnostic fee or the after hours rate, from the price book item. */
   feeRole?: FeeRole | null | undefined;
+  /**
+   * Left out of the plan's discount (`excludedFromDiscount`). The rate does
+   * not touch it; a waived fee is still waived, because that is a separate
+   * promise the plan names on its own.
+   */
+  excluded?: boolean | undefined;
 }
 
 /** The fees a plan waives, as `memberDiscounts` reads them. */
@@ -223,7 +337,7 @@ export function memberDiscounts(lines: readonly MemberLine[], rate: string, waiv
       || (line.feeRole === "after_hours" && waivers.afterHours === true)) {
       return net;
     }
-    if (!usableRate(rate)) return zero(currency);
+    if (line.excluded === true || !usableRate(rate)) return zero(currency);
     const off = round(multiply(net, rate), 2);
     // Never more than what is left, whatever the rate's rounding does.
     return compare(off, net) > 0 ? net : off;

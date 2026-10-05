@@ -56,7 +56,10 @@ export interface DraftOption {
 
 /** The plan's terms as the pricing reads them. */
 export function memberTerms(member: MemberTerms | null | undefined): OnSiteMember | null {
-  return member ? { rate: member.rate, waivesDiagnosticFee: member.waivesDiagnosticFee, waivesAfterHoursRate: member.waivesAfterHoursRate } : null;
+  return member ? {
+    rate: member.rate, waivesDiagnosticFee: member.waivesDiagnosticFee, waivesAfterHoursRate: member.waivesAfterHoursRate,
+    excludedItemIds: member.excludedItemIds ?? [],
+  } : null;
 }
 
 /**
@@ -96,6 +99,7 @@ export function draftTotals(option: DraftOption, member: MemberTerms | null | un
   return priceOnSite(option.lines.map((line) => ({
     quantity: line.quantity, unitPrice: line.unitPrice, taxable: line.taxable, taxRate,
     isOptional: line.isOptional, isSelected: false, itemKind: line.itemKind, feeRole: line.feeRole,
+    itemId: line.priceBookItemId,
   })), memberTerms(member));
 }
 
@@ -169,6 +173,7 @@ export function estimateFromPayload(
         isOptional: l["isOptional"] === true, isSelected: false,
         itemKind: typeof l["itemKind"] === "string" ? l["itemKind"] : null,
         feeRole: typeof l["feeRole"] === "string" ? l["feeRole"] : null,
+        itemId: typeof l["priceBookItemId"] === "string" ? l["priceBookItemId"] : null,
       })), memberTerms(member));
       return {
         id: String(option["id"]),
@@ -291,7 +296,7 @@ export function invoiceFromWork(lines: readonly BillableLine[], member: MemberTe
     quantity: l.quantity, unitPrice: l.unitPrice,
     /** Invoices carry no sales tax yet (BUILD.md, phase 5), so neither does the phone's. */
     taxable: l.taxable, taxRate: "0",
-    itemKind: l.itemKind, feeRole: l.feeRole,
+    itemKind: l.itemKind, feeRole: l.feeRole, itemId: l.itemId ?? null,
   })), memberTerms(member));
   return {
     lines: lines.map((l, i) => ({ ...l, memberDiscount: priced.lines[i]!.memberDiscount, lineTotal: priced.lines[i]!.lineTotal })),

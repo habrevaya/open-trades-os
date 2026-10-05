@@ -17,7 +17,10 @@ export interface AccountViewData {
     tipping: { available: boolean; presets: { percent: number; amount: string }[]; for: string[] };
   }[];
   estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null }[];
-  agreements: { id: string; planName: string; status: string; startedOn: string; endsOn: string | null }[];
+  agreements: {
+    id: string; planName: string; status: string; startedOn: string; endsOn: string | null;
+    discount?: string | null; notDiscounted?: string[];
+  }[];
   deposits: { id: string; status: string; amountRequested: string; amountReceived: string; currency: string }[];
   onlinePaymentAvailable: boolean;
   /** Visits asked for from the account and not booked yet. */
@@ -483,6 +486,12 @@ export function AccountView({
                       {a.endsOn ? `, renews ${day(a.endsOn)}` : ""}
                     </span>
                   </div>
+                  {a.discount ? (
+                    <p className="mt-0.5 text-xs text-ink-700">
+                      {a.discount} off your work
+                      {a.notDiscounted && a.notDiscounted.length > 0 ? `, except ${a.notDiscounted.join(", ")}` : ""}.
+                    </p>
+                  ) : null}
                   {extras.planVisits.some((v) => v.agreementId === a.id) && (
                     <ul className="mt-1 space-y-0.5 text-xs text-ink-700">
                       {extras.planVisits.filter((v) => v.agreementId === a.id).map((v, i) => (

@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { coverage, money as m, rates, splits, time } from "@opentradesos/core";
+import { coverage, membership, money as m, rates, splits, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -10,6 +10,7 @@ import * as commercial from "./commercial";
 import * as entitlements from "./entitlements";
 import * as contractClocks from "./contract-clocks";
 import { remember, replayed } from "./once";
+import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 
 /**
  * BILLING A JOB, BY WHOEVER PAYS FOR IT
@@ -82,8 +83,14 @@ export interface PayerPart {
   taxTotal: string;
   totalWithTax: string;
   taxExempt: boolean;
-  /** Each line this payer pays any of, with how much, and the tax their invoice states on it. */
-  lines: Array<{ key: string; amount: string; whole: boolean; tax: string }>;
+  /**
+   * Each line this payer pays any of, with how much, and the tax their
+   * invoice states on it. `memberDiscount` is what the customer's plan takes
+   * off their own part; `amount` is before it.
+   */
+  lines: Array<{ key: string; amount: string; whole: boolean; tax: string; memberDiscount: string }>;
+  /** What the customer's plan takes off their own part, in all. Nothing for anybody else. */
+  memberDiscount: string;
   /** What the client's limit says about this payer's invoice. */
   ceiling: { state: "within" | "over"; held: boolean; message: string | null } | null;
 }
@@ -98,6 +105,10 @@ export interface BillingPlan {
   pricedTotal: string;
   invoicedTotal: string;
   absorbed: string;
+  /** The plan the customer's own part was priced for, when they are a member. */
+  member: { agreementId: string; planName: string } | null;
+  /** What that plan took off the customer's part. The invoices, this and what was absorbed come to the priced work. */
+  memberDiscount: string;
   reconciles: boolean;
   /** The tax on everything invoiced, worked out whole; the payers' tax adds up to it exactly. */
   taxTotal: string;
@@ -203,9 +214,12 @@ export async function planIn(
   const pricerFor = (kind: coverage.ChargeKind) => (thirdParty && covered(kind) ? thirdParty : primary);
 
   const lines: PlanLine[] = [];
+  /** Whose cards priced each line, by index: the customer's own work, or a third party's schedule. */
+  const pricedBy: string[] = [];
   for (const row of unbilled) {
     const facts = recorded.get(row.id)!;
     const kind = chargeKind(facts.kind, row.name);
+    pricedBy.push(pricerFor(kind));
     const cards = await cardsFor(pricerFor(kind));
     const priced = rates.priceWork(cards, {
       kind: facts.kind,
@@ -248,6 +262,7 @@ export async function planIn(
       ourPrice: trip.amount, ourPriceIsBook: false, unitCost: null, at: new Date(), jobTypeId: job.jobTypeId,
     });
     lines.push(lineOf("trip", null, null, "Trip charge", "trip", "trip", priced, false, taxRate));
+    pricedBy.push(pricerFor("trip"));
   }
 
   const amounts = lines.map((l) => usd(l.amount));
@@ -304,6 +319,57 @@ export async function planIn(
   const absorbed = basis === "absorbed" ? m.sum(parts[0] ?? [], "USD") : ZERO;
 
   /**
+   * MEMBER PRICING ON THE CUSTOMER'S OWN PART (M08), and only there.
+   *
+   * A third party's part is priced by its own authority, a warranty
+   * company's schedule or a manufacturer's allowance, and a plan the
+   * homeowner bought from us is nothing to do with what that payer owes.
+   * The customer's own part is work they pay us for at our price, so their
+   * plan takes its discount off it exactly as it would on an invoice raised
+   * the ordinary way: per line, off what they pay, by the same core
+   * arithmetic, with what the plan leaves out left out.
+   *
+   * Only a part priced at our own price, never one priced by somebody
+   * else's card: the deductible on covered work is a figure the third
+   * party's terms set. And only for the job's own customer: a property
+   * manager billed for a tenant's job is not the member.
+   *
+   * Taken before the tax is shared, so each payer is taxed on what they
+   * actually pay and the tax across the invoices still adds up.
+   */
+  const ownIndex = payers.findIndex((p) => p.role === "customer" && p.customerId === job.customerId);
+  const memberOff: m.Money[] = lines.map(() => ZERO);
+  let member: membership.MemberPricing | null = null;
+  if (ownIndex >= 0 && lines.length > 0 && problems.length === 0) {
+    member = await memberPricingWithin(tx, { customerId: job.customerId, propertyId: job.propertyId, on: today.on });
+  }
+  if (member) {
+    const ids = lines.map((l) => l.priceBookItemId).filter((x): x is string => x !== null);
+    const items = ids.length === 0 ? [] : await tx.select({
+      id: schema.priceBookItem.id, kind: schema.priceBookItem.kind, feeRole: schema.priceBookItem.feeRole,
+    }).from(schema.priceBookItem).where(inArray(schema.priceBookItem.id, ids));
+    const itemOf = new Map(items.map((i) => [i.id, i]));
+    const leftOut = await exclusionTestWithin(tx, member.exclusions, ids);
+    const mine = parts[ownIndex] ?? [];
+    const off = membership.memberDiscounts(lines.map((line, i) => {
+      const part = mine[i] ?? ZERO;
+      const whole = m.equals(part, amounts[i]!);
+      const item = line.priceBookItemId ? itemOf.get(line.priceBookItemId) : undefined;
+      const unitPrice = whole ? usd(line.unitPrice) : part;
+      return {
+        quantity: whole ? line.quantity : "1",
+        unitPrice,
+        eligible: m.isPositive(part) && pricedBy[i] === job.customerId
+          && membership.eligibleForMemberPricing({ unitPrice, itemKind: item?.kind ?? null }),
+        feeRole: item?.feeRole ?? null,
+        excluded: leftOut(line.priceBookItemId),
+      };
+    }), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
+    for (const [i, amount] of off.entries()) memberOff[i] = amount;
+  }
+  const memberTotal = m.sum(memberOff, "USD");
+
+  /**
    * TAX, PER PAYER, ON WHAT EACH ONE PAYS (`core/splits.taxAcross`).
    *
    * Worked out on exactly the amount each invoice line will compute its own
@@ -322,7 +388,8 @@ export async function planIn(
   const wholeNet = lines.map((line) => m.multiply(usd(line.unitPrice), line.quantity));
   const taxBasis = payers.map((_, p) => lines.map((line, i) => {
     const part = parts[p]?.[i] ?? ZERO;
-    return m.equals(part, amounts[i]!) ? wholeNet[i]! : part;
+    const gross = m.equals(part, amounts[i]!) ? wholeNet[i]! : part;
+    return p === ownIndex ? m.subtract(gross, memberOff[i]!) : gross;
   }));
   const tax = splits.taxAcross(
     lines.map((line) => ({ rate: line.taxRate, taxable: line.taxable })),
@@ -335,7 +402,10 @@ export async function planIn(
   for (const [p, payer] of payers.entries()) {
     if (!payer.customerId) continue;
     const mine = parts[p] ?? [];
-    const total = m.sum(mine, "USD");
+    const own = p === ownIndex;
+    const discount = own ? memberTotal : ZERO;
+    /** Before tax, after their plan's discount: what their invoice's lines come to. */
+    const total = m.subtract(m.sum(mine, "USD"), discount);
     const taxed = tax.payers[p] ?? ZERO;
     /** Against what the invoice will carry, tax included, as raising it checks. */
     const verdict = await ceilingOf(tx, organizationId, {
@@ -362,8 +432,10 @@ export async function planIn(
         return [{
           key: line.key, amount: m.toString(amount), whole: m.equals(amount, amounts[i]!),
           tax: m.toString(tax.lines[p]?.[i] ?? ZERO),
+          memberDiscount: m.toString(own ? memberOff[i]! : ZERO),
         }];
       }),
+      memberDiscount: m.toString(discount),
       ceiling: verdict,
     });
     if (verdict?.held && verdict.message) problems.push(verdict.message);
@@ -389,7 +461,9 @@ export async function planIn(
     pricedTotal: m.toString(pricedTotal),
     invoicedTotal: m.toString(invoicedTotal),
     absorbed: m.toString(absorbed),
-    reconciles: splits.reconciles(pricedTotal, [invoicedTotal, absorbed]).ok,
+    member: member && m.isPositive(memberTotal) ? { agreementId: member.agreementId, planName: member.planName } : null,
+    memberDiscount: m.toString(memberTotal),
+    reconciles: splits.reconciles(pricedTotal, [invoicedTotal, absorbed, memberTotal]).ok,
     taxTotal: m.toString(tax.total),
     outOfScope: lines.filter((l) => l.outOfScope).length,
     problems,
@@ -555,6 +629,11 @@ export async function bill(
              */
             taxRate: line.taxable && !payer.taxExempt ? line.taxRate : "0",
             taxAmount: usd(part.tax),
+            /** The customer's plan, on their own part, as the preview showed it. */
+            ...(m.isPositive(usd(part.memberDiscount)) && plan.member ? {
+              memberDiscountAmount: usd(part.memberDiscount),
+              memberAgreementId: plan.member.agreementId,
+            } : {}),
           } satisfies billing.PreparedLine,
         };
       });
@@ -594,7 +673,7 @@ export async function bill(
     const subtotals = await tx.select({ subtotal: schema.invoice.subtotal, discount: schema.invoice.discountTotal })
       .from(schema.invoice).where(inArray(schema.invoice.id, created.map((c) => c.id)));
     const written = m.sum(subtotals.map((s) => m.subtract(usd(s.subtotal), usd(s.discount))), "USD");
-    const check = splits.reconciles(usd(plan.pricedTotal), [written, usd(plan.absorbed)]);
+    const check = splits.reconciles(usd(plan.pricedTotal), [written, usd(plan.absorbed), usd(plan.memberDiscount)]);
     if (!check.ok) {
       throw new ConflictError(
         `The invoices come to ${m.edit(written)} and the work to ${m.edit(usd(plan.pricedTotal))}. Nothing was billed.`,

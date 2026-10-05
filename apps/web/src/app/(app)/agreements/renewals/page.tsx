@@ -50,7 +50,12 @@ export default async function RenewalsPage({
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <a href="/agreements" className="text-sm text-ink-500 hover:underline">Agreements</a>
       <div className="mt-2">
-        <PageHeader title="Ending soon" count={rows.length} />
+        <PageHeader
+          title="Ending soon" count={rows.length}
+          action={can(user.actor, "settings:read")
+            ? <a href="/agreements/renewals/notices" className="text-sm text-ink-700 hover:underline">Renewal notices</a>
+            : undefined}
+        />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="How far ahead">
@@ -103,7 +108,9 @@ export default async function RenewalsPage({
                   ? <span className="text-ink-500">Not yet</span>
                   : row.renewalNoticeOutcome === "queued"
                     ? <span className="text-ink-700">Sent {formatIn(row.renewalNoticeSentAt, zone)}</span>
-                    : <span className="text-red-600">Could not be sent. {row.renewalNoticeOutcome}</span>}
+                    : row.renewalNoticeOutcome?.startsWith("Sent by")
+                      ? <span className="text-ink-700">{row.renewalNoticeOutcome}</span>
+                      : <span className="text-red-600">Could not be sent. {row.renewalNoticeOutcome}</span>}
               </Td>
               <Td className="text-right"><Money value={row.price} /></Td>
             </tr>

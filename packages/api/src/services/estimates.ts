@@ -15,7 +15,7 @@ import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
-import { memberPricingWithin } from "./agreements";
+import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 import { emit } from "./events";
 import * as marketing from "./marketing";
 import type {
@@ -276,6 +276,7 @@ export async function createIn(
           costCode: line.costCode ?? null,
           kind: version?.kind ?? null,
           feeRole: version?.feeRole ?? null,
+          itemId: version?.itemId ?? null,
           memberDiscountAmount: "0",
           memberAgreementId: null as string | null,
         };
@@ -296,12 +297,15 @@ export async function createIn(
        * taken off silently.
        */
       if (member) {
+        /** What the plan's discount leaves out, by the line's item or its category. */
+        const leftOut = await exclusionTestWithin(tx, member.exclusions, resolved.map((l) => l.itemId));
         const off = membership.memberDiscounts(resolved.map((l) => ({
           quantity: l.quantity,
           unitPrice: usd(l.unitPrice),
           discountAmount: usd(l.discountAmount),
           eligible: membership.eligibleForMemberPricing({ unitPrice: usd(l.unitPrice), itemKind: l.kind }),
           feeRole: l.feeRole,
+          excluded: leftOut(l.itemId),
         })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
         for (const [i, line] of resolved.entries()) {
           const amount = off[i]!;

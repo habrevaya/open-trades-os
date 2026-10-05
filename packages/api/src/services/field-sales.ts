@@ -10,7 +10,7 @@ import * as tasks from "./tasks";
 import * as tips from "./tips";
 import * as financing from "./financing";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
-import { memberPricingWithin } from "./agreements";
+import { excludedItemsWithin, memberPricingWithin } from "./agreements";
 import { settingWithin as agentSettingWithin } from "./agents";
 import { createEstimate } from "../contracts/estimates";
 import { createInvoice } from "../contracts/billing";
@@ -625,6 +625,8 @@ export async function salesFor(
     members.set(key, found ? {
       planName: found.planName, rate: found.rate,
       waivesDiagnosticFee: found.waivesDiagnosticFee, waivesAfterHoursRate: found.waivesAfterHoursRate,
+      /** Flattened here, because the phone carries the price book without its categories. */
+      excludedItemIds: await excludedItemsWithin(tx, found.exclusions),
     } : null);
   }
 
@@ -655,6 +657,7 @@ export async function salesFor(
     line: schema.jobLine,
     kind: schema.priceBookItem.kind,
     feeRole: schema.priceBookItem.feeRole,
+    itemId: schema.priceBookItem.id,
   }).from(schema.jobLine)
     .leftJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.jobLine.priceBookItemVersionId))
     .leftJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -715,6 +718,7 @@ export async function salesFor(
         taxable: b.line.taxable,
         itemKind: b.kind ?? null,
         feeRole: b.feeRole ?? null,
+        itemId: b.itemId ?? null,
       })),
       invoices: invoiceRows.filter((i) => i.jobId === v.jobId).map((i) => ({
         id: i.id, number: i.number, status: i.status, total: i.total, balance: i.balance,

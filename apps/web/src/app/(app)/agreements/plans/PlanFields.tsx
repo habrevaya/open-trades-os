@@ -8,7 +8,20 @@ export interface PlanDefaults {
   visitAnchorMonths?: number[]; visitAnchorDay?: number | null;
   discountRate?: string | null; priorityDispatch?: boolean; waivesDiagnosticFee?: boolean;
   waivesAfterHoursRate?: boolean; benefits?: string[]; autoRenews?: boolean; renewalNoticeDays?: number;
+  discountExclusions?: { categoryIds: string[]; itemIds: string[] } | unknown;
+  memberHoldPercent?: number | null;
 }
+
+/** The price book, for choosing what the discount leaves out. */
+export interface BookChoices {
+  categories: { id: string; name: string; depth: number }[];
+  items: { id: string; name: string; code: string }[];
+}
+
+const listOf = (value: unknown, key: "categoryIds" | "itemIds"): string[] => {
+  const list = value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+  return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [];
+};
 
 /** "0.150000" as "15", for the box that takes a percentage. */
 const percent = (rate: string | null | undefined) =>
@@ -21,7 +34,11 @@ const percent = (rate: string | null | undefined) =>
  * it who a change reaches, because that is the question an owner editing a
  * plan four hundred people are on actually has.
  */
-export function PlanFields({ plan = {}, editing = false }: { plan?: PlanDefaults; editing?: boolean }) {
+export function PlanFields({ plan = {}, editing = false, book = { categories: [], items: [] } }: {
+  plan?: PlanDefaults; editing?: boolean; book?: BookChoices;
+}) {
+  const leftOutCategories = listOf(plan.discountExclusions, "categoryIds");
+  const leftOutItems = listOf(plan.discountExclusions, "itemIds");
   return (
     <div className="space-y-6">
       <fieldset className="space-y-3">
@@ -87,10 +104,40 @@ export function PlanFields({ plan = {}, editing = false }: { plan?: PlanDefaults
           <TextField label="Discount on work, per cent" name="discountPercent" inputMode="decimal" placeholder="15"
                      defaultValue={percent(plan.discountRate)} />
         </div>
+        {book.categories.length > 0 || book.items.length > 0 ? (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-ink-700">Not discounted (optional)</legend>
+            <p className="text-xs text-ink-500">
+              Tick what the discount leaves out, for example equipment. A category takes everything filed under it.
+              A waived fee is still waived.
+            </p>
+            {book.categories.length > 0 ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {book.categories.map((category) => (
+                  <label key={category.id} className="inline-flex items-center gap-1 text-sm"
+                         style={{ paddingLeft: `${category.depth * 12}px` }}>
+                    <input type="checkbox" name="excludedCategoryIds" value={category.id}
+                           defaultChecked={leftOutCategories.includes(category.id)} />
+                    {category.name}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            {book.items.length > 0 ? (
+              <label className="block">
+                <span className="text-sm text-ink-700">Single items (hold Ctrl or Cmd to pick more than one)</span>
+                <select name="excludedItemIds" multiple defaultValue={leftOutItems} size={Math.min(book.items.length, 6)}
+                        className="mt-1 w-full rounded border border-steel-300 bg-canvas px-2 py-1 text-sm">
+                  {book.items.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.code})</option>)}
+                </select>
+              </label>
+            ) : null}
+          </fieldset>
+        ) : null}
         {editing ? (
           <p className="text-xs text-ink-500">
-            The discount reaches new sales only: each member keeps the rate they bought. The three boxes below are
-            the company&apos;s standing promise and reach every member the moment they are saved.
+            The discount, and what it leaves out, reach new sales only: each member keeps what they bought. The
+            boxes below are the company&apos;s standing promise and reach every member the moment they are saved.
           </p>
         ) : null}
         <div className="space-y-1 text-sm">
@@ -98,6 +145,9 @@ export function PlanFields({ plan = {}, editing = false }: { plan?: PlanDefaults
             <input type="checkbox" name="priorityDispatch" defaultChecked={plan.priorityDispatch ?? false} />
             Seen first: a member&apos;s unassigned work goes to the top of the board
           </label>
+          <TextField label="Share of each booking window held for these members, per cent (blank for your usual figure)"
+                     name="memberHoldPercent" inputMode="numeric" placeholder="25" className="block max-w-md"
+                     defaultValue={plan.memberHoldPercent === null || plan.memberHoldPercent === undefined ? "" : String(plan.memberHoldPercent)} />
           <label className="flex items-center gap-2">
             <input type="checkbox" name="waivesDiagnosticFee" defaultChecked={plan.waivesDiagnosticFee ?? false} />
             No diagnostic fee (the price book item marked as the diagnostic fee comes off in full)
