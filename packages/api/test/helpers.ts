@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import postgres from "postgres";
 import { createHash } from "node:crypto";
 import { createClient, type Database } from "@opentradesos/db";
 
@@ -465,4 +465,31 @@ let shared: Database | undefined;
 export function testDb(url: string): Database {
   shared ??= createClient(url);
   return shared;
+}
+
+/**
+ * ONE WHOLE PASS AT A TIME
+ *
+ * The worker's pass reads every company with unread events, not the one a
+ * test made, so two files running a pass at once take each other's events:
+ * the file that asserts what its own drain handled finds the other file's
+ * pass got there first. Production is safe either way (a run is keyed on its
+ * event, so the second worker records it as already run); the tests are not,
+ * because they assert which pass did the work. Every file that runs a pass
+ * over all companies, or drains one and asserts what it handled, holds this
+ * lock for the whole file, so those files take turns while the rest of the
+ * suite runs beside them.
+ *
+ * A session lock on its own connection, released when the file ends.
+ */
+const WHOLE_PASS_LOCK = 7_101_001;
+export const WHOLE_PASS_WAIT_MS = 1_800_000;
+
+export async function holdWholePassLock(url: string): Promise<() => Promise<void>> {
+  const conn = postgres(url, { max: 1, onnotice: () => undefined });
+  await conn`select pg_advisory_lock(${WHOLE_PASS_LOCK})`;
+  return async () => {
+    await conn`select pg_advisory_unlock(${WHOLE_PASS_LOCK})`;
+    await conn.end();
+  };
 }

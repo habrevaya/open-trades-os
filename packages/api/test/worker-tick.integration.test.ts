@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
 import { handleWorkerTick } from "../src/http/worker-tick";
 import { drainOrganization, runBounded } from "../src/services/workflow-worker";
-import { resetOrg, seedOrg, testDb, fixtureId } from "./helpers";
+import { resetOrg, seedOrg, testDb, fixtureId, holdWholePassLock, WHOLE_PASS_WAIT_MS } from "./helpers";
 
 /**
  * THE WORKER ON A HOST THAT CANNOT KEEP IT RUNNING
@@ -38,6 +38,13 @@ async function threeEvents(): Promise<void> {
               values (${ORG}, ${sequence}, 'job.created', 'job', '{}'::jsonb)`;
   }
 }
+
+/** This file runs the worker's pass over every company: see `holdWholePassLock`. */
+let releaseWholePass: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (url) releaseWholePass = await holdWholePassLock(url);
+}, WHOLE_PASS_WAIT_MS);
+afterAll(async () => { await releaseWholePass?.(); });
 
 beforeAll(async () => {
   if (!url) return;

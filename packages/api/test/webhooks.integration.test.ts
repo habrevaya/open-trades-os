@@ -5,7 +5,7 @@ import { PermissionError, type Actor } from "@opentradesos/core";
 import * as webhooks from "../src/services/webhooks";
 import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
 import { runPass } from "../src/services/workflow-worker";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, holdWholePassLock, WHOLE_PASS_WAIT_MS } from "./helpers";
 
 /**
  * OUTBOUND WEBHOOKS, WHICH NOTHING COULD REGISTER OR DELIVER
@@ -67,6 +67,13 @@ function transport(answer: (request: webhooks.DeliveryRequest) => webhooks.Deliv
 
 const T0 = Date.UTC(2026, 0, 14, 9, 0, 0);
 const at = (offsetMs: number) => () => new Date(T0 + offsetMs);
+
+/** This file runs the worker's pass over every company: see `holdWholePassLock`. */
+let releaseWholePass: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (url) releaseWholePass = await holdWholePassLock(url);
+}, WHOLE_PASS_WAIT_MS);
+afterAll(async () => { await releaseWholePass?.(); });
 
 beforeAll(async () => {
   if (!url) return;
