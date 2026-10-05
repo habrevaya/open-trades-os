@@ -494,6 +494,89 @@ export function purchaseOrderPdf(input: PurchaseOrderPdfInput, options: RenderOp
   }, options);
 }
 
+/* ------------------------------------------------- a signed staff document */
+
+export interface SignedDocumentPdfInput {
+  company: Company;
+  /** The document's title, as it was when it was signed. */
+  title: string;
+  /** The exact words that were signed. */
+  body: string;
+  /** The fingerprint the signature carries: SHA-256 of the title and the words. */
+  documentHash: string;
+  /** The name as they signed it: typed, or the name on their record when drawn. */
+  signerName: string;
+  signerEmail?: string | null | undefined;
+  /** When, already written in the company's own clock and zone, "March 4, 2026 at 2:15 PM CST". */
+  signedAtText: string;
+  signedVia: "typed" | "drawn";
+  /** The drawn signature as a page can print it. Null for a typed one, or a picture a PDF cannot carry. */
+  signature?: PdfImage | null | undefined;
+  /** Where it came from, when the screen could say. Evidence, printed as kept. */
+  ipAddress?: string | null | undefined;
+  userAgent?: string | null | undefined;
+  generatedAt: Date;
+}
+
+/**
+ * A signed document, for the person who signed it or the office that asked.
+ *
+ * WHO, WHEN, HOW, AND THE WORDS, in that order, because a printed copy is read
+ * as evidence: the facts the record keeps about the signing, then the words
+ * exactly as they were shown, then the signature itself. Nothing is added to
+ * the words and nothing is left out of them. The fingerprint is the one every
+ * signature of the document carries, so a copy can be checked against the
+ * record without trusting this page.
+ */
+export function signedDocumentPdf(input: SignedDocumentPdfInput, options: RenderOptions = {}): Uint8Array {
+  const flow = new Flow({
+    company: input.company.name,
+    contact: input.company.contact,
+    accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
+    title: "Signed document",
+    subtitle: input.signedAtText,
+  });
+
+  flow.heading(input.title, 14);
+  flow.gap(4);
+  flow.facts([
+    ["Signed by", input.signerName],
+    ["Email", input.signerEmail],
+    ["Signed", input.signedAtText],
+    ["How", input.signedVia === "drawn" ? "Drew their signature on the screen" : "Typed their full name"],
+    ["From address", input.ipAddress],
+    ["Browser", input.userAgent ? fit(input.userAgent, "regular", 10, 200) : null],
+  ]);
+  flow.gap(6);
+  flow.paragraph(`Fingerprint of the words: ${input.documentHash}`, { size: 8, color: MUTED });
+  flow.gap(14);
+
+  flow.heading("The words they signed", 11);
+  flow.paragraph(input.body);
+
+  flow.gap(18);
+  flow.heading("Signature", 11);
+  if (input.signedVia === "drawn" && input.signature) {
+    flow.image(input.signature, { maxHeight: 90, caption: `Drawn by ${input.signerName}` });
+  } else if (input.signedVia === "drawn") {
+    flow.paragraph(`${input.signerName} drew their signature. The picture is kept with the record but this page cannot print it.`, { color: MUTED });
+  } else {
+    flow.paragraph(input.signerName, { font: "bold", size: 14 });
+  }
+  flow.gap(10);
+  flow.paragraph(
+    `Signing says ${input.signerName} read the words above and agreed to them, on ${input.signedAtText}.`,
+    { size: 9, color: MUTED },
+  );
+
+  return flow.finish({
+    title: `${input.company.name}: ${input.title}, signed by ${input.signerName}`,
+    createdAt: input.generatedAt,
+    footer: `${input.company.name}, ${input.title}, signed by ${input.signerName}`,
+  }, options);
+}
+
 /* -------------------------------------------------------------- report */
 
 export interface ReportPdfInput {

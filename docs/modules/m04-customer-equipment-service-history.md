@@ -104,6 +104,22 @@ different unit with the same plate.
 A move records where it went and why. Retiring a unit is a soft delete, so the
 jobs that named it still resolve.
 
+On the unit's own page, `/equipment/{id}`, somebody who may write the register
+(`equipment:write`) sees two folds below the facts. "Correct its details" is the
+unit's category, tag, make, model, serial, place in the building, install date,
+the two cover dates and whether we installed it, filled in with what is on file;
+saving runs `PATCH /v1/equipment/{id}`'s own function, so a serial already on file
+at this address is refused in the API's words, and a box left empty takes that
+detail off. It does not offer the address. "Move it to another address" lists the
+customer's other addresses and a search of every address by street, city or postal
+code (needs `property:read` to draw), and records the move through
+`POST /v1/equipment/{id}/move`'s own function: a reason that means it went somewhere
+(moved to another address, swapped under warranty, returned), the day (today, in
+the company's calendar, when left empty) and a note. Anything nested inside the unit
+goes with it, and the move shows under "Where it has been". A unit that was replaced
+or taken away is retired from its address's register instead. A unit taken off the
+register shows neither form.
+
 ### Find out what happened to it
 
 `/equipment/{id}` is the unit's own page: what it is, its serial, where it is
@@ -233,5 +249,6 @@ a register without serials.
 The warranty call is a recommended automation that is off until somebody turns
 it on, like every recommended automation but the estimate follow up, and it only
 raises a task: it does not text or email the customer, because what to offer
-them is the office's call. A unit's page reads; editing a unit and moving it are still done from its
-address's register and the API.
+them is the office's call. A unit's page cannot change what a unit is nested in
+or its free form attributes, which `PATCH /v1/equipment/{id}` takes and the
+screen does not offer.

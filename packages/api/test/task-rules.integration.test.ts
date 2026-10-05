@@ -169,6 +169,61 @@ run("recurring tasks", () => {
     expect((await rules.listTemplates(owner()))[0]).toMatchObject({ active: false, nextOn: null });
   });
 
+  it("raises an every other week task in the on weeks only", async () => {
+    const template = await rules.createTemplate(owner(), {
+      title: "Payroll check", frequency: "every_other_week", weekday: 1, startsOn: "2026-10-05",
+    });
+    expect(template.schedule).toBe("Every other Monday");
+    const at = (iso: string) => rules.raiseRecurringFor(db(), ORG, new Date(iso));
+    expect(await at("2026-10-05T15:00:00Z")).toHaveLength(1);
+    // The Monday after is the off week, and so is every day between.
+    expect(await at("2026-10-12T15:00:00Z")).toEqual([]);
+    expect(await at("2026-10-14T15:00:00Z")).toEqual([]);
+    expect(await at("2026-10-19T15:00:00Z")).toHaveLength(1);
+    const days = await raw`select occurrence_on::text as d from public.task
+      where template_id = ${template.id} order by occurrence_on`;
+    expect(days.map((r) => r.d)).toEqual(["2026-10-05", "2026-10-19"]);
+  });
+
+  it("raises a weekdays only task on working days, once, and not at the weekend", async () => {
+    await rules.createTemplate(owner(), { title: "Open the shop", frequency: "weekdays", startsOn: "2026-10-01" });
+    const at = (iso: string) => rules.raiseRecurringFor(db(), ORG, new Date(iso));
+    expect(await at("2026-10-09T15:00:00Z")).toHaveLength(1);
+    expect(await at("2026-10-10T15:00:00Z")).toEqual([]);
+    expect(await at("2026-10-11T15:00:00Z")).toEqual([]);
+    expect(await at("2026-10-12T15:00:00Z")).toHaveLength(1);
+    expect((await rules.listTemplates(owner()))[0]).toMatchObject({
+      schedule: "Every weekday, Monday to Friday",
+    });
+  });
+
+  it("raises a last Friday of the month task on the fourth or the fifth Friday, whichever is last", async () => {
+    const template = await rules.createTemplate(owner(), {
+      title: "Month end count", frequency: "last_weekday_of_month", weekday: 5, startsOn: "2026-10-01",
+    });
+    expect(template.nextOn).toBe("2026-10-30");
+    const at = (iso: string) => rules.raiseRecurringFor(db(), ORG, new Date(iso));
+    // The 23rd is a Friday but not the last one in October 2026.
+    expect(await at("2026-10-23T15:00:00Z")).toEqual([]);
+    expect(await at("2026-10-30T15:00:00Z")).toHaveLength(1);
+    expect(await at("2026-11-20T15:00:00Z")).toEqual([]);
+    expect(await at("2026-11-27T15:00:00Z")).toHaveLength(1);
+  });
+
+  it("refuses the new schedules without a weekday, and keeps the weekday only where it means something", async () => {
+    await expect(rules.createTemplate(owner(), { title: "Bad", frequency: "every_other_week" }))
+      .rejects.toThrow(/day of the week/);
+    await expect(rules.createTemplate(owner(), { title: "Bad", frequency: "last_weekday_of_month" }))
+      .rejects.toThrow(/day of the week/);
+    const weekdays = await rules.createTemplate(owner(), { title: "Weekdays", frequency: "weekdays", weekday: 3 });
+    expect(weekdays.weekday).toBeNull();
+    // Changing a weekly task to the last of the month keeps its day, and to daily drops it.
+    const weekly = await rules.createTemplate(owner(), { title: "W", frequency: "weekly", weekday: 2 });
+    const changed = await rules.updateTemplate(owner(), { id: weekly.id, frequency: "last_weekday_of_month" });
+    expect(changed).toMatchObject({ weekday: 2, schedule: "On the last Tuesday of every month" });
+    expect((await rules.updateTemplate(owner(), { id: weekly.id, frequency: "daily" })).weekday).toBeNull();
+  });
+
   it("refuses a weekly task with no weekday, and needs task:write", async () => {
     await expect(rules.createTemplate(owner(), { title: "Bad", frequency: "weekly" })).rejects.toThrow(/day of the week/);
     await expect(rules.createTemplate(tech(), { title: "X", frequency: "daily" })).rejects.toThrow(PermissionError);

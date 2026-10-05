@@ -156,12 +156,19 @@ test("the overtime rule is declared and a wage scale is loaded and changed from 
   await load.getByLabel("Classification").fill(classification);
   await load.getByLabel("Hourly rate").fill("42.00");
   await load.getByLabel("From (optional)").fill("2026-01-01");
+  await load.getByLabel(/^Overtime pays this many times, if the agreement says/).fill("1.5");
+  await load.getByLabel(/^Double time pays this many times, if the agreement says/).fill("2.5");
+  await load.getByLabel(/^Apprentices to journeymen/).fill("1:3");
+  await expect(load).toContainText("They do not change what a week costs");
   await load.getByRole("button", { name: "Load scale" }).click();
   await expect(load.getByRole("status")).toContainText("Loaded");
   await owner.reload();
 
   const row = owner.getByRole("table", { name: "Wage scales" }).getByRole("row").filter({ hasText: classification });
   await expect(row).toContainText("$42.00");
+  await expect(row).toContainText("Overtime 1.5 times");
+  await expect(row).toContainText("Double time 2.5 times");
+  await expect(row).toContainText("Apprentices 1:3");
   await row.getByText("Change or retire").click();
   await row.getByLabel("New hourly rate").fill("45.50");
   await row.getByLabel("From").fill("2026-09-01");
@@ -171,5 +178,7 @@ test("the overtime rule is declared and a wage scale is loaded and changed from 
   const rows = owner.getByRole("table", { name: "Wage scales" }).getByRole("row").filter({ hasText: classification });
   await expect(rows).toHaveCount(2);
   await expect(rows.filter({ hasText: "$45.50" })).toContainText("Still in effect");
+  // A change of rate carries the agreement's terms to the new scale.
+  await expect(rows.filter({ hasText: "$45.50" })).toContainText("Apprentices 1:3");
   await expect(rows.filter({ hasText: "$42.00" })).toContainText("Retired");
 });

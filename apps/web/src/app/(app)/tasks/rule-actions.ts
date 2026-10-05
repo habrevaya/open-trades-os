@@ -111,6 +111,9 @@ export async function finishTask(_previous: FormState, form: FormData): Promise<
   return state;
 }
 
+/** The schedules that come round on a named day of the week; the others ignore the day box. */
+const WEEKDAY_FREQUENCIES = ["weekly", "every_other_week", "last_weekday_of_month"];
+
 export async function addTemplate(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     const { ctx } = await session();
@@ -125,7 +128,7 @@ export async function addTemplate(_previous: FormState, form: FormData): Promise
       body: field(form, "body"),
       priority: field(form, "priority"),
       frequency,
-      ...(frequency === "weekly" && weekday !== undefined ? { weekday: Number(weekday) } : {}),
+      ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined ? { weekday: Number(weekday) } : {}),
       ...(frequency === "monthly" && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
       ...(assignee ? { assigneeUserId: assignee } : {}),
       ...(due !== undefined ? { dueMinutes: due } : {}),

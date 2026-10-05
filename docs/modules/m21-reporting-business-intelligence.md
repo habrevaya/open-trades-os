@@ -466,9 +466,13 @@ own, because no dataset is a row of one; a unit's fields reach only the kinds of
 record that link a unit, and a technician's only Visits, through its lead. A drill, of a report or of a KPI, lists at most a thousand records (its
 totals still cover all of them).
 
-The PDF is set in the standard Helvetica faces, which cover Western European
-characters: a letter they lack prints as its unaccented base letter where it
-has one and as "?" where it does not. An emailed report appears as a
+The PDF is set in the Noto Sans that ships inside the product, as every PDF is,
+so a customer, a technician or a column in Latin, Vietnamese, modern Greek or
+Cyrillic prints as spelled (a test prints a report whose title, column heading and
+rows are Greek, Cyrillic and Vietnamese and reads them back out of the file). A
+script the face does not carry (Chinese, Arabic, Hebrew) and the polytonic Greek
+accents print as the plain letter where there is one and as "?" where there is
+not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
 Nothing is emailed until an email provider is connected. Dashboard tiles keep

@@ -3789,7 +3789,7 @@ export interface CreateTaskTemplateInput {
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
   queue?: string;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday?: number | null;
   monthDay?: number | null;
   dueMinutes?: number;
@@ -3805,7 +3805,7 @@ export interface CreateTaskTemplateOutput {
   assigneeUserId: string | null;
   assigneeName: string | null;
   queue: string | null;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday: number | null;
   monthDay: number | null;
   dueMinutes: number;
@@ -8326,6 +8326,12 @@ export interface GetPersonRecordOutput {
       endedReason: string | null;
     }>;
   } | null;
+  reportsTo: {
+    membershipId: string;
+    name: string | null;
+    email: string;
+    active: boolean;
+  } | null;
   documents: Array<{
     requestId: string;
     documentId: string;
@@ -11423,6 +11429,7 @@ export interface ListCustomerDuplicatePairsOutput {
   }>;
   nextCursor: string | null;
   hasMore: boolean;
+  total: number;
 }
 
 export interface ListCustomerPortalSessionsOutput {
@@ -13568,6 +13575,23 @@ export interface ListServiceRoutesOutput {
   }>;
 }
 
+export interface ListSetAsideCustomerDuplicatesOutput {
+  data: Array<{
+    a: {
+      id: string;
+      name: string;
+    };
+    b: {
+      id: string;
+      name: string;
+    };
+    reason: string | null;
+    markedAt: string;
+  }>;
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export interface ListSpendOutput {
   spend: Array<{
     id: string;
@@ -13717,7 +13741,7 @@ export interface ListTaskTemplatesOutput {
     assigneeUserId: string | null;
     assigneeName: string | null;
     queue: string | null;
-    frequency: "daily" | "weekly" | "monthly";
+    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
     weekday: number | null;
     monthDay: number | null;
     dueMinutes: number;
@@ -14116,6 +14140,8 @@ export interface ListWageScalesOutput {
     externalReference: string | null;
     baseRate: string;
     fringeRate: string | null;
+    overtimeMultiplier: string | null;
+    doubleTimeMultiplier: string | null;
     apprenticeRatio: string | null;
     effectiveFrom: string | null;
     effectiveTo: string | null;
@@ -14337,6 +14363,8 @@ export interface LoadWageScaleOutput {
   externalReference: string | null;
   baseRate: string;
   fringeRate: string | null;
+  overtimeMultiplier: string | null;
+  doubleTimeMultiplier: string | null;
   apprenticeRatio: string | null;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -17349,6 +17377,18 @@ export interface RestoreCopyOutput {
   };
 }
 
+export interface RestoreCustomerDuplicateInput {
+  customerId: string;
+  otherId: string;
+}
+
+export interface RestoreCustomerDuplicateOutput {
+  customerAId: string;
+  customerBId: string;
+  dismissed: false;
+  wasMarked: boolean;
+}
+
 export interface ResubmitRegulatorySubmissionInput {
   dueOn?: string;
 }
@@ -17464,6 +17504,8 @@ export interface RetireWageScaleOutput {
   externalReference: string | null;
   baseRate: string;
   fringeRate: string | null;
+  overtimeMultiplier: string | null;
+  doubleTimeMultiplier: string | null;
   apprenticeRatio: string | null;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -17701,6 +17743,8 @@ export interface ReviseWageScaleOutput {
   externalReference: string | null;
   baseRate: string;
   fringeRate: string | null;
+  overtimeMultiplier: string | null;
+  doubleTimeMultiplier: string | null;
   apprenticeRatio: string | null;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -21782,7 +21826,7 @@ export interface UpdateTaskTemplateInput {
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
   queue?: string;
-  frequency?: "daily" | "weekly" | "monthly";
+  frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday?: number | null;
   monthDay?: number | null;
   dueMinutes?: number;
@@ -21799,7 +21843,7 @@ export interface UpdateTaskTemplateOutput {
   assigneeUserId: string | null;
   assigneeName: string | null;
   queue: string | null;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday: number | null;
   monthDay: number | null;
   dueMinutes: number;
@@ -24545,6 +24589,11 @@ export interface ListServiceRouteStopsInput {
 
 export type ListServiceRoutesInput = Record<string, never>;
 
+export interface ListSetAsideCustomerDuplicatesInput {
+  cursor?: string;
+  limit?: number;
+}
+
 export interface ListSpendInput {
   from: string;
   to: string;
@@ -26337,6 +26386,7 @@ export interface OperationTypes {
   listServiceReports: { input: ListServiceReportsInput; output: ListServiceReportsOutput };
   listServiceRouteStops: { input: ListServiceRouteStopsInput; output: ListServiceRouteStopsOutput };
   listServiceRoutes: { input: ListServiceRoutesInput; output: ListServiceRoutesOutput };
+  listSetAsideCustomerDuplicates: { input: ListSetAsideCustomerDuplicatesInput; output: ListSetAsideCustomerDuplicatesOutput };
   listSpend: { input: ListSpendInput; output: ListSpendOutput };
   listStaffDocuments: { input: ListStaffDocumentsInput; output: ListStaffDocumentsOutput };
   listStaleRegulatoryConstants: { input: ListStaleRegulatoryConstantsInput; output: ListStaleRegulatoryConstantsOutput };
@@ -26528,6 +26578,7 @@ export interface OperationTypes {
   respondToReview: { input: RespondToReviewParams & RespondToReviewInput; output: RespondToReviewOutput };
   restockTruck: { input: RestockTruckInput; output: RestockTruckOutput };
   restoreCopy: { input: RestoreCopyInput; output: RestoreCopyOutput };
+  restoreCustomerDuplicate: { input: RestoreCustomerDuplicateInput; output: RestoreCustomerDuplicateOutput };
   resubmitRegulatorySubmission: { input: ResubmitRegulatorySubmissionParams & ResubmitRegulatorySubmissionInput; output: ResubmitRegulatorySubmissionOutput };
   retireAgreementPlan: { input: RetireAgreementPlanParams & RetireAgreementPlanInput; output: RetireAgreementPlanOutput };
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
@@ -27313,6 +27364,7 @@ export const OPERATIONS = {
   listServiceReports: { method: "GET", path: "/v1/service-reports", pathParams: [], queryParams: ["jobId","visitId","customerId","propertyId","status","outOfRangeOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
   listServiceRouteStops: { method: "GET", path: "/v1/service-routes/{id}/stops", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listServiceRoutes: { method: "GET", path: "/v1/service-routes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listSetAsideCustomerDuplicates: { method: "GET", path: "/v1/customer-duplicates/set-aside", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
   listSpend: { method: "GET", path: "/v1/marketing/spend", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listStaffDocuments: { method: "GET", path: "/v1/staff-documents", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listStaleRegulatoryConstants: { method: "GET", path: "/v1/compliance/constants/stale", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -27504,6 +27556,7 @@ export const OPERATIONS = {
   respondToReview: { method: "POST", path: "/v1/reviews/{id}/response", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   restockTruck: { method: "POST", path: "/v1/stock/restocks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   restoreCopy: { method: "POST", path: "/v1/restores", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
+  restoreCustomerDuplicate: { method: "POST", path: "/v1/customer-duplicates/restore", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
   resubmitRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/resubmit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   retireAgreementPlan: { method: "POST", path: "/v1/agreement-plans/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -27742,7 +27795,7 @@ export const OPERATIONS = {
 } as const;
 
 /** Operations whose list pages with `cursor` and `nextCursor`, for `paginate`. */
-export type PaginatedOperationId = "listBookingRequests" | "listConflicts" | "listConversations" | "listCreditNotes" | "listCustomRecords" | "listCustomerDuplicatePairs" | "listCustomers" | "listEstimates" | "listInvoices" | "listJobs" | "listPayments" | "listPriceBook" | "listProperties" | "listTasks" | "listWebhookDeliveries";
+export type PaginatedOperationId = "listBookingRequests" | "listConflicts" | "listConversations" | "listCreditNotes" | "listCustomRecords" | "listCustomerDuplicatePairs" | "listCustomers" | "listEstimates" | "listInvoices" | "listJobs" | "listPayments" | "listPriceBook" | "listProperties" | "listSetAsideCustomerDuplicates" | "listTasks" | "listWebhookDeliveries";
 
 /** Bulk operations that can be asked what they would change, for `dryRun`. */
 export type DryRunOperationId = "applyPriceChange" | "applyVendorCatalogue" | "assignJobsToBranch" | "copyBackFromSandbox" | "createWorkflow" | "defineCustomField" | "defineCustomObject" | "deleteCustomField" | "deleteCustomObject" | "deleteWorkflow" | "importCustomRecords" | "mergeCustomerTags" | "publishWorkflow" | "renameCustomerTag" | "setItemTax" | "updateCustomField" | "updateCustomObject";
@@ -28972,7 +29025,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Make a task come round daily, weekly or monthly.
+   * Make a task come round on a schedule.
    *
    * POST /v1/task-templates. Needs task:write.
    */
@@ -30493,7 +30546,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * One person: onboarding, emergency contacts, employment and skills.
+   * One person: who they report to, onboarding, emergency contacts, employment and skills.
    *
    * GET /v1/people/{membershipId}. Needs user:read.
    */
@@ -32662,6 +32715,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Pairs marked as two people.
+   *
+   * GET /v1/customer-duplicates/set-aside. Needs customer:merge.
+   */
+  listSetAsideCustomerDuplicates(input: ListSetAsideCustomerDuplicatesInput = {} as ListSetAsideCustomerDuplicatesInput, options?: CallOptions): Promise<ListSetAsideCustomerDuplicatesOutput> {
+    return this.call("listSetAsideCustomerDuplicates", input, options);
+  }
+
+  /**
    * Spend rows over a range, newest day first.
    *
    * GET /v1/marketing/spend. Needs adspend:read.
@@ -34378,6 +34440,15 @@ export abstract class GeneratedOperations {
    */
   restoreCopy(input: RestoreCopyInput, options?: CallOptions): Promise<RestoreCopyOutput> {
     return this.call("restoreCopy", input, options);
+  }
+
+  /**
+   * Put a pair back in the duplicate list.
+   *
+   * POST /v1/customer-duplicates/restore. Needs customer:merge.
+   */
+  restoreCustomerDuplicate(input: RestoreCustomerDuplicateInput, options?: CallOptions): Promise<RestoreCustomerDuplicateOutput> {
+    return this.call("restoreCustomerDuplicate", input, options);
   }
 
   /**

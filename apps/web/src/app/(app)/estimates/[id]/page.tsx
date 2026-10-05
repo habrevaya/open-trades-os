@@ -77,6 +77,14 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         </Fact>
       </Facts>
 
+      {estimate.status === "expired" ? (
+        <p role="note" className="mt-4 max-w-prose rounded border border-steel-200 bg-steel-100 p-3 text-sm text-ink-700">
+          {estimate.expiresOn ? `This estimate was good until ${formatDay(estimate.expiresOn, user.organizationTimezone)}. ` : ""}
+          It is out of the unsold list and cannot be financed. The customer can still say yes, and you can
+          still record it below.
+        </p>
+      ) : null}
+
       <Options estimate={estimate} plans={plans} />
 
       <Deliveries deliveries={sent} when={(at) => formatIn(at, user.organizationTimezone)} />

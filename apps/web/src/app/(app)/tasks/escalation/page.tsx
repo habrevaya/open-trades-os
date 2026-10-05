@@ -101,7 +101,7 @@ export default async function EscalationPage() {
         <section aria-label="Who answers to whom" className="mt-10">
           <h2 className="text-base font-semibold">Who answers to whom</h2>
           <p className="mt-1 max-w-prose text-sm text-ink-700">
-            Read by the rules that tell a person&rsquo;s manager, and by nothing else.
+            Read by the rules that tell a person&rsquo;s manager, and shown on each person&rsquo;s own page under People.
           </p>
           <Table label="Managers" head={<><Th>Person</Th><Th>Answers to</Th></>}>
             {lines.map((line) => (

@@ -592,8 +592,20 @@ browser on `/my-day`. On the phone an estimate has at most three options
 (the server takes five) and no discount the technician types; a line not in
 the price book is typed with its price. An invoice raised on site bills the
 option signed for or the work recorded, never both; recorded parts left off
-stay unbilled for the office. Invoices carry no sales tax yet (BUILD.md), so
-neither does the phone's. A signature for an invoice the customer was not
+stay unbilled for the office. An invoice raised on site is taxed exactly as one the
+office raises. An invoice made from the option the customer signed for carries the
+tax that estimate was written with (the percentage typed on the phone's estimate
+builder, or on the office's estimate form), each line at the rate it was charged,
+because the phone runs the same conversion the office's "Convert to job" does and a
+test raises both from the same estimate and compares the tax to the cent. An invoice
+made from work recorded on the visit carries no sales tax, as the office's ordinary
+invoice for the same work carries none: a job's recorded parts and charges have no
+rate of their own, and nothing in the product holds a company's sales tax rate, so
+a rate is only ever one somebody typed. The office can type one when it bills a
+job (`/jobs/{id}`, "Bill this job"), and the phone has no box for one on that kind
+of invoice, so a taxable part billed on site is untaxed where the same part billed
+from the job's page with a rate typed is taxed; a company that charges tax on
+parts sells them from an estimate, which carries the rate. A signature for an invoice the customer was not
 there for can be skipped, and the invoice is raised unsigned. A task with a
 checklist is finished on its own page in a browser, not on the phone. The
 lender's link and the field assistant need a signal; nothing about them is

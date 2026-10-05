@@ -6,7 +6,7 @@ import { Phone } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
-import { mergePair, notDuplicate } from "./actions";
+import { mergePair, notDuplicate, putBack } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,8 @@ export default async function DuplicatesPage({
   const ctx = { actor: user.actor, db: getDb() };
   const page = await customerDuplicates.sweep(ctx, { limit: 25, ...(after ? { cursor: after } : {}) });
   const setAside = await customerDuplicates.dismissedCount(ctx);
+  // The pairs marked as different people, so a wrong mark can be undone from here.
+  const marked = setAside > 0 ? await customerDuplicates.setAside(ctx, { limit: 50 }) : null;
 
   const side = (c: { id: string; name: string; phone: string | null; email: string | null }) => (
     <div>
@@ -53,7 +55,17 @@ export default async function DuplicatesPage({
       <p className="mt-2 max-w-prose text-sm text-ink-700">
         Pairs that share a phone number or an email, or whose names are close. Merging moves
         everything onto the record you keep, and the other one points at it so old links still work.
-        {setAside > 0 ? ` ${setAside === 1 ? "One pair has" : `${setAside} pairs have`} been marked as different people and are not shown.` : ""}
+        {setAside > 0 ? ` ${setAside === 1 ? "One pair has" : `${setAside} pairs have`} been marked as different people and are not shown (see the end of the page).` : ""}
+      </p>
+      {/*
+        The whole list's length, whichever page this is, so somebody knows how
+        much is left before they start rather than finding out at the last
+        "next" link.
+      */}
+      <p className="mt-2 text-sm font-medium text-ink-900" data-testid="duplicate-total">
+        {page.total === 0
+          ? "No pairs to look at."
+          : page.total === 1 ? "1 pair to look at." : `${page.total} pairs to look at.`}
       </p>
 
       {page.data.length === 0 ? (
@@ -63,7 +75,7 @@ export default async function DuplicatesPage({
             : "No two customers share a phone number or an email, or have names close enough to check."}
         </Empty>
       ) : (
-        <ul className="mt-6 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+        <ul aria-label="Pairs to look at" className="mt-6 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
           {page.data.map((pair) => (
             <li key={`${pair.a.id}:${pair.b.id}`} aria-label={`${pair.a.name} and ${pair.b.name}`} className="bg-canvas p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-ink-500">{pair.because}</p>
@@ -94,6 +106,41 @@ export default async function DuplicatesPage({
           <a href={`/customers/duplicates?after=${encodeURIComponent(page.nextCursor)}`}
              className="underline underline-offset-4">The next {25} pairs</a>
         </p>
+      ) : null}
+
+      {marked && marked.data.length > 0 ? (
+        <section className="mt-10" aria-labelledby="marked-heading">
+          <h2 id="marked-heading" className="text-base font-semibold">Marked as different people</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-700">
+            These pairs are kept out of the list above. Put one back if you marked it by mistake, or
+            if the reason is not true any more.
+          </p>
+          <ul aria-label="Pairs marked as different people" className="mt-3 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {marked.data.map((pair) => (
+              <li key={`${pair.a.id}:${pair.b.id}`} aria-label={`Marked: ${pair.a.name} and ${pair.b.name}`}
+                  className="flex flex-wrap items-center gap-3 bg-canvas p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink-900">
+                    <a href={`/customers/${pair.a.id}`} className="hover:underline">{pair.a.name}</a>
+                    {" and "}
+                    <a href={`/customers/${pair.b.id}`} className="hover:underline">{pair.b.name}</a>
+                  </p>
+                  <p className="text-xs text-ink-500">
+                    {pair.reason ? `${pair.reason}. ` : ""}Marked {pair.markedAt.slice(0, 10)}.
+                  </p>
+                </div>
+                <ActionForm action={putBack} submit="Put back in the list" tone="quiet"
+                            hidden={{ customerId: pair.a.id, otherId: pair.b.id }}
+                            className="flex flex-wrap items-center gap-2" />
+              </li>
+            ))}
+          </ul>
+          {marked.hasMore ? (
+            <p className="mt-2 text-sm text-ink-500">
+              The newest {marked.data.length} are shown. The rest are on the API at <code>/v1/customer-duplicates/set-aside</code>.
+            </p>
+          ) : null}
+        </section>
       ) : null}
     </div>
   );

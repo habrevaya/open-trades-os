@@ -60,6 +60,32 @@ from, because a company that would happily honour a three week old quote should
 not have to rebuild it because a timestamp passed on a Sunday. What expiry does
 is stop it counting as open pipeline.
 
+**The worker marks an estimate expired.** Once an estimate's "Good until" date has
+passed in the company's own calendar (it is good through the end of that day where
+the company is, not at seven in the evening because UTC rolled over), the worker's
+pass sets its status to `expired`, writes `estimate.expired` to the audit log, and
+goes on to the next. It looks only at estimates that are `sent` or `viewed`: a
+customer has them and has not answered. A draft has not gone anywhere, so its date
+has not started running, and an approved, declined or converted estimate is a
+decision that a date on the paper does not undo, so none of those is selected or
+touched, whatever their date says. It is idempotent: an estimate it has marked is
+not selected again, so a pass repeated, or two workers at once, marks each one
+once and writes one audit line. The pass goes round at most once a minute and asks
+the database first which companies hold such an estimate at all
+(`app.estimate_expiry_organizations`, which skips a suspended company).
+
+What `expired` does is what the rest of the product already said it did, now that
+something sets it. It leaves the unsold list (which reads the date itself as well,
+so it is right between passes and when the worker is not running) and the
+"estimate nobody answered" follow up stops chasing it. It shows as Expired on the
+estimate, the estimate list and the customer's page, and the estimate's page says
+it was good until the date and what that means. Financing is not offered on it
+(the portal's pay over time and the office's both already refused an expired
+estimate). It can still be approved, declined and sent: the customer's link, the
+office's "record a yes", a deposit and the phone's sell on site all still work, and
+an estimate sent after its date goes out as `expired`, not `sent`, so it is never
+open for the minute before the worker takes it back out.
+
 **A draft can be approved, for the sale that happens at the kitchen table.** A
 technician builds the options on a tablet, turns it around, and the customer says
 yes; nothing was ever sent, and requiring a send first would mean recording a
@@ -235,7 +261,7 @@ estimate with a discount on it posts like any other invoice when it is issued.
 ### Chase the ones nobody answered
 
 `/estimates` opens on the unsold ones: sent, not approved or declined, not
-expired, oldest first or largest first, with how long each has been out and
+expired (marked so, or past its date in the company's calendar and not yet marked), oldest first or largest first, with how long each has been out and
 whether the customer has opened it. The value is the recommended option, or the
 largest, never every option added up. `GET /v1/unsold-estimates` is the same
 list.
@@ -342,6 +368,9 @@ is a closed set of section kinds, one cover photograph and photographs per
 option; there are no columns, fonts or per section colours, a layout cannot be
 changed on an estimate once it has been sent. Sending by both channels at once goes only to the customer's
 own email address and mobile number. The follow up is on from the start only for
-a company created since it was; an older company still turns it on. Nothing marks an estimate expired on its own: an
-expiry date stops it counting as open pipeline, and `expired` is a status only
-history brings in.
+a company created since it was; an older company still turns it on. An expired
+estimate is not brought back by a later date: an estimate has no edit, so the date
+it was written with is the date it expires on, and a customer who needs longer is
+sent a new estimate or says yes late, which an expired estimate allows. A draft
+is never marked expired, so one written with a date in the past is not either until
+it is sent.

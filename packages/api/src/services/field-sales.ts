@@ -642,7 +642,8 @@ export async function salesFor(
       and(
         inArray(schema.estimate.customerId, customerIds),
         isNull(schema.estimate.jobId),
-        inArray(schema.estimate.status, ["draft", "sent", "viewed", "approved"]),
+        // Expired is still the customer's to say yes to at the door: the phone treats it as decidable.
+        inArray(schema.estimate.status, ["draft", "sent", "viewed", "expired", "approved"]),
       ),
     ))
     .orderBy(desc(schema.estimate.createdAt)).limit(200) : [];

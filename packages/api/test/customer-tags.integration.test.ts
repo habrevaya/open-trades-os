@@ -243,6 +243,86 @@ run("the duplicate sweep", () => {
     expect(await duplicates.dismissedCount(owner())).toBe(1);
   });
 
+  it("counts every pair still to look at, on whichever page it is asked", async () => {
+    const names = [["Alder", "Quint"], ["Birch", "Rook"], ["Cedar", "Sable"], ["Dogwood", "Tansy"], ["Elm", "Umber"]];
+    for (const [i, [one, two]] of names.entries()) {
+      await customer(one!, { phone: `+1512555030${i}` });
+      await customer(two!, { phone: `+1512555030${i}` });
+    }
+    const first = await duplicates.sweep(owner(), { limit: 2 });
+    const second = await duplicates.sweep(owner(), { limit: 2, cursor: first.nextCursor! });
+    const last = await duplicates.sweep(owner(), { limit: 2, cursor: second.nextCursor! });
+    expect([first.total, second.total, last.total]).toEqual([5, 5, 5]);
+
+    // A pair set aside is not still to look at, and a pair put back is again.
+    const [a, b] = [first.data[0]!.a.id, first.data[0]!.b.id];
+    await duplicates.dismiss(owner(), { customerId: a, otherId: b });
+    expect((await duplicates.sweep(owner(), { limit: 2 })).total).toBe(4);
+    await duplicates.restore(owner(), { customerId: a, otherId: b });
+    expect((await duplicates.sweep(owner(), { limit: 2 })).total).toBe(5);
+  });
+
+  it("puts a pair back from either side, and says so twice without harm", async () => {
+    const landlord = await customer("Sarah Landlord", { phone: "+15125550300" });
+    const tenant = await customer("Tom Tenant", { phone: "+15125550300" });
+    await duplicates.dismiss(owner(), { customerId: tenant, otherId: landlord, reason: "Landlord pays" });
+    expect((await duplicates.sweep(owner())).data).toEqual([]);
+
+    const listed = await duplicates.setAside(owner());
+    expect(listed.data).toHaveLength(1);
+    expect(listed.data[0]).toMatchObject({ reason: "Landlord pays" });
+    expect([listed.data[0]!.a.name, listed.data[0]!.b.name].sort()).toEqual(["Sarah Landlord", "Tom Tenant"]);
+
+    // Said from the side that did not mark it.
+    const first = await duplicates.restore(owner(), { customerId: landlord, otherId: tenant });
+    expect(first).toMatchObject({ dismissed: false, wasMarked: true });
+    expect((await duplicates.sweep(owner())).data).toHaveLength(1);
+    expect(await lifecycle.likelyDuplicates(owner(), { id: landlord })).toHaveLength(1);
+    expect(await duplicates.dismissedCount(owner())).toBe(0);
+    expect((await duplicates.setAside(owner())).data).toEqual([]);
+
+    const again = await duplicates.restore(owner(), { customerId: tenant, otherId: landlord });
+    expect(again.wasMarked).toBe(false);
+    const audits = await raw`
+      select count(*)::int as n from public.audit_log
+      where organization_id = ${ORG} and action = 'customer.duplicate_restored'`;
+    expect(audits[0]!.n).toBe(1);
+  });
+
+  it("lists a mark whose customer was merged since, so it can still be taken off", async () => {
+    const keep = await customer("Robert Smith", { phone: "+15125550101" });
+    const other = await customer("Bob Smith", { phone: "+15125550101" });
+    const third = await customer("Roberta Smythe", { phone: "+15125550101" });
+    await duplicates.dismiss(owner(), { customerId: other, otherId: third });
+    await lifecycle.merge(owner(), { keepId: keep, mergeId: other });
+    const listed = await duplicates.setAside(owner());
+    expect(listed.data).toHaveLength(1);
+    const done = await duplicates.restore(owner(), { customerId: other, otherId: third });
+    expect(done.wasMarked).toBe(true);
+  });
+
+  it("pages the set aside list newest first", async () => {
+    for (const [i, [one, two]] of [["Alder", "Quint"], ["Birch", "Rook"], ["Cedar", "Sable"]].entries()) {
+      const a = await customer(one!, { phone: `+1512555040${i}` });
+      const b = await customer(two!, { phone: `+1512555040${i}` });
+      await duplicates.dismiss(owner(), { customerId: a, otherId: b, reason: `pair ${i}` });
+    }
+    const first = await duplicates.setAside(owner(), { limit: 2 });
+    expect(first.data.map((p) => p.reason)).toEqual(["pair 2", "pair 1"]);
+    expect(first.hasMore).toBe(true);
+    const second = await duplicates.setAside(owner(), { limit: 2, cursor: first.nextCursor! });
+    expect(second.data.map((p) => p.reason)).toEqual(["pair 0"]);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it("puts a pair back only for whoever may merge", async () => {
+    const a = await customer("A One", { phone: "+15125550500" });
+    const b = await customer("B Two", { phone: "+15125550500" });
+    await expect(duplicates.restore(as(["csr"]), { customerId: a, otherId: b })).rejects.toThrow(PermissionError);
+    await expect(duplicates.setAside(as(["csr"]))).rejects.toThrow(PermissionError);
+    await expect(duplicates.restore(owner(), { customerId: a, otherId: a })).rejects.toThrow(ConflictError);
+  });
+
   it("drops a pair once the two are merged", async () => {
     const keep = await customer("Robert Smith", { phone: "+15125550101" });
     const loser = await customer("Bob Smith", { phone: "+15125550101" });

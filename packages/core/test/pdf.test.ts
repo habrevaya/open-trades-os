@@ -185,6 +185,113 @@ describe("the documents", () => {
   });
 });
 
+describe("a report with names in other alphabets", () => {
+  /**
+   * M21 used to say report PDFs were set in a standard Helvetica that covered
+   * Western European letters only. Every PDF is set in the bundled Noto Sans
+   * now, and this prints a report whose customers and title are Greek,
+   * Cyrillic and Vietnamese and reads them back out of the file, in the table
+   * and in a chart's labels, in both weights.
+   */
+  const columns = [
+    { key: "customer", label: "Πελάτης", type: "text", role: "dimension" as const },
+    { key: "revenue", label: "Revenue", type: "money", role: "measure" as const },
+  ];
+  const rows = [
+    { customer: "Σωκράτης Παπαδόπουλος", revenue: "1200.0000" },
+    { customer: "Анна Петрова", revenue: "800.0000" },
+    { customer: "Nguyễn Thị Đức", revenue: "450.0000" },
+  ];
+
+  it("prints the names as spelled, in the title, the headings, the cells and the chart", () => {
+    const chart = reporting.chartFor({ columns, rows });
+    const read = pdf.inspectPdf(pdf.reportPdf({
+      company: { name: "Οδυσσεύς Heating", color: null },
+      name: "Выручка по клиентам", question: "Ποιος πληρώνει περισσότερο;", period: "Q2",
+      columns, rows, truncated: false, chart: chart.ok ? chart.plan : null, generatedAt: AT,
+    }), inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.title).toContain("Выручка по клиентам");
+    expect(read.text).toContain("Οδυσσεύς Heating");
+    expect(read.text).toContain("Πελάτης");
+    expect(read.text).toContain("Σωκράτης Παπαδόπουλος");
+    expect(read.text).toContain("Анна Петрова");
+    expect(read.text).toContain("Nguyễn Thị Đức");
+    expect(read.text).not.toContain("?");
+    // Only the bundled face: no standard font is named anywhere in the file.
+    for (const name of read.fonts) expect(name).toMatch(/NotoSans/);
+    expect(new TextDecoder("latin1").decode(pdf.reportPdf({
+      company: { name: "A", color: null }, name: "B", question: "C", period: "D",
+      columns, rows, truncated: false, chart: null, generatedAt: AT,
+    }))).not.toMatch(/Helvetica/);
+  });
+});
+
+describe("a signed document", () => {
+  const base = {
+    company: { name: "Lone Star Air", color: "#1F6FEB", contact: ["Austin, TX"] },
+    title: "Employee handbook",
+    body: "Report every scratch the same day.\n\nNever drive with a phone in your hand.",
+    documentHash: "a".repeat(64),
+    signerName: "Ray Vasquez",
+    signerEmail: "ray@example.com",
+    signedAtText: "March 4, 2026 at 2:15 PM CST",
+    generatedAt: AT,
+  };
+
+  it("says who signed, when, how, and prints the words exactly as they were signed", () => {
+    const read = pdf.inspectPdf(pdf.signedDocumentPdf({
+      ...base, signedVia: "typed", ipAddress: "203.0.113.9", userAgent: "Mozilla/5.0 (X11)",
+    }, { deflate }), inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.pageCount).toBe(1);
+    expect(read.text).toContain("Signed document");
+    expect(read.text).toContain("Employee handbook");
+    expect(read.text).toContain("Ray Vasquez");
+    expect(read.text).toContain("ray@example.com");
+    expect(read.text).toContain("March 4, 2026 at 2:15 PM CST");
+    expect(read.text).toContain("Typed their full name");
+    expect(read.text).toContain("203.0.113.9");
+    expect(read.text).toContain("Report every scratch the same day.");
+    expect(read.text).toContain("Never drive with a phone in your hand.");
+    expect(read.text).toContain("a".repeat(64));
+    expect(read.images).toEqual([]);
+  });
+
+  it("leaves out the evidence a signing through the API did not record, rather than printing a blank", () => {
+    const read = pdf.inspectPdf(pdf.signedDocumentPdf({ ...base, signedVia: "typed" }));
+    expect(read.text).not.toContain("From address");
+    expect(read.text).not.toContain("Browser");
+  });
+
+  it("prints a drawn signature as the picture it was, and says so", () => {
+    const drawn = pdf.readImage(png(2, 1, 6, [[0, 0, 0, 255, 0, 0, 0, 255]]), { inflate, deflate })!;
+    const read = pdf.inspectPdf(pdf.signedDocumentPdf({ ...base, signedVia: "drawn", signature: drawn }, { deflate }), inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.images).toHaveLength(1);
+    expect(read.text).toContain("Drew their signature on the screen");
+    expect(read.text).toContain("Drawn by Ray Vasquez");
+  });
+
+  it("says when a drawn signature's picture cannot be printed, instead of dropping it", () => {
+    const read = pdf.inspectPdf(pdf.signedDocumentPdf({ ...base, signedVia: "drawn", signature: null }));
+    expect(read.images).toEqual([]);
+    expect(read.text).toContain("this page cannot print it");
+  });
+
+  it("continues a long policy over pages, keeping every line, in any alphabet", () => {
+    const body = Array.from({ length: 140 }, (_, i) => `Правило ${i + 1}: Σωκράτης signs here.`).join("\n");
+    const read = pdf.inspectPdf(pdf.signedDocumentPdf({
+      ...base, title: "Политика", body, signerName: "Анна Петрова", signedVia: "typed",
+    }, { deflate }), inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.pageCount).toBeGreaterThan(2);
+    expect(read.text).toContain("Правило 1:");
+    expect(read.text).toContain("Правило 140:");
+    expect(read.text).toContain("Анна Петрова");
+  });
+});
+
 /** A PNG of the given colour type and rows, built here so a test can say exactly what is in it. */
 function png(width: number, height: number, colourType: number, rows: number[][], extra: Array<[string, number[]]> = []): Uint8Array {
   const crcTable = Array.from({ length: 256 }, (_, n) => {

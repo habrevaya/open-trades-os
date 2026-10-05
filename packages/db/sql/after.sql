@@ -1618,6 +1618,35 @@ returns table (organization_id uuid)
 revoke all on function app.task_rule_organizations(int) from public;
 grant execute on function app.task_rule_organizations(int) to background;
 
+-- ---- Companies holding an estimate that may have passed its date --------
+-- The worker marks an open estimate expired once its date has passed in the
+-- company's own calendar. It has no tenant until it picks one, so it asks here
+-- which companies hold a sent or viewed estimate with a date that is not in
+-- the future anywhere on earth, and nothing else. The date is compared loosely
+-- on purpose (a company is at most a day ahead of UTC): the service does the
+-- exact comparison in each company's timezone. `p_on` is the UTC date the pass
+-- is for, the database's own when not given. A suspended company is left
+-- alone, like every other pass.
+create or replace function app.estimate_expiry_organizations(p_limit int default 200, p_on date default null)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct e.organization_id from public.estimate e
+       where e.status in ('sent', 'viewed')
+         and e.expires_on is not null
+         and e.expires_on <= coalesce(p_on, (now() at time zone 'utc')::date)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.estimate_expiry_organizations(int, date) from public;
+grant execute on function app.estimate_expiry_organizations(int, date) to background;
+
 -- ---- Companies whose contract clocks need a pass -------------------------
 -- The commercial module keeps SLA, invoicing and claim clocks on jobs, and
 -- the worker reconciles them and raises a task for any about to breach. The

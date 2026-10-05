@@ -17,7 +17,9 @@ import { TaskPriority } from "./tasks";
  */
 
 const IsoDate = z.string().date();
-const Frequency = z.enum(["daily", "weekly", "monthly"]);
+const Frequency = z.enum([
+  "daily", "weekdays", "weekly", "every_other_week", "monthly", "last_weekday_of_month",
+]);
 
 const Template = z.object({
   id: Uuid,
@@ -28,7 +30,7 @@ const Template = z.object({
   assigneeName: z.string().nullable(),
   queue: z.string().nullable(),
   frequency: Frequency,
-  /** For weekly: 0 is Sunday. */
+  /** For `weekly`, `every_other_week` and `last_weekday_of_month`: 0 is Sunday. */
   weekday: z.number().int().nullable(),
   /** For monthly: 1 to 31, held to the month's length. */
   monthDay: z.number().int().nullable(),
@@ -73,9 +75,9 @@ export const listTaskTemplates = defineRoute({
 export const createTaskTemplate = defineRoute({
   method: "post",
   path: "/v1/task-templates",
-  summary: "Make a task come round daily, weekly or monthly",
+  summary: "Make a task come round on a schedule",
   description:
-    "Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
+    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`) or `last_weekday_of_month` (needs `weekday`: the last Friday, say). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
   module: "M34",
   permissions: ["task:write"],
   idempotent: true,
@@ -261,7 +263,7 @@ export const listReportingLines = defineRoute({
   path: "/v1/reporting-lines",
   summary: "Who answers to whom",
   description:
-    "Read by escalation and nothing else: \"tell the assignee's manager\" needs a person, and a role preset is not one.",
+    "Read by escalation, where \"tell the assignee's manager\" needs a person and a role preset is not one, and shown on a person's own page (`reportsTo` on `GET /v1/people/{membershipId}`).",
   module: "M34",
   permissions: ["user:read"],
   input: z.object({}),

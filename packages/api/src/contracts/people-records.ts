@@ -100,7 +100,7 @@ export const listPeopleRoster = defineRoute({
 export const getPersonRecord = defineRoute({
   method: "get",
   path: "/v1/people/{membershipId}",
-  summary: "One person: onboarding, emergency contacts, employment and skills",
+  summary: "One person: who they report to, onboarding, emergency contacts, employment and skills",
   description: "Certifications and continuing education are not here: they are compliance records, behind `compliance:read`, at `/v1/certifications` and `/v1/technicians/{technicianId}/continuing-education`.",
   module: "M24",
   permissions: ["user:read"],
@@ -109,6 +109,8 @@ export const getPersonRecord = defineRoute({
     membershipId: Uuid, name: z.string().nullable(), email: z.string(), role: z.string(), roleLabel: z.string(),
     active: z.boolean(), technicianId: Uuid.nullable(),
     onboarding: Onboarding, emergencyContacts: z.array(Contact), employment: Employment.nullable(), skills: Skills.nullable(),
+    /** Who they report to, as set on the escalation screen (`POST /v1/reporting-lines`, M34). Null when nobody is recorded. */
+    reportsTo: z.object({ membershipId: Uuid, name: z.string().nullable(), email: z.string(), active: z.boolean() }).nullable(),
     /** What they were asked to sign, and whether and how they did. */
     documents: z.array(z.object({
       requestId: Uuid, documentId: Uuid, title: z.string(), askedAt: z.string().datetime(),

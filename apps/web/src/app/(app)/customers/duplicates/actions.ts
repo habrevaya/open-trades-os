@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customerDuplicates, customerLifecycle } from "@opentradesos/api/services";
-import { dismissCustomerDuplicate, mergeCustomers } from "@opentradesos/api/contracts";
+import { dismissCustomerDuplicate, mergeCustomers, restoreCustomerDuplicate } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -33,6 +33,18 @@ export async function notDuplicate(_previous: FormState, form: FormData): Promis
       customerId: field(form, "customerId"), otherId: field(form, "otherId"),
       ...(reason ? { reason } : {}),
     }));
+  });
+  revalidatePath("/customers/duplicates");
+  return state;
+}
+
+/** Put a pair back in the list: it was marked as two people and should not have been. */
+export async function putBack(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const done = await customerDuplicates.restore(await ctx(), parsed(restoreCustomerDuplicate.input, {
+      customerId: field(form, "customerId"), otherId: field(form, "otherId"),
+    }));
+    return { message: done.wasMarked ? "Put back in the list." : "That pair was already back in the list." };
   });
   revalidatePath("/customers/duplicates");
   return state;

@@ -481,7 +481,12 @@ export const taskChecklistItem = pgTable("task_checklist_item", {
   taskIdx: index("task_checklist_item_task_idx").on(t.taskId, t.position),
 }));
 
-export const taskFrequency = pgEnum("task_frequency", ["daily", "weekly", "monthly"]);
+export const taskFrequency = pgEnum("task_frequency", [
+  "daily", "weekly", "monthly",
+  // Added later: a weekday every second week, Monday to Friday only, and the
+  // last given weekday of the month. core's tasks module says how each counts.
+  "every_other_week", "weekdays", "last_weekday_of_month",
+]);
 
 /**
  * WORK THAT COMES ROUND AGAIN.
@@ -503,7 +508,7 @@ export const taskTemplate = pgTable("task_template", {
   assigneeUserId: uuid("assignee_user_id").references(() => user.id, { onDelete: "set null" }),
   queue: text("queue"),
   frequency: taskFrequency("frequency").notNull(),
-  /** For weekly: 0 is Sunday, 6 is Saturday. */
+  /** For weekly, every other week and the last of the month: 0 is Sunday, 6 is Saturday. */
   weekday: integer("weekday"),
   /** For monthly: the day of the month, held to the month's length. */
   monthDay: integer("month_day"),

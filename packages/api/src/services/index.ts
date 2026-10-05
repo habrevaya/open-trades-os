@@ -5,6 +5,7 @@ export * as jobs from "./jobs";
 export * as billing from "./billing";
 export * as branding from "./branding";
 export * as estimates from "./estimates";
+export * as estimateExpiry from "./estimate-expiry";
 export * as proposals from "./proposals";
 export * as estimateDelivery from "./estimate-delivery";
 export * as vendorCatalogue from "./vendor-catalogue";

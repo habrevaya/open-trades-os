@@ -1,4 +1,4 @@
-import { and, asc, eq, desc, lt, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, desc, gte, lt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { permissionsFor, estimate as est, membership, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
@@ -556,6 +556,15 @@ export async function unsold(
   input: { sort?: "age" | "value"; limit?: number } = {},
 ): Promise<UnsoldEstimate[]> {
   return guardedRead(ctx, "estimate:read", async (tx) => {
+    /**
+     * THE DATE IS READ HERE AS WELL AS BY THE WORKER. The worker marks an
+     * estimate `expired` once its date has passed in the company's calendar
+     * (`estimate-expiry.ts`), but it goes round once a minute and may not be
+     * running, and a pipeline that listed a quote as closable until the next
+     * pass would be wrong in a way nobody could see. So an open estimate whose
+     * date has passed is left off whether or not it has been marked yet.
+     */
+    const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     const rows = await tx.select({
       id: schema.estimate.id,
       number: schema.estimate.number,
@@ -571,6 +580,7 @@ export async function unsold(
       .where(and(
         estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor),
         inArray(schema.estimate.status, ["sent", "viewed"]),
+        or(isNull(schema.estimate.expiresOn), gte(schema.estimate.expiresOn, today)),
       ))
       .orderBy(asc(schema.estimate.sentAt))
       .limit(Math.min(Math.max(input.limit ?? 200, 1), 500));
@@ -815,9 +825,18 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
         ne(schema.portalGrant.id, grant!.id),
       ));
 
+    /**
+     * AN ESTIMATE SENT AFTER ITS DATE GOES OUT AS EXPIRED. Marking it `sent`
+     * would put it back in the unsold pipeline for the worker to take out
+     * again within the minute, a status that was true for as long as it took
+     * to read. It is still sent, and the customer can still approve it (an
+     * expiry date is a nudge, not a cliff); it just never counts as open.
+     */
     const sentAt = new Date();
+    const today = time.dateIn(sentAt, await timezoneOf(tx, ctx.actor.organizationId));
+    const pastItsDate = current.expiresOn !== null && current.expiresOn !== undefined && current.expiresOn < today;
     await tx.update(schema.estimate)
-      .set({ status: "sent", sentAt, updatedAt: sentAt })
+      .set({ status: pastItsDate ? "expired" : "sent", sentAt, updatedAt: sentAt })
       .where(eq(schema.estimate.id, input.id));
 
     await tx.insert(schema.portalEvent).values({
@@ -866,7 +885,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
     });
 
     await audit(tx, ctx, "estimate.sent", "estimate", input.id,
-      { status: current.status }, { status: "sent", channel, deliveryId });
+      { status: current.status }, { status: pastItsDate ? "expired" : "sent", channel, deliveryId });
     await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
 
     const all = await deliveriesWithin(tx, input.id);

@@ -131,7 +131,16 @@ in.
 ### Time off
 
 A technician asks for days off on `/me/time-off` (`POST /v1/time-off`, with
-`timeclock:own`), and sees each request's answer there. Whoever approves the
+`timeclock:own`), and sees each request's answer there. The form takes a first
+and last day, which is whole days; or one day with "Only part of the day: from"
+and "until", which is those hours in the company's own clock (a lunch hour to the
+end of the afternoon, say). Half of the two times is refused in words, as is a
+range of days with times, and an end before the start. The request and the
+approval queue say the hours ("Tue, Oct 6, 1:00 PM to 5:00 PM"). What part of a
+day off does elsewhere: the booking page keeps customers off exactly those hours,
+and the dispatch board and the crew check count a technician with any approved
+leave on a day as off for the whole of it, which is the conservative reading for
+the people planning the day. Whoever approves the
 hours answers on `/timesheets/time-off` (`GET /v1/time-off/pending`,
 `POST /v1/time-off/{id}/approve`, `POST /v1/time-off/{id}/decline`, all
 `timesheet:approve`), which also lists the leave already granted that is still
@@ -207,7 +216,20 @@ the old scale is closed the day before and a new one opened from that day with
 everything else it said, in one step, so time worked before keeps its rate. A change
 dated on or before the day the scale began is refused, because that scale was wrong
 rather than changed: `POST /v1/payroll/wage-scales/{id}/retire` stops it on a date
-and the right one is loaded. Nothing is deleted.
+and the right one is loaded.
+
+A scale can also carry the terms of the agreement it came from: its own overtime
+multiplier, its own double time multiplier (each a number of at least 1, double
+time not below overtime) and an apprentice ratio in the agreement's words ("1:3").
+"Load a wage scale" on `/payroll/pay-rules` offers all three, the scales table
+shows them under "Agreement terms", `GET /v1/payroll/wage-scales` returns them,
+and a change of rate carries them to the new scale. **They are records, not
+rules.** Overtime is worked out from the company's overtime rule, as it always
+was, and nothing checks the apprentice ratio against who is on a job, so loading
+a scale with 2 for double time does not change what a week costs; the screen says
+so beside the boxes. Making a scale's own multipliers override the company rule
+changes pay, which is a decision for whoever answers for the payroll rather than a
+default, and it is not built. Nothing is deleted.
 `GET /v1/payroll/crew-rates` says who costs what today and
 `POST /v1/payroll/classifications` sets a person's classification. Loading,
 changing and declaring answer a retried request with the first answer rather than
@@ -276,10 +298,11 @@ could hold, which is worse than a coarse one.
 ## What is not built
 
 No payroll processing, by design. A wage scale's own overtime multipliers and
-apprentice ratio are taken by the API and not offered on the pay rules screen,
-which loads a scale's classification, rates, authority, reference, jurisdiction
-and start date; and a scale cannot be corrected in place: a wrong one is retired and the right one
-loaded. Tips given through the portal or with a payment on site are paid through
+apprentice ratio are kept and shown but do not change any figure: overtime comes
+from the company's overtime rule only, and the ratio is not checked against crews.
+A scale's agreement terms are set when it is loaded and cannot be changed on the
+screen afterwards; a scale cannot be corrected in place: a wrong one is retired and
+the right one loaded. Tips given through the portal or with a payment on site are paid through
 payroll; a cash tip a technician kept is recorded only by the technician, on
 the phone or on `/my-day`, and nobody in the office can record or change one
 for them. A tip is split evenly with no way to split it otherwise. Reimbursements and per diem
@@ -287,5 +310,7 @@ are not modelled. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.
-Time off is asked for in whole days on a screen; part of a day is asked for
-through the API.
+Part of a day off is one day with two times: there is no leave that is part of
+the first day and part of the last of a run of days (ask for the whole days and a
+part day separately), and the dispatch board shows a technician with part of a day
+off as off for that whole day.

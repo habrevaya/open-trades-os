@@ -61,14 +61,31 @@ test("likely duplicates across the book: one pair set aside, one merged", async 
    * name close enough to this run's to be a likely duplicate of it too, so
    * one name alone can match two rows on a database that is not fresh.
    */
-  const landlordPair = owner.getByRole("listitem")
+  const landlordPair = owner.getByRole("list", { name: "Pairs to look at" }).getByRole("listitem")
     .filter({ hasText: `Aardvark Landlord ${run}` }).filter({ hasText: `Aardvark Tenant ${run}` });
   await expect(landlordPair).toContainText("Same phone number");
   await landlordPair.getByRole("textbox").fill("Landlord and tenant");
+  const total = owner.getByTestId("duplicate-total");
+  await expect(total).toHaveText(/^\d+ pairs to look at\.$/);
+  const before = Number((await total.innerText()).split(" ")[0]);
+  await landlordPair.getByRole("button", { name: "Not the same person" }).click();
+  await expect(landlordPair).toHaveCount(0);
+  await expect(total).toHaveText(`${before - 1} ${before - 1 === 1 ? "pair" : "pairs"} to look at.`);
+
+  // Marked, and listed with its reason, where it can be put back.
+  const marked = owner.getByRole("list", { name: "Pairs marked as different people" }).getByRole("listitem")
+    .filter({ hasText: `Aardvark Landlord ${run}` }).filter({ hasText: `Aardvark Tenant ${run}` });
+  await expect(marked).toContainText("Landlord and tenant");
+  await marked.getByRole("button", { name: "Put back in the list" }).click();
+  await expect(landlordPair).toContainText("Same phone number");
+  await expect(total).toHaveText(`${before} ${before === 1 ? "pair" : "pairs"} to look at.`);
+  await expect(marked).toHaveCount(0);
+
+  // Set aside again for the rest of the test, which merges the other pair.
   await landlordPair.getByRole("button", { name: "Not the same person" }).click();
   await expect(landlordPair).toHaveCount(0);
 
-  const bobPair = owner.getByRole("listitem")
+  const bobPair = owner.getByRole("list", { name: "Pairs to look at" }).getByRole("listitem")
     .filter({ hasText: `Aaberg Robert ${run}` }).filter({ hasText: `Aaberg Bob ${run}` });
   await bobPair.getByRole("button", { name: `Keep Aaberg Robert ${run}, merge the other in` }).click();
   // Merged, so the pair is no longer a pair; the kept record is still a customer.
@@ -77,6 +94,165 @@ test("likely duplicates across the book: one pair set aside, one merged", async 
   await expect(owner.getByRole("link", { name: `Aaberg Robert ${run}` })).toBeVisible();
   await owner.goto(`/customers?q=${encodeURIComponent(`Aaberg Bob ${run}`)}`);
   await expect(owner.getByRole("link", { name: `Aaberg Bob ${run}` })).toHaveCount(0);
+});
+
+test("a contact's details are edited on the customer's page, under the rules the API has", async ({ owner }) => {
+  const name = `Cora Contacts ${run}`;
+  const id = await newCustomer(owner, { name, phone: "5125550141" });
+  const added = await owner.request.post(`/api/v1/customers/${id}/contacts`, {
+    data: { name: `Terry Tenant ${run}`, phone: "5125550142", title: "Tenant", preferredChannel: "sms" },
+  });
+  expect(added.ok()).toBe(true);
+
+  await owner.goto(`/customers/${id}`);
+  const row = owner.getByRole("listitem").filter({ hasText: `Terry Tenant ${run}` });
+  await row.getByRole("button", { name: "Edit" }).click();
+  const form = owner.getByRole("form", { name: `Edit Terry Tenant ${run}` });
+
+  // Refused as the API refuses it: they prefer texts and the number is gone. The form stays open with what was typed.
+  await form.getByLabel("Phone").fill("");
+  await form.getByLabel("Email").fill(`terry${run}@example.com`);
+  await form.getByLabel("Role, if any").fill("Tenant, unit 4");
+  await form.getByRole("button", { name: "Save details" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "prefer texts" })).toBeVisible();
+  await expect(form.getByLabel("Role, if any")).toHaveValue("Tenant, unit 4");
+
+  // Fixed by saying email instead, and the new details are on the row.
+  await form.getByLabel("Prefers").selectOption("email");
+  await form.getByLabel("Name").fill(`Terry Renter ${run}`);
+  await form.getByRole("button", { name: "Save details" }).click();
+  const edited = owner.getByRole("listitem").filter({ hasText: `Terry Renter ${run}` });
+  await expect(edited).toContainText("Tenant, unit 4");
+  await expect(edited).toContainText(`terry${run}@example.com`);
+  await expect(edited).toContainText("prefers email");
+  await expect(owner.getByRole("form", { name: /^Edit / })).toHaveCount(0);
+
+  // The same record through the API says the same.
+  const listed = await owner.request.get(`/api/v1/customers/${id}/contacts`);
+  const people = (await listed.json() as { contacts: { name: string; phone: string | null; preferredChannel: string }[] }).contacts;
+  expect(people.find((c) => c.name === `Terry Renter ${run}`)).toMatchObject({ phone: null, preferredChannel: "email" });
+});
+
+test("a unit is corrected and moved to another address from its own page", async ({ owner }) => {
+  const name = `Mona Mover ${run}`;
+  const customerId = await newCustomer(owner, {
+    name, address: { street: "7 First Place", city: "Austin", state: "TX", zip: "78701" },
+  });
+  const places = await owner.request.get(`/api/v1/properties?customerId=${customerId}`);
+  const from = ((await places.json()) as { data: { id: string }[] }).data[0]!.id;
+  const second = await owner.request.post("/api/v1/properties", {
+    data: { customerId, address: { line1: `9 Second Street ${run}`, city: "Austin", state: "TX", postalCode: "78702" } },
+  });
+  expect(second.ok()).toBe(true);
+  const unit = await owner.request.post("/api/v1/equipment", {
+    data: { propertyId: from, category: "water heater", manufacturer: "Rheem", model: `R${run}`, serialNumber: `SN${run}`.toUpperCase() },
+  });
+  expect(unit.ok()).toBe(true);
+  const unitId = ((await unit.json()) as { id: string }).id;
+
+  await owner.goto(`/equipment/${unitId}`);
+  await owner.getByText("Correct its details", { exact: true }).click();
+  await owner.getByLabel("Tag").fill("Garage heater");
+  await owner.getByLabel("Parts cover ends").fill(daysFromNow(400));
+  await owner.getByRole("button", { name: "Save details" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
+  await expect(owner.getByRole("heading", { level: 1 })).toContainText("Garage heater");
+
+  // The same refusal the API gives for a serial already on file at this address.
+  const twin = await owner.request.post("/api/v1/equipment", {
+    data: { propertyId: from, category: "water heater", serialNumber: `TWIN${run}`.toUpperCase() },
+  });
+  expect(twin.ok()).toBe(true);
+  await owner.getByLabel("Serial number").fill(`TWIN${run}`.toUpperCase());
+  await owner.getByRole("button", { name: "Save details" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "already on file at this property" })).toBeVisible();
+
+  // Moved to the customer's other address, which is offered without a search.
+  await owner.getByText("Move it to another address", { exact: true }).click();
+  await owner.getByLabel(new RegExp(`9 Second Street ${run}`)).check();
+  await owner.getByLabel("Note, if any").fill("Moved with the tenant");
+  await owner.getByRole("button", { name: "Move it" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Moved." })).toBeVisible();
+  await owner.goto(`/equipment/${unitId}`);
+  await expect(owner.getByText(`9 Second Street ${run}`).first()).toBeVisible();
+  const moves = owner.getByRole("region", { name: "Moves" });
+  await expect(moves).toContainText("Moved with the tenant");
+  const now = await owner.request.get(`/api/v1/equipment/${unitId}`);
+  expect(((await now.json()) as { propertyId: string }).propertyId).not.toBe(from);
+});
+
+test("who a person reports to is on their own page, and follows the escalation screen", async ({ owner }) => {
+  const roster = await owner.request.get("/api/v1/roster");
+  const active = ((await roster.json()) as { people: { membershipId: string; name: string | null; email: string; active: boolean }[] })
+    .people.filter((p) => p.active);
+  expect(active.length).toBeGreaterThan(1);
+  const [person, manager] = active as [typeof active[number], typeof active[number]];
+  const personName = person.name ?? person.email;
+  const managerName = manager.name ?? manager.email;
+
+  await owner.goto("/tasks/escalation");
+  const select = owner.getByLabel(`Manager of ${personName}`);
+  await select.selectOption({ label: managerName });
+  await select.locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const lines = await owner.request.get("/api/v1/reporting-lines");
+    const all = (await lines.json()) as { people?: { name: string; reportsToUserId: string | null }[] };
+    return all.people?.find((l) => l.name === personName)?.reportsToUserId ?? null;
+  }, { message: "the line was set" }).not.toBeNull();
+
+  await owner.goto(`/people/${person.membershipId}`);
+  const line = owner.getByTestId("reports-to");
+  await expect(line).toContainText("Reports to");
+  await expect(line.getByRole("link", { name: managerName })).toHaveAttribute("href", `/people/${manager.membershipId}`);
+
+  // And taken off again, which the page says in words rather than leaving blank.
+  await owner.goto("/tasks/escalation");
+  await select.selectOption("");
+  await select.locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const lines = await owner.request.get("/api/v1/reporting-lines");
+    const all = (await lines.json()) as { people?: { name: string; reportsToUserId: string | null }[] };
+    return all.people?.find((l) => l.name === personName)?.reportsToUserId ?? null;
+  }, { message: "the line was taken off" }).toBeNull();
+  await owner.goto(`/people/${person.membershipId}`);
+  await expect(owner.getByTestId("reports-to")).toContainText("Nobody recorded");
+});
+
+test("an estimate past its date is expired, off the unsold list, and still open to a yes", async ({ owner }) => {
+  const name = `Ellis Expired ${run}`;
+  const customerId = await newCustomer(owner, {
+    name, address: { street: "3 Lapsed Lane", city: "Austin", state: "TX", zip: "78701" },
+  });
+  const places = await owner.request.get(`/api/v1/properties?customerId=${customerId}`);
+  const propertyId = ((await places.json()) as { data: { id: string }[] }).data[0]!.id;
+  const line = { name: "Coil clean", quantity: "1", unitPrice: "300.00", discountAmount: "0", taxable: false };
+  const make = async (title: string, expiresOn: string) => {
+    const made = await owner.request.post("/api/v1/estimates", {
+      data: { customerId, propertyId, title, expiresOn, options: [{ name: "Clean", isRecommended: true, lines: [line] }] },
+    });
+    expect(made.ok()).toBe(true);
+    const id = ((await made.json()) as { id: string }).id;
+    const sent = await owner.request.post(`/api/v1/estimates/${id}/send`, { data: { channel: "link" } });
+    expect(sent.ok()).toBe(true);
+    return id;
+  };
+  const lapsed = await make(`Lapsed ${run}`, daysFromNow(-10));
+  const open = await make(`Still good ${run}`, daysFromNow(20));
+
+  // Sent after its date, so it went out expired and says so, with what that means.
+  await owner.goto(`/estimates/${lapsed}`);
+  await expect(owner.getByText("Expired", { exact: true })).toBeVisible();
+  await expect(owner.getByRole("note")).toContainText("out of the unsold list and cannot be financed");
+  // Still open to a yes: the office can record one.
+  await expect(owner.getByText("Record a yes given in person or by phone")).toBeVisible();
+
+  await owner.goto("/estimates");
+  const unsold = owner.getByRole("region").filter({ hasText: "Unsold estimates" });
+  await expect(unsold).toContainText(name);
+  await expect(unsold.getByRole("row").filter({ hasText: name })).toHaveCount(1);
+  await owner.goto(`/estimates/${open}`);
+  await expect(owner.locator("span").filter({ hasText: /^Sent$/ })).toBeVisible();
+  await expect(owner.getByRole("note")).toHaveCount(0);
 });
 
 test("a category is added, and a price change is previewed, applied and undone", async ({ owner }) => {
@@ -175,10 +351,23 @@ test("a task with a checklist closes only when ticked or with a reason, and the 
   await owner.goto("/tasks/recurring");
   await owner.getByLabel("What needs doing").fill(`Check the vans ${run}`);
   await owner.getByLabel("How often").selectOption("weekly");
-  await owner.getByLabel("On (weekly)").selectOption("1");
+  await owner.getByLabel(/^Day of the week/).selectOption("1");
   await owner.getByLabel("Checklist, one item a line").fill("Tyres\nOil");
   await owner.getByRole("button", { name: "Add recurring task" }).click();
   await expect(owner.getByRole("row", { name: new RegExp(`Check the vans ${run}`) })).toContainText("Every Monday");
+
+  // The three newer schedules, each read back in words and with its next day.
+  const add = async (title: string, how: string, weekday?: string) => {
+    await owner.getByLabel("What needs doing").fill(title);
+    await owner.getByLabel("How often").selectOption(how);
+    if (weekday) await owner.getByLabel(/^Day of the week/).selectOption(weekday);
+    await owner.getByRole("button", { name: "Add recurring task" }).click();
+    return owner.getByRole("row", { name: new RegExp(title) });
+  };
+  await expect(await add(`Payroll check ${run}`, "every_other_week", "5")).toContainText("Every other Friday");
+  await expect(await add(`Open the shop ${run}`, "weekdays")).toContainText("Every weekday, Monday to Friday");
+  await expect(await add(`Month end count ${run}`, "last_weekday_of_month", "5"))
+    .toContainText("On the last Friday of every month");
 
   await owner.goto("/tasks/escalation");
   await owner.getByLabel("Name", { exact: true }).fill(`Late call backs ${run}`);

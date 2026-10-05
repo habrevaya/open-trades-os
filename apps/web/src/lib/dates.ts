@@ -46,6 +46,36 @@ export function formatIn(
 }
 
 /**
+ * A stretch of time off in words: whole days as "Tue, Oct 6" or "Tue, Oct 6 to
+ * Fri, Oct 9", and part of a day with its hours, "Tue, Oct 6, 1:00 PM to 5:00 PM".
+ *
+ * Whole days are rows that start at the company's midnight and end at the next
+ * one, so the last day is the instant before the end, and part of a day is any
+ * row that does not. Read in the company's zone for the reason `formatIn` gives.
+ */
+export function leaveSpan(startsAt: string, endsAt: string, timezone: string): string {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  const last = new Date(end.getTime() - 1);
+  const day = (d: Date) => formatIn(d, timezone, { weekday: "short", month: "short", day: "numeric" });
+  const clock = (d: Date) => formatIn(d, timezone, { hour: "numeric", minute: "2-digit" });
+  /** Midnight in the company's zone, which some runtimes write as 24:00 and some as 00:00. */
+  const midnight = (d: Date) => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour12: false, hour: "2-digit", minute: "2-digit" })
+      .formatToParts(d);
+    const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    return part("hour") % 24 === 0 && part("minute") === 0;
+  };
+  const sameDay = day(start) === day(last);
+
+  if (midnight(start) && midnight(end)) return sameDay ? day(start) : `${day(start)} to ${day(last)}`;
+  const until = midnight(end) ? "the end of the day" : clock(end);
+  return sameDay
+    ? `${day(start)}, ${clock(start)} to ${until}`
+    : `${day(start)}, ${clock(start)} to ${day(last)}, ${midnight(end) ? until : clock(end)}`;
+}
+
+/**
  * A date-only value, as the company reads it.
  *
  * `2026-09-06` in a Due column is a string a person has to decode, and the
