@@ -5,7 +5,7 @@ import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { SHAPES } from "./workflow-dwell";
-import { checkReportStep } from "./report-delivery";
+import { checkReportStep, readReportStep } from "./report-delivery";
 import { refusingDuplicate } from "./duplicates";
 import { policyFor, reviewUrlFor } from "./reviews";
 import { remember, replayed } from "./once";
@@ -279,6 +279,19 @@ function check(
    * A re-check naming a question this build cannot ask would stop every run
    * at that step with a failure, so it is refused here where it can be fixed.
    */
+  /**
+   * An automation's email is about the customer's own work. A promotion by
+   * email needs an unsubscribe link this product made for that address, which
+   * is what a campaign carries; an automation step does not, so it is refused
+   * here rather than refused by the sender on every run.
+   */
+  const promo = input.steps.findIndex((step) =>
+    step.kind === "send_message" && step.config?.["channel"] === "email" && step.config?.["purpose"] === "marketing");
+  if (promo >= 0) {
+    return `Step ${promo + 1}: an automation's email is about the customer's own work and cannot be marketing. `
+      + "Send a promotion as a campaign, which carries an unsubscribe link.";
+  }
+
   const badCheck = input.steps.find((step) =>
     step.kind === "stop_unless" && !automation.isCheck(step.config?.["check"]));
   if (badCheck) {
@@ -364,10 +377,19 @@ function check(
  * after the shape, so the first problem somebody sees is the cheapest one.
  */
 async function checkStepSettings(
-  tx: Database, ctx: ServiceContext, steps: WorkflowInput["steps"],
+  tx: Database, ctx: ServiceContext, input: WorkflowInput,
 ): Promise<string | null> {
-  for (const [index, step] of steps.entries()) {
+  for (const [index, step] of input.steps.entries()) {
     if (step.kind !== "email_report") continue;
+    /**
+     * A report to the customer needs something that happened to a customer.
+     * A schedule fires for nobody in particular, so there is nobody to send
+     * it to and nothing to narrow it by.
+     */
+    if (readReportStep(step.config ?? {}).audience === "customer" && input.triggerKind === "schedule") {
+      return `Step ${index + 1}: a report to the customer needs an automation that runs when something `
+        + "happens to a customer. One on a clock is about nobody in particular.";
+    }
     const problem = await checkReportStep(tx, ctx, step.config ?? {});
     if (problem) return `Step ${index + 1}: ${problem}`;
   }
@@ -411,7 +433,7 @@ async function createWithin(
   options: { templateKey?: string; enabled?: boolean } = {},
 ) {
   const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId))
-    ?? await checkStepSettings(tx, ctx, input.steps);
+    ?? await checkStepSettings(tx, ctx, input);
   if (refusal) throw new ConflictError(refusal);
 
   const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
@@ -479,7 +501,7 @@ async function publishWithin(tx: Database, ctx: ServiceContext, input: { id: str
     if (!before) throw new NotFoundError("Workflow");
 
     const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId))
-      ?? await checkStepSettings(tx, ctx, input.steps);
+      ?? await checkStepSettings(tx, ctx, input);
     if (refusal) throw new ConflictError(refusal);
     const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
     if (!required.ok) throw new ConflictError("This definition cannot be published.");
@@ -626,7 +648,7 @@ const IMPLEMENTED = [
   {
     kind: "send_message",
     label: "Send a message",
-    description: "Texts the customer, subject to the consent recorded for them.",
+    description: "Texts or emails the customer, subject to what they have agreed to.",
   },
   {
     kind: "create_task",
@@ -643,7 +665,7 @@ const IMPLEMENTED = [
     label: "Run and email a report",
     description:
       "Runs a report as whoever publishes this automation and emails it, with a spreadsheet of every row, "
-      + "to the people picked.",
+      + "to the people picked, or to the customer it is about with only their own records.",
   },
   {
     kind: "branch",
@@ -835,6 +857,7 @@ export async function installTemplate(
       description: built.definition.description,
       triggerKind: built.definition.triggerKind,
       triggerEvents: built.definition.triggerEvents,
+      ...(built.definition.dwell ? { dwell: built.definition.dwell } : {}),
       steps: automation.flattenPlan(built.definition.steps)
         .map((step) => ({ kind: step.kind, config: step.config ?? {} })),
     }, { templateKey: input.key, enabled: true });
@@ -891,6 +914,7 @@ export async function installStarters(ctx: ServiceContext): Promise<string[]> {
         description: built.definition.description,
         triggerKind: built.definition.triggerKind,
         triggerEvents: built.definition.triggerEvents,
+        ...(built.definition.dwell ? { dwell: built.definition.dwell } : {}),
         steps: automation.flattenPlan(built.definition.steps)
           .map((step) => ({ kind: step.kind, config: step.config ?? {} })),
       }, { templateKey: template.key, enabled: true });

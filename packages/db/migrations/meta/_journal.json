@@ -687,6 +687,13 @@
       "when": 1791196066234,
       "tag": "0097_stiff_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1791196708718,
+      "tag": "0098_stale_living_lightning",
+      "breakpoints": true
     }
   ]
 }

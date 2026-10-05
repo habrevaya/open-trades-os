@@ -211,7 +211,7 @@ export const WebhookReplay = z.object({
   throughSequence: z.number().int(),
   /** The last sequence sent and answered. */
   position: z.number().int(),
-  status: z.enum(["pending", "done", "failed"]),
+  status: z.enum(["pending", "done", "failed", "cancelled"]),
   failureCount: z.number().int(),
   lastError: z.string().nullable(),
   createdAt: z.string(),
@@ -279,8 +279,22 @@ export const listWebhookReplays = defineRoute({
   output: z.object({ replays: z.array(WebhookReplay) }),
 });
 
+export const cancelWebhookReplay = defineRoute({
+  method: "post",
+  path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel",
+  summary: "Stop a replay that is still waiting",
+  description:
+    "A replay still `pending` stops before its next event: nothing more of it is sent, what had already gone stays gone, and `position` says how far it got. A replay that finished, failed or was already cancelled is answered as it is, so pressing it twice is not an error. The worker checks before every event it sends, so a cancel that lands while a replay is under way stops it at the next one.",
+  module: "M26",
+  permissions: ["integration:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, replayId: Uuid }),
+  output: WebhookReplay,
+});
+
 export const webhookRoutes = {
   registerWebhookEndpoint, listWebhookEndpoints, updateWebhookEndpoint, rotateWebhookSecret,
   deleteWebhookEndpoint, getWebhookPosition, listWebhookEvents,
   listWebhookDeliveries, listWebhookEventDeliveries, replayWebhookDeliveries, listWebhookReplays,
+  cancelWebhookReplay,
 } as const;

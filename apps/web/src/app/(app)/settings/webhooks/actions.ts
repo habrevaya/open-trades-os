@@ -82,6 +82,15 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         };
       }
 
+      case "cancel-replay": {
+        const stopped = await webhooks.cancelReplay(ctx, { id, replayId: String(form.get("replayId") ?? "") });
+        return {
+          message: stopped.status === "cancelled"
+            ? "Stopped. Nothing more of it is sent. What already went stays sent."
+            : "It had already finished, so there was nothing left to stop.",
+        };
+      }
+
       default:
         throw new Error(`Unknown op: ${op}`);
     }

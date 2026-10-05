@@ -98,6 +98,17 @@ rendering a preview. If GET unsubscribed, a company's whole list would be opted
 out by software over a few months with no human having clicked anything. The
 unsubscribe suppresses email marketing only and leaves transactional mail alone.
 
+**A marketing email's unsubscribe link has to be this product's own.** The sender
+refuses marketing with no link, and it also refuses a link it did not make: the
+URL has to be `PUBLIC_BASE_URL` followed by the unsubscribe page's path and a
+token, with nothing after it, the token has to be one this company issued, and it
+has to have been issued for the address the mail is going to. A 404, a page on
+another system that cannot write a suppression here, another company's link and a
+link for somebody else are all refused, because each one is a button that leaves
+the reader on the list. Campaigns make their own links; `POST /v1/email/messages`
+makes one for the address when the caller leaves `unsubscribeUrl` out, and takes
+it back if the send is then refused.
+
 **The worker's authority is named rather than assumed.** The email sender's worker
 holds exactly two permissions and every path goes through a guard, so removing
 `message:send` from that list stops the sender, which is what an operator reading
@@ -377,10 +388,6 @@ turns it off once.
 gate as everything else.
 
 ## What is not built
-
-Nothing checks that the unsubscribe URL handed to the email sender points at the
-page this product serves, so a caller can satisfy the gate with any string,
-including a 404. Campaigns supply the real one; another caller might not.
 
 Calls: none of the waiting line, the phone assistant or the browser phone has
 been tried on a live phone line. Each is built from Twilio's documentation and

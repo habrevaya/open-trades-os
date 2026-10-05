@@ -48,7 +48,7 @@ export const queueEmail = defineRoute({
   path: "/v1/email/messages",
   summary: "Put an email in the outbox",
   description:
-    "Queued, never sent: the row says queued until a provider has accepted it, because a log that claims a send the company cannot stand behind is worse than no log. A recipient who has unsubscribed, hard bounced or complained comes back as a refusal rather than an error, since 'they asked us to stop' is an answer and throwing would roll back whatever the caller was recording. Malformed mail is refused outright: no subject, no body, HTML with no plain text alternative, or marketing with no unsubscribe URL. The last one is CAN-SPAM and the Gmail and Yahoo bulk sender rules, and this is the only place it can be enforced.",
+    "Queued, never sent: the row says queued until a provider has accepted it, because a log that claims a send the company cannot stand behind is worse than no log. A recipient who has unsubscribed, hard bounced or complained comes back as a refusal rather than an error, since 'they asked us to stop' is an answer and throwing would roll back whatever the caller was recording. Malformed mail is refused outright: no subject, no body, or HTML with no plain text alternative. Marketing carries a one click unsubscribe link to this product's own page, which is CAN-SPAM and the Gmail and Yahoo bulk sender rules: leave `unsubscribeUrl` out and one is made for the address, or pass one this company issued for that same address. Any other URL, a 404 or another company's link included, is refused, because a link that does not reach this product's page cannot take anybody off the list.",
   module: "M18",
   permissions: ["message:send"],
   idempotent: true,
@@ -60,7 +60,7 @@ export const queueEmail = defineRoute({
     replyTo: z.string().email().max(320).optional(),
     purpose: EmailPurpose.optional(),
     customerId: Uuid.optional(),
-    /** Required when the purpose is marketing. Refused without it. */
+    /** Marketing only, and only a link this company issued for this address. Made when left out. */
     unsubscribeUrl: z.string().url().max(2000).optional(),
   }),
   output: QueuedEmail,

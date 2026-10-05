@@ -333,6 +333,33 @@ export const CHECKS = {
     label: "Nobody has spoken to the caller since",
     entity: "call",
   },
+  /**
+   * The invoice still has money owing: not paid, not voided, not written
+   * off. The question a payment reminder turns on, asked after the wait
+   * rather than read off an event that said the invoice was raised.
+   */
+  invoice_unpaid: {
+    label: "The invoice still has money owing",
+    entity: "invoice",
+  },
+  /**
+   * The visit is still booked, and for the time the event said. A reminder
+   * the day before a visit that was cancelled, or moved to next week, is a
+   * customer told to expect somebody who is not coming. A move raises its
+   * own event, which is where the reminder for the new time comes from.
+   */
+  visit_still_booked: {
+    label: "The visit is still booked for the same time",
+    entity: "visit",
+  },
+  /**
+   * The job is not finished or cancelled yet. "Ring them if the job has not
+   * started in a week" stops being worth a call once the work is done.
+   */
+  job_not_done: {
+    label: "The job is not finished or cancelled yet",
+    entity: "job",
+  },
 } as const;
 
 export type CheckKey = keyof typeof CHECKS;

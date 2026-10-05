@@ -79,6 +79,8 @@ export const AppView = z.object({
   homepageUrl: z.string().nullable(),
   status: z.string(),
   permissions: z.array(z.string()),
+  /** What a request asked for, when it was one. What is here and not above was left out. */
+  requestedPermissions: z.array(z.string()).nullable(),
   scopes: z.record(z.string()),
   approvedAt: z.string().nullable(),
   revokedAt: z.string().nullable(),
@@ -207,7 +209,7 @@ export const requestAppInstall = defineRoute({
   path: "/v1/public/app-requests",
   summary: "Ask a company to let your application in",
   description:
-    "For a third party with no credential yet. Names the company by its public slug and says exactly what the app wants: its permissions from the catalogue and the record scope on each resource. Nothing is granted by asking. The answer carries `decisionUrl`, the page where somebody at the company sees the request in plain words and approves or refuses that exact list, and `claimSecret`, shown once, which the app presents to `POST /v1/public/app-requests/{id}/claim` to collect its credential after approval. An unknown permission is refused rather than dropped. Requests expire after seven days unanswered, a company holds at most twenty waiting, and asking is counted per network address. NOT IDEMPOTENT: the claim secret is stored only as a hash, so a retry cannot be handed the first one, and leaves a second request that the company can refuse or let expire.",
+    "For a third party with no credential yet. Names the company by its public slug and says exactly what the app wants: its permissions from the catalogue and the record scope on each resource. Nothing is granted by asking. The answer carries `decisionUrl`, the page where somebody at the company sees the request in plain words and approves or refuses that exact list, and `claimSecret`, shown once, which the app presents to `POST /v1/public/app-requests/{id}/claim` to collect its credential after approval. An unknown permission is refused rather than dropped. Requests expire after seven days unanswered, a company holds at most twenty waiting, and asking is counted per network address. SAFE TO RETRY WITH YOUR OWN SECRET: send `claimSecret` (32 to 200 random URL safe characters) and a retry carrying the same one is answered with the first request as it stands, `repeated: true`, rather than leaving a second one waiting. The same secret on a request asking for something else is refused. Without one the server makes a secret, shown once, and a retry makes a second request. People at the company who can approve are emailed when a request arrives, if the company has an email provider connected.",
   module: "M26",
   authorization: "public",
   permissions: [],
@@ -223,10 +225,15 @@ export const requestAppInstall = defineRoute({
     redirectUri: z.string().max(1000).optional(),
     /** Opaque, echoed back as `state` on the return address. */
     state: z.string().max(500).optional(),
+    /** Your own claim secret, so a retry returns the first request. 32 to 200 of A-Z a-z 0-9 - _. */
+    claimSecret: z.string().min(32).max(200).optional(),
   }),
   output: z.object({
     id: Uuid,
-    status: z.literal("pending"),
+    /** `pending` for a new request. A retry answers with the first request's status now. */
+    status: z.enum(["pending", "active", "refused", "revoked"]),
+    /** True when this was a retry with the same claim secret, answered with the first request. */
+    repeated: z.boolean(),
     decisionPath: z.string(),
     decisionUrl: z.string(),
     /** Shown once. The app's proof, when it comes back, that it is the one that asked. */
@@ -250,6 +257,10 @@ export const claimAppCredential = defineRoute({
     message: z.string(),
     token: z.string().optional(),
     expiresAt: z.string().optional(),
+    /** With the token: what it may do, which can be part of what was asked for. */
+    permissions: z.array(z.string()).optional(),
+    /** With the token: what was asked for and left out by the person who approved it. */
+    withheld: z.array(z.string()).optional(),
   }),
 });
 
@@ -266,8 +277,12 @@ export const reviewAppRequest = defineRoute({
     app: AppView,
     asks: z.array(z.object({
       permission: z.string(), label: z.string(), sensitive: z.boolean(), held: z.boolean(),
+      /** Null while it waits; once approved, whether this one was given. */
+      granted: z.boolean().nullable(),
     })),
     reach: z.array(z.object({ resource: z.string(), scope: z.string(), widerThanYours: z.boolean() })),
+    /** Asked for and not given, once approved. */
+    leftOut: z.array(z.object({ permission: z.string(), label: z.string() })),
     approvable: z.boolean(),
     blockedBecause: z.string().nullable(),
     /** Once answered, where to send the person who answered, with the outcome for the app. */
@@ -285,14 +300,19 @@ const Decision = z.object({
 export const approveAppRequest = defineRoute({
   method: "post",
   path: "/v1/apps/{id}/approve",
-  summary: "Approve exactly what an app asked for",
+  summary: "Approve what an app asked for, or part of it",
   description:
-    "Through the same check as installing: refused, naming them, when the app asks for anything the approver does not hold. Approving does not hand anybody a credential; the app collects it with its claim secret. Approving an app already approved changes nothing and succeeds.",
+    "Without `permissions`, approves the whole list the app asked for. With it, approves only those, and each has to be one the app asked for: a permission it did not ask for is refused rather than added, and an empty list is refused (that is refusing). Through the same check as installing: refused, naming them, when the grant holds anything the approver does not hold. The record reach is the app's as asked. Approving does not hand anybody a credential; the app collects it with its claim secret and is told what was left out. Approving an app already approved changes nothing and succeeds.",
   module: "M26",
   idempotent: true,
   permissions: ["integration:write"],
-  input: z.object({ id: Uuid }),
-  output: Decision,
+  input: z.object({ id: Uuid, permissions: z.array(z.string().max(100)).max(200).optional() }),
+  output: Decision.extend({
+    /** What it was given. */
+    permissions: z.array(z.string()),
+    /** What it asked for and was not given. */
+    withheld: z.array(z.string()),
+  }),
 });
 
 export const refuseAppRequest = defineRoute({

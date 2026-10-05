@@ -73,9 +73,14 @@ export async function act(_previous: AppsState, form: FormData): Promise<AppsSta
         return { message: "Turned off, and its credentials with it." };
 
       case "approve": {
-        const { app, returnTo } = await apps.approve(ctx, { id: String(form.get("id") ?? "") });
+        const { app, returnTo } = await apps.approve(ctx, {
+          id: String(form.get("id") ?? ""), permissions: fields(form, "permissions"),
+        });
+        const leftOut = (app.requestedPermissions ?? []).filter((p) => !app.permissions.includes(p)).length;
         return {
-          message: `${app.name} is approved. It collects its credential itself, once.`,
+          message: leftOut > 0
+            ? `${app.name} is approved, with ${leftOut} of what it asked for left out. It collects its credential itself, once, and is told what was left out.`
+            : `${app.name} is approved. It collects its credential itself, once.`,
           ...(returnTo ? { link: returnTo } : {}),
         };
       }

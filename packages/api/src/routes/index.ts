@@ -411,6 +411,7 @@ export const handlers = {
   listWebhookDeliveries: webhooks.handlers.listWebhookDeliveries,
   listWebhookEventDeliveries: webhooks.handlers.listWebhookEventDeliveries,
   replayWebhookDeliveries: webhooks.handlers.replayWebhookDeliveries,
+  cancelWebhookReplay: webhooks.handlers.cancelWebhookReplay,
   listWebhookReplays: webhooks.handlers.listWebhookReplays,
 
   getPaymentsStatus: payments.handlers.getPaymentsStatus,

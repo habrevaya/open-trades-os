@@ -711,13 +711,16 @@ grant execute on function app.oauth_client(text) to authenticated;
 
 -- Whether a confidential client presented its own secret. The caller hashes
 -- what was sent, so the secret itself is never a parameter here or in a log.
--- A public client has no secret and never matches.
+-- A public client has no secret and never matches. The secret before the last
+-- rotation matches too, until its overlap ends and not a second after.
 create or replace function app.oauth_client_secret_matches(p_client_id text, p_secret_hash text)
   returns boolean
   language sql stable security definer set search_path = public, pg_temp
   as $$
     select coalesce((
-      select c.secret_hash is not null and c.secret_hash = p_secret_hash
+      select (c.secret_hash is not null and c.secret_hash = p_secret_hash)
+          or (c.previous_secret_hash is not null and c.previous_secret_hash = p_secret_hash
+              and c.previous_secret_expires_at > now())
       from public.oauth_client c
       where c.client_id = p_client_id
       limit 1
@@ -726,6 +729,52 @@ create or replace function app.oauth_client_secret_matches(p_client_id text, p_s
 
 revoke all on function app.oauth_client_secret_matches(text, text) from public;
 grant execute on function app.oauth_client_secret_matches(text, text) to authenticated;
+
+-- A confidential client rotating its own secret. Only the CURRENT secret
+-- may do it, never the one in its overlap: a leaked old secret that could
+-- rotate would let whoever holds it keep a working secret forever. One
+-- statement, so two rotations racing cannot both win: the second finds the
+-- current hash changed and rotates nothing. A rotation during an overlap
+-- retires the oldest, so at most two secrets ever work. Answers whether it
+-- rotated and, when it did, until when the old one still works.
+create or replace function app.oauth_rotate_client_secret(
+  p_client_id text, p_current_hash text, p_new_hash text, p_overlap_seconds int
+) returns table (rotated boolean, previous_expires_at timestamptz)
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with done as (
+      update public.oauth_client c
+         set previous_secret_hash = case when p_overlap_seconds > 0 then c.secret_hash end,
+             previous_secret_expires_at = case when p_overlap_seconds > 0
+               then now() + make_interval(secs => least(greatest(p_overlap_seconds, 0), 86400)) end,
+             secret_hash = p_new_hash,
+             secret_rotated_at = now()
+       where c.client_id = p_client_id
+         and c.secret_hash is not null
+         and c.secret_hash = p_current_hash
+         and p_new_hash is not null
+      returning c.previous_secret_expires_at
+    )
+    select exists (select 1 from done), (select previous_secret_expires_at from done limit 1)
+  $$;
+
+revoke all on function app.oauth_rotate_client_secret(text, text, text, int) from public;
+grant execute on function app.oauth_rotate_client_secret(text, text, text, int) to authenticated;
+
+-- Which companies have connected a client, so a rotation can be written in
+-- each one's own audit log. Ids only, read by the server, never answered to
+-- the client: a registration says nothing about who approved it.
+create or replace function app.oauth_client_connections(p_client_id text)
+  returns table (organization_id uuid, app_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id, a.id
+    from public.connected_app a
+    where a.oauth_client_id = p_client_id
+  $$;
+
+revoke all on function app.oauth_client_connections(text) from public;
+grant execute on function app.oauth_client_connections(text) to authenticated;
 
 -- REGISTRATIONS NOBODY EVER USED.
 -- A client registers before anybody at any company has been asked, and many

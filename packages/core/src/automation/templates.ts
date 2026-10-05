@@ -36,8 +36,14 @@ export interface TemplateParameter {
 export interface TemplateDefinition {
   name: string;
   description: string;
-  triggerKind: "event";
+  /**
+   * `event` for something that happened; `dwell` for something about to
+   * happen or that has not, which names a shape the dwell sweep owns and
+   * how many days.
+   */
+  triggerKind: "event" | "dwell";
   triggerEvents: string[];
+  dwell?: { shape: string; afterDays: number } | undefined;
   steps: PlanNode[];
 }
 
@@ -117,6 +123,22 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
       label: "Minutes to wait first",
       help: "Two gives whoever was on the other line a chance to ring them back before a text goes.",
       kind: "number", default: 2, min: 0, max: 60,
+    }],
+  },
+  {
+    key: "warranty_call",
+    name: "Ring before a warranty runs out",
+    summary:
+      "Some days before the parts or labour warranty on a unit you keep on file runs out, put a call "
+      + "in the office queue to offer a service plan or a replacement while it is still covered.",
+    needs:
+      "Units on your customers' addresses with their warranty dates filled in. A unit with no dates, "
+      + "or one taken off the register, is never called about.",
+    parameters: [{
+      key: "days",
+      label: "Days before the warranty ends",
+      help: "Thirty gives time to book a visit before the cover ends. Each end date is called about once.",
+      kind: "number", default: 30, min: 1, max: 180,
     }],
   },
 ];
@@ -273,6 +295,38 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
           {
             kind: "create_task",
             config: { title: "Ring back {{ from }}, a missed call", queue: "office", dueInHours: 1, priority: "high" },
+          },
+        ],
+      },
+    };
+  }
+
+  if (key === "warranty_call") {
+    const days = numberOf(template.parameters[0]!, values["days"]);
+    if (typeof days === "string") return { ok: false, reason: days };
+    return {
+      ok: true,
+      definition: {
+        name: template.name,
+        description:
+          `Installed from the recommended list. ${days} ${days === 1 ? "day" : "days"} before the warranty `
+          + "on a unit runs out, raise a call for the office about it.",
+        triggerKind: "dwell",
+        triggerEvents: [],
+        dwell: { shape: "warranty_lapsing", afterDays: days },
+        steps: [
+          /**
+           * About the unit, so the task opens the unit's page with its address
+           * and its customer, which is what the person ringing needs in front
+           * of them. Two days to make the call, because nobody else is waiting.
+           */
+          {
+            kind: "create_task",
+            config: {
+              title: "Warranty ends {{ until }}: ring about a plan or a replacement",
+              queue: "office",
+              dueInHours: 48,
+            },
           },
         ],
       },

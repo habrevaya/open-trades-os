@@ -875,6 +875,95 @@ test("Duplicates: the merge candidate list is the records that match, and the me
   await expect(owner.getByText(/No other record shares this phone number or email/)).toBeVisible();
 });
 
+test("The automation canvas: a branch takes all, at least one of, and none of, by keyboard, and a message can be an email", async ({ owner }) => {
+  /**
+   * The engine has evaluated three groups of conditions from the start and the
+   * canvas offered one. Each group is its own box with its rule as its heading,
+   * and the sentence under them reads the whole condition back, so a row in the
+   * wrong group shows as the wrong sentence rather than as nothing at all. The
+   * groups are driven by keyboard here: adding a row puts the cursor in it.
+   */
+  const name = `Three groups ${run}`;
+  await owner.goto("/automations/new");
+  await owner.getByRole("textbox", { name: "Name" }).fill(name);
+
+  /** The step it starts with becomes an email rather than a task. */
+  await owner.getByRole("button", { name: "Remove step 1, Raise a task" }).click();
+  await owner.getByRole("button", { name: "Add a step to the end" }).click();
+  await owner.getByRole("button", { name: "Add Send a message" }).click();
+  const message = owner.getByRole("region", { name: "step 1, Send a message" });
+  await message.getByRole("combobox", { name: "How" }).selectOption("email");
+  await message.getByRole("textbox", { name: "Subject" }).fill("About your job");
+  await message.getByRole("textbox", { name: "What it says" }).fill("Hi {{ customer.name }}, a note about your job.");
+
+  await owner.getByRole("button", { name: "Add a step to the end" }).click();
+  await owner.getByRole("button", { name: "Add Only if" }).click();
+  const branch = owner.getByRole("region", { name: "step 2, Only if" });
+
+  /** All of: one condition, typed after pressing the button with the keyboard. */
+  await branch.getByRole("button", { name: "Add a condition", exact: true }).focus();
+  await owner.keyboard.press("Enter");
+  await expect(branch.getByLabel("What to check, condition 1")).toBeFocused();
+  await owner.keyboard.type("job.status");
+  await branch.getByLabel("What to compare against, condition 1").fill("scheduled");
+
+  /** At least one of: two, the first one focused as soon as the group appears. */
+  await branch.getByRole("button", { name: /at least one of.*group/ }).focus();
+  await owner.keyboard.press("Enter");
+  await expect(branch.getByLabel("What to check, at least one of, condition 1")).toBeFocused();
+  await owner.keyboard.type("job.priority");
+  await branch.getByLabel("What to compare against, at least one of, condition 1").fill("urgent");
+  await branch.getByRole("button", { name: "Add a condition to at least one of" }).click();
+  await branch.getByLabel("What to check, at least one of, condition 2").fill("job.priority");
+  await branch.getByLabel("What to compare against, at least one of, condition 2").fill("high");
+
+  /** None of: one, with a comparator that takes no value. */
+  await branch.getByRole("button", { name: /none of.*group/ }).click();
+  await branch.getByLabel("What to check, none of, condition 1").fill("job.cancelledAt");
+  await branch.getByLabel("How to compare, none of, condition 1").selectOption("exists");
+  await expect(branch.getByLabel("What to compare against, none of, condition 1")).toHaveCount(0);
+
+  await expect(branch.getByText(
+    "Takes the first lane when job.status is scheduled, and at least one of: job.priority is urgent or "
+    + "job.priority is high, and none of: job.cancelledAt is set. Otherwise it takes the second.",
+  )).toBeVisible();
+
+  await owner.getByRole("button", { name: "Add a step to step 2, then" }).click();
+  await owner.getByRole("button", { name: "Add Raise a task" }).click();
+  await owner.getByRole("region", { name: "step 2, then, step 1, Raise a task" })
+    .getByRole("textbox", { name: "Title" }).fill("Ring them today");
+
+  await owner.getByRole("checkbox", { name: /job\.created/ }).check();
+  await owner.getByRole("button", { name: "Save, switched off" }).click();
+  await expect(owner.getByRole("heading", { level: 1, name })).toBeVisible();
+
+  /** Saved as the engine's three lists, and the message as an email with its subject. */
+  const id = owner.url().split("/automations/")[1]!.split(/[?#]/)[0]!;
+  const saved = await (await owner.request.get(`/api/v1/workflows/${id}`)).json() as {
+    steps: { kind: string; config: Record<string, unknown> }[];
+  };
+  expect(saved.steps[0]).toMatchObject({
+    kind: "send_message", config: { channel: "email", purpose: "transactional", subject: "About your job" },
+  });
+  expect(saved.steps[1]!.config["conditions"]).toEqual({
+    all: [{ path: "job.status", op: "eq", value: "scheduled" }],
+    any: [{ path: "job.priority", op: "eq", value: "urgent" }, { path: "job.priority", op: "eq", value: "high" }],
+    none: [{ path: "job.cancelledAt", op: "exists" }],
+  });
+
+  /** And it opens as the same three groups. */
+  const reopened = owner.getByRole("region", { name: "step 2, Only if" });
+  await expect(reopened.getByLabel("What to check, at least one of, condition 2")).toHaveValue("job.priority");
+  await expect(reopened.getByLabel("What to check, none of, condition 1")).toHaveValue("job.cancelledAt");
+  await expect(owner.getByRole("region", { name: "step 1, Send a message" }).getByRole("textbox", { name: "Subject" }))
+    .toHaveValue("About your job");
+
+  /** Taking a group away takes its conditions with it, and the sentence says so. */
+  await reopened.getByRole("button", { name: "Remove the none of these may hold group" }).click();
+  await expect(reopened.getByText(/none of:/)).toHaveCount(0);
+  await expect(reopened.getByRole("button", { name: /none of.*group/ })).toBeVisible();
+});
+
 test("The automation canvas: a branch is drawn with two lanes and the saved automation opens as the same picture", async ({ owner }) => {
   /**
    * `branch` was in the engine's permission table from the start with no shape

@@ -10,6 +10,7 @@ import type {
 import { ConflictError, type ServiceContext } from "../src/services/context";
 import * as leadIntake from "../src/services/lead-intake";
 import { svixSignature } from "../src/email/resend";
+import * as campaigns from "../src/services/campaigns";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -34,6 +35,10 @@ const ORG = fixtureId("em:org");
 const USER = fixtureId("em:user");
 const FROM = "hello@example-trades.com";
 const TO = "owner@customer.test";
+
+const OTHER_ORG = fixtureId("em:other-org");
+const OTHER_USER = fixtureId("em:other-user");
+let previousBase: string | undefined;
 
 let raw: postgres.Sql;
 const db = () => testDb(url!);
@@ -107,6 +112,14 @@ const messageRow = (id: string) => raw<{
          headers, subject, body, body_html
   from public.message where id = ${id}`;
 
+/** This deployment's own address, so a link it issues is one the gate accepts. */
+const BASE = "https://ots.email-test.example";
+
+/** A real unsubscribe link, issued by this company for this address. */
+async function linkFor(address = TO, organizationId = ORG): Promise<string> {
+  return (await campaigns.mintUnsubscribe(db(), organizationId, { address })).url;
+}
+
 async function queued(overrides: Partial<email.QueueEmailInput> = {}): Promise<string> {
   const outcome = await email.queue(owner(), {
     to: TO, subject: "Your invoice", text: "Attached.", ...overrides,
@@ -119,9 +132,16 @@ beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Email Co", slug: "email-co" });
+  await seedOrg(raw, { organizationId: OTHER_ORG, userId: OTHER_USER, name: "Other Email Co", slug: "other-email-co" });
+  previousBase = process.env["PUBLIC_BASE_URL"];
+  process.env["PUBLIC_BASE_URL"] = BASE;
 });
 
-afterAll(async () => { if (raw) await raw.end(); });
+afterAll(async () => {
+  if (previousBase === undefined) delete process.env["PUBLIC_BASE_URL"];
+  else process.env["PUBLIC_BASE_URL"] = previousBase;
+  if (raw) await raw.end();
+});
 
 beforeEach(async () => {
   if (!url) return;
@@ -131,6 +151,7 @@ beforeEach(async () => {
   await raw`delete from public.communication_consent where organization_id = ${ORG}`;
   await raw`delete from public.integration_connection where organization_id = ${ORG}`;
   await raw`delete from public.audit_log where organization_id = ${ORG}`;
+  await raw`delete from public.unsubscribe_link where organization_id in (${ORG}, ${OTHER_ORG})`;
 });
 
 run("what will not be queued", () => {
@@ -177,6 +198,87 @@ run("what will not be queued", () => {
     })).rejects.toThrow(/unsubscribe URL/i);
   });
 
+  it("refuses an unsubscribe URL that is not this product's page, whatever it looks like", async () => {
+    /**
+     * The gate used to take any string. A 404, a page on somebody else's
+     * system that cannot write a suppression here, or a look-alike on the
+     * right host with the wrong path all satisfied it, and the company kept
+     * emailing people who had pressed unsubscribe.
+     */
+    await connect();
+    await grantMarketingConsent();
+    const genuine = await linkFor();
+    const token = genuine.slice(genuine.lastIndexOf("/") + 1);
+    for (const bad of [
+      "https://example.com/u/1",
+      `https://evil.example/api/v1/public/unsubscribe/${token}`,
+      `${BASE}/api/v1/public/not-unsubscribe/${token}`,
+      `${BASE}/api/v1/public/unsubscribe/${token}?next=https://evil.example`,
+      `${BASE}/api/v1/public/unsubscribe/${"a".repeat(43)}`,
+      "not a url at all",
+    ]) {
+      await expect(email.queue(owner(), {
+        to: TO, subject: "Spring offer", text: "Book now", purpose: "marketing", unsubscribeUrl: bad,
+      })).rejects.toThrow(/unsubscribe link cannot be used/i);
+    }
+    expect((await raw`select count(*)::int as n from public.message where organization_id = ${ORG}`)[0]!.n).toBe(0);
+  });
+
+  it("refuses another company's link, and a link made for somebody else", async () => {
+    /**
+     * Both are real pages that work, which is what makes them dangerous: the
+     * first takes the reader off another company's list, the second takes a
+     * different person off this one, and the reader stays on it either way.
+     */
+    await connect();
+    await grantMarketingConsent();
+    await expect(email.queue(owner(), {
+      to: TO, subject: "Spring offer", text: "Book now", purpose: "marketing",
+      unsubscribeUrl: await linkFor(TO, OTHER_ORG),
+    })).rejects.toThrow(/never issued it/i);
+    await expect(email.queue(owner(), {
+      to: TO, subject: "Spring offer", text: "Book now", purpose: "marketing",
+      unsubscribeUrl: await linkFor("somebody.else@customer.test"),
+    })).rejects.toThrow(/different address/i);
+  });
+
+  it("refuses every link while the deployment does not know its own address", async () => {
+    await connect();
+    await grantMarketingConsent();
+    const genuine = await linkFor();
+    delete process.env["PUBLIC_BASE_URL"];
+    try {
+      await expect(email.queue(owner(), {
+        to: TO, subject: "Spring offer", text: "Book now", purpose: "marketing", unsubscribeUrl: genuine,
+      })).rejects.toThrow(/PUBLIC_BASE_URL/);
+    } finally {
+      process.env["PUBLIC_BASE_URL"] = BASE;
+    }
+  });
+
+  it("makes a link over the API when none is given, and takes it back when the send is refused", async () => {
+    /**
+     * An outside caller cannot make a link the gate accepts, so the route
+     * makes one for the address. A refused send must not leave a live link
+     * behind for a mail that never went.
+     */
+    await connect();
+    const refusedSend = await email.handlers.queueEmail(owner(), {
+      to: TO, subject: "Spring offer", text: "Book now", purpose: "marketing",
+    });
+    expect(refusedSend.queued).toBe(false);
+    expect((await raw`select count(*)::int as n from public.unsubscribe_link where organization_id = ${ORG}`)[0]!.n).toBe(0);
+
+    await grantMarketingConsent();
+    const sentOne = await email.handlers.queueEmail(owner(), {
+      to: TO, subject: "Spring offer", text: "Book now", purpose: "marketing",
+    });
+    if (!sentOne.queued) throw new Error("expected queued");
+    const [row] = await messageRow(sentOne.messageId);
+    const header = row!.headers["List-Unsubscribe"]!.slice(1, -1);
+    expect(await email.unsubscribeUrlProblem(db(), ORG, TO, header)).toBeNull();
+  });
+
   it("refuses a suppressed address, as a refusal rather than an error", async () => {
     await connect();
     await raw`
@@ -211,7 +313,7 @@ run("what will not be queued", () => {
     await connect();
     const outcome = await email.queue(owner(), {
       to: TO, subject: "Spring offer", text: "Book now",
-      purpose: "marketing", unsubscribeUrl: "https://example.com/u/1",
+      purpose: "marketing", unsubscribeUrl: await linkFor(),
     });
     expect(outcome.queued).toBe(false);
     if (outcome.queued) throw new Error("unreachable");
@@ -276,10 +378,10 @@ run("what gets queued", () => {
     await grantMarketingConsent();
     const id = await queued({
       subject: "Spring offer", purpose: "marketing",
-      unsubscribeUrl: "https://example.com/u/1",
+      unsubscribeUrl: await linkFor(),
     });
     const [row] = await messageRow(id);
-    expect(row!.headers["List-Unsubscribe"]).toBe("<https://example.com/u/1>");
+    expect(row!.headers["List-Unsubscribe"]).toMatch(new RegExp(`^<${BASE}/api/v1/public/unsubscribe/[A-Za-z0-9_-]+>$`));
     expect(row!.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
 
@@ -294,7 +396,7 @@ run("what gets queued", () => {
     await grantMarketingConsent();
     const id = await queued({
       subject: "Spring offer", purpose: "marketing",
-      unsubscribeUrl: "https://example.com/u/1",
+      unsubscribeUrl: await linkFor(),
     });
     const [row] = await messageRow(id);
     expect(row!.consent_id).not.toBeNull();
@@ -574,7 +676,7 @@ run("what the provider says happened", () => {
 
     const promotion = await email.queue(owner(), {
       to: TO, subject: "Spring offer", text: "Book now",
-      purpose: "marketing", unsubscribeUrl: "https://example.com/u/1",
+      purpose: "marketing", unsubscribeUrl: await linkFor(),
     });
     expect(promotion.queued).toBe(false);
 
