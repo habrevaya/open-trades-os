@@ -6,9 +6,9 @@ import {
 } from "../reporting/chart.js";
 
 /**
- * THE FOUR DOCUMENTS A CUSTOMER OR AN ACCOUNTANT IS HANDED AS A FILE
+ * THE DOCUMENTS A CUSTOMER, A VENDOR OR AN ACCOUNTANT IS HANDED AS A FILE
  *
- * An invoice, a proposal, a statement and a report. Each takes the shape its
+ * An invoice, a proposal, a statement, a purchase order and a report. Each takes the shape its
  * screen already reads, built by the api from ONE function for the office and
  * the customer's link alike, so the file and the page cannot disagree about a
  * number. Nothing here reads a database or a clock it was not handed.
@@ -406,6 +406,91 @@ export function statementPdf(input: StatementPdfInput, options: RenderOptions = 
     title: `${input.company.name} statement for ${input.customerName}`,
     createdAt: input.generatedAt,
     footer: `${input.company.name}, statement for ${input.customerName}`,
+  }, options);
+}
+
+/* ------------------------------------------------------ purchase order */
+
+/**
+ * A PURCHASE ORDER AS THE VENDOR'S COUNTER READS IT.
+ *
+ * Their part number first, because that is what they pick by; how many in
+ * THEIR units when they sell by the pack ("2 box of 25"), with our count
+ * beside it; the price as they quote it; and where each line is going, with
+ * the street, because "deliver to Van 4" means nothing to a driver. The same
+ * fields the emailed body and the printable link carry, from the same reader.
+ */
+export interface PurchaseOrderPdfInput {
+  company: Company;
+  number: number;
+  status: string;
+  vendorName: string;
+  vendorAccount: string | null;
+  submittedAt: string | null;
+  expectedAt: string | null;
+  notes: string | null;
+  total: string;
+  lines: Array<{
+    vendorPartNumber: string | null; itemCode: string; itemName: string;
+    quantityOrdered: string; unitPrice: string; lineTotal: string; deliverTo: string;
+    /** When the vendor sells by the pack: how many packs, of how many, called what, at what each. */
+    packs?: { count: string; size: string; unit: string | null; price: string } | null | undefined;
+  }>;
+  generatedAt: Date;
+}
+
+export function purchaseOrderPdf(input: PurchaseOrderPdfInput, options: RenderOptions = {}): Uint8Array {
+  const flow = new Flow({
+    company: input.company.name,
+    contact: input.company.contact,
+    accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
+    title: `Purchase order ${input.number}`,
+    subtitle: [
+      input.submittedAt ? `Sent ${longDate(input.submittedAt)}` : null,
+      input.expectedAt ? `Wanted by ${longDate(input.expectedAt)}` : null,
+    ].filter(Boolean).join(", ") || undefined,
+  });
+
+  flow.facts([
+    ["To", input.vendorName],
+    ...(input.vendorAccount ? [["Our account", input.vendorAccount] as [string, string]] : []),
+  ]);
+  if (input.status === "cancelled") { flow.gap(6); flow.paragraph("Cancelled. Do not ship anything on this order.", { font: "bold" }); }
+  flow.gap(14);
+
+  flow.table(
+    [
+      { label: "Part", width: 90 },
+      { label: "Description" },
+      { label: "Qty", width: 92, align: "right" },
+      { label: "Each", width: 76, align: "right" },
+      { label: "Amount", width: 80, align: "right" },
+    ],
+    input.lines.map((line) => {
+      const packs = line.packs;
+      const qty = packs
+        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}\n(${quantity(line.quantityOrdered)})`
+        : quantity(line.quantityOrdered);
+      return [
+        line.vendorPartNumber ?? line.itemCode,
+        `${line.itemName}\nDeliver to ${line.deliverTo}`,
+        qty,
+        usd(packs ? packs.price : line.unitPrice),
+        usd(line.lineTotal),
+      ];
+    }),
+  );
+  flow.totals([["Total", usd(input.total), true]]);
+
+  if (input.notes) { flow.gap(12); flow.paragraph(input.notes); }
+  flow.gap(14);
+  flow.paragraph("Please confirm this order and when it will ship by replying to the email it came with.", { color: MUTED });
+
+  return flow.finish({
+    title: `${input.company.name} purchase order ${input.number}`,
+    createdAt: input.generatedAt,
+    footer: `${input.company.name}, purchase order ${input.number}`,
   }, options);
 }
 

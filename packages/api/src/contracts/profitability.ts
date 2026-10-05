@@ -83,7 +83,7 @@ export const getJobProfitability = defineRoute({
   path: "/v1/profitability/jobs/{id}",
   summary: "What one job earned, and the rows behind every number",
   description:
-    "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.",
+    "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the one exception, freight billed after a delivery on parts the job used, is posted to cost of goods sold on the job and added to material cost (`costEntries`). Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.",
   module: "M15",
   permissions: ["report.financial:read", "job.cost:read"],
   input: z.object({ id: Uuid }),
@@ -128,6 +128,8 @@ export const getJobProfitability = defineRoute({
 
     caveats: ProfitabilityCaveats,
     revenueEntries: z.array(ProfitabilityLedgerRow),
+    /** Cost of goods sold posted to the job (late freight on parts it used), added to `materialCost` beside the lines. */
+    costEntries: z.array(ProfitabilityLedgerRow),
     /**
      * Fee postings at their FULL amount, as the ledger holds them. The job's
      * share is in `processingFees`: a pro rated figure listed as a ledger row

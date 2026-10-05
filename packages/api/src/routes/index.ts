@@ -30,7 +30,7 @@ import {
   rateCards, jobBilling, claims, payerDelivery,
   safety, retention,
   financing, costing, budgets, journals,
-  stockUnits, purchaseApprovals, purchaseOrderEmail, rentalBilling, peopleRecords,
+  stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
   me, staffDocuments,
 } from "../services/index";
@@ -329,6 +329,7 @@ export const handlers = {
   listPurchaseOrders: inventory.handlers.listPurchaseOrders,
   createPurchaseOrder: inventory.handlers.createPurchaseOrder,
   getPurchaseOrder: inventory.handlers.getPurchaseOrder,
+  editPurchaseOrder: inventory.handlers.editPurchaseOrder,
   listVendorItems: vendorCatalogue.handlers.listVendorItems,
   setVendorItem: vendorCatalogue.handlers.setVendorItem,
   removeVendorItem: vendorCatalogue.handlers.removeVendorItem,
@@ -1069,6 +1070,9 @@ export const handlers = {
   // Approval steps and emailing an order to its vendor (M16)
   ...purchaseApprovals.handlers,
   ...purchaseOrderEmail.handlers,
+  // Units back off a job and to the vendor, and freight billed after a delivery (M16)
+  ...stockReturns.handlers,
+  ...landedCost.handlers,
   // Collections, charges on a haul, invoicing a hire and scale tickets (M22)
   ...rentalBilling.handlers,
   // Onboarding, emergency contacts, employment, skills, continuing education, a job's own skills (M24)

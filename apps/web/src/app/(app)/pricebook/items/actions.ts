@@ -119,6 +119,8 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
         await vendorCatalogue.setLink(ctx, parsed(setVendorItem.input, {
           itemId: id, vendorId: field(form, "vendorId"), partNumber: field(form, "partNumber"),
           cost: field(form, "vendorCost") ?? null, description: field(form, "vendorDescription") ?? null,
+          ...(field(form, "packQuantity") ? { packQuantity: field(form, "packQuantity") } : {}),
+          ...(field(form, "purchaseUnit") ? { purchaseUnit: field(form, "purchaseUnit") } : {}),
         }));
         return { message: "Saved. Purchase orders to this vendor will carry their number." };
       case "unvendor":

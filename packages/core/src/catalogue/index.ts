@@ -1,4 +1,4 @@
-import { money, toString, compare } from "../money/index.js";
+import { money, toString, compare, divide, multiply, type Money } from "../money/index.js";
 import { reprice, checkRule } from "../repricing/index.js";
 
 /**
@@ -32,6 +32,21 @@ export interface CatalogueRow {
   cost: string;
   /** As written in the file. Empty when the file has no vendor column. */
   vendor: string;
+  /**
+   * How many of our units are in one of theirs, when the file says: 25 for a
+   * box of 25. The cost is then THEIR price for the box. Absent means one.
+   */
+  pack?: string | undefined;
+  /** What they call their unit: "box", "case". Absent when the file has no such column. */
+  unit?: string | undefined;
+  /** Their price for one pack when buying at least so many packs, lowest first. */
+  breaks?: PriceBreak[] | undefined;
+}
+
+/** Their price for one of THEIR units when ordering at least `minimum` of them. */
+export interface PriceBreak {
+  minimum: string;
+  cost: string;
 }
 
 export interface CatalogueProblem {
@@ -56,7 +71,107 @@ const COLUMNS: Record<"sku" | "description" | "cost" | "vendor", string[]> = {
   vendor: ["vendor", "vendorname", "supplier", "suppliername", "distributor"],
 };
 
+/**
+ * Pack size and unit of measure, which most supply houses print and many
+ * call something different. "Pack Qty", "Case Quantity" and "Units per Case"
+ * are one column.
+ */
+const PACK = ["pack", "packqty", "packquantity", "packsize", "qtyperpack", "perpack", "casequantity", "caseqty", "casepack", "unitsperpack", "unitspercase", "qtypercase"];
+const UNIT = ["uom", "unit", "unitofmeasure", "sellunit", "purchaseunit", "packunit", "sellinguom"];
+
+/**
+ * A price break column pair: the quantity and the price of break N, in the
+ * spellings the supply houses export. "Break 1 Qty" and "Break 1 Price",
+ * "Qty Break 1" and "Price Break 1", "Tier 1 Min" and "Tier 1 Price".
+ */
+const BREAK_QUANTITY = /^(?:break(\d)(?:qty|quantity|min|minimum)|qtybreak(\d)|breakqty(\d)|tier(\d)(?:qty|quantity|min|minimum)|minqty(\d))$/;
+const BREAK_PRICE = /^(?:break(\d)(?:price|cost)|pricebreak(\d)|breakprice(\d)|tier(\d)(?:price|cost))$/;
+const breakNumber = (match: RegExpMatchArray | null): number | null => {
+  const digit = match?.slice(1).find((g) => g !== undefined);
+  return digit === undefined ? null : Number(digit);
+};
+
 const normaliseHeader = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * A pack or break quantity: a positive whole or decimal number. "25", "12.5".
+ * Nothing else, for the reason `parseCost` refuses what it cannot read.
+ */
+export function parsePack(raw: string): string | null {
+  const text = raw.trim().replace(/,(?=\d{3}\b)/g, "");
+  if (!/^\d+(\.\d{1,4})?$/.test(text)) return null;
+  if (Number(text) <= 0) return null;
+  return text;
+}
+
+/**
+ * What one of OUR units costs when a vendor sells packs: their price for the
+ * pack over how many are in it, at four places. This is the only division
+ * in the import and it is the price book's, which counts each: the vendor's
+ * own price for the pack is kept exactly as they printed it.
+ */
+export function eachCost(packCost: string, pack: string | null | undefined): string {
+  if (!pack || compare(money(pack), money("1")) === 0) return toString(money(packCost));
+  return toString(divide(money(packCost), pack));
+}
+
+/**
+ * Check a break table: minimums of at least one pack, each once, put in
+ * order. Returns the sentence to show when it cannot be used.
+ */
+export function checkBreaks(breaks: readonly PriceBreak[]): { ok: true; breaks: PriceBreak[] } | { ok: false; message: string } {
+  const out: PriceBreak[] = [];
+  for (const entry of breaks) {
+    const minimum = parsePack(entry.minimum);
+    const cost = parseCost(entry.cost);
+    if (minimum === null || compare(money(minimum), money("1")) < 0) {
+      return { ok: false, message: `A price break starts at "${entry.minimum}", which is not a number of packs of at least one.` };
+    }
+    if (cost === null) return { ok: false, message: `A price break of "${entry.cost}" is not an amount.` };
+    if (out.some((b) => compare(money(b.minimum), money(minimum)) === 0)) {
+      return { ok: false, message: `Two price breaks start at ${minimum}. Each quantity has one price.` };
+    }
+    out.push({ minimum: toString(money(minimum)), cost: toString(money(cost)) });
+  }
+  return { ok: true, breaks: out.sort((a, b) => compare(money(a.minimum), money(b.minimum))) };
+}
+
+/**
+ * THE PRICE FOR AN ORDER OF SO MANY PACKS: the break with the highest
+ * minimum the order reaches, else the base price. Per pack, as the vendor
+ * quotes it.
+ */
+export function packPriceFor(base: string, breaks: readonly PriceBreak[], packs: string): { cost: string; breakMinimum: string | null } {
+  let best: PriceBreak | null = null;
+  for (const entry of breaks) {
+    if (compare(money(packs), money(entry.minimum)) >= 0
+      && (best === null || compare(money(entry.minimum), money(best.minimum)) > 0)) best = entry;
+  }
+  return best ? { cost: toString(money(best.cost)), breakMinimum: best.minimum } : { cost: toString(money(base)), breakMinimum: null };
+}
+
+/**
+ * Whether a quantity of OUR units is a whole number of the vendor's packs,
+ * and how many packs. A vendor selling by the box of 25 cannot be sent an
+ * order for 30, and rounding it up quietly would spend money nobody chose
+ * to: the order is refused in words with the two quantities that would go.
+ */
+export function packsIn(quantity: string, pack: string): { ok: true; packs: string } | { ok: false; below: string; above: string } {
+  const q = money(quantity);
+  const p = money(pack);
+  if (p.amount <= 0n) return { ok: false, below: "0", above: "0" };
+  const whole = q.amount / p.amount;
+  if (whole * p.amount === q.amount) return { ok: true, packs: whole.toString() };
+  const label = (m: Money) => toString(m).replace(/\.?0+$/, "");
+  return {
+    ok: false,
+    below: label({ amount: whole * p.amount, currency: q.currency }),
+    above: label({ amount: (whole + 1n) * p.amount, currency: q.currency }),
+  };
+}
+
+/** A pack's price times a number of packs, exactly: what a line costs when priced by the pack. */
+export const packTotal = (packCost: string, packs: string): string => toString(multiply(money(packCost), packs));
 
 /**
  * Every record in the file, respecting quotes, including a quoted field that
@@ -74,7 +189,7 @@ export function splitRecords(text: string): { line: number; cells: string[] }[] 
   let quoted = false;
   let line = 1;
   let startedOn = 1;
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
 
   const endRecord = () => {
     cells.push(current.trim());
@@ -141,6 +256,18 @@ export function parseCatalogue(text: string): ParsedCatalogue {
   const names = header.cells.map(normaliseHeader);
   const find = (column: keyof typeof COLUMNS) => names.findIndex((name) => COLUMNS[column].includes(name));
   const at = { sku: find("sku"), description: find("description"), cost: find("cost"), vendor: find("vendor") };
+  const packAt = names.findIndex((name) => PACK.includes(name));
+  const unitAt = names.findIndex((name) => UNIT.includes(name));
+  /** Break N's quantity column and price column, paired by N. A half pair is ignored and said. */
+  const breakColumns = new Map<number, { quantity?: number; price?: number }>();
+  names.forEach((name, index) => {
+    const q = breakNumber(name.match(BREAK_QUANTITY));
+    const p = breakNumber(name.match(BREAK_PRICE));
+    if (q !== null) breakColumns.set(q, { ...breakColumns.get(q), quantity: index });
+    if (p !== null) breakColumns.set(p, { ...breakColumns.get(p), price: index });
+  });
+  const breakPairs = [...breakColumns.entries()].sort(([a], [b]) => a - b)
+    .filter(([, c]) => c.quantity !== undefined && c.price !== undefined) as [number, { quantity: number; price: number }][];
 
   const missing = (["sku", "cost"] as const).filter((column) => at[column] < 0);
   if (missing.length > 0) {
@@ -185,12 +312,35 @@ export function parseCatalogue(text: string): ParsedCatalogue {
       });
       continue;
     }
+    const extra: Pick<CatalogueRow, "pack" | "unit" | "breaks"> = {};
+    if (packAt >= 0) {
+      const rawPack = cell(record.cells, packAt);
+      const pack = rawPack === "" ? "1" : parsePack(rawPack);
+      if (pack === null) {
+        problems.push({ line: record.line, message: `${sku} comes in packs of "${rawPack}", which is not a number of our units.` });
+        continue;
+      }
+      extra.pack = pack;
+    }
+    if (unitAt >= 0) extra.unit = cell(record.cells, unitAt);
+    if (breakPairs.length > 0) {
+      const stated = breakPairs
+        .map(([, c]) => ({ minimum: cell(record.cells, c.quantity), cost: cell(record.cells, c.price) }))
+        .filter((b) => b.minimum !== "" || b.cost !== "");
+      const checked = checkBreaks(stated);
+      if (!checked.ok) {
+        problems.push({ line: record.line, message: `${sku}: ${checked.message}` });
+        continue;
+      }
+      extra.breaks = checked.breaks;
+    }
     rows.push({
       line: record.line,
       sku,
       description: cell(record.cells, at.description),
       cost,
       vendor: cell(record.cells, at.vendor),
+      ...extra,
     });
   }
   return { rows, problems, hasVendorColumn: at.vendor >= 0 };
@@ -205,6 +355,10 @@ export interface KnownLink {
   partNumber: string;
   cost: string | null;
   description: string | null;
+  /** How many of ours in one of theirs. Absent is one. */
+  packQuantity?: string | undefined;
+  purchaseUnit?: string | null | undefined;
+  priceBreaks?: readonly PriceBreak[] | undefined;
 }
 export interface KnownItem {
   id: string;
@@ -249,10 +403,23 @@ interface Common {
   sku: string;
   vendorId: string;
   vendorName: string;
+  /**
+   * How they sell it: so many of ours to a pack, what they call the pack, and
+   * their breaks. `cost` is their price for one pack, and `eachCost` is what
+   * one of ours comes to, which is what the price book's cost is compared
+   * with and set to.
+   */
+  pack: string;
+  unit: string | null;
+  breaks: PriceBreak[];
+  eachCost: string;
 }
 
 export type RowPlan =
-  /** A new item, and its link to this vendor. */
+  /**
+   * A new item, and its link to this vendor. `cost` is their price for a
+   * pack; the item is costed at `eachCost` and priced from it.
+   */
   | Common & { action: "create"; code: string; name: string; cost: string; price: string }
   /** One of our items already had this code; it gains this vendor's part number and cost. */
   | Common & {
@@ -278,6 +445,9 @@ export interface CataloguePlan {
 
 const same = (a: string | null, b: string | null): boolean =>
   a === null || b === null ? a === b : compare(money(a), money(b)) === 0;
+
+const sameBreaks = (a: readonly PriceBreak[], b: readonly PriceBreak[]): boolean =>
+  a.length === b.length && a.every((x, i) => same(x.minimum, b[i]!.minimum) && same(x.cost, b[i]!.cost));
 
 /** Four places, no trailing noise: "12.5" and "12.5000" are one cost. */
 const tidy = (value: string): string => toString(money(value));
@@ -345,11 +515,31 @@ export function planCatalogue(
     seen.set(key, row.line);
 
     const cost = tidy(row.cost);
-    const common = { line: row.line, sku: row.sku, vendorId: vendor.id, vendorName: vendor.name };
-    const wantsCost = (item: KnownItem): boolean => options.updateItemCost && !same(item.cost, cost);
+    /**
+     * A file with no pack column says nothing about packs, so the link this
+     * row will update keeps its own: a box of 25 imported once and then
+     * re-priced from a file without the column is still a box of 25.
+     */
+    const codeMatches = itemsByCode.get(row.sku.trim().toLowerCase()) ?? [];
+    const existing = linkByPart.get(key)
+      ?? (codeMatches.length === 1 ? linkByItem.get(`${vendor.id}:${codeMatches[0]!.id}`) : undefined);
+    const pack = tidy(row.pack ?? existing?.packQuantity ?? "1");
+    const each = eachCost(cost, pack);
+    const unitStated = row.unit !== undefined ? row.unit : existing?.purchaseUnit ?? null;
+    const common = {
+      line: row.line, sku: row.sku, vendorId: vendor.id, vendorName: vendor.name,
+      pack, unit: unitStated?.trim() ? unitStated.trim() : null,
+      breaks: row.breaks ?? [...(existing?.priceBreaks ?? [])], eachCost: each,
+    };
+    /**
+     * The item's own cost is per EACH, because the price book counts each:
+     * a box of 25 at 112.50 sets an item's cost to 4.50, never to 112.50,
+     * which would make every job that used one look 25 times as expensive.
+     */
+    const wantsCost = (item: KnownItem): boolean => options.updateItemCost && !same(item.cost, each);
     const itemCost = (item: KnownItem) => ({
       itemCostBefore: item.cost,
-      itemCostAfter: wantsCost(item) && item.scheduled !== true ? cost : null,
+      itemCostAfter: wantsCost(item) && item.scheduled !== true ? each : null,
       costHeldBack: wantsCost(item) && item.scheduled === true,
     });
 
@@ -370,7 +560,15 @@ export function planCatalogue(
       if (refused) return refused;
       const description = row.description.trim() === "" ? link.description : row.description.trim();
       const costs = itemCost(item);
+      /**
+       * A file with no pack or break columns says nothing about them, so it
+       * leaves what the link already has; a file with them states them.
+       */
+      const packSame = row.pack === undefined || same(link.packQuantity ?? "1", pack);
+      const unitSame = row.unit === undefined || (link.purchaseUnit ?? null) === common.unit;
+      const breaksSame = row.breaks === undefined || sameBreaks(link.priceBreaks ?? [], common.breaks);
       if (same(link.cost, cost) && description === link.description && link.partNumber === row.sku.trim()
+        && packSame && unitSame && breaksSame
         && costs.itemCostAfter === null && !costs.costHeldBack) {
         return { ...common, action: "unchanged", itemId: item.id, itemCode: item.code, itemName: item.name, cost };
       }
@@ -412,7 +610,7 @@ export function planCatalogue(
       return skip(`${row.sku} is new. Give a margin to price new items at, or add it to the price book first.`);
     }
     if (marginProblem) return skip(marginProblem);
-    const priced = reprice({ price: "0", cost }, marginRule);
+    const priced = reprice({ price: "0", cost: each }, marginRule);
     if (!priced.changed) return skip(`${row.sku} could not be priced: ${priced.message}`);
     createdCodes.add(row.sku.trim().toLowerCase());
     const refused = claim(`new:${row.sku.trim().toLowerCase()}`);

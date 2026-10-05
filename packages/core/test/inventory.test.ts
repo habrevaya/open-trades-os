@@ -1211,6 +1211,8 @@ describe("a cost layer in another currency", () => {
     locationId: WAREHOUSE,
     quantity: q("2"),
     cost: money("100.00", currency),
+    origin: id,
+    late: zero(currency),
     occurredAt: at(3),
     sequence: 1,
   });

@@ -184,6 +184,8 @@ export * as journals from "./journals";
 export * as stockUnits from "./stock-units";
 export * as purchaseApprovals from "./purchase-approvals";
 export * as purchaseOrderEmail from "./purchase-order-email";
+export * as stockReturns from "./stock-returns";
+export * as landedCost from "./landed-cost";
 export * as rentalBilling from "./rental-billing";
 export * as peopleRecords from "./people-records";
 export * as staffDocuments from "./staff-documents";

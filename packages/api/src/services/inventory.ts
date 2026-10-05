@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, inventory as inv, money as m, time } from "@opentradesos/core";
+import { assertCan, can, catalogue, inventory as inv, ledger, money as m, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -12,6 +12,7 @@ import { nextNumber } from "./jobs";
 import { inForceAt } from "./pricebook";
 import { resolvePart } from "./vendor-catalogue";
 import * as once from "./once";
+import { writePosting } from "./ledger";
 
 /**
  * PURCHASING, VENDORS AND INVENTORY
@@ -53,6 +54,8 @@ export async function history(tx: Database, itemId?: string): Promise<inv.Moveme
     ...(row.purchaseOrderId ? { purchaseOrderId: row.purchaseOrderId } : {}),
     ...(row.purchaseOrderLineId ? { purchaseOrderLineId: row.purchaseOrderLineId } : {}),
     ...(row.lotId ? { lotId: row.lotId } : {}),
+    ...(row.revaluesMovementId ? { revaluesMovementId: row.revaluesMovementId } : {}),
+    ...(row.lateCost ? { lateCost: m.money(row.lateCost, "USD") } : {}),
   }));
 }
 
@@ -75,13 +78,21 @@ export async function nextSequence(tx: Database, organizationId: string): Promis
  * What a movement carries that core does not decide: the freight spread onto
  * a receipt line, and the delivery it came on. Keyed by movement id.
  */
-export type MovementExtras = ReadonlyMap<string, { landedCost?: string; receiptId?: string }>;
+export type MovementExtras = ReadonlyMap<string, {
+  landedCost?: string; receiptId?: string; landedCostBillId?: string; vendorReturnId?: string;
+}>;
 
 export async function writeMovements(
   tx: Database, ctx: ServiceContext, movements: readonly inv.Movement[], extras: MovementExtras = new Map(),
 ) {
   if (movements.length === 0) return [];
   return tx.insert(schema.stockMovement).values(movements.map((movement) => ({
+    /**
+     * The id core stamped, kept, so a later movement can name this one: a
+     * revaluation names the use it adds late freight to, and a return off a
+     * job names the use it undoes.
+     */
+    id: movement.id,
     organizationId: ctx.actor.organizationId,
     itemId: movement.itemId,
     locationId: movement.locationId,
@@ -96,10 +107,48 @@ export async function writeMovements(
     lotId: movement.lotId ?? null,
     landedCost: extras.get(movement.id)?.landedCost ?? null,
     receiptId: extras.get(movement.id)?.receiptId ?? null,
+    landedCostBillId: extras.get(movement.id)?.landedCostBillId ?? null,
+    vendorReturnId: extras.get(movement.id)?.vendorReturnId ?? null,
+    revaluesMovementId: movement.revaluesMovementId ?? null,
+    lateCost: movement.lateCost ? m.toString(movement.lateCost) : null,
     sequence: movement.sequence,
     occurredAt: movement.occurredAt,
     recordedByUserId: ctx.actor.userId,
   }))).returning();
+}
+
+/**
+ * LATE FREIGHT LEAVES STOCK WITH THE PARTS THAT CARRIED IT.
+ *
+ * A freight bill that came after its delivery put its share for the parts
+ * still on a shelf into the ledger's inventory account
+ * (`landed-cost.ts`). When one of those parts is then used on a job,
+ * scrapped, counted short or sent back to the vendor, the late freight it
+ * carried has to leave that account, onto the job's cost of goods sold when
+ * there is a job, or the account would hold freight for parts long gone.
+ *
+ * Read from a replay that includes the movements just written, so the
+ * amount is exactly the share core allocated to them. An item no late bill
+ * has ever touched has nothing to relieve, and is not replayed at all.
+ */
+export async function relieveLateFreight(
+  tx: Database, ctx: ServiceContext, itemId: string, movementIds: readonly string[], occurredAt: Date,
+): Promise<void> {
+  if (movementIds.length === 0) return;
+  const movements = await history(tx, itemId);
+  if (!movements.some((mv) => mv.kind === "revaluation" || mv.lateCost)) return;
+  const run = inv.costMovements({ movements, method: "fifo", currency: "USD" });
+  /**
+   * A history that cannot be costed cannot say how much late freight left
+   * with these parts, and guessing would leave the inventory account wrong
+   * with nothing to point at. The move is refused with costing's sentence.
+   */
+  if (!run.ok) throw new ConflictError(inv.explainRefusal(run));
+  for (const relief of inv.lateRelief(run, movementIds)) {
+    await writePosting(tx, ctx, ledger.postLateCostRelief({
+      movementId: relief.movementId, occurredAt, amount: relief.amount, jobId: relief.jobId,
+    }));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +539,8 @@ function toCore(
       quantityOrdered: inv.quantity(line.quantityOrdered),
       quantityReceived: inv.quantity(line.quantityReceived),
       unitPrice: m.money(line.unitPrice, "USD"),
+      packQuantity: inv.quantity(line.packQuantity),
+      ...(line.packPrice ? { packPrice: m.money(line.packPrice, "USD") } : {}),
     })),
   };
 }
@@ -532,7 +583,7 @@ export async function trackingOf(tx: Database, itemId: string): Promise<inv.Trac
 }
 
 /** An item as a person names it: the name in force, else the code. */
-async function itemLabel(tx: Database, itemId: string): Promise<string> {
+export async function itemLabel(tx: Database, itemId: string): Promise<string> {
   const names = await itemNames(tx, [itemId]);
   if (names.get(itemId)) return names.get(itemId)!;
   const [row] = await tx.select({ code: schema.priceBookItem.code }).from(schema.priceBookItem)
@@ -540,7 +591,7 @@ async function itemLabel(tx: Database, itemId: string): Promise<string> {
   return row?.code ?? "That item";
 }
 
-async function placeLabel(tx: Database, locationId: string): Promise<string> {
+export async function placeLabel(tx: Database, locationId: string): Promise<string> {
   const [row] = await tx.select({ name: schema.location.name }).from(schema.location)
     .where(eq(schema.location.id, locationId)).limit(1);
   return row?.name ?? "that location";
@@ -579,7 +630,7 @@ async function arrivingUnits(
         throw new ConflictError(`Serial ${found.number} of ${label} is already in stock at ${await placeLabel(tx, state.locationId)}. The same number twice is a misread label or a typo.`);
       }
       if (state.state === "used") {
-        throw new ConflictError(`Serial ${found.number} of ${label} was already used on a job. If it came back, record it as a return rather than a new receipt.`);
+        throw new ConflictError(`Serial ${found.number} of ${label} was already used on a job. If it came back, record it as back from the job under Serials and lots, rather than as a new receipt.`);
       }
     }
     if (found && unit.expiresOn && !found.expiresOn) {
@@ -616,7 +667,7 @@ function unitQuantity(unit: UnitInput, mode: inv.TrackingMode, total: inv.Quanti
  * The serials or lots LEAVING a location: each must exist for this item and
  * be there in the quantity asked.
  */
-async function leavingUnits(
+export async function leavingUnits(
   tx: Database,
   input: {
     itemId: string; mode: inv.TrackingMode; quantity: inv.Quantity; locationId: string;
@@ -675,7 +726,7 @@ async function rememberMovements(
 }
 
 /** Fresh stamps from a starting sequence, one per movement, all at one instant. */
-const stampsFrom = (sequence: number, count: number, occurredAt: Date): inv.MovementStamp[] =>
+export const stampsFrom = (sequence: number, count: number, occurredAt: Date): inv.MovementStamp[] =>
   Array.from({ length: count }, (_, i) => ({ id: crypto.randomUUID(), sequence: sequence + i, occurredAt }));
 
 /**
@@ -753,6 +804,7 @@ async function decide(
     }
 
     const written = await writeMovements(tx, ctx, planned);
+    await relieveLateFreight(tx, ctx, where.itemId, planned.map((mv) => mv.id), occurredAt);
     await audit(tx, ctx, event, "price_book_item", where.itemId, null, {
       locationId: where.locationId,
       movements: planned.map((mv) => mv.kind),
@@ -1013,7 +1065,8 @@ export async function costOfJob(ctx: ServiceContext, input: { jobId: string }) {
     });
     if (!costed.ok) throw new ConflictError(inv.explainRefusal(costed));
 
-    const byJob = inv.cogsByJob(costed.issues, "USD");
+    /** Net of any unit that came back off the job, at the cost it left at. */
+    const byJob = inv.cogsByJob(costed.issues, "USD", costed.returns);
     return m.toString(byJob.get(input.jobId) ?? m.zero("USD"));
   });
 }
@@ -1042,10 +1095,7 @@ export async function purchaseOrders(ctx: ServiceContext) {
         vendorName: vendorOf.get(order.vendorId) ?? "",
         expectedAt: order.expectedAt,
         lineCount: mine.length,
-        total: m.toString(m.sum(
-          mine.map((l) => m.multiply(m.money(l.unitPrice, "USD"), inv.quantityToString(inv.quantity(l.quantityOrdered)))),
-          "USD",
-        )),
+        total: m.toString(approvals.totalOf(mine)),
         outstanding: mine.some((l) =>
           inv.quantity(l.quantityReceived) < inv.quantity(l.quantityOrdered)),
       };
@@ -1294,6 +1344,130 @@ export async function vendors(ctx: ServiceContext) {
   });
 }
 
+/** A line as a person or a client writes it: our item or their part number, how many of ours, and a price. */
+export interface OrderLineInput {
+  /** Our item. Either this or the vendor's part number. */
+  itemId?: string | undefined;
+  /** The vendor's own number for the part, or our item code, looked up for this vendor. */
+  partNumber?: string | undefined;
+  locationId?: string | undefined;
+  /** How many of OUR units: 250 wire nuts, never "10 boxes". */
+  quantity: string;
+  /** What the vendor charges for one of ours. Their price on record, at the break the order reaches, when left out. */
+  unitPrice?: string | undefined;
+}
+
+interface ResolvedLine {
+  itemId: string;
+  vendorPartNumber: string | null;
+  locationId: string;
+  quantityOrdered: string;
+  unitPrice: string;
+  packQuantity: string;
+  purchaseUnit: string | null;
+  packPrice: string | null;
+}
+
+/**
+ * EACH LINE IS LOOKED UP, NOT TYPED, and priced as the vendor sells it.
+ *
+ * A line names our item or the vendor's part number, and either way it is
+ * resolved against what this vendor calls the part, so the order carries
+ * THEIR number (which is what their counter reads) and their price on
+ * record unless somebody gives another. A part nobody can find is refused
+ * in words rather than sent to the vendor as a guess.
+ *
+ * A VENDOR THAT SELLS BY THE PACK is sent whole packs. Thirty wire nuts
+ * from a supplier who sells boxes of 25 is refused with the two quantities
+ * that would go, rather than rounded up into money nobody chose to spend.
+ * The price is their price for the pack at the break the order reaches,
+ * and our unit price is that over the pack.
+ */
+async function resolveLines(
+  tx: Database, vendorId: string, defaultLocationId: string, lines: readonly OrderLineInput[],
+): Promise<ResolvedLine[]> {
+  if (lines.length === 0) throw new ConflictError("An order with no lines is not an order.");
+  for (const line of lines) {
+    if (inv.quantity(line.quantity) <= inv.quantity("0")) {
+      throw new ConflictError("Every line needs a positive quantity.");
+    }
+  }
+  const resolved: ResolvedLine[] = [];
+  for (const line of lines) {
+    const part = await resolvePart(tx, vendorId, {
+      ...(line.itemId ? { itemId: line.itemId } : {}),
+      ...(line.partNumber ? { partNumber: line.partNumber } : {}),
+    });
+    const quantity = inv.quantityToString(inv.quantity(line.quantity));
+    const pack = part.packQuantity;
+    const byPack = m.compare(m.money(pack), m.money("1")) !== 0;
+    const named = part.partNumber ?? line.partNumber ?? "that part";
+    let packs = quantity;
+    if (byPack) {
+      const whole = catalogue.packsIn(quantity, pack);
+      if (!whole.ok) {
+        const unit = part.purchaseUnit ?? "pack";
+        throw new ConflictError(
+          `This vendor sells ${named} by the ${unit} of ${inv.quantityLabel(inv.quantity(pack))}. `
+          + `Order ${whole.below === "0" ? whole.above : `${whole.below} or ${whole.above}`}, not ${inv.quantityLabel(inv.quantity(quantity))}.`,
+        );
+      }
+      packs = whole.packs;
+    }
+    const typed = line.unitPrice?.trim();
+    let unitPrice: string;
+    let packPrice: string | null = null;
+    if (typed) {
+      unitPrice = typed;
+      if (byPack) packPrice = m.toString(m.multiply(m.money(typed), pack));
+    } else {
+      if (!part.cost) {
+        throw new ConflictError(
+          `There is no price on record from this vendor for ${named}. Give the price they quoted for one.`,
+        );
+      }
+      const priced = catalogue.packPriceFor(part.cost, part.priceBreaks, packs);
+      unitPrice = catalogue.eachCost(priced.cost, pack);
+      if (byPack) packPrice = priced.cost;
+    }
+    resolved.push({
+      itemId: part.itemId,
+      vendorPartNumber: part.partNumber,
+      /**
+       * Per line, falling back to the order's default. A vendor drops the
+       * condensers at the shop and the filters straight onto a van more
+       * often than it sounds, and one location on the order means somebody
+       * receives the whole thing to the warehouse and then transfers half
+       * of it, or simply does not.
+       */
+      locationId: line.locationId ?? defaultLocationId,
+      quantityOrdered: quantity,
+      unitPrice,
+      packQuantity: pack,
+      purchaseUnit: byPack ? part.purchaseUnit : null,
+      packPrice,
+    });
+  }
+  return resolved;
+}
+
+async function insertLines(tx: Database, ctx: ServiceContext, orderId: string, lines: readonly ResolvedLine[]) {
+  await tx.insert(schema.purchaseOrderLine).values(lines.map((line, index) => ({
+    organizationId: ctx.actor.organizationId,
+    purchaseOrderId: orderId,
+    itemId: line.itemId,
+    /** As it stands today, copied: the order says what it said when it went out. */
+    vendorPartNumber: line.vendorPartNumber,
+    locationId: line.locationId,
+    quantityOrdered: line.quantityOrdered,
+    unitPrice: line.unitPrice,
+    packQuantity: line.packQuantity,
+    purchaseUnit: line.purchaseUnit,
+    packPrice: line.packPrice,
+    sortOrder: index,
+  })));
+}
+
 /**
  * Turn what the shelf says into an order somebody can send.
  *
@@ -1302,6 +1476,9 @@ export async function vendors(ctx: ServiceContext) {
  * of the suggestions to act on and at what price, and a system that placed
  * them automatically would be buying stock on the strength of a reorder point
  * nobody has revisited since the day it was typed.
+ *
+ * An order an approval step applies to tells that step's approvers by email
+ * that it waits for them, when the company's email is connected.
  */
 export async function createPurchaseOrder(
   ctx: ServiceContext,
@@ -1310,25 +1487,12 @@ export async function createPurchaseOrder(
     defaultLocationId: string;
     expectedAt?: Date;
     notes?: string;
-    lines: Array<{
-      /** Our item. Either this or the vendor's part number. */
-      itemId?: string;
-      /** The vendor's own number for the part, or our item code, looked up for this vendor. */
-      partNumber?: string;
-      locationId?: string;
-      quantity: string;
-      /** What the vendor charges for one. Their price on record when left out. */
-      unitPrice?: string;
-    }>;
+    lines: OrderLineInput[];
   },
 ) {
   return guardedWrite(ctx, "po:write", async (tx) => {
     const seen = await once.replayed<{ id: string; number: number; status: string }>(tx, ctx, "purchase_order");
     if (seen) return seen;
-
-    if (input.lines.length === 0) {
-      throw new ConflictError("An order with no lines is not an order.");
-    }
 
     const [vendor] = await tx.select({ id: schema.vendor.id })
       .from(schema.vendor)
@@ -1336,36 +1500,7 @@ export async function createPurchaseOrder(
       .limit(1);
     if (!vendor) throw new NotFoundError("Vendor");
 
-    for (const line of input.lines) {
-      if (inv.quantity(line.quantity) <= inv.quantity("0")) {
-        throw new ConflictError("Every line needs a positive quantity.");
-      }
-    }
-
-    /**
-     * EACH LINE IS LOOKED UP, NOT TYPED.
-     *
-     * A line names our item or the vendor's part number, and either way it is
-     * resolved against what this vendor calls the part, so the order carries
-     * THEIR number (which is what their counter reads) and their price on
-     * record unless somebody gives another. A part nobody can find is refused
-     * in words rather than sent to the vendor as a guess.
-     */
-    const resolved = [];
-    for (const line of input.lines) {
-      const part = await resolvePart(tx, input.vendorId, {
-        ...(line.itemId ? { itemId: line.itemId } : {}),
-        ...(line.partNumber ? { partNumber: line.partNumber } : {}),
-      });
-      const unitPrice = line.unitPrice?.trim() || part.cost;
-      if (!unitPrice) {
-        throw new ConflictError(
-          `There is no price on record from this vendor for ${part.partNumber ?? line.partNumber ?? "that part"}. `
-          + "Give the price they quoted for one.",
-        );
-      }
-      resolved.push({ ...line, itemId: part.itemId, vendorPartNumber: part.partNumber, unitPrice });
-    }
+    const resolved = await resolveLines(tx, input.vendorId, input.defaultLocationId, input.lines);
 
     /**
      * The number is per organization and sequential, like an invoice's. A
@@ -1385,32 +1520,82 @@ export async function createPurchaseOrder(
       createdByUserId: ctx.actor.userId,
     }).returning();
 
-    await tx.insert(schema.purchaseOrderLine).values(
-      resolved.map((line, index) => ({
-        organizationId: ctx.actor.organizationId,
-        purchaseOrderId: order!.id,
-        itemId: line.itemId,
-        /** As it stands today, copied: the order says what it said when it went out. */
-        vendorPartNumber: line.vendorPartNumber,
-        /**
-         * Per line, falling back to the order's default. A vendor drops the
-         * condensers at the shop and the filters straight onto a van more
-         * often than it sounds, and one location on the order means somebody
-         * receives the whole thing to the warehouse and then transfers half
-         * of it, or simply does not.
-         */
-        locationId: line.locationId ?? input.defaultLocationId,
-        quantityOrdered: inv.quantityToString(inv.quantity(line.quantity)),
-        unitPrice: line.unitPrice,
-        sortOrder: index,
-      })),
-    );
+    await insertLines(tx, ctx, order!.id, resolved);
 
     await audit(tx, ctx, "purchase_order.created", "purchase_order", order!.id, null,
       { number, vendorId: input.vendorId, lines: input.lines.length });
+    await approvals.tellApproversWithin(tx, ctx, order!.id);
 
     const answer = { id: order!.id, number, status: order!.status };
     await once.remember(tx, ctx, "purchase_order", order!.id, answer);
+    return answer;
+  });
+}
+
+/**
+ * CHANGE AN ORDER BEFORE IT GOES TO THE VENDOR.
+ *
+ * Only a draft: once the vendor has it, a change is a phone call and a new
+ * order, because the one they hold is what they will ship. The lines are
+ * replaced whole, through the same lookup and pack rules as a new order.
+ *
+ * AN EDIT THAT RAISES THE TOTAL ABOVE WHAT WAS APPROVED SENDS IT BACK. Each
+ * approval copied the total it said yes to; any approval the new total is
+ * above is set aside (kept as the record that it was given) and the step
+ * asks again, and its approvers are told. An edit at or under every
+ * approved total leaves the approvals standing. A rejected order is not
+ * edited back to life: it is cancelled and a corrected one raised, as a
+ * rejection says.
+ */
+export async function editPurchaseOrder(
+  ctx: ServiceContext,
+  input: {
+    id: string;
+    defaultLocationId?: string | undefined;
+    expectedAt?: Date | null | undefined;
+    notes?: string | null | undefined;
+    lines: readonly OrderLineInput[];
+  },
+) {
+  return guardedWrite(ctx, "po:write", async (tx) => {
+    type Edited = { id: string; total: string; askedAgain: number[]; approval: string };
+    const seen = await once.replayed<Edited>(tx, ctx, "purchase_order.edited");
+    if (seen) return seen;
+
+    const [order] = await tx.select().from(schema.purchaseOrder)
+      .where(and(eq(schema.purchaseOrder.id, input.id), isNull(schema.purchaseOrder.deletedAt))).limit(1);
+    if (!order) throw new NotFoundError("Purchase order");
+    if (order.status !== "draft") {
+      throw new ConflictError(
+        `This order is ${inv.PURCHASE_ORDER_STATUS[order.status as inv.PurchaseOrderStatus].label.toLowerCase()}, so the vendor already has it. `
+        + "Ring them with the change, and raise a new order for anything extra.",
+      );
+    }
+    const before = await approvals.planWithin(tx, order.id);
+    if (before.plan.state === "rejected") throw new ConflictError(before.plan.sentence);
+
+    const defaultLocationId = input.defaultLocationId ?? order.defaultLocationId;
+    const resolved = await resolveLines(tx, order.vendorId, defaultLocationId, input.lines);
+    await tx.delete(schema.purchaseOrderLine).where(eq(schema.purchaseOrderLine.purchaseOrderId, order.id));
+    await insertLines(tx, ctx, order.id, resolved);
+    await tx.update(schema.purchaseOrder).set({
+      defaultLocationId,
+      ...(input.expectedAt !== undefined ? { expectedAt: input.expectedAt } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.purchaseOrder.id, order.id));
+
+    const askedAgain = await approvals.setAsideAbove(tx, order.id);
+    const after = await approvals.planWithin(tx, order.id);
+    await audit(tx, ctx, "purchase_order.edited", "purchase_order", order.id,
+      { total: m.toString(before.total) },
+      { total: m.toString(after.total), lines: resolved.length, askedAgain });
+    await approvals.tellApproversWithin(tx, ctx, order.id);
+
+    const answer: Edited = {
+      id: order.id, total: m.toString(after.total), askedAgain, approval: after.plan.sentence,
+    };
+    await once.remember(tx, ctx, "purchase_order.edited", order.id, answer);
     return answer;
   });
 }
@@ -1444,8 +1629,7 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
       .orderBy(asc(schema.purchaseOrderLine.sortOrder));
 
     const names = await itemNames(tx, lines.map((l) => l.line.itemId));
-    const total = m.sum(lines.map((l) =>
-      m.multiply(m.money(l.line.unitPrice, "USD"), inv.quantityToString(inv.quantity(l.line.quantityOrdered)))), "USD");
+    const total = approvals.totalOf(lines.map((l) => l.line));
 
     /**
      * What arrived, delivery by delivery, with the freight that came on each
@@ -1459,6 +1643,13 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
       .orderBy(asc(schema.purchaseOrderReceipt.receivedAt));
     const charges = receipts.length === 0 ? [] : await tx.select().from(schema.purchaseOrderReceiptCharge)
       .where(inArray(schema.purchaseOrderReceiptCharge.receiptId, receipts.map((r) => r.id)));
+    /** Freight and duty billed after each delivery, with where it went. */
+    const bills = receipts.length === 0 ? [] : await tx.select().from(schema.landedCostBill)
+      .where(inArray(schema.landedCostBill.receiptId, receipts.map((r) => r.id)))
+      .orderBy(asc(schema.landedCostBill.createdAt));
+    const billCharges = bills.length === 0 ? [] : await tx.select().from(schema.landedCostBillCharge)
+      .where(inArray(schema.landedCostBillCharge.billId, bills.map((b) => b.id)));
+    const cents = (v: string) => m.toString(m.round(m.money(v), 2));
     const arrived = await tx.select({
       lineId: schema.stockMovement.purchaseOrderLineId,
       landedCost: schema.stockMovement.landedCost,
@@ -1494,6 +1685,16 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
         quantityOrdered: inv.quantityToString(inv.quantity(l.line.quantityOrdered)),
         quantityReceived: inv.quantityToString(inv.quantity(l.line.quantityReceived)),
         unitPrice: l.line.unitPrice,
+        lineTotal: cents(m.toString(approvals.totalOf([l.line]))),
+        /** Sold by the pack: how many packs of how many, called what, at what each. Null when by our unit. */
+        packs: l.line.packPrice && inv.quantity(l.line.packQuantity) !== inv.quantity("1")
+          ? {
+            count: inv.quantityLabel(inv.quantity(l.line.quantityOrdered) / inv.quantity(l.line.packQuantity) * inv.quantity("1")),
+            size: inv.quantityLabel(inv.quantity(l.line.packQuantity)),
+            unit: l.line.purchaseUnit,
+            price: cents(l.line.packPrice),
+          }
+          : null,
         tracking: modeOf.get(l.line.itemId) ?? null,
         landedCost: m.toString(m.round(m.sum(arrived
           .filter((a) => a.lineId === l.line.id && a.landedCost !== null)
@@ -1508,8 +1709,21 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
         chargesTotal: m.toString(m.round(m.money(r.chargesTotal), 2)),
         charges: charges.filter((c) => c.receiptId === r.id)
           .map((c) => ({ description: c.description, amount: m.toString(m.round(m.money(c.amount), 2)) })),
+        lateBills: bills.filter((b) => b.receiptId === r.id).map((b) => ({
+          id: b.id,
+          recordedAt: b.createdAt.toISOString(),
+          reference: b.reference,
+          basis: b.basis,
+          total: cents(b.total),
+          onShelf: cents(b.onShelf),
+          onJobs: cents(b.onJobs),
+          onGone: cents(b.onGone),
+          charges: billCharges.filter((c) => c.billId === b.id)
+            .map((c) => ({ description: c.description, amount: cents(c.amount) })),
+        })),
       })),
       approval: (await approvals.planWithin(tx, input.id)).view,
+      approvalNotices: await approvals.noticesWithin(tx, input.id),
       sends: await sendsWithin(tx, input.id),
     };
   });
@@ -1852,6 +2066,22 @@ export const handlers = {
   }),
 
   getPurchaseOrder: (ctx: ServiceContext, input: { id: string }) => purchaseOrder(ctx, input),
+
+  editPurchaseOrder: (ctx: ServiceContext, input: {
+    id: string; defaultLocationId?: string | undefined; expectedAt?: string | null | undefined;
+    notes?: string | null | undefined;
+    lines: readonly {
+      itemId?: string | undefined; partNumber?: string | undefined; locationId?: string | undefined;
+      quantity: string; unitPrice?: string | undefined;
+    }[];
+  }): Promise<{ id: string; total: string; askedAgain: number[]; approval: string }> => editPurchaseOrder(ctx, {
+    id: input.id,
+    ...(input.defaultLocationId ? { defaultLocationId: input.defaultLocationId } : {}),
+    ...(input.expectedAt !== undefined ? { expectedAt: input.expectedAt === null ? null : new Date(input.expectedAt) } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    /** Passed as given, so the guard is the first thing the edit meets. */
+    lines: input.lines,
+  }),
 
   /**
    * The status union is written out rather than imported from core, so this

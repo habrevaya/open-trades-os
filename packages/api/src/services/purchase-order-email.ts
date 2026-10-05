@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  SYSTEM_USER_ID, inventory as inv, money as m, type Actor,
+  SYSTEM_USER_ID, inventory as inv, money as m, pdf, type Actor,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
@@ -13,6 +13,7 @@ import { assertSubmittable, submitWithin } from "./inventory";
 import { totalOf } from "./purchase-approvals";
 import { inForceAt } from "./pricebook";
 import { portalBase } from "../lib/portal-base";
+import { companyOf, RENDER, type PdfFile } from "./documents";
 
 /**
  * A PURCHASE ORDER, EMAILED TO THE VENDOR
@@ -23,10 +24,13 @@ import { portalBase } from "../lib/portal-base";
  * opens the order printable as the vendor reads it, and writes a row for
  * every attempt on the order, whether it went or not.
  *
- * A LINK, NOT A PDF. The link opens the same page the office prints from,
- * kept current as the order is received against, and the email body carries
- * the lines in plain text for a counter that never clicks. A generated PDF
- * attachment is not built; the docs say so.
+ * A PDF, A LINK AND THE LINES. The order is attached as a PDF, made with
+ * core's pdf module and the same bundled Noto Sans the invoices use, because
+ * a counter files the file and a buying system takes an attachment, not a
+ * link. The link still opens the same page the office prints from, kept
+ * current as the order is received against, and the body carries the lines
+ * in plain text for a counter that reads nothing else. All three are made
+ * from the one reader below, so they cannot disagree.
  *
  * SENDING A DRAFT SUBMITS IT. Emailing the vendor IS sending the order, so a
  * draft goes through exactly the approval check the status change does
@@ -68,6 +72,8 @@ export interface PrintableOrder {
     vendorPartNumber: string | null; itemCode: string; itemName: string;
     quantityOrdered: string; quantityReceived: string; unitPrice: string; lineTotal: string;
     deliverTo: string;
+    /** Sold by the pack: so many packs of so many, called what, at what a pack. Null when by our unit. */
+    packs: { count: string; size: string; unit: string | null; price: string } | null;
   }[];
 }
 
@@ -113,7 +119,15 @@ async function printable(tx: Database, orderId: string): Promise<PrintableOrder>
       quantityOrdered: inv.quantityLabel(inv.quantity(line.quantityOrdered)),
       quantityReceived: inv.quantityLabel(inv.quantity(line.quantityReceived)),
       unitPrice: line.unitPrice,
-      lineTotal: m.toString(m.round(m.multiply(m.money(line.unitPrice), inv.quantityToString(inv.quantity(line.quantityOrdered))), 2)),
+      lineTotal: m.toString(totalOf([line])),
+      packs: line.packPrice && inv.quantity(line.packQuantity) !== inv.quantity("1")
+        ? {
+          count: inv.quantityLabel(inv.quantity(line.quantityOrdered) / inv.quantity(line.packQuantity) * inv.quantity("1")),
+          size: inv.quantityLabel(inv.quantity(line.packQuantity)),
+          unit: line.purchaseUnit,
+          price: m.toString(m.round(m.money(line.packPrice), 2)),
+        }
+        : null,
       /**
        * Where it is going, as a driver needs it: the name and the street.
        * A vendor delivering "to Van 4" needs to know where Van 4 will be.
@@ -128,8 +142,14 @@ async function printable(tx: Database, orderId: string): Promise<PrintableOrder>
 export function composeOrderEmail(order: PrintableOrder, input: { url: string; message: string | null }) {
   const subject = `Purchase order ${order.number} from ${order.organizationName}`;
   const money = (v: string) => m.format(m.money(v));
+  /** A pack line reads as the vendor sells it: "10 box of 25 x WN-25 ... at $112.50", with our count beside it. */
+  const qty = (l: PrintableOrder["lines"][number]) => (l.packs
+    ? `${l.packs.count} ${l.packs.unit ?? "pack"} of ${l.packs.size}`
+    : l.quantityOrdered);
+  const each = (l: PrintableOrder["lines"][number]) => money(l.packs ? l.packs.price : l.unitPrice);
   const lineText = order.lines.map((l) =>
-    `  ${l.quantityOrdered} x ${l.vendorPartNumber ?? l.itemCode}  ${l.itemName}  at ${money(l.unitPrice)}  = ${money(l.lineTotal)}  (deliver to ${l.deliverTo})`);
+    `  ${qty(l)} x ${l.vendorPartNumber ?? l.itemCode}  ${l.itemName}  at ${each(l)}  = ${money(l.lineTotal)}`
+    + `${l.packs ? `  (${l.quantityOrdered} in all)` : ""}  (deliver to ${l.deliverTo})`);
   const text = [
     `Purchase order ${order.number}`,
     `From ${order.organizationName}${order.vendorAccount ? `, account ${order.vendorAccount}` : ""}`,
@@ -140,6 +160,7 @@ export function composeOrderEmail(order: PrintableOrder, input: { url: string; m
     `Total ${money(order.total)}`,
     ...(order.notes ? ["", order.notes] : []),
     "",
+    "The order is attached as a PDF.",
     `Open or print the order: ${input.url}`,
     "",
     "Please reply to confirm the order and when it will ship.",
@@ -149,8 +170,8 @@ export function composeOrderEmail(order: PrintableOrder, input: { url: string; m
   const rows = order.lines.map((l) => `<tr>`
     + `<td style="padding:4px 8px;font-family:monospace">${escapeHtml(l.vendorPartNumber ?? l.itemCode)}</td>`
     + `<td style="padding:4px 8px">${escapeHtml(l.itemName)}</td>`
-    + `<td style="padding:4px 8px;text-align:right">${escapeHtml(l.quantityOrdered)}</td>`
-    + `<td style="padding:4px 8px;text-align:right">${escapeHtml(money(l.unitPrice))}</td>`
+    + `<td style="padding:4px 8px;text-align:right">${escapeHtml(qty(l))}</td>`
+    + `<td style="padding:4px 8px;text-align:right">${escapeHtml(each(l))}</td>`
     + `<td style="padding:4px 8px;text-align:right">${escapeHtml(money(l.lineTotal))}</td>`
     + `<td style="padding:4px 8px">${escapeHtml(l.deliverTo)}</td></tr>`).join("");
   const html = [
@@ -165,7 +186,7 @@ export function composeOrderEmail(order: PrintableOrder, input: { url: string; m
     + `</tr></thead><tbody>${rows}</tbody></table>`,
     `<p><strong>Total ${escapeHtml(money(order.total))}</strong></p>`,
     order.notes ? `<p style="white-space:pre-line">${escapeHtml(order.notes)}</p>` : "",
-    `<p><a href="${escapeHtml(input.url)}">Open or print the order</a></p>`,
+    `<p>The order is attached as a PDF. <a href="${escapeHtml(input.url)}">Open or print the order</a></p>`,
     `<p style="font-size:14px;color:#4b5563">Please reply to confirm the order and when it will ship.</p>`,
     `</div>`,
   ].join("");
@@ -211,13 +232,16 @@ export function emailOrder(ctx: ServiceContext, input: { id: string; to?: string
 
     const token = randomBytes(32).toString("base64url");
     const url = `${portalBase()}/po/${token}`;
-    const composed = composeOrderEmail(await printable(tx, order.id), { url, message: input.message?.trim() || null });
+    const reading = await printable(tx, order.id);
+    const composed = composeOrderEmail(reading, { url, message: input.message?.trim() || null });
+    const file = await fileOf(tx, ctx.actor.organizationId, reading);
     const outcome = await email.queue(transportContext(ctx, tx), {
       to: destination,
       subject: composed.subject,
       text: composed.text,
       html: composed.html,
       purpose: "transactional",
+      attachments: [{ filename: file.filename, contentType: "application/pdf", content: Buffer.from(file.bytes) }],
     });
 
     /**
@@ -255,6 +279,35 @@ export function emailOrder(ctx: ServiceContext, input: { id: string; to?: string
     await once.remember(tx, ctx, "purchase_order_send", row!.id, { ...answer, link: "" });
     return answer;
   });
+}
+
+/**
+ * The order as a PDF, from the same reader the email body and the vendor's
+ * link use. The company's name, colour, contact lines and logo are the
+ * invoice's, from the same reader.
+ */
+async function fileOf(tx: Database, organizationId: string, order: PrintableOrder): Promise<PdfFile> {
+  return {
+    filename: `purchase-order-${order.number}.pdf`,
+    bytes: pdf.purchaseOrderPdf({
+      company: await companyOf(tx, organizationId),
+      number: order.number,
+      status: order.status,
+      vendorName: order.vendorName,
+      vendorAccount: order.vendorAccount,
+      submittedAt: order.submittedAt,
+      expectedAt: order.expectedAt,
+      notes: order.notes,
+      total: order.total,
+      lines: order.lines,
+      generatedAt: new Date(),
+    }, RENDER),
+  };
+}
+
+/** The office's copy of the PDF, under the same permission as reading the order. */
+export function orderPdf(ctx: ServiceContext, input: { id: string }): Promise<PdfFile> {
+  return guardedRead(ctx, "po:read", async (tx) => fileOf(tx, ctx.actor.organizationId, await printable(tx, input.id)));
 }
 
 export interface OrderSendView {

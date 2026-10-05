@@ -578,7 +578,7 @@ export const CATALOGUE: Record<string, Entry> = {
     needs:
       "A cost posting. The definition is install revenue less material, "
       + "subcontract, disposal and crew burdened labour, and `ACCOUNTS.COGS` is "
-      + "declared in core while no code path debits it, so cost is read from "
+      + "debited only by freight billed after a delivery, so cost is read from "
       + "`job_line.unit_cost` and the timeclock instead. `job_line` does have "
       + "subcontract and disposal kinds, and job costing reads them, but the only "
       + "thing that writes one is a line sent from a technician's phone: an office "
@@ -907,7 +907,7 @@ export const CATALOGUE: Record<string, Entry> = {
     format: "percent",
     needs:
       "A cost posting, and a flag for supplies billed back. `ACCOUNTS.COGS` is "
-      + "declared and nothing debits it, and the definition EXCLUDES supplies "
+      + "debited only by freight billed after a delivery, and the definition EXCLUDES supplies "
       + "stocked for a commercial account and billed back at cost, which would "
       + "otherwise appear as both a cost and a revenue and make the ratio look "
       + "right for the wrong reason.",

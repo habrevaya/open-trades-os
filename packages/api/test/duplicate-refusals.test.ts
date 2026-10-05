@@ -182,7 +182,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   truck_stock_minimum_item_location_idx:
     "One live minimum per item per truck, written with on conflict do update: setting it again replaces it.",
   purchase_order_approval_step_idx:
-    "A step of an order is decided once. The service only ever decides the step that is waiting, so a collision is two people deciding the same step in the same instant, and the second is a conflict rather than a duplicate anybody typed.",
+    "A step of an order is decided once, among the decisions an edit has not set aside. The service only ever decides the step that is waiting, so a collision is two people deciding the same step in the same instant, and the second is a conflict rather than a duplicate anybody typed.",
+  vendor_return_number_idx: "Allocated by the return service as the next number under a per company lock.",
   purchase_order_send_token_idx: "The hash of thirty two random bytes minted for an emailed order's printable link.",
   onboarding_item_template_idx:
     "One copy of each checklist line per person. Starting onboarding inserts with on conflict do nothing, so starting again adds only the new lines.",

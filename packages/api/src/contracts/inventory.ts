@@ -45,6 +45,10 @@ export const MovementKind = z.enum([
   "return_to_stock", "return_to_vendor",
   "adjustment_in", "adjustment_out", "scrap",
   "commit", "release",
+  /** A unit already on the shelf given its serial or lot number. Moves nothing. */
+  "numbered",
+  /** Freight or duty billed after the delivery, added to what parts cost. Moves nothing. */
+  "revaluation",
 ]);
 
 export const PurchaseOrderStatus = z.enum([
@@ -400,6 +404,46 @@ export const createPurchaseOrder = defineRoute({
   output: z.object({ id: Uuid, number: z.number().int(), status: PurchaseOrderStatus }),
 });
 
+const OrderLineInput = z.object({
+  /** Our item. Either this or `partNumber`. */
+  itemId: Uuid.optional(),
+  /** The vendor's own part number, or our item code, looked up for this vendor. */
+  partNumber: z.string().min(1).max(100).optional(),
+  locationId: Uuid.optional(),
+  /** How many of OUR units. A vendor selling by the pack is sent whole packs: 250 wire nuts, not 10 boxes. */
+  quantity: QuantityString,
+  /** What the vendor charges for one of ours. Their price on record, at the break reached, when left out. */
+  unitPrice: MoneyString.optional(),
+}).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
+  message: "Name the part: our item, or the vendor's part number",
+});
+
+export const editPurchaseOrder = defineRoute({
+  method: "put",
+  path: "/v1/purchase-orders/{id}",
+  summary: "Change an order before it is sent",
+  description:
+    "A draft only: once the vendor has it, a change is a phone call and a new order. The lines are replaced whole through the same lookup, pack and price break rules as a new order. An edit that takes the total above what an approval said yes to sets that approval aside (kept as the record) and the step asks again, telling its approvers; an edit at or under every approved total leaves them standing. A rejected order is cancelled and raised again, not edited.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    defaultLocationId: Uuid.optional(),
+    expectedAt: z.string().datetime().nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+    lines: z.array(OrderLineInput).min(1),
+  }),
+  output: z.object({
+    id: Uuid,
+    total: MoneyString,
+    /** Steps whose approval the edit went above, asked again. */
+    askedAgain: z.array(z.number().int()),
+    /** Where the order stands now, in one sentence. */
+    approval: z.string(),
+  }),
+});
+
 /** Where an order stands against the company's approval steps. */
 export const PurchaseOrderApprovalState = z.object({
   /** `not_needed` means no step applies to an order this size, and the sender's own `po:approve` is the approval. */
@@ -413,6 +457,8 @@ export const PurchaseOrderApprovalState = z.object({
     decidedBy: z.string().nullable(),
     decidedAt: z.string().datetime().nullable(),
     note: z.string().nullable(),
+    /** Which orders the step is for, in words: "orders from Ferguson". Empty for every order. */
+    scopeLabel: z.string(),
   })),
 });
 
@@ -456,7 +502,12 @@ export const getPurchaseOrder = defineRoute({
       locationName: z.string(),
       quantityOrdered: QuantityString,
       quantityReceived: QuantityString,
+      /** What the vendor charges for one of ours. */
       unitPrice: MoneyString,
+      /** What the line comes to: whole packs at the pack price, otherwise quantity at the unit price. */
+      lineTotal: MoneyString,
+      /** How the vendor sells it, when by the pack: so many packs of so many, called what, at what a pack. */
+      packs: z.object({ count: QuantityString, size: QuantityString, unit: z.string().nullable(), price: MoneyString }).nullable(),
       /** How the item is tracked, when it is: a receipt of this line has to name its serials or lots. */
       tracking: z.enum(["serial", "lot"]).nullable(),
       /** Freight and fees spread onto this line across every delivery so far. */
@@ -471,8 +522,25 @@ export const getPurchaseOrder = defineRoute({
       basis: z.enum(["value", "quantity"]),
       chargesTotal: MoneyString,
       charges: z.array(z.object({ description: z.string(), amount: MoneyString })),
+      /** Freight and duty billed after this delivery, and where each bill went: the shelf, jobs, stock already gone. */
+      lateBills: z.array(z.object({
+        id: Uuid,
+        recordedAt: z.string().datetime(),
+        reference: z.string().nullable(),
+        basis: z.enum(["value", "quantity"]),
+        total: MoneyString,
+        onShelf: MoneyString,
+        onJobs: MoneyString,
+        onGone: MoneyString,
+        charges: z.array(z.object({ description: z.string(), amount: MoneyString })),
+      })),
     })),
     approval: PurchaseOrderApprovalState,
+    /** Who was emailed that the order waits for them, whether the email went or not, newest first. */
+    approvalNotices: z.array(z.object({
+      step: z.number().int(), name: z.string(), destination: z.string(),
+      state: z.string(), explanation: z.string().nullable(), at: z.string().datetime(),
+    })),
     /** Every time it was emailed, whether it went or not, newest first. */
     sends: z.array(PurchaseOrderSend),
   }),
@@ -490,9 +558,17 @@ export const VendorItem = z.object({
   /** The vendor's own number for the part, as their catalogue prints it. */
   partNumber: z.string(),
   description: z.string().nullable(),
-  /** What one costs from this vendor. Null when nobody has said. */
+  /** What one of THEIR units costs from this vendor (a box, when they sell by the box). Null when nobody has said. */
   cost: MoneyString.nullable(),
   costUpdatedAt: z.string().datetime().nullable(),
+  /** How many of our units are in one of theirs. "1.0000" when they sell what we count. */
+  packQuantity: QuantityString,
+  /** What they call their unit: "box", "case". Null for each. */
+  purchaseUnit: z.string().nullable(),
+  /** Their price for one of their units when ordering at least `minimum` of them, lowest first. */
+  priceBreaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })),
+  /** What one of OUR units comes to at their base price: the cost over the pack. */
+  eachCost: MoneyString.nullable(),
 });
 
 export const listVendorItems = defineRoute({
@@ -520,6 +596,11 @@ export const setVendorItem = defineRoute({
     partNumber: z.string().min(1).max(100),
     description: z.string().max(500).nullable().optional(),
     cost: z.string().max(20).nullable().optional(),
+    /** How many of ours in one of theirs: 25 for a box of 25. Left out keeps what is on record. */
+    packQuantity: z.string().max(20).nullable().optional(),
+    purchaseUnit: z.string().max(40).nullable().optional(),
+    /** Replaces their break table whole. Each minimum is in their units. */
+    priceBreaks: z.array(z.object({ minimum: z.string().max(20), cost: z.string().max(20) })).max(10).nullable().optional(),
   }),
   output: VendorItem,
 });
@@ -576,6 +657,12 @@ const CatalogueRow = z.object({
   costHeldBack: z.boolean().optional(),
   /** Why a skipped row was skipped. */
   reason: z.string().optional(),
+  /** How the vendor sells it: so many of ours to a pack, called what, with their breaks. `cost` is per pack. */
+  pack: QuantityString.optional(),
+  unit: z.string().nullable().optional(),
+  breaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })).optional(),
+  /** What one of ours comes to: the pack cost over the pack. The price book's cost follows this, never the pack's. */
+  eachCost: MoneyString.optional(),
 });
 
 const CatalogueResult = z.object({
@@ -678,6 +765,6 @@ export const inventoryRoutes = {
   reserveStock, releaseStock, issueStock, receiveStock, countStock, transferStock,
   listReorderSuggestions, getJobMaterialCost,
   listVendors, createVendor,
-  listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, editPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
   listVendorItems, setVendorItem, removeVendorItem, previewVendorCatalogue, applyVendorCatalogue,
 } as const;

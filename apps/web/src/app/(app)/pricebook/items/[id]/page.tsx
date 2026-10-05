@@ -190,7 +190,20 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                   <Td>{link.vendorName}</Td>
                   <Td className="font-mono">{link.partNumber}</Td>
                   <Td className="text-ink-700">{link.description ?? ""}</Td>
-                  <Td className="text-right"><Money value={link.cost} muted /></Td>
+                  <Td className="text-right">
+                    <Money value={link.cost} muted />
+                    {Number(link.packQuantity) !== 1 ? (
+                      <div className="text-xs text-ink-500">
+                        a {link.purchaseUnit ?? "pack"} of {Number(link.packQuantity)}
+                        {link.eachCost ? <>, <Money value={link.eachCost} muted /> each</> : null}
+                      </div>
+                    ) : null}
+                    {link.priceBreaks.length > 0 ? (
+                      <div className="text-xs text-ink-500">
+                        {link.priceBreaks.map((b) => `${Number(b.minimum)}+ at ${Number(b.cost).toFixed(2)}`).join(", ")}
+                      </div>
+                    ) : null}
+                  </Td>
                   <Td>
                     {writesVendors ? (
                       <ActionForm action={actOnItem} submit="Forget" tone="quiet"
@@ -208,7 +221,12 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                 <TextField label="Their part number" name="partNumber" required maxLength={100} />
                 <TextField label="Their price for one" name="vendorCost" inputMode="decimal" />
                 <TextField label="Their description" name="vendorDescription" maxLength={500} />
+                <TextField label="How many come in one of theirs" name="packQuantity" inputMode="decimal" placeholder="1" />
+                <TextField label="What they call it" name="purchaseUnit" placeholder="box" maxLength={40} />
               </div>
+              <p className="text-xs text-ink-500">
+                When they sell it by the box, their price is for the box and orders to them go in whole boxes.
+              </p>
             </ActionForm>
           ) : null}
         </section>

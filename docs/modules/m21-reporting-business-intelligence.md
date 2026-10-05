@@ -86,9 +86,9 @@ the ones somebody makes a hiring decision on.
 
 - **A coded cancellation reason.** Four KPIs need it: every retention and
   renewal figure has to separate churn from a house sale.
-- **A cost posting.** `ACCOUNTS.COGS` is declared in core and nothing debits it,
-  so margin KPIs would read material and labour and miss subcontract and
-  disposal, which is exactly where a badly estimated install goes wrong.
+- **A cost posting.** `ACCOUNTS.COGS` is debited only by freight billed after a
+  delivery, so margin KPIs would read material and labour and miss subcontract
+  and disposal, which is exactly where a badly estimated install goes wrong.
 - **A finer job type class.** `job_revenue_class` was added for these and
   unlocked five. A trade's own upsell path (a drain job that became a lining, a
   troubleshooting call that converted on the visit) needs the pack to mark which

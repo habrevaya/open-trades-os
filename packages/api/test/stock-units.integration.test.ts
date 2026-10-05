@@ -84,10 +84,14 @@ beforeAll(async () => {
 afterAll(async () => { if (raw) await raw.end(); });
 
 run("a serialised part, from the order to the customer's equipment", () => {
-  it("refuses to track an item while unnumbered units are on the shelf", async () => {
+  it("tracks an item with unnumbered units on the shelf, says where they are, and will not move them unnamed", async () => {
     await inventory.receive(owner(), { itemId: capacitor, locationId: shop, quantity: "4", totalCost: "40.00" });
-    await expect(stockUnits.setTracking(owner(), { itemId: capacitor, mode: "serial" }))
-      .rejects.toThrow(/4 of CAP-45 are on hand at Shop with no serial numbers/);
+    const tracked = await stockUnits.setTracking(owner(), { itemId: capacitor, mode: "serial" });
+    expect(tracked.unnumbered).toEqual([{ locationId: shop, locationName: "Shop", quantity: "4" }]);
+    await expect(inventory.transfer(owner(), { itemId: capacitor, fromLocationId: shop, toLocationId: van, quantity: "1" }))
+      .rejects.toThrow(/tracked by serial number, so say which ones/);
+    // Counted only again for the rest of this file, which receives it unnamed.
+    await stockUnits.setTracking(owner(), { itemId: capacitor, mode: null });
   });
 
   it("receives on an order with freight, naming every serial, and spreads the freight into the cost", async () => {

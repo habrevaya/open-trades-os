@@ -289,6 +289,8 @@ export const NAV: NavGroup[] = [
            * and changing a step needs `settings:write`.
            */
           { href: "/purchasing/approvals", label: "Approval steps" },
+          /** Units sent back to a vendor by number, and the credit each one owes. */
+          { href: "/purchasing/returns", label: "Returns to vendors" },
         ],
       },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */

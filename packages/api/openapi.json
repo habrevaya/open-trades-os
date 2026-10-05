@@ -40500,6 +40500,115 @@
         ]
       }
     },
+    "/v1/equipment/{id}/stock-trace": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "traceEquipmentStock",
+        "summary": "Where a customer's unit came from, when it came from our stock",
+        "description": "Each serial of ours issued to a job as this equipment record, with its whole trace: the order and vendor it arrived from, each move between the warehouse and a truck, and the job. Empty for a unit that was not installed from stock. Cost only to a holder of `pricebook.cost:read`.\n\nRequires a session holding: inventory:read.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where a customer's unit came from, when it came from our stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceEquipmentStockOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:read"
+        ]
+      }
+    },
     "/v1/estimate-discount-policy": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -79379,7 +79488,7 @@
       "get": {
         "operationId": "getJobProfitability",
         "summary": "What one job earned, and the rows behind every number",
-        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
+        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the one exception, freight billed after a delivery on parts the job used, is posted to cost of goods sold on the job and added to material cost (`costEntries`). Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
         "tags": [
           "M15"
         ],
@@ -87432,7 +87541,7 @@
       "post": {
         "operationId": "addPurchaseApprovalRule",
         "summary": "Add an approval step",
-        "description": "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.\n\nRequires a session holding: settings:write.",
+        "description": "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding; the amount is always the whole order's total. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M16"
         ],
@@ -87783,6 +87892,144 @@
         ]
       }
     },
+    "/v1/purchase-order-receipts/{id}/late-charges": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordLateLandedCost",
+        "summary": "Spread a freight or duty bill that came after the delivery",
+        "description": "For one delivery received against an order. The bill is spread over that delivery's lines by value or quantity (`basis`, the delivery's own when left out) to the cent, and each line's share follows its parts: onto the shelf where they still are, raising its value; onto each job that used them, as that job's cost of goods sold, which job costing reads; and onto stock already scrapped, counted short or sent back, as a cost with no job. Leftover cents land by a fixed rule, so the same bill on the same history lands the same way. One balanced ledger posting: inventory, cost of goods sold by job, cost of goods sold, and the whole bill in accounts payable. Refused when the history cannot account for every part that arrived.\n\nRequires a session holding: po:write.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordLateLandedCostInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Spread a freight or duty bill that came after the delivery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordLateLandedCostOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:write"
+        ]
+      }
+    },
     "/v1/purchase-orders": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -88006,10 +88253,143 @@
       }
     },
     "/v1/purchase-orders/{id}": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
-        "GET"
+        "GET",
+        "PUT"
       ],
+      "put": {
+        "operationId": "editPurchaseOrder",
+        "summary": "Change an order before it is sent",
+        "description": "A draft only: once the vendor has it, a change is a phone call and a new order. The lines are replaced whole through the same lookup, pack and price break rules as a new order. An edit that takes the total above what an approval said yes to sets that approval aside (kept as the record) and the step asks again, telling its approvers; an edit at or under every approved total leaves them standing. A rejected order is cancelled and raised again, not edited.\n\nRequires a session holding: po:write.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditPurchaseOrderInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change an order before it is sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditPurchaseOrderOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:write"
+        ]
+      },
       "get": {
         "operationId": "getPurchaseOrder",
         "summary": "One purchase order, line by line",
@@ -88123,7 +88503,7 @@
       "post": {
         "operationId": "decidePurchaseOrder",
         "summary": "Approve or reject the step that is waiting",
-        "description": "Needs `po:approve` and the role the waiting step names, read from the person's membership: a custom role replaces the preset it was copied from. Nobody decides two steps of one order. A rejection needs a reason and ends it: the order is cancelled and a corrected one raised, rather than asked again until somebody says yes.\n\nRequires a session holding: po:approve.",
+        "description": "Needs `po:approve` and the role the waiting step names, read from the person's membership: a custom role replaces the preset it was copied from. Nobody decides two steps of one order. A rejection needs a reason and ends it: the order is cancelled and a corrected one raised, rather than asked again until somebody says yes. An approval that leaves another step waiting emails that step's approvers.\n\nRequires a session holding: po:approve.",
         "tags": [
           "M16"
         ],
@@ -88364,7 +88744,7 @@
       "post": {
         "operationId": "emailPurchaseOrder",
         "summary": "Email an order to the vendor",
-        "description": "To the vendor's address on file, or `to`. The email carries every line and a link to the order printable as the vendor reads it. Emailing a draft SENDS it: approval is checked first exactly as submitting does, and the order is marked sent only when the email was queued. Emailing an order already sent is a copy. Every attempt is recorded on the order; one the mail provider would not take says why and leaves a draft a draft. Queued is not delivered, and the order says queued.\n\nRequires a session holding: po:write.",
+        "description": "To the vendor's address on file, or `to`. The email carries every line, the order as a PDF attachment, and a link to the order printable as the vendor reads it. Emailing a draft SENDS it: approval is checked first exactly as submitting does, and the order is marked sent only when the email was queued. Emailing an order already sent is a copy. Every attempt is recorded on the order; one the mail provider would not take says why and leaves a draft a draft. Queued is not delivered, and the order says queued.\n\nRequires a session holding: po:write.",
         "tags": [
           "M16"
         ],
@@ -105165,6 +105545,135 @@
         ]
       }
     },
+    "/v1/stock/numbering": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "numberStockUnits",
+        "summary": "Give numbers to units already on hand",
+        "description": "A count by number for one location: every label read off the shelf. Each new number takes one unit that had none (a lot takes the quantity said); a number already on this shelf is counted again and changes nothing. Nothing moves and nothing is bought, so the level and its value stay as they were. Refused: a number already in stock elsewhere, used on a job or gone, a number read twice, and more new numbers than units without one, because those extra units were never received.\n\nRequires a session holding: inventory:adjust.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NumberStockUnitsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give numbers to units already on hand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NumberStockUnitsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:adjust"
+        ]
+      }
+    },
     "/v1/stock/receipts": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -105788,6 +106297,135 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestockTruckOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:adjust"
+        ]
+      }
+    },
+    "/v1/stock/returns": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "returnStockFromJob",
+        "summary": "Take a serialised unit back off a job",
+        "description": "By its serial number, onto the shelf named. It comes back at the cost it left at, late freight included, as the same receipt's part, and comes off the job's material cost. The ledger reverses what the use posted: using stock posts nothing in this product except late freight a bill put on it, and that comes off the job and back into stock. The customer's equipment record it became stays on their register, its link to the serial cleared, and the answer names it so the office can retire it if the unit came out.\n\nRequires a session holding: inventory:adjust.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnStockFromJobInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a serialised unit back off a job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnStockFromJobOutput"
                 }
               }
             }
@@ -113046,6 +113684,381 @@
         ]
       }
     },
+    "/v1/vendor-returns": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createVendorReturn",
+        "summary": "Send serials or lots back to a vendor for credit",
+        "description": "By number, from the location named. The units leave stock; the return expects a credit from the vendor of what the goods cost on the order they came on, without freight, unless `creditExpected` says otherwise (a restocking fee). A unit that arrived on another vendor's order is refused. Nothing about the credit posts to the ledger, because receiving stock does not; late freight the units carried leaves stock as for any loss. Needs `po:write` and `inventory:adjust`: it is a dealing with a vendor and a move off the shelf.\n\nRequires a session holding: po:write, inventory:adjust.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVendorReturnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Send serials or lots back to a vendor for credit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateVendorReturnOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:write",
+          "inventory:adjust"
+        ]
+      },
+      "get": {
+        "operationId": "listVendorReturns",
+        "summary": "Units sent back to vendors, and the credit each owes",
+        "description": "Requires a session holding: po:read.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "awaiting_credit",
+                "credited"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Units sent back to vendors, and the credit each owes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListVendorReturnsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:read"
+        ]
+      }
+    },
+    "/v1/vendor-returns/{id}/credit": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordVendorCredit",
+        "summary": "Record the vendor's credit for a return",
+        "description": "What the credit memo gave, beside what was expected, so a credit short by a fee nobody agreed to is visible.\n\nRequires a session holding: po:write.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordVendorCreditInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record the vendor's credit for a return",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordVendorCreditOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:write"
+        ]
+      }
+    },
     "/v1/vendors": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -119540,6 +120553,27 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "vendorId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "categoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -119575,6 +120609,30 @@
           },
           "roleLabel": {
             "type": "string"
+          },
+          "vendorId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "categoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "scopeLabel": {
+            "type": "string"
           }
         },
         "required": [
@@ -119583,7 +120641,11 @@
           "minimumTotal",
           "approverRole",
           "approverRoleId",
-          "roleLabel"
+          "roleLabel",
+          "vendorId",
+          "categoryId",
+          "locationId",
+          "scopeLabel"
         ]
       },
       "AddRentableAssetInput": {
@@ -122057,6 +123119,40 @@
                 },
                 "reason": {
                   "type": "string"
+                },
+                "pack": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "breaks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "minimum": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "cost": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "minimum",
+                      "cost"
+                    ]
+                  }
+                },
+                "eachCost": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -127710,7 +128806,9 @@
                     "adjustment_out",
                     "scrap",
                     "commit",
-                    "release"
+                    "release",
+                    "numbered",
+                    "revaluation"
                   ]
                 },
                 "quantity": {
@@ -137522,6 +138620,181 @@
           "name"
         ]
       },
+      "CreateVendorReturnInput": {
+        "type": "object",
+        "properties": {
+          "vendorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "number"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 500
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "creditExpected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "vendorId",
+          "itemId",
+          "locationId",
+          "units",
+          "reason"
+        ]
+      },
+      "CreateVendorReturnOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "vendorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "vendorName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_credit",
+              "credited"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creditExpected": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "creditReceived": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "creditReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "creditReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "itemName": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "locationName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "itemName",
+                "number",
+                "quantity",
+                "locationName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "vendorId",
+          "vendorName",
+          "status",
+          "reason",
+          "reference",
+          "creditExpected",
+          "creditReceived",
+          "creditReceivedAt",
+          "creditReference",
+          "createdAt",
+          "units"
+        ]
+      },
       "CreateWorkflowInput": {
         "type": "object",
         "properties": {
@@ -138499,6 +139772,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "scopeLabel": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -138508,7 +139784,8 @@
                 "state",
                 "decidedBy",
                 "decidedAt",
-                "note"
+                "note",
+                "scopeLabel"
               ]
             }
           }
@@ -142588,6 +143865,93 @@
           "totals",
           "count",
           "truncated"
+        ]
+      },
+      "EditPurchaseOrderInput": {
+        "type": "object",
+        "properties": {
+          "defaultLocationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "partNumber": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "locationId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "quantity"
+              ]
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "lines"
+        ]
+      },
+      "EditPurchaseOrderOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "askedAgain": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "approval": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "total",
+          "askedAgain",
+          "approval"
         ]
       },
       "EmailCustomerStatementInput": {
@@ -154987,6 +156351,55 @@
               ]
             }
           },
+          "costEntries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "transactionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "accountCode": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "sourceType": {
+                  "type": "string"
+                },
+                "sourceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "memo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "transactionId",
+                "occurredAt",
+                "accountCode",
+                "direction",
+                "amount",
+                "sourceType",
+                "sourceId",
+                "memo"
+              ]
+            }
+          },
           "feeEntries": {
             "type": "array",
             "items": {
@@ -155166,6 +156579,7 @@
           "labourRecorded",
           "caveats",
           "revenueEntries",
+          "costEntries",
           "feeEntries",
           "lines",
           "labour"
@@ -162361,6 +163775,42 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packs": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "count": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "size": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "count",
+                    "size",
+                    "unit",
+                    "price"
+                  ]
+                },
                 "tracking": {
                   "type": [
                     "string",
@@ -162406,6 +163856,8 @@
                 "quantityOrdered",
                 "quantityReceived",
                 "unitPrice",
+                "lineTotal",
+                "packs",
                 "tracking",
                 "landedCost",
                 "units"
@@ -162454,6 +163906,81 @@
                       "amount"
                     ]
                   }
+                },
+                "lateBills": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "recordedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "reference": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "basis": {
+                        "type": "string",
+                        "enum": [
+                          "value",
+                          "quantity"
+                        ]
+                      },
+                      "total": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "onShelf": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "onJobs": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "onGone": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "charges": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "description": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            }
+                          },
+                          "required": [
+                            "description",
+                            "amount"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "recordedAt",
+                      "reference",
+                      "basis",
+                      "total",
+                      "onShelf",
+                      "onJobs",
+                      "onGone",
+                      "charges"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -162461,7 +163988,8 @@
                 "receivedAt",
                 "basis",
                 "chargesTotal",
-                "charges"
+                "charges",
+                "lateBills"
               ]
             }
           },
@@ -162522,6 +164050,9 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "scopeLabel": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -162531,7 +164062,8 @@
                     "state",
                     "decidedBy",
                     "decidedAt",
-                    "note"
+                    "note",
+                    "scopeLabel"
                   ]
                 }
               }
@@ -162541,6 +164073,44 @@
               "sentence",
               "steps"
             ]
+          },
+          "approvalNotices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "step": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "destination": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "step",
+                "name",
+                "destination",
+                "state",
+                "explanation",
+                "at"
+              ]
+            }
           },
           "sends": {
             "type": "array",
@@ -162610,6 +164180,7 @@
           "lines",
           "receipts",
           "approval",
+          "approvalNotices",
           "sends"
         ]
       },
@@ -162670,6 +164241,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "scopeLabel": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -162679,7 +164253,8 @@
                 "state",
                 "decidedBy",
                 "decidedAt",
-                "note"
+                "note",
+                "scopeLabel"
               ]
             }
           }
@@ -169079,7 +170654,9 @@
                     "adjustment_out",
                     "scrap",
                     "commit",
-                    "release"
+                    "release",
+                    "numbered",
+                    "revaluation"
                   ]
                 },
                 "quantity": {
@@ -183940,6 +185517,30 @@
                 },
                 "roleLabel": {
                   "type": "string"
+                },
+                "vendorId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "categoryId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "locationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "scopeLabel": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -183948,7 +185549,11 @@
                 "minimumTotal",
                 "approverRole",
                 "approverRoleId",
-                "roleLabel"
+                "roleLabel",
+                "vendorId",
+                "categoryId",
+                "locationId",
+                "scopeLabel"
               ]
             }
           }
@@ -189231,6 +190836,43 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "packQuantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "purchaseUnit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "priceBreaks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "minimum": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "cost": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "minimum",
+                      "cost"
+                    ]
+                  }
+                },
+                "eachCost": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -189243,13 +190885,138 @@
                 "partNumber",
                 "description",
                 "cost",
-                "costUpdatedAt"
+                "costUpdatedAt",
+                "packQuantity",
+                "purchaseUnit",
+                "priceBreaks",
+                "eachCost"
               ]
             }
           }
         },
         "required": [
           "links"
+        ]
+      },
+      "ListVendorReturnsOutput": {
+        "type": "object",
+        "properties": {
+          "returns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "vendorId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "vendorName": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "awaiting_credit",
+                    "credited"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "creditExpected": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "creditReceived": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "creditReceivedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "creditReference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "units": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "itemName": {
+                        "type": "string"
+                      },
+                      "number": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "locationName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "itemId",
+                      "itemName",
+                      "number",
+                      "quantity",
+                      "locationName"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "number",
+                "vendorId",
+                "vendorName",
+                "status",
+                "reason",
+                "reference",
+                "creditExpected",
+                "creditReceived",
+                "creditReceivedAt",
+                "creditReference",
+                "createdAt",
+                "units"
+              ]
+            }
+          }
+        },
+        "required": [
+          "returns"
         ]
       },
       "ListVendorsOutput": {
@@ -192290,6 +194057,76 @@
         "required": [
           "shiftDays",
           "moves"
+        ]
+      },
+      "NumberStockUnitsInput": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "expiresOn": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "number"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "itemId",
+          "locationId",
+          "units"
+        ]
+      },
+      "NumberStockUnitsOutput": {
+        "type": "object",
+        "properties": {
+          "numbered": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "alreadyHere": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stillUnnumbered": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "numbered",
+          "alreadyHere",
+          "stillUnnumbered"
         ]
       },
       "OpenPortalLinkOutput": {
@@ -195881,6 +197718,40 @@
                 },
                 "reason": {
                   "type": "string"
+                },
+                "pack": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "breaks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "minimum": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "cost": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "minimum",
+                      "cost"
+                    ]
+                  }
+                },
+                "eachCost": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -197644,7 +199515,9 @@
                     "adjustment_out",
                     "scrap",
                     "commit",
-                    "release"
+                    "release",
+                    "numbered",
+                    "revaluation"
                   ]
                 },
                 "quantity": {
@@ -198643,6 +200516,121 @@
           "counts",
           "nextDueOn",
           "deficiencies"
+        ]
+      },
+      "RecordLateLandedCostInput": {
+        "type": "object",
+        "properties": {
+          "charges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "description",
+                "amount"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "value",
+              "quantity"
+            ]
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "charges"
+        ]
+      },
+      "RecordLateLandedCostOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receiptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "purchaseOrderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "onShelf": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "onJobs": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "onGone": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "amount"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "receiptId",
+          "purchaseOrderId",
+          "total",
+          "onShelf",
+          "onJobs",
+          "onGone",
+          "jobs"
         ]
       },
       "RecordMessagingBrandInput": {
@@ -200270,6 +202258,135 @@
           "deficiencyCount"
         ]
       },
+      "RecordVendorCreditInput": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "RecordVendorCreditOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "vendorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "vendorName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_credit",
+              "credited"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creditExpected": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "creditReceived": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "creditReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "creditReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "itemName": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "locationName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "itemName",
+                "number",
+                "quantity",
+                "locationName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "vendorId",
+          "vendorName",
+          "status",
+          "reason",
+          "reference",
+          "creditExpected",
+          "creditReceived",
+          "creditReceivedAt",
+          "creditReference",
+          "createdAt",
+          "units"
+        ]
+      },
       "RefreshFinancingApplicationInput": {
         "type": "object",
         "properties": {}
@@ -201412,7 +203529,9 @@
                     "adjustment_out",
                     "scrap",
                     "commit",
-                    "release"
+                    "release",
+                    "numbered",
+                    "revaluation"
                   ]
                 },
                 "quantity": {
@@ -204080,7 +206199,9 @@
                     "adjustment_out",
                     "scrap",
                     "commit",
-                    "release"
+                    "release",
+                    "numbered",
+                    "revaluation"
                   ]
                 },
                 "quantity": {
@@ -205313,6 +207434,98 @@
           "currentPropertyId",
           "purchaseCost",
           "active"
+        ]
+      },
+      "ReturnStockFromJobInput": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "itemId",
+          "locationId",
+          "numbers"
+        ]
+      },
+      "ReturnStockFromJobOutput": {
+        "type": "object",
+        "properties": {
+          "returned": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "number",
+                "jobId",
+                "jobNumber"
+              ]
+            }
+          },
+          "equipmentStillOnRecord": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string"
+                },
+                "equipmentId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "number",
+                "equipmentId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "returned",
+          "equipmentStillOnRecord"
         ]
       },
       "ReverseCommissionInput": {
@@ -213907,11 +216120,36 @@
               "serial",
               "lot"
             ]
+          },
+          "unnumbered": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "locationId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "locationName": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "locationId",
+                "locationName",
+                "quantity"
+              ]
+            }
           }
         },
         "required": [
           "itemId",
-          "mode"
+          "mode",
+          "unnumbered"
         ]
       },
       "SetTechnicianCustomFieldsInput": {
@@ -214234,6 +216472,44 @@
               "null"
             ],
             "maxLength": 20
+          },
+          "packQuantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          },
+          "purchaseUnit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "priceBreaks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "minimum": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "cost": {
+                  "type": "string",
+                  "maxLength": 20
+                }
+              },
+              "required": [
+                "minimum",
+                "cost"
+              ]
+            },
+            "maxItems": 10
           }
         },
         "required": [
@@ -214291,6 +216567,43 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "packQuantity": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "purchaseUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priceBreaks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "minimum": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "cost": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "minimum",
+                "cost"
+              ]
+            }
+          },
+          "eachCost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
@@ -214303,7 +216616,11 @@
           "partNumber",
           "description",
           "cost",
-          "costUpdatedAt"
+          "costUpdatedAt",
+          "packQuantity",
+          "purchaseUnit",
+          "priceBreaks",
+          "eachCost"
         ]
       },
       "SetVisitCustomFieldsInput": {
@@ -217059,6 +219376,275 @@
           "doneBy"
         ]
       },
+      "TraceEquipmentStockOutput": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "unit": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "itemId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "itemCode": {
+                      "type": "string"
+                    },
+                    "itemName": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "serial",
+                        "lot"
+                      ]
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "in_stock",
+                        "used",
+                        "gone"
+                      ]
+                    },
+                    "where": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "locationId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "locationName": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          }
+                        },
+                        "required": [
+                          "locationId",
+                          "locationName",
+                          "quantity"
+                        ]
+                      }
+                    },
+                    "jobId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "jobNumber": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "equipmentId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "itemId",
+                    "itemCode",
+                    "itemName",
+                    "mode",
+                    "number",
+                    "expiresOn",
+                    "state",
+                    "where",
+                    "jobId",
+                    "jobNumber",
+                    "equipmentId"
+                  ]
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "locationName": {
+                        "type": "string"
+                      },
+                      "jobId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "jobNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "purchaseOrderId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "purchaseOrderNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "vendorName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "cost": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "kind",
+                      "label",
+                      "quantity",
+                      "locationName",
+                      "jobId",
+                      "jobNumber",
+                      "purchaseOrderId",
+                      "purchaseOrderNumber",
+                      "vendorName",
+                      "cost"
+                    ]
+                  }
+                },
+                "equipment": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "manufacturer": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "model": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "serialNumber": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "propertyId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "address": {
+                      "type": "string"
+                    },
+                    "customerId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "customerName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "category",
+                    "tag",
+                    "manufacturer",
+                    "model",
+                    "serialNumber",
+                    "propertyId",
+                    "address",
+                    "customerId",
+                    "customerName"
+                  ]
+                }
+              },
+              "required": [
+                "unit",
+                "steps",
+                "equipment"
+              ]
+            }
+          }
+        },
+        "required": [
+          "units"
+        ]
+      },
       "TraceStockUnitOutput": {
         "type": "object",
         "properties": {
@@ -217465,7 +220051,9 @@
                     "adjustment_out",
                     "scrap",
                     "commit",
-                    "release"
+                    "release",
+                    "numbered",
+                    "revaluation"
                   ]
                 },
                 "quantity": {

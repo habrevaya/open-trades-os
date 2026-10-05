@@ -5,6 +5,7 @@ import {
   multiply,
   divide,
   allocate,
+  subtract,
   zero,
   isZero,
   toString as moneyToString,
@@ -245,7 +246,9 @@ export type MovementKind =
   | "adjustment_out"
   | "scrap"
   | "commit"
-  | "release";
+  | "release"
+  | "numbered"
+  | "revaluation";
 
 /**
  * What each kind does to each of the three quantities, as data rather than as
@@ -331,6 +334,18 @@ export const MOVEMENT_EFFECTS: Record<
     onHand: 0,
     committed: -1,
   },
+  numbered: {
+    label: "Numbered on the shelf",
+    description: "A unit already on hand was given its serial or lot number. Nothing moved and nothing was bought.",
+    onHand: 0,
+    committed: 0,
+  },
+  revaluation: {
+    label: "Late freight added",
+    description: "A freight or duty bill that came after the delivery, added to what these parts cost. Nothing moved.",
+    onHand: 0,
+    committed: 0,
+  },
 };
 
 export const MOVEMENT_KINDS = Object.keys(MOVEMENT_EFFECTS) as MovementKind[];
@@ -372,6 +387,18 @@ export interface Movement {
    * serialised unit moves one to a movement. See `units.ts`.
    */
   readonly lotId?: string | undefined;
+  /**
+   * On a revaluation, what the late freight is for: the receipt whose parts
+   * are still on this shelf, or the use or loss that already took them. On a
+   * return off a job, the use it undoes. See `costMovements`.
+   */
+  readonly revaluesMovementId?: string | undefined;
+  /**
+   * The part of `totalCost` that is freight billed after the delivery, which
+   * the ledger holds in Inventory while the parts are on a shelf. Carried on
+   * a return off a job, so the unit comes back with the share it left with.
+   */
+  readonly lateCost?: Money | undefined;
 }
 
 /** The signed effect of one movement on the two STORED quantities. */
@@ -601,7 +628,8 @@ export type InventoryRefusal =
   | { ok: false; reason: "illegal_transition"; from: PurchaseOrderStatus; to: PurchaseOrderStatus }
   | { ok: false; reason: "not_receivable"; purchaseOrderId: string; status: PurchaseOrderStatus }
   | { ok: false; reason: "unknown_line"; purchaseOrderId: string; lineId: string }
-  | { ok: false; reason: "over_receipt"; lineId: string; ordered: Quantity; alreadyReceived: Quantity; attempted: Quantity };
+  | { ok: false; reason: "over_receipt"; lineId: string; ordered: Quantity; alreadyReceived: Quantity; attempted: Quantity }
+  | { ok: false; reason: "revaluation_unplaced"; itemId: string; locationId: string; movementId: string };
 
 /** The refusal in words somebody can act on, in the sentence they would say. */
 export function explainRefusal(refusal: InventoryRefusal): string {
@@ -660,6 +688,11 @@ export function explainRefusal(refusal: InventoryRefusal): string {
       );
     case "unknown_line":
       return `Purchase order ${refusal.purchaseOrderId} has no line ${refusal.lineId}. Receiving something that was never ordered is an adjustment, not a receipt.`;
+    case "revaluation_unplaced":
+      return (
+        `Late freight on ${refusal.itemId} at ${refusal.locationId} (movement ${refusal.movementId}) names parts that are not there and a use that does not exist. `
+        + "The history was changed underneath it, and costing it anyway would put the freight on the wrong parts."
+      );
     case "over_receipt":
       return (
         `Line ${refusal.lineId} is for ${quantityLabel(refusal.ordered)}, ${quantityLabel(refusal.alreadyReceived)} has already arrived, ` +
@@ -1050,6 +1083,19 @@ export interface CostLayer {
   readonly quantity: Quantity;
   /** What is left of what it cost. Not a unit cost. Never a unit cost. */
   readonly cost: Money;
+  /**
+   * The movement whose parts these are: the receipt, the count that found
+   * them, or the return that brought them back. Carried through transfers,
+   * so late freight on a delivery can find its parts on whichever van they
+   * now sit, and absent on nothing.
+   */
+  readonly origin: string;
+  /**
+   * The part of `cost` that is freight billed after the delivery. Always
+   * whole cents, because the ledger holds it, and allocated with the cost so
+   * every use takes its share of it out of the inventory account.
+   */
+  readonly late: Money;
 }
 
 export const layerValue = (layers: readonly CostLayer[], currency: CurrencyCode = "USD"): Money =>
@@ -1084,16 +1130,24 @@ const totalLayerQuantity = (layers: readonly CostLayer[]): Quantity =>
  * received for 100.00 one at a time and the three issue costs sum to exactly
  * 100.0000, not 99.9999.
  */
-function takeFromLayer(layer: CostLayer, want: Quantity): { taken: Money; rest: CostLayer | null } {
-  if (want >= layer.quantity) return { taken: layer.cost, rest: null };
+function takeFromLayer(layer: CostLayer, want: Quantity): { taken: Money; late: Money; rest: CostLayer | null } {
+  if (want >= layer.quantity) return { taken: layer.cost, late: layer.late, rest: null };
 
-  const parts = allocate(layer.cost, [quantityToString(want), quantityToString(layer.quantity - want)]);
+  const ratios = [quantityToString(want), quantityToString(layer.quantity - want)];
+  const parts = allocate(layer.cost, ratios);
   const taken = parts[0] ?? zero(layer.cost.currency);
   const kept = parts[1] ?? zero(layer.cost.currency);
+  /**
+   * The late share at cent precision, because it is a ledger amount: a use
+   * relieves the inventory account by exactly what it took, and a
+   * sub-cent there would never clear.
+   */
+  const lateParts = isZero(layer.late) ? [layer.late, layer.late] : allocate(layer.late, ratios, 2);
 
   return {
     taken,
-    rest: { ...layer, quantity: layer.quantity - want, cost: kept },
+    late: lateParts[0] ?? zero(layer.cost.currency),
+    rest: { ...layer, quantity: layer.quantity - want, cost: kept, late: lateParts[1] ?? zero(layer.cost.currency) },
   };
 }
 
@@ -1111,6 +1165,7 @@ function poolLayers(layers: readonly CostLayer[]): CostLayer[] {
       ...first,
       quantity: totalLayerQuantity(layers),
       cost: layers.slice(1).reduce((total, layer) => add(total, layer.cost), first.cost),
+      late: layers.slice(1).reduce((total, layer) => add(total, layer.late), first.late),
     },
   ];
 }
@@ -1132,12 +1187,16 @@ const byLayerAge = (a: CostLayer, b: CostLayer): number => {
 
 export interface LayerConsumption {
   readonly receiptMovementId: string;
+  /** Whose parts they were. See `CostLayer.origin`. */
+  readonly origin: string;
   readonly quantity: Quantity;
   readonly cost: Money;
+  /** The late freight part of `cost`. */
+  readonly late: Money;
 }
 
 export type ConsumeResult =
-  | { ok: true; cost: Money; consumed: LayerConsumption[]; layers: CostLayer[] }
+  | { ok: true; cost: Money; late: Money; consumed: LayerConsumption[]; layers: CostLayer[] }
   | InventoryRefusal;
 
 /**
@@ -1210,6 +1269,7 @@ export function consumeLayers(
   const remaining: CostLayer[] = [];
   let outstanding = want;
   let cost = zero(context.currency);
+  let late = zero(context.currency);
 
   for (const layer of ordered) {
     if (outstanding === ZERO_QUANTITY) {
@@ -1226,14 +1286,15 @@ export function consumeLayers(
       };
     }
     const take = qtyMin(outstanding, layer.quantity);
-    const { taken, rest } = takeFromLayer(layer, take);
-    consumed.push({ receiptMovementId: layer.receiptMovementId, quantity: take, cost: taken });
+    const { taken, late: lateTaken, rest } = takeFromLayer(layer, take);
+    consumed.push({ receiptMovementId: layer.receiptMovementId, origin: layer.origin, quantity: take, cost: taken, late: lateTaken });
     cost = add(cost, taken);
+    late = add(late, lateTaken);
     outstanding -= take;
     if (rest) remaining.push(rest);
   }
 
-  return { ok: true, cost, consumed, layers: remaining };
+  return { ok: true, cost, late, consumed, layers: remaining };
 }
 
 export interface CostedIssue {
@@ -1242,11 +1303,36 @@ export interface CostedIssue {
   readonly locationId: string;
   readonly quantity: Quantity;
   readonly cost: Money;
+  /** The late freight part of `cost`, including any billed after the use. */
+  readonly late: Money;
   readonly jobId?: string | undefined;
 }
 
+/**
+ * Anything that took parts off a shelf for good: a use on a job, a scrap, a
+ * count that came up short, a return to the vendor. What it cost, the late
+ * freight part of that, and whose parts they were, so a freight bill that
+ * arrives later can find the use that already took its parts.
+ */
+export interface CostedConsumption extends CostedIssue {
+  readonly kind: "issue" | "scrap" | "adjustment_out" | "return_to_vendor";
+  readonly slices: readonly LayerConsumption[];
+  /** A use a return off the job has since undone. Its parts are back on a shelf. */
+  readonly returned: boolean;
+}
+
+/** A unit back off a job, at the cost it left at. Taken off the job's material cost. */
+export interface CostedReturn {
+  readonly movementId: string;
+  readonly jobId?: string | undefined;
+  readonly cost: Money;
+}
+
 export type CostRun =
-  | { ok: true; issues: CostedIssue[]; layers: CostLayer[]; value: Money }
+  | {
+    ok: true; issues: CostedIssue[]; layers: CostLayer[]; value: Money;
+    consumptions: CostedConsumption[]; returns: CostedReturn[];
+  }
   | InventoryRefusal;
 
 /**
@@ -1272,10 +1358,14 @@ export function costMovements(input: {
 }): CostRun {
   const currency = input.currency ?? "USD";
   const byLocation = new Map<string, CostLayer[]>();
-  const inFlight = new Map<string, { quantity: Quantity; cost: Money }>();
-  const issues: CostedIssue[] = [];
+  const inFlight = new Map<string, { quantity: Quantity; slices: LayerConsumption[] }>();
+  const consumptions = new Map<string, CostedConsumption>();
+  const returns: CostedReturn[] = [];
 
-  const push = (movement: Movement, cost: Money) => {
+  const push = (
+    movement: Movement, cost: Money,
+    from: { origin: string; late: Money; quantity?: Quantity } = { origin: movement.id, late: zero(currency) },
+  ) => {
     const key = levelKey(movement.itemId, movement.locationId);
     const layers = byLocation.get(key) ?? [];
     layers.push({
@@ -1284,10 +1374,27 @@ export function costMovements(input: {
       locationId: movement.locationId,
       sequence: movement.sequence,
       occurredAt: movement.occurredAt,
-      quantity: movement.quantity,
+      quantity: from.quantity ?? movement.quantity,
       cost,
+      origin: from.origin,
+      late: from.late,
     });
     byLocation.set(key, layers);
+  };
+
+  const consumed = (movement: Movement, result: ConsumeResult & { ok: true }, kind: CostedConsumption["kind"]) => {
+    consumptions.set(movement.id, {
+      movementId: movement.id,
+      itemId: movement.itemId,
+      locationId: movement.locationId,
+      quantity: movement.quantity,
+      cost: result.cost,
+      late: result.late,
+      jobId: movement.jobId,
+      kind,
+      slices: result.consumed,
+      returned: false,
+    });
   };
 
   const take = (movement: Movement): ConsumeResult => {
@@ -1309,6 +1416,10 @@ export function costMovements(input: {
       case "release":
         break;
 
+      // Numbering a unit on the shelf moves nothing and costs nothing.
+      case "numbered":
+        break;
+
       case "receipt":
       case "return_to_stock":
       case "adjustment_in": {
@@ -1319,7 +1430,63 @@ export function costMovements(input: {
         if (cost.currency !== currency) {
           return { ok: false, reason: "currency_mismatch", itemId: movement.itemId, expected: currency, found: cost.currency };
         }
-        push(movement, cost);
+        const late = movement.lateCost ?? zero(currency);
+        /**
+         * A UNIT BACK OFF A JOB comes back as the parts it left as: the same
+         * receipt behind it, the cost and late freight the use carried. So a
+         * freight bill for its delivery that arrives afterwards finds it on
+         * the shelf rather than on the job, and the use stops counting.
+         */
+        const undone = movement.kind === "return_to_stock" && movement.revaluesMovementId
+          ? consumptions.get(movement.revaluesMovementId)
+          : undefined;
+        if (undone && undone.slices.length > 0) {
+          consumptions.set(undone.movementId, { ...undone, returned: true });
+          const ratios = undone.slices.map((slice) => quantityToString(slice.quantity));
+          const costs = allocate(cost, ratios);
+          const lates = isZero(late) ? ratios.map(() => late) : allocate(late, ratios, 2);
+          undone.slices.forEach((slice, i) => push(movement, costs[i] ?? zero(currency), {
+            origin: slice.origin, late: lates[i] ?? zero(currency), quantity: slice.quantity,
+          }));
+        } else {
+          push(movement, cost, { origin: movement.id, late });
+        }
+        if (movement.kind === "return_to_stock") {
+          returns.push({ movementId: movement.id, jobId: movement.jobId, cost });
+        }
+        break;
+      }
+
+      /**
+       * LATE FREIGHT, placed where its parts are. On a use or a loss that
+       * already took them, it is added to what that cost. Otherwise it is on
+       * the shelf here, on the layers that came from the receipt it names,
+       * spread by how many of each.
+       */
+      case "revaluation": {
+        const amount = movement.totalCost ?? zero(currency);
+        const target = movement.revaluesMovementId;
+        const used = target ? consumptions.get(target) : undefined;
+        if (used) {
+          consumptions.set(used.movementId, {
+            ...used, cost: add(used.cost, amount), late: add(used.late, amount),
+          });
+          break;
+        }
+        const key = levelKey(movement.itemId, movement.locationId);
+        const layers = byLocation.get(key) ?? [];
+        const mine = layers.filter((layer) => layer.origin === target && layer.quantity > ZERO_QUANTITY);
+        if (mine.length === 0) {
+          return { ok: false, reason: "revaluation_unplaced", itemId: movement.itemId, locationId: movement.locationId, movementId: movement.id };
+        }
+        const ratios = mine.map((layer) => quantityToString(layer.quantity));
+        const shares = allocate(amount, ratios, 2);
+        byLocation.set(key, layers.map((layer) => {
+          const index = mine.indexOf(layer);
+          if (index < 0) return layer;
+          const share = shares[index] ?? zero(currency);
+          return { ...layer, cost: add(layer.cost, share), late: add(layer.late, share) };
+        }));
         break;
       }
 
@@ -1329,7 +1496,7 @@ export function costMovements(input: {
         }
         const result = take(movement);
         if (!result.ok) return result;
-        inFlight.set(movement.transferId, { quantity: movement.quantity, cost: result.cost });
+        inFlight.set(movement.transferId, { quantity: movement.quantity, slices: result.consumed });
         break;
       }
 
@@ -1351,29 +1518,24 @@ export function costMovements(input: {
           };
         }
         inFlight.delete(movement.transferId);
-        push(movement, sent.cost);
+        /**
+         * One layer per slice the out leg took, each keeping whose parts it
+         * was, so value AND provenance move with the parts. FIFO at the far
+         * end then takes them in the order they were bought.
+         */
+        for (const slice of sent.slices) {
+          push(movement, slice.cost, { origin: slice.origin, late: slice.late, quantity: slice.quantity });
+        }
         break;
       }
 
-      case "issue": {
-        const result = take(movement);
-        if (!result.ok) return result;
-        issues.push({
-          movementId: movement.id,
-          itemId: movement.itemId,
-          locationId: movement.locationId,
-          quantity: movement.quantity,
-          cost: result.cost,
-          jobId: movement.jobId,
-        });
-        break;
-      }
-
+      case "issue":
       case "scrap":
       case "return_to_vendor":
       case "adjustment_out": {
         const result = take(movement);
         if (!result.ok) return result;
+        consumed(movement, result, movement.kind);
         break;
       }
     }
@@ -1391,7 +1553,12 @@ export function costMovements(input: {
   }
 
   const layers = [...byLocation.values()].flat();
-  return { ok: true, issues, layers, value: layerValue(layers, currency) };
+  const all = [...consumptions.values()];
+  const issues: CostedIssue[] = all.filter((c) => c.kind === "issue").map((c) => ({
+    movementId: c.movementId, itemId: c.itemId, locationId: c.locationId,
+    quantity: c.quantity, cost: c.cost, late: c.late, jobId: c.jobId,
+  }));
+  return { ok: true, issues, layers, value: layerValue(layers, currency), consumptions: all, returns };
 }
 
 /**
@@ -1403,11 +1570,18 @@ export function costMovements(input: {
  * balanced set of entries; a second one here would be a second truth, and
  * within a year the two would round differently.
  */
-export function cogsByJob(issues: readonly CostedIssue[], currency: CurrencyCode = "USD"): Map<string, Money> {
+export function cogsByJob(
+  issues: readonly CostedIssue[], currency: CurrencyCode = "USD", returns: readonly CostedReturn[] = [],
+): Map<string, Money> {
   const byJob = new Map<string, Money>();
   for (const issue of issues) {
     if (!issue.jobId) continue;
     byJob.set(issue.jobId, add(byJob.get(issue.jobId) ?? zero(currency), issue.cost));
+  }
+  /** A unit back off the job came back at the cost it left at, so the job no longer carries it. */
+  for (const back of returns) {
+    if (!back.jobId) continue;
+    byJob.set(back.jobId, subtract(byJob.get(back.jobId) ?? zero(currency), back.cost));
   }
   return byJob;
 }
@@ -1674,6 +1848,28 @@ export interface PurchaseOrderLine {
   readonly quantityOrdered: Quantity;
   readonly quantityReceived: Quantity;
   readonly unitPrice: Money;
+  /**
+   * When the vendor sells it by the pack: how many of ours in one, and their
+   * price for the pack. `unitPrice` is then that price over the pack, at four
+   * places, which can be a fraction of a cent off; a whole number of packs is
+   * costed from the pack price instead, exactly.
+   */
+  readonly packQuantity?: Quantity | undefined;
+  readonly packPrice?: Money | undefined;
+}
+
+/**
+ * What so many of a line cost: whole packs at the pack price, anything else
+ * at the unit price. A box of 25 at 10.00 is 0.40 each, and ten boxes are
+ * 100.00 either way; a box of 3 at 10.00 is 3.3333 each, and only the pack
+ * price makes ten boxes come to 100.00 rather than 99.999.
+ */
+export function lineCost(line: Pick<PurchaseOrderLine, "unitPrice" | "packQuantity" | "packPrice">, amount: Quantity): Money {
+  const pack = line.packQuantity;
+  if (line.packPrice && pack && pack > ZERO_QUANTITY && amount % pack === ZERO_QUANTITY) {
+    return multiply(line.packPrice, (amount / pack).toString());
+  }
+  return multiply(line.unitPrice, quantityToString(amount));
 }
 
 export interface PurchaseOrder {
@@ -1827,7 +2023,7 @@ export function receivePurchaseOrder(input: {
        * receipt rather than two, so the lot priced delivery and the unit
        * priced one go down the same path.
        */
-      totalCost: multiply(line.unitPrice, quantityToString(receipt.quantity)),
+      totalCost: lineCost(line, receipt.quantity),
       purchaseOrderId: po.id,
       purchaseOrderLineId: line.id,
     });
@@ -1862,10 +2058,11 @@ export function outstandingValue(purchaseOrder: PurchaseOrder, currency: Currenc
   return purchaseOrder.lines.reduce((total, line) => {
     const outstanding = outstandingOf(line);
     if (outstanding === ZERO_QUANTITY) return total;
-    return add(total, multiply(line.unitPrice, quantityToString(outstanding)));
+    return add(total, lineCost(line, outstanding));
   }, zero(currency));
 }
 
 export * from "./units.js";
+export * from "./landed.js";
 export * from "./approvals.js";
 export * from "./restock.js";
