@@ -75,3 +75,27 @@ describe("a rate somebody types", () => {
     expect(c.checkRate({ component: "payroll_taxes", basis: "percent_of_wages", rate: "7.65", effectiveFrom: "2026-01-01" }).ok).toBe(true);
   });
 });
+
+describe("what a journal line on a job does to the margin", () => {
+  it("counts revenue, cost of goods sold and card fees, which costing already reads by job", () => {
+    expect(c.journalCounts("4000")).toBe("revenue");
+    expect(c.journalCounts("4100")).toBe("revenue");
+    expect(c.journalCounts("4900")).toBe("revenue");
+    expect(c.journalCounts("5000")).toBe("material");
+    expect(c.journalCounts("6100")).toBe("fees");
+  });
+
+  it("leaves labour out, because the hours are counted from the clock, and commission, which is kept out of margin on purpose", () => {
+    expect(c.journalCounts("5100")).toBeNull();
+    expect(c.journalCounts("5200")).toBeNull();
+    expect(c.journalCounts("5999")).toBeNull();
+  });
+
+  it("leaves out everything it does not read: expenses above the fees, assets and liabilities", () => {
+    for (const code of ["1000", "2000", "6500", "6900", "7000"]) expect(c.journalCounts(code)).toBeNull();
+  });
+
+  it("reads the code as written, with the spaces a form leaves", () => {
+    expect(c.journalCounts(" 5000 ")).toBe("material");
+  });
+});

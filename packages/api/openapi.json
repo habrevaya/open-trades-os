@@ -56219,6 +56219,25 @@
             }
           },
           {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "none"
+                  ]
+                }
+              ]
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -56324,7 +56343,7 @@
       "post": {
         "operationId": "createJournalEntry",
         "summary": "Post a manual journal entry",
-        "description": "Lines with an account code and a debit or a credit. Refused, with every problem named against its line, when it does not balance, when a line touches an account the product keeps in step with documents (receivable, customer deposits, tips and commission payable, deferred revenue), when the date is in the future, or when it falls in a closed period. Audited, and sent to the accounting system on the next sync once its accounts are mapped.\n\nRequires a session holding: ledger:post.",
+        "description": "Lines with an account code and a debit or a credit, and optionally a branch (businessUnitId), a job and a customer each line is about. Each must be this company's own: a branch that is retired, a job or customer that has been removed, or another company's, refuses the entry and names the line. A line that names a job and no branch takes the job's branch. A job's costs and revenue include the journal lines on it (M15). Refused, with every problem named against its line, when it does not balance, when a line touches an account the product keeps in step with documents (receivable, customer deposits, tips and commission payable, deferred revenue), when the date is in the future, or when it falls in a closed period. Audited, and sent to the accounting system on the next sync once its accounts are mapped; the branch, job and customer are not sent, which carries each line's account and amount only.\n\nRequires a session holding: ledger:post.",
         "tags": [
           "M14"
         ],
@@ -56804,7 +56823,7 @@
       "get": {
         "operationId": "getTrialBalance",
         "summary": "Every account, both sides, and its balance",
-        "description": "Covers the whole company: there is no business unit filter, because nothing writes ledger_entry.business_unit_id on any posting path and a filter matching nothing is better than one matching a branch's revenue and none of its payments. Balances are signed towards each account's own normal side, so a positive number always means more of what that account holds and a contra revenue account comes back negative. Total debits and credits are reported rather than asserted: a trigger already refuses an unbalanced posting, and printing both is how a reader confirms that instead of taking the schema's word for it.\n\nRequires a session holding: ledger:read.",
+        "description": "The whole company, or one branch with businessUnitId (an id, or \"none\" for the entries that carry no branch). Every posting made since branches were carried on postings has the branch of the invoice or job it came from; older ones have none, and so do the postings that belong to the company (payroll, the release of deferred revenue) or to two branches at once. `branch` says how many entries in the window carry no branch, what their debits add up to, and the first day any entry carries one, so a branch's figures are never read as the whole of its books. Balances are signed towards each account's own normal side, so a positive number always means more of what that account holds and a contra revenue account comes back negative. Total debits and credits are reported rather than asserted: a trigger already refuses an unbalanced posting, and printing both is how a reader confirms that instead of taking the schema's word for it. That is the whole company's claim: one branch's totals need not be equal, because a journal can give each of its lines a branch of its own.\n\nRequires a session holding: ledger:read.",
         "tags": [
           "M14"
         ],
@@ -56825,6 +56844,25 @@
             "schema": {
               "type": "string",
               "format": "date-time"
+            }
+          },
+          {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "none"
+                  ]
+                }
+              ]
             }
           }
         ],
@@ -80036,7 +80074,7 @@
       "get": {
         "operationId": "getJobProfitability",
         "summary": "What one job earned, and the rows behind every number",
-        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the one exception, freight billed after a delivery on parts the job used, is posted to cost of goods sold on the job and added to material cost (`costEntries`). Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
+        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the exceptions are cost of goods sold posted to the job in the ledger, which is added to material cost (`costEntries`): freight billed after a delivery on parts the job used, and any cost an accountant journalled to the job (M14). A manual journal line on a job is read once, from the ledger, and `journalLines` lists every one, including those the margin does not count. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
         "tags": [
           "M15"
         ],
@@ -135157,6 +135195,18 @@
                 "memo": {
                   "type": "string",
                   "maxLength": 500
+                },
+                "businessUnitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
                 }
               },
               "required": [
@@ -135261,6 +135311,45 @@
                     "string",
                     "null"
                   ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -135268,7 +135357,13 @@
                 "accountCode",
                 "direction",
                 "amount",
-                "memo"
+                "memo",
+                "businessUnitId",
+                "branchName",
+                "jobId",
+                "jobNumber",
+                "customerId",
+                "customerName"
               ]
             }
           }
@@ -158040,6 +158135,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "journalNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -158050,7 +158151,8 @@
                 "amount",
                 "sourceType",
                 "sourceId",
-                "memo"
+                "memo",
+                "journalNumber"
               ]
             }
           },
@@ -158089,6 +158191,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "journalNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -158099,7 +158207,8 @@
                 "amount",
                 "sourceType",
                 "sourceId",
-                "memo"
+                "memo",
+                "journalNumber"
               ]
             }
           },
@@ -158138,6 +158247,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "journalNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -158148,7 +158263,69 @@
                 "amount",
                 "sourceType",
                 "sourceId",
-                "memo"
+                "memo",
+                "journalNumber"
+              ]
+            }
+          },
+          "journalLines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "transactionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "journalId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "journalNumber": {
+                  "type": "integer"
+                },
+                "accountCode": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "memo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "countedIn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "revenue",
+                    "material",
+                    "fees"
+                  ]
+                }
+              },
+              "required": [
+                "transactionId",
+                "occurredAt",
+                "journalId",
+                "journalNumber",
+                "accountCode",
+                "direction",
+                "amount",
+                "memo",
+                "countedIn"
               ]
             }
           },
@@ -158284,6 +158461,7 @@
           "revenueEntries",
           "costEntries",
           "feeEntries",
+          "journalLines",
           "lines",
           "labour"
         ]
@@ -158403,6 +158581,45 @@
                     "string",
                     "null"
                   ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -158410,7 +158627,13 @@
                 "accountCode",
                 "direction",
                 "amount",
-                "memo"
+                "memo",
+                "businessUnitId",
+                "branchName",
+                "jobId",
+                "jobNumber",
+                "customerId",
+                "customerName"
               ]
             }
           }
@@ -169715,6 +169938,40 @@
               "string",
               "null"
             ]
+          },
+          "branch": {
+            "type": "object",
+            "properties": {
+              "filter": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "entries": {
+                "type": "integer"
+              },
+              "withoutBranch": {
+                "type": "integer"
+              },
+              "withoutBranchDebits": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "firstBranchedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "filter",
+              "entries",
+              "withoutBranch",
+              "withoutBranchDebits",
+              "firstBranchedOn"
+            ]
           }
         },
         "required": [
@@ -169723,7 +169980,8 @@
           "totalCredits",
           "balanced",
           "from",
-          "to"
+          "to",
+          "branch"
         ]
       },
       "GetUploadStatusOutput": {
@@ -183111,6 +183369,13 @@
                         ],
                         "format": "uuid"
                       },
+                      "businessUnitId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
                       "reversesEntryId": {
                         "type": [
                           "string",
@@ -183128,6 +183393,7 @@
                       "memo",
                       "jobId",
                       "customerId",
+                      "businessUnitId",
                       "reversesEntryId"
                     ]
                   }
@@ -183251,6 +183517,45 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "businessUnitId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "branchName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "jobId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "jobNumber": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "customerId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "customerName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "required": [
@@ -183258,7 +183563,13 @@
                       "accountCode",
                       "direction",
                       "amount",
-                      "memo"
+                      "memo",
+                      "businessUnitId",
+                      "branchName",
+                      "jobId",
+                      "jobNumber",
+                      "customerId",
+                      "customerName"
                     ]
                   }
                 }
@@ -210494,6 +210805,45 @@
                     "string",
                     "null"
                   ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -210501,7 +210851,13 @@
                 "accountCode",
                 "direction",
                 "amount",
-                "memo"
+                "memo",
+                "businessUnitId",
+                "branchName",
+                "jobId",
+                "jobNumber",
+                "customerId",
+                "customerName"
               ]
             }
           }

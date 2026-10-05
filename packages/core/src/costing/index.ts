@@ -192,3 +192,40 @@ export function hourAt(baseRate: string, date: string, rates: readonly CostingRa
   const wage = m.money(baseRate, currency);
   return { wage, burden, overhead: perHourOverhead, total: m.add(m.add(wage, burden), perHourOverhead) };
 }
+
+/**
+ * WHAT A JOURNAL LINE ON A JOB DOES TO THE JOB'S MARGIN.
+ *
+ * A journal line can name a job (M14), and job costing already reads the
+ * ledger by job for three things, so a line on one of those accounts is in the
+ * margin the day it is posted and is not read a second time by anything else:
+ *
+ *   revenue   4000, 4100 and 4900, credits less debits. An accountant
+ *             recognising revenue the invoices did not.
+ *   material  5000, debits less credits: cost of goods sold. Where a
+ *             subcontractor's bill, a tip receipt or supplier's invoice for
+ *             this job's parts goes. It ADDS to the cost on the job's lines,
+ *             so a part costed on a line is not to be journalled here too:
+ *             that is the one way to count a cost twice, and it is the
+ *             bookkeeper's to avoid, which the statement says beside the
+ *             lines it lists.
+ *   fees      6100, debits less credits.
+ *
+ * EVERYTHING ELSE IS LISTED AND NOT COUNTED. In particular labour: hours come
+ * from the timeclock at the rate frozen onto each punch, so a payroll journal
+ * on the same job would count the same hours twice, and the commission
+ * expense is kept out of margin on purpose (`ACCOUNTS.COMMISSION_EXPENSE`).
+ * A line on a job that costing does not read is shown on the statement as
+ * booked to the job and not counted, so nothing is hidden and nothing is
+ * counted that should not be.
+ */
+export type JournalCounts = "revenue" | "material" | "fees" | null;
+
+export function journalCounts(accountCode: string): JournalCounts {
+  switch (accountCode.trim()) {
+    case "4000": case "4100": case "4900": return "revenue";
+    case "5000": return "material";
+    case "6100": return "fees";
+    default: return null;
+  }
+}

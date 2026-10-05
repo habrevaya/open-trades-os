@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { journals } from "@opentradesos/api/services";
+import { branches, journals } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
@@ -37,6 +37,9 @@ export default async function BooksPage() {
 
   const { journals: entries } = await journals.list(ctx, { limit: 100 });
   const posts = can(user.actor, "ledger:post");
+  /** Only for somebody who can post, and only when the company has branches to choose from. */
+  const branchOptions = posts ? await branches.options(ctx) : null;
+  const unitChoices = branchOptions?.branches ?? [];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -45,6 +48,13 @@ export default async function BooksPage() {
         For what has no invoice or payment behind it here. Each one has to balance, cannot go into a closed
         month, and cannot touch receivables, customer deposits, tips or commission owed, or deferred revenue:
         those follow their documents. A mistake is reversed, not edited.
+      </p>
+      <p className="mt-2 text-sm">
+        <a href="/books/trial-balance" className="underline underline-offset-4">Trial balance, by branch if you like</a>
+        {" "}
+        <span className="text-ink-500">and</span>
+        {" "}
+        <a href="/books/budget" className="underline underline-offset-4">budget against actual</a>
       </p>
 
       {posts ? (
@@ -62,7 +72,10 @@ export default async function BooksPage() {
                     <th className="py-1 pr-2 font-medium">Account</th>
                     <th className="py-1 pr-2 font-medium">Debit</th>
                     <th className="py-1 pr-2 font-medium">Credit</th>
-                    <th className="py-1 font-medium">Line note</th>
+                    <th className="py-1 pr-2 font-medium">Line note</th>
+                    {unitChoices.length > 0 ? <th className="py-1 pr-2 font-medium">Branch</th> : null}
+                    <th className="py-1 pr-2 font-medium">Job number</th>
+                    <th className="py-1 font-medium">Customer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -71,7 +84,17 @@ export default async function BooksPage() {
                       <td className="py-1 pr-2"><input name={`account:${i}`} aria-label={`Line ${i + 1} account`} placeholder={i === 0 ? "6500" : ""} className="h-9 w-24 rounded border border-steel-300 bg-canvas px-2 font-mono" /></td>
                       <td className="py-1 pr-2"><input name={`debit:${i}`} aria-label={`Line ${i + 1} debit`} inputMode="decimal" className="h-9 w-32 rounded border border-steel-300 bg-canvas px-2 text-right font-mono" /></td>
                       <td className="py-1 pr-2"><input name={`credit:${i}`} aria-label={`Line ${i + 1} credit`} inputMode="decimal" className="h-9 w-32 rounded border border-steel-300 bg-canvas px-2 text-right font-mono" /></td>
-                      <td className="py-1"><input name={`memo:${i}`} aria-label={`Line ${i + 1} note`} className="h-9 w-full rounded border border-steel-300 bg-canvas px-2" /></td>
+                      <td className="py-1 pr-2"><input name={`memo:${i}`} aria-label={`Line ${i + 1} note`} className="h-9 w-full min-w-40 rounded border border-steel-300 bg-canvas px-2" /></td>
+                      {unitChoices.length > 0 ? (
+                        <td className="py-1 pr-2">
+                          <select name={`branch:${i}`} aria-label={`Line ${i + 1} branch`} defaultValue="" className="h-9 rounded border border-steel-300 bg-canvas px-2">
+                            <option value="">No branch</option>
+                            {unitChoices.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                        </td>
+                      ) : null}
+                      <td className="py-1 pr-2"><input name={`job:${i}`} aria-label={`Line ${i + 1} job number`} placeholder={i === 0 ? "1042" : ""} className="h-9 w-24 rounded border border-steel-300 bg-canvas px-2 font-mono" /></td>
+                      <td className="py-1"><input name={`customer:${i}`} aria-label={`Line ${i + 1} customer`} className="h-9 w-40 rounded border border-steel-300 bg-canvas px-2" /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -79,6 +102,12 @@ export default async function BooksPage() {
             </div>
             <p className="text-xs text-ink-500">
               Accounts by number: 1000 cash, 5000 materials, 5100 to 5999 labour, 6000 and up expenses. Leave a date empty for today.
+            </p>
+            <p className="text-xs text-ink-500">
+              A line can say what it is about: a branch, a job by its number, a customer by their name. A line on a job
+              counts in that job&apos;s margin: revenue, materials (account 5000) and card fees. Hours are counted from the
+              clock, so a labour line on a job is shown there and not counted. A cost that is already on one of the job&apos;s
+              lines should not be booked to the job again here.
             </p>
           </ActionForm>
         </section>
@@ -107,7 +136,18 @@ export default async function BooksPage() {
                   {entry.lines.map((line) => (
                     <tr key={line.entryId}>
                       <td className="py-0.5 pr-3 font-mono">{line.accountCode}</td>
-                      <td className="py-0.5 pr-3 text-ink-700">{line.memo}</td>
+                      <td className="py-0.5 pr-3 text-ink-700">
+                        {line.memo}
+                        {line.businessUnitId || line.jobId || line.customerId ? (
+                          <span className="ml-2 text-xs text-ink-500">
+                            {[
+                              line.businessUnitId ? line.branchName ?? "A branch" : null,
+                              line.jobId ? `job ${line.jobNumber ?? ""}`.trim() : null,
+                              line.customerId ? line.customerName ?? "A customer" : null,
+                            ].filter(Boolean).join(", ")}
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="py-0.5 pr-3 text-right">{line.direction === "debit" ? <Money value={line.amount} /> : null}</td>
                       <td className="py-0.5 text-right">{line.direction === "credit" ? <Money value={line.amount} /> : null}</td>
                     </tr>

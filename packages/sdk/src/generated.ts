@@ -2959,6 +2959,9 @@ export interface CreateJournalEntryInput {
     debit?: string;
     credit?: string;
     memo?: string;
+    businessUnitId?: string;
+    jobId?: string;
+    customerId?: string;
   }>;
 }
 
@@ -2981,6 +2984,12 @@ export interface CreateJournalEntryOutput {
     direction: "debit" | "credit";
     amount: string;
     memo: string | null;
+    businessUnitId: string | null;
+    branchName: string | null;
+    jobId: string | null;
+    jobNumber: string | null;
+    customerId: string | null;
+    customerName: string | null;
   }>;
 }
 
@@ -7386,6 +7395,7 @@ export interface GetJobProfitabilityOutput {
     sourceType: string;
     sourceId: string;
     memo: string | null;
+    journalNumber: number | null;
   }>;
   costEntries: Array<{
     transactionId: string;
@@ -7396,6 +7406,7 @@ export interface GetJobProfitabilityOutput {
     sourceType: string;
     sourceId: string;
     memo: string | null;
+    journalNumber: number | null;
   }>;
   feeEntries: Array<{
     transactionId: string;
@@ -7406,6 +7417,18 @@ export interface GetJobProfitabilityOutput {
     sourceType: string;
     sourceId: string;
     memo: string | null;
+    journalNumber: number | null;
+  }>;
+  journalLines: Array<{
+    transactionId: string;
+    occurredAt: string;
+    journalId: string;
+    journalNumber: number;
+    accountCode: string;
+    direction: string;
+    amount: string;
+    memo: string | null;
+    countedIn: "revenue" | "material" | "fees" | null;
   }>;
   lines: Array<{
     id: string;
@@ -7452,6 +7475,12 @@ export interface GetJournalEntryOutput {
     direction: "debit" | "credit";
     amount: string;
     memo: string | null;
+    businessUnitId: string | null;
+    branchName: string | null;
+    jobId: string | null;
+    jobNumber: string | null;
+    customerId: string | null;
+    customerName: string | null;
   }>;
 }
 
@@ -9593,6 +9622,13 @@ export interface GetTrialBalanceOutput {
   balanced: boolean;
   from: string | null;
   to: string | null;
+  branch: {
+    filter: string | null;
+    entries: number;
+    withoutBranch: number;
+    withoutBranchDebits: string;
+    firstBranchedOn: string | null;
+  };
 }
 
 export interface GetUploadStatusOutput {
@@ -12148,6 +12184,12 @@ export interface ListJournalEntriesOutput {
       direction: "debit" | "credit";
       amount: string;
       memo: string | null;
+      businessUnitId: string | null;
+      branchName: string | null;
+      jobId: string | null;
+      jobNumber: string | null;
+      customerId: string | null;
+      customerName: string | null;
     }>;
   }>;
 }
@@ -12167,6 +12209,7 @@ export interface ListJournalOutput {
       memo: string | null;
       jobId: string | null;
       customerId: string | null;
+      businessUnitId: string | null;
       reversesEntryId: string | null;
     }>;
     totalDebits: string;
@@ -17609,6 +17652,12 @@ export interface ReverseJournalEntryOutput {
     direction: "debit" | "credit";
     amount: string;
     memo: string | null;
+    businessUnitId: string | null;
+    branchName: string | null;
+    jobId: string | null;
+    jobNumber: string | null;
+    customerId: string | null;
+    customerName: string | null;
   }>;
 }
 
@@ -23783,6 +23832,7 @@ export type GetTravelSettingsInput = Record<string, never>;
 export interface GetTrialBalanceInput {
   from?: string;
   to?: string;
+  businessUnitId?: string | "none";
 }
 
 export interface GetUploadStatusInput {
@@ -24317,6 +24367,7 @@ export interface ListJournalInput {
   jobId?: string;
   customerId?: string;
   accountCode?: string;
+  businessUnitId?: string | "none";
   limit?: number;
 }
 
@@ -27171,7 +27222,7 @@ export const OPERATIONS = {
   getTimesheetWeek: { method: "GET", path: "/v1/timesheets/week", pathParams: [], queryParams: ["weekOf","technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getTrackingCampaign: { method: "GET", path: "/v1/marketing/tracking-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getTravelSettings: { method: "GET", path: "/v1/dispatch/travel", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
-  getTrialBalance: { method: "GET", path: "/v1/ledger/trial-balance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
+  getTrialBalance: { method: "GET", path: "/v1/ledger/trial-balance", pathParams: [], queryParams: ["from","to","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getUploadStatus: { method: "GET", path: "/v1/field/uploads/outstanding", pathParams: [], queryParams: ["subjectType","subjectId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   getVisit: { method: "GET", path: "/v1/visits/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getVisitUnits: { method: "GET", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -27293,7 +27344,7 @@ export const OPERATIONS = {
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
-  listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
+  listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","businessUnitId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listJournalEntries: { method: "GET", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listKnowledgeNotes: { method: "GET", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listKpiCatalogue: { method: "GET", path: "/v1/kpi-catalogue", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },

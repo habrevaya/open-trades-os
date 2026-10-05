@@ -784,6 +784,16 @@ export const ledgerEntry = pgTable("ledger_entry", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   /** Groups the balanced pair. Debits and credits in a transaction must sum to zero. */
   transactionId: uuid("transaction_id").notNull(),
+  /**
+   * THE BRANCH THE ENTRY BELONGS TO, written by `writePosting` for every
+   * posting made from here on: a journal line's own, else the branch of the
+   * invoice or job the posting came from (see `services/ledger-branch.ts`).
+   * NULL is not "every branch". It is a posting made before branches were
+   * carried (nothing old is migrated, and this table cannot be updated), or
+   * one that cannot be traced to a single branch: payroll, the release of
+   * deferred revenue, a payment spread over invoices in two branches. The
+   * ledger reports say how much of what they show is that.
+   */
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   direction: ledgerDirection("direction").notNull(),
@@ -805,6 +815,8 @@ export const ledgerEntry = pgTable("ledger_entry", {
   orgTimeIdx: index("ledger_entry_org_time_idx").on(t.organizationId, t.occurredAt),
   accountIdx: index("ledger_entry_account_idx").on(t.organizationId, t.accountCode, t.occurredAt),
   jobIdx: index("ledger_entry_job_idx").on(t.jobId),
+  /** A branch's trial balance and journal: one company's entries in one branch, in time order. */
+  unitIdx: index("ledger_entry_unit_idx").on(t.organizationId, t.businessUnitId, t.occurredAt),
   sourceIdx: index("ledger_entry_source_idx").on(t.sourceType, t.sourceId),
   /** A customer's statement reads their receivable and what is held for them, in order. */
   customerIdx: index("ledger_entry_customer_idx").on(t.organizationId, t.customerId, t.occurredAt),
