@@ -373,6 +373,12 @@ export const visitChangeStatus = pgEnum("visit_change_status", [
   "pending", "approved", "declined",
   /** The visit moved on without the request: done, cancelled, or already moved by the office. */
   "superseded",
+  /** The office offered a different time and is waiting for the customer's answer. Nothing has moved. */
+  "proposed",
+  /** The customer took the office's time, and the visit moved to it. */
+  "accepted",
+  /** The customer said no to the office's time. The visit stayed where it was. */
+  "turned_down",
 ]);
 
 export const visitChangeRequest = pgTable("visit_change_request", {
@@ -397,6 +403,19 @@ export const visitChangeRequest = pgTable("visit_change_request", {
   previousStart: timestamp("previous_start", { withTimezone: true }),
   previousEnd: timestamp("previous_end", { withTimezone: true }),
 
+  /**
+   * A different time the office offered instead, for the customer to take
+   * or turn down from their link. Held against the window like a request
+   * while it waits, and nothing moves until they say yes.
+   */
+  proposedDate: date("proposed_date"),
+  proposedArrivalWindowId: uuid("proposed_arrival_window_id").references(() => arrivalWindow.id, { onDelete: "set null" }),
+  proposedStart: timestamp("proposed_start", { withTimezone: true }),
+  proposedEnd: timestamp("proposed_end", { withTimezone: true }),
+  /** When the customer answered the office's offer, and anything they said with it. */
+  answeredAt: timestamp("answered_at", { withTimezone: true }),
+  answer: text("answer"),
+
   /** The office queue's copy of this. Closed with the decision. */
   taskId: uuid("task_id"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
@@ -414,10 +433,16 @@ export const visitChangeRequest = pgTable("visit_change_request", {
   /**
    * One open request per visit. A customer tapping twice, or asking to move
    * it and then to cancel it before anybody looked, would otherwise leave
-   * the office two answers to give about one morning.
+   * the office two answers to give about one morning. An offer from the
+   * office still waiting for the customer is open too.
    */
   pendingIdx: uniqueIndex("visit_change_request_pending_idx").on(t.visitId)
-    .where(sql`${t.status} = 'pending'`),
+    /**
+     * Built by `sql/after.sql` rather than the migration: Postgres will not
+     * use an enum value in the same transaction that added it, and the
+     * migrations run in one.
+     */
+    .where(sql`${t.status} in ('pending', 'proposed')`),
   orgIdx: index("visit_change_request_org_idx").on(t.organizationId, t.status, t.createdAt),
   jobIdx: index("visit_change_request_job_idx").on(t.jobId),
 }));

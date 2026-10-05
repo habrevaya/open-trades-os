@@ -334,6 +334,13 @@ export const pushDelivery = pgTable("push_delivery", {
   sentAt: timestamp("sent_at", { withTimezone: true }),
   /** When the receipt was read. Null on a sent row means it has not been asked yet. */
   receiptCheckedAt: timestamp("receipt_checked_at", { withTimezone: true }),
+  /**
+   * When the office was told this notice never reached the technician, or
+   * that it did not need to be (another of their phones got it, or the phone
+   * was signed out on purpose). Null on a row that has not ended yet or has
+   * not been looked at since. See `push.tellTheOffice`.
+   */
+  officeToldAt: timestamp("office_told_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   /** One notice per change per phone, however many times the event is read. */

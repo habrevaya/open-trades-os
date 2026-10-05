@@ -55,6 +55,12 @@ export const LivePosition = z.object({
   freshness: z.enum(["live", "recent", "stale"]),
   /** "4 minutes ago". */
   lastSeen: z.string(),
+  /**
+   * The path they took today, oldest first: the positions kept since the
+   * start of the company's day, a parked stretch as one point, thinned
+   * evenly to at most 400 points.
+   */
+  trail: z.array(z.object({ lat: z.number(), lng: z.number(), at: z.string().datetime() })),
 });
 
 export const LivePositions = z.object({

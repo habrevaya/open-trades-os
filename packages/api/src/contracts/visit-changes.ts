@@ -15,12 +15,27 @@ import { Uuid } from "./common";
 
 const Token = z.string().min(20).max(200);
 
+/**
+ * `proposed` is the office offering a different time and waiting for the
+ * customer; `accepted` and `turned_down` are the customer's answer to it.
+ */
+const Status = z.enum(["pending", "approved", "declined", "superseded", "proposed", "accepted", "turned_down"]);
+
+const Slot = z.object({
+  date: z.string().date(),
+  arrivalWindowId: Uuid,
+  label: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+  remaining: z.number().int(),
+});
+
 const RequestView = z.object({
   id: Uuid,
   visitId: Uuid,
   jobId: Uuid,
   kind: z.enum(["reschedule", "cancel"]),
-  status: z.enum(["pending", "approved", "declined", "superseded"]),
+  status: Status,
   reason: z.string().nullable(),
   requestedDate: z.string().date().nullable(),
   requestedStart: z.string().datetime().nullable(),
@@ -32,6 +47,13 @@ const RequestView = z.object({
   /** `queued` when the customer was told, otherwise why they could not be. */
   notified: z.string().nullable(),
   decidedAt: z.string().datetime().nullable(),
+  /** The time the office offered instead, when it did. */
+  proposedDate: z.string().date().nullable(),
+  proposedStart: z.string().datetime().nullable(),
+  proposedEnd: z.string().datetime().nullable(),
+  /** When the customer answered the offer, and what they said with it. */
+  answeredAt: z.string().datetime().nullable(),
+  answer: z.string().nullable(),
   createdAt: z.string().datetime(),
 });
 
@@ -74,18 +96,21 @@ export const getPortalVisitChange = defineRoute({
       response: z.string().nullable(),
       decidedAt: z.string().datetime().nullable(),
     }).nullable(),
+    /** A different time the office offered, waiting for the customer's yes or no. Nothing has moved. */
+    proposal: z.object({
+      id: Uuid,
+      requestedStart: z.string().datetime().nullable(),
+      requestedEnd: z.string().datetime().nullable(),
+      proposedStart: z.string().datetime(),
+      proposedEnd: z.string().datetime().nullable(),
+      response: z.string().nullable(),
+      open: z.boolean(),
+    }).nullable(),
     canChange: z.boolean(),
     changeBlockedBy: z.string().nullable(),
     rescheduleBlockedBy: z.string().nullable(),
     timezone: z.string(),
-    slots: z.array(z.object({
-      date: z.string().date(),
-      arrivalWindowId: Uuid,
-      label: z.string(),
-      startsAt: z.string(),
-      endsAt: z.string(),
-      remaining: z.number().int(),
-    })),
+    slots: z.array(Slot),
   }),
 });
 
@@ -118,7 +143,7 @@ export const listVisitChangeRequests = defineRoute({
   module: "M05",
   permissions: ["visit:read"],
   input: z.object({
-    status: z.enum(["pending", "approved", "declined", "superseded"]).optional(),
+    status: Status.optional(),
     jobId: Uuid.optional(),
   }),
   output: z.object({
@@ -159,7 +184,58 @@ export const declineVisitChangeRequest = defineRoute({
   output: RequestView,
 });
 
+export const answerPortalVisitChangeProposal = defineRoute({
+  method: "post",
+  path: "/v1/portal/visit-change/answer",
+  summary: "Take or turn down the time the office offered",
+  description:
+    "From the same link the customer asked from, or the link the office's offer was sent with. Yes moves the visit to the offered time, takes it off whoever had it and puts it on the board for that day; no leaves it where it was. Either raises a task in the office queue. The same answer twice returns the first.",
+  module: "M05",
+  permissions: [],
+  authorization: "grant",
+  idempotent: true,
+  input: z.object({
+    token: Token,
+    visitId: Uuid.optional(),
+    accept: z.boolean(),
+    /** Anything the customer wants to say with it. */
+    answer: z.string().max(1000).optional(),
+  }),
+  output: RequestView,
+});
+
+export const listVisitChangeTimes = defineRoute({
+  method: "get",
+  path: "/v1/visit-change-requests/{id}/times",
+  summary: "The times the office could offer instead",
+  description:
+    "The windows online booking would offer for the visit's work, with this request's own hold and the visit left out of the count. Empty for a cancellation, an answered request, or work not booked online.",
+  module: "M05",
+  permissions: ["visit:read"],
+  input: z.object({ id: Uuid, from: z.string().date().optional(), days: z.number().int().min(1).max(60).optional() }),
+  output: z.object({ slots: z.array(Slot) }),
+});
+
+export const proposeVisitChangeTime = defineRoute({
+  method: "post",
+  path: "/v1/visit-change-requests/{id}/propose",
+  summary: "Offer the customer a different time",
+  description:
+    "Nothing moves. The customer is sent the time with a link to say yes or no, by text where they can be texted and by email otherwise, and the time is held against its window while they decide. `response` is sent to them as written. Only for a request to move a visit, and only a time online booking would offer.",
+  module: "M05",
+  permissions: ["visit:reschedule"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    date: z.string().date(),
+    arrivalWindowId: Uuid,
+    response: z.string().max(1000).optional(),
+  }),
+  output: RequestView,
+});
+
 export const visitChangeRoutes = {
-  getPortalVisitChange, requestPortalVisitChange,
+  getPortalVisitChange, requestPortalVisitChange, answerPortalVisitChangeProposal,
   listVisitChangeRequests, approveVisitChangeRequest, declineVisitChangeRequest,
+  listVisitChangeTimes, proposeVisitChangeTime,
 } as const;

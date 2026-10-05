@@ -37462,7 +37462,7 @@
       "get": {
         "operationId": "getMultiDayRebalance",
         "summary": "Propose several days rebalanced, moving visits between days where the customer agreed",
-        "description": "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.\n\nRequires a session holding: visit:read.",
+        "description": "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, never past the per window limit online booking sells for that work, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Crews are planned like people: a crew's visit goes only to a crew, checked for its kit and its people on the day. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -37582,7 +37582,7 @@
       "post": {
         "operationId": "applyMultiDayRebalance",
         "summary": "Apply several rebalanced days somebody looked at",
-        "description": "Moves each visit to its new day at the same wall clock times and puts it on the person proposed through the assignment a drag uses, so skills and time off are checked again on the new day; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person on their own day and sets each changed day's order. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
+        "description": "Moves each visit to its new day at the same wall clock times and puts it on the person or crew proposed through the assignment a drag uses, so skills and time off (and a crew's kit and people) are checked again on the new day, and online booking's per window limit is read again; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person or crew on their own day and sets each changed day's order, a crew's included. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
         "tags": [
           "M09"
         ],
@@ -76853,6 +76853,95 @@
         "x-permissions": []
       }
     },
+    "/v1/portal/visit-change/answer": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "answerPortalVisitChangeProposal",
+        "summary": "Take or turn down the time the office offered",
+        "description": "From the same link the customer asked from, or the link the office's offer was sent with. Yes moves the visit to the offered time, takes it off whoever had it and puts it on the board for that day; no leaves it where it was. Either raises a task in the office queue. The same answer twice returns the first.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M05"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerPortalVisitChangeProposalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take or turn down the time the office offered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerPortalVisitChangeProposalOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
     "/v1/pricebook/categories": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -114304,7 +114393,10 @@
                 "pending",
                 "approved",
                 "declined",
-                "superseded"
+                "superseded",
+                "proposed",
+                "accepted",
+                "turned_down"
               ]
             }
           },
@@ -114677,6 +114769,272 @@
         "x-authorization": "session",
         "x-permissions": [
           "visit:reschedule"
+        ]
+      }
+    },
+    "/v1/visit-change-requests/{id}/propose": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "proposeVisitChangeTime",
+        "summary": "Offer the customer a different time",
+        "description": "Nothing moves. The customer is sent the time with a link to say yes or no, by text where they can be texted and by email otherwise, and the time is held against its window while they decide. `response` is sent to them as written. Only for a request to move a visit, and only a time online booking would offer.\n\nRequires a session holding: visit:reschedule.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeVisitChangeTimeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Offer the customer a different time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposeVisitChangeTimeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:reschedule"
+        ]
+      }
+    },
+    "/v1/visit-change-requests/{id}/times": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listVisitChangeTimes",
+        "summary": "The times the office could offer instead",
+        "description": "The windows online booking would offer for the visit's work, with this request's own hold and the visit left out of the count. Empty for a cancellation, an answered request, or work not booked online.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The times the office could offer instead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListVisitChangeTimesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
         ]
       }
     },
@@ -121378,6 +121736,187 @@
           "menuId"
         ]
       },
+      "AnswerPortalVisitChangeProposalInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          },
+          "visitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accept": {
+            "type": "boolean"
+          },
+          "answer": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "token",
+          "accept"
+        ]
+      },
+      "AnswerPortalVisitChangeProposalOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "visitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reschedule",
+              "cancel"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "declined",
+              "superseded",
+              "proposed",
+              "accepted",
+              "turned_down"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "requestedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "requestedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "previousStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "previousEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "response": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notified": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "proposedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "visitId",
+          "jobId",
+          "kind",
+          "status",
+          "reason",
+          "requestedDate",
+          "requestedStart",
+          "requestedEnd",
+          "previousStart",
+          "previousEnd",
+          "response",
+          "notified",
+          "decidedAt",
+          "proposedDate",
+          "proposedStart",
+          "proposedEnd",
+          "answeredAt",
+          "answer",
+          "createdAt"
+        ]
+      },
       "ApplyContractEscalationInput": {
         "type": "object",
         "properties": {
@@ -122251,12 +122790,15 @@
                 "technicianId": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
                 }
               },
               "required": [
                 "visitId",
-                "toDate",
-                "technicianId"
+                "toDate"
               ]
             },
             "maxItems": 200
@@ -122273,11 +122815,14 @@
                 "technicianId": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
                 }
               },
               "required": [
-                "visitId",
-                "technicianId"
+                "visitId"
               ]
             },
             "maxItems": 400
@@ -122311,6 +122856,36 @@
               ]
             },
             "maxItems": 400
+          },
+          "crewOrders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visitIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "maxItems": 60
+                }
+              },
+              "required": [
+                "date",
+                "crewId",
+                "visitIds"
+              ]
+            },
+            "maxItems": 200
           }
         },
         "required": [
@@ -124387,7 +124962,10 @@
               "pending",
               "approved",
               "declined",
-              "superseded"
+              "superseded",
+              "proposed",
+              "accepted",
+              "turned_down"
             ]
           },
           "reason": {
@@ -124450,6 +125028,40 @@
             ],
             "format": "date-time"
           },
+          "proposedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "proposedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -124473,6 +125085,11 @@
           "response",
           "notified",
           "decidedAt",
+          "proposedDate",
+          "proposedStart",
+          "proposedEnd",
+          "answeredAt",
+          "answer",
           "createdAt",
           "assignmentsRemoved"
         ]
@@ -140917,7 +141534,10 @@
               "pending",
               "approved",
               "declined",
-              "superseded"
+              "superseded",
+              "proposed",
+              "accepted",
+              "turned_down"
             ]
           },
           "reason": {
@@ -140980,6 +141600,40 @@
             ],
             "format": "date-time"
           },
+          "proposedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "proposedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -141000,6 +141654,11 @@
           "response",
           "notified",
           "decidedAt",
+          "proposedDate",
+          "proposedStart",
+          "proposedEnd",
+          "answeredAt",
+          "answer",
           "createdAt"
         ]
       },
@@ -150640,6 +151299,29 @@
                     },
                     "lastSeen": {
                       "type": "string"
+                    },
+                    "trail": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "lat": {
+                            "type": "number"
+                          },
+                          "lng": {
+                            "type": "number"
+                          },
+                          "at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "lat",
+                          "lng",
+                          "at"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -150653,7 +151335,8 @@
                     "reason",
                     "visitId",
                     "freshness",
-                    "lastSeen"
+                    "lastSeen",
+                    "trail"
                   ]
                 }
               }
@@ -157480,6 +158163,29 @@
                 },
                 "lastSeen": {
                   "type": "string"
+                },
+                "trail": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "lat": {
+                        "type": "number"
+                      },
+                      "lng": {
+                        "type": "number"
+                      },
+                      "at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "lat",
+                      "lng",
+                      "at"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -157493,7 +158199,8 @@
                 "reason",
                 "visitId",
                 "freshness",
-                "lastSeen"
+                "lastSeen",
+                "trail"
               ]
             }
           }
@@ -158530,6 +159237,13 @@
                   ],
                   "format": "uuid"
                 },
+                "fromCrewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "fromName": {
                   "type": [
                     "string",
@@ -158537,7 +159251,17 @@
                   ]
                 },
                 "toTechnicianId": {
-                  "type": "string",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "toCrewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "toName": {
@@ -158568,8 +159292,10 @@
                 "fromDate",
                 "toDate",
                 "fromTechnicianId",
+                "fromCrewId",
                 "fromName",
                 "toTechnicianId",
+                "toCrewId",
                 "toName",
                 "windowStart",
                 "windowEnd",
@@ -158600,6 +159326,13 @@
                   ],
                   "format": "uuid"
                 },
+                "fromCrewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "fromName": {
                   "type": [
                     "string",
@@ -158607,7 +159340,17 @@
                   ]
                 },
                 "toTechnicianId": {
-                  "type": "string",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "toCrewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "toName": {
@@ -158619,8 +159362,10 @@
                 "customerName",
                 "date",
                 "fromTechnicianId",
+                "fromCrewId",
                 "fromName",
                 "toTechnicianId",
+                "toCrewId",
                 "toName"
               ]
             }
@@ -158828,6 +159573,178 @@
                     ]
                   }
                 },
+                "crews": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "crewId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "color": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "before": {
+                        "type": "object",
+                        "properties": {
+                          "order": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          },
+                          "driveMinutes": {
+                            "type": "integer"
+                          },
+                          "finishAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "overtimeMinutes": {
+                            "type": "integer"
+                          },
+                          "overLimitMinutes": {
+                            "type": "integer"
+                          },
+                          "lunchAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lunchLateMinutes": {
+                            "type": "integer"
+                          },
+                          "late": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "visitId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "lateByMinutes": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "visitId",
+                                "lateByMinutes"
+                              ]
+                            }
+                          },
+                          "refused": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          }
+                        },
+                        "required": [
+                          "order",
+                          "driveMinutes",
+                          "finishAt",
+                          "overtimeMinutes",
+                          "overLimitMinutes",
+                          "lunchAt",
+                          "lunchLateMinutes",
+                          "late",
+                          "refused"
+                        ]
+                      },
+                      "after": {
+                        "type": "object",
+                        "properties": {
+                          "order": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          },
+                          "driveMinutes": {
+                            "type": "integer"
+                          },
+                          "finishAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "overtimeMinutes": {
+                            "type": "integer"
+                          },
+                          "overLimitMinutes": {
+                            "type": "integer"
+                          },
+                          "lunchAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lunchLateMinutes": {
+                            "type": "integer"
+                          },
+                          "late": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "visitId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "lateByMinutes": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "visitId",
+                                "lateByMinutes"
+                              ]
+                            }
+                          },
+                          "refused": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          }
+                        },
+                        "required": [
+                          "order",
+                          "driveMinutes",
+                          "finishAt",
+                          "overtimeMinutes",
+                          "overLimitMinutes",
+                          "lunchAt",
+                          "lunchLateMinutes",
+                          "late",
+                          "refused"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "crewId",
+                      "name",
+                      "color",
+                      "before",
+                      "after"
+                    ]
+                  }
+                },
                 "unplaced": {
                   "type": "array",
                   "items": {
@@ -158873,6 +159790,29 @@
                       "reason"
                     ]
                   }
+                },
+                "crewsLeftOut": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "crewId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "crewId",
+                      "name",
+                      "reason"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -158884,8 +159824,10 @@
                 "overtimeBeforeMinutes",
                 "overtimeAfterMinutes",
                 "technicians",
+                "crews",
                 "unplaced",
-                "leftOut"
+                "leftOut",
+                "crewsLeftOut"
               ]
             }
           },
@@ -158964,12 +159906,15 @@
                     "technicianId": {
                       "type": "string",
                       "format": "uuid"
+                    },
+                    "crewId": {
+                      "type": "string",
+                      "format": "uuid"
                     }
                   },
                   "required": [
                     "visitId",
-                    "toDate",
-                    "technicianId"
+                    "toDate"
                   ]
                 }
               },
@@ -158985,11 +159930,14 @@
                     "technicianId": {
                       "type": "string",
                       "format": "uuid"
+                    },
+                    "crewId": {
+                      "type": "string",
+                      "format": "uuid"
                     }
                   },
                   "required": [
-                    "visitId",
-                    "technicianId"
+                    "visitId"
                   ]
                 }
               },
@@ -159020,12 +159968,42 @@
                     "visitIds"
                   ]
                 }
+              },
+              "crewOrders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "crewId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "visitIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "maxItems": 60
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "crewId",
+                    "visitIds"
+                  ]
+                }
               }
             },
             "required": [
               "dayMoves",
               "moves",
-              "orders"
+              "orders",
+              "crewOrders"
             ]
           },
           "workday": {
@@ -161949,6 +162927,61 @@
               "decidedAt"
             ]
           },
+          "proposal": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "requestedStart": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "requestedEnd": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "proposedStart": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "proposedEnd": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "response": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "open": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "requestedStart",
+              "requestedEnd",
+              "proposedStart",
+              "proposedEnd",
+              "response",
+              "open"
+            ]
+          },
           "canChange": {
             "type": "boolean"
           },
@@ -162009,6 +163042,7 @@
           "visit",
           "pending",
           "decided",
+          "proposal",
           "canChange",
           "changeBlockedBy",
           "rescheduleBlockedBy",
@@ -191104,7 +192138,10 @@
                     "pending",
                     "approved",
                     "declined",
-                    "superseded"
+                    "superseded",
+                    "proposed",
+                    "accepted",
+                    "turned_down"
                   ]
                 },
                 "reason": {
@@ -191167,6 +192204,40 @@
                   ],
                   "format": "date-time"
                 },
+                "proposedDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "proposedStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "proposedEnd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "answeredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "answer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -191210,6 +192281,11 @@
                 "response",
                 "notified",
                 "decidedAt",
+                "proposedDate",
+                "proposedStart",
+                "proposedEnd",
+                "answeredAt",
+                "answer",
                 "createdAt",
                 "customerId",
                 "customerName",
@@ -191223,6 +192299,50 @@
         },
         "required": [
           "requests"
+        ]
+      },
+      "ListVisitChangeTimesOutput": {
+        "type": "object",
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "arrivalWindowId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "remaining": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "date",
+                "arrivalWindowId",
+                "label",
+                "startsAt",
+                "endsAt",
+                "remaining"
+              ]
+            }
+          }
+        },
+        "required": [
+          "slots"
         ]
       },
       "ListWageScalesOutput": {
@@ -197793,6 +198913,183 @@
           "problems",
           "rows",
           "counts"
+        ]
+      },
+      "ProposeVisitChangeTimeInput": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "arrivalWindowId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "response": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "date",
+          "arrivalWindowId"
+        ]
+      },
+      "ProposeVisitChangeTimeOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "visitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reschedule",
+              "cancel"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "declined",
+              "superseded",
+              "proposed",
+              "accepted",
+              "turned_down"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "requestedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "requestedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "previousStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "previousEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "response": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notified": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "proposedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "visitId",
+          "jobId",
+          "kind",
+          "status",
+          "reason",
+          "requestedDate",
+          "requestedStart",
+          "requestedEnd",
+          "previousStart",
+          "previousEnd",
+          "response",
+          "notified",
+          "decidedAt",
+          "proposedDate",
+          "proposedStart",
+          "proposedEnd",
+          "answeredAt",
+          "answer",
+          "createdAt"
         ]
       },
       "PublishRegulatoryConstantInput": {
@@ -205807,7 +207104,10 @@
               "pending",
               "approved",
               "declined",
-              "superseded"
+              "superseded",
+              "proposed",
+              "accepted",
+              "turned_down"
             ]
           },
           "reason": {
@@ -205870,6 +207170,40 @@
             ],
             "format": "date-time"
           },
+          "proposedDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "proposedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "proposedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -205890,6 +207224,11 @@
           "response",
           "notified",
           "decidedAt",
+          "proposedDate",
+          "proposedStart",
+          "proposedEnd",
+          "answeredAt",
+          "answer",
           "createdAt"
         ]
       },
@@ -223982,6 +225321,9 @@
           "completedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "cancelVisits": {
+            "type": "boolean"
           }
         }
       },

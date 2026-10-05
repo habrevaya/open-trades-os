@@ -141,6 +141,14 @@ export function DispatchMap({
      * says how old it is, because it is where somebody was, not where they are.
      */
     for (const p of live?.positions ?? []) {
+      /**
+       * The path they took today, dotted in their colour behind their pin,
+       * so the planned day (the solid line) and the driven one can be told
+       * apart at a glance.
+       */
+      if (p.trail.length >= 2) {
+        lines.push({ id: `trail:${p.technicianId}`, color: p.color ?? NOBODY, dotted: true, points: p.trail.map((t) => ({ lat: t.lat, lng: t.lng })) });
+      }
       pins.push({
         id: `live:${p.technicianId}`, lat: p.lat, lng: p.lng, color: p.color ?? NOBODY,
         text: initials(p.displayName),
@@ -240,6 +248,8 @@ export function DispatchMap({
             ) : live.positions.length === 0 ? (
               <p className="mt-1 text-xs text-ink-500">Nobody has shared a position today. Phones share only while their person is working.</p>
             ) : (
+              <>
+              <p className="mt-1 text-xs text-ink-500">The dotted line behind each person is where they have been today.</p>
               <ul className="mt-2 space-y-1">
                 {live.positions.map((p) => (
                   <li key={p.technicianId} className="flex items-center gap-2">
@@ -249,6 +259,7 @@ export function DispatchMap({
                   </li>
                 ))}
               </ul>
+              </>
             )}
           </section>
         )}

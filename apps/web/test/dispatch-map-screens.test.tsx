@@ -63,6 +63,10 @@ describe("the dispatch map", () => {
         positions: [{
           technicianId: T1, displayName: "Ray Ortiz", color: "#1D4ED8", lat: 30.3, lng: -97.7, accuracyMeters: 8,
           recordedAt: "2026-10-05T15:00:00.000Z", reason: "on_the_way", visitId: V1, freshness: "stale", lastSeen: "2 hours ago",
+          trail: [
+            { lat: 30.28, lng: -97.74, at: "2026-10-05T14:00:00.000Z" },
+            { lat: 30.3, lng: -97.7, at: "2026-10-05T15:00:00.000Z" },
+          ],
         }],
       },
     }));
@@ -70,6 +74,7 @@ describe("the dispatch map", () => {
     expect(html).toContain("Crew, 1 stop");
     expect(html).toContain("Where people are now");
     expect(html).toContain("2 hours ago");
+    expect(html).toContain("The dotted line behind each person is where they have been today.");
   });
 
   it("says live location is off, with where to turn it on, and shows nothing to somebody who does not dispatch", () => {

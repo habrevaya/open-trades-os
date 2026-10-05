@@ -291,6 +291,13 @@ export const updateJob = defineRoute({
      * commission and technician reports are built on.
      */
     completedAt: z.string().datetime().optional(),
+    /**
+     * With `status: "cancelled"` only: cancel the job's visits still to come
+     * as well, and tell their technicians. Visits under way or finished, and
+     * any whose window has already passed, are left as they are. Needs
+     * `visit:reschedule` as well.
+     */
+    cancelVisits: z.boolean().optional(),
   }),
   output: Job,
 });

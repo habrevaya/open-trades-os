@@ -187,6 +187,25 @@ and its customer is told by text or email through the same path an answer
 to their own request to move uses, which also overtakes any request of
 theirs still waiting.
 
+**A move between days keeps online booking's ceiling.** When the work is
+sold online, a visit moved to another day lands in one of the company's
+arrival windows, and it counts against how many that window takes online,
+the same count a customer moving their own visit meets (booking requests,
+customers' asks to move, and times the office offered). A window already
+at its limit is not moved into, and the apply reads the count again, so a
+booking that came in after the proposal is refused in words rather than
+overfilled.
+
+**Crews are rebalanced across days like people.** Every active crew with
+work in the range, or with somebody on it the person planning can see, is
+planned beside the technicians: its day starts where it is based, works
+the company's hours and lunch, and its visits move between days and
+between crews by the same rules and the same bars. Crew work only ever goes
+to a crew, checked for the crew's kit and its people on the new day (the
+check a drag onto a crew makes), and one person's work only to a person. A
+crew whose base is not on the map is left out with its work where it is,
+and said so.
+
 **The working day is declared, not assumed.** When the day ends, a break of so
 many minutes that must start inside a window, and how much overtime a plan may
 use, company wide on the technicians screen; a technician with their own hours
@@ -209,13 +228,24 @@ every position against its own record of the clock and the visits and drops
 any outside them. The map draws each technician's latest position today, with
 how long ago it was taken, faded once it is half an hour old, for somebody
 holding `visit:dispatch`: a CSR or a technician reads the board and not where
-their colleagues are. Positions are kept three days unless the company says
-otherwise (one to thirty) and deleted by the worker; turning sharing off
-deletes every position already kept. The privacy choices are set out in M11.
+their colleagues are. Behind each pin is the path they took today, dotted
+in their colour beside the planned day's solid line: every position kept
+since the start of the company's day, a parked stretch drawn as one point,
+thinned evenly to at most four hundred points. Positions are kept three
+days unless the company says otherwise (one to thirty) and deleted by the
+worker; turning sharing off deletes every position already kept. The store
+is bounded: no two positions of one person are kept closer together than
+half the company's interval (at least five seconds), so a day is at most
+2,880 rows per person at the default minute. The privacy choices are set
+out in M11.
 
 **Crew work is not unassigned.** A visit sent to a crew is on the crew, not on
 anybody's assignment list, and the board used to put it in the unassigned pile
-where a dispatcher would give it to somebody else. Each crew with work today
+where a dispatcher would give it to somebody else. A visit carries a crew or
+people, never both: sending it to a crew takes it off whoever had it, and a
+crew card dragged onto a person on the board hands it to that person, off
+the crew's lane, with their skills and time off checked like any drop and
+the crew's members told it is no longer theirs. Each crew with work today
 has a lane of its own beside the people, with its lead, and its day is a line
 on the map in its own colour from where it is based. The routes running today
 are listed above the board with how many stops are done and who runs each,
@@ -274,8 +304,9 @@ and put it on somebody's day.
 
 With live location on, `/schedule?view=map` shows each technician's latest
 position today beside the day, read again every half minute, with how long
-ago it was taken. `GET /v1/dispatch/positions` is the same, for
-`visit:dispatch`. `GET /v1/dispatch/location-sharing` reads the company's
+ago it was taken and the path they took today behind it. `GET
+/v1/dispatch/positions` is the same, for `visit:dispatch`, each position
+carrying its `trail`. `GET /v1/dispatch/location-sharing` reads the company's
 setting (anybody who reads the schedule may, technicians included) and
 `PUT /v1/dispatch/location-sharing` sets it (`settings:write`): on or off, how
 many days positions are kept, and how often a phone takes one. Both are on
@@ -300,7 +331,10 @@ plans inside is `GET /v1/dispatch/workday` and `PUT /v1/dispatch/workday`
 proposal for two to seven days from a date: the visits that would move to
 another day and why the customer agreed, who would take what on each day,
 each day's visits, driving and overtime as it is and as it would be, and
-each person's day before and after. "Apply these changes" applies it.
+each person's and each crew's day before and after. "Apply these changes"
+applies it, putting crew work on its crew through `POST
+/v1/visits/{id}/crew`'s own check and setting each changed crew day's
+order.
 `GET /v1/dispatch/rebalance/days` is the proposal (`visit:read`) and
 `POST /v1/dispatch/rebalance/days/apply` applies it with its `basis`
 (`visit:dispatch` and `visit:reschedule`). What the customer agreed to is
@@ -360,6 +394,10 @@ inventing one was not an option.
 `/schedule/crews` names a crew, staffs it, gives it a lead, and shows who is on
 call. `POST /v1/crews`, `PUT /v1/crews/{id}/members`,
 `GET /v1/crews/for-job` and `GET /v1/crews/{id}/availability` are the API side.
+`POST /v1/visits/{id}/crew` sends a visit to a crew (`visit:dispatch`), and
+each member's phone hears about it (M11). On the board, a crew's card
+dragged onto a person is `POST /v1/visits/{id}/assign`, which takes it off
+the crew.
 
 ### Keep a rota
 
@@ -452,17 +490,24 @@ the note beside each figure says which. Rebalancing several days moves a
 visit only to a day inside the range shown (seven days at most), keeps its
 wall clock window rather than choosing another, and does not offer the
 customer a choice of day: they are told the day it moved to and reply if it
-does not suit. A move between days is not checked against online booking's
-per window ceiling. The rebalance leaves crew work, visits with several
-people on them and work under way where they are, counts a visit with
-several people only on its lead's day, and plans lunch and overtime from
-company settings and each person's own hours, not from the overtime
-policy's thresholds. A technician whose day has no start on the map is left
-out of it, with their work where it is, and so is a driver whose day has
-containers on it, which "Optimise route" orders by what is on the truck
-instead. The truck's load in the morning of a day already under way is
-worked out from the stops done so far, not recorded. Crew visits are on the
-board and the map, but crews are not rebalanced and a crew card cannot be
-dragged onto a person. Live positions come only from the phone app;
-`/my-day` in a browser shares none. The map shows each person's latest
-position, not the path they took. The map is raster tiles only.
+does not suit. The online ceiling is checked only for work sold online and
+only for a time inside one of the company's arrival windows that day; work
+not sold online, or a window the company does not offer online, has no
+ceiling to keep. The rebalance leaves visits with several people on them
+and work under way where they are, counts a visit with several people only
+on its lead's day, and plans lunch and overtime from company settings and
+each person's own hours, not from the overtime policy's thresholds. A crew
+is planned on the company's working day (crews have no hours of their own),
+and the single day "Rebalance the day" still plans people only: crews are
+rebalanced in the several day proposal. A technician whose day has no start
+on the map is left out of it, with their work where it is, and so is a
+driver whose day has containers on it, which "Optimise route" orders by
+what is on the truck instead. The truck's load in the morning of a day
+already under way is worked out from the stops done so far, not recorded.
+A crew card can be handed to one person on the board; sending a person's
+visit to a crew is done on the crews screen or the API, not by dragging
+onto a crew's lane. Live positions come only from the phone app; `/my-day`
+in a browser shares none. The path on the map is today's only, from the
+positions the phone sent, so a stretch with no signal is drawn as a
+straight line between the positions either side of it. The map is raster
+tiles only.

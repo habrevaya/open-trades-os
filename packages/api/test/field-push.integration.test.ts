@@ -5,6 +5,8 @@ import { time, type Actor } from "@opentradesos/core";
 import * as fieldOps from "../src/services/field";
 import * as fieldDevices from "../src/services/field-devices";
 import * as dispatchSvc from "../src/services/dispatch";
+import * as crews from "../src/services/crews";
+import * as jobs from "../src/services/jobs";
 import * as push from "../src/services/push";
 import { announce, sideOf } from "../src/services/visit-notices";
 import { inTenant, ConflictError, type ServiceContext } from "../src/services/context";
@@ -350,5 +352,135 @@ run("the worker's own pass", () => {
     const results = await push.pushPass(db(), { provider });
     expect(results.some((r) => r.organizationId === ORG)).toBe(true);
     expect(provider.sent.some((m) => m.to === RAY_TOKEN && m.data["visitId"] === visitId)).toBe(true);
+  });
+});
+
+run("a crew's work reaches each member's phone", () => {
+  /** A crew of Ray, who leads, and Sam. */
+  async function crewOfTwo(): Promise<string> {
+    const crew = await crews.create(owner(), { name: `Install crew ${crypto.randomUUID().slice(0, 6)}` });
+    await crews.setMembers(owner(), { id: crew.id, members: [{ technicianId: rayTech, isLead: true }, { technicianId: samTech }] });
+    return crew.id;
+  }
+
+  it("tells every member when a visit is sent to the crew, and when it is cancelled with its job", async () => {
+    const crewId = await crewOfTwo();
+    const { visitId } = await visit();
+    await crews.assign(owner(), { id: visitId, crewId });
+    const provider = new FakePush();
+    await pass(provider);
+    expect(provider.sent.map((m) => m.title)).toEqual(["New job on your day", "New job on your day"]);
+    expect(new Set(provider.sent.map((m) => m.to))).toEqual(new Set([RAY_TOKEN, SAM_TOKEN]));
+
+    const [row] = await raw`select job_id from public.visit where id = ${visitId}`;
+    await jobs.update(owner(), { id: row!.job_id, status: "cancelled", cancelVisits: true });
+    const cancelled = new FakePush();
+    await pass(cancelled);
+    expect(cancelled.sent.map((m) => m.title)).toEqual(["Job cancelled", "Job cancelled"]);
+    expect(new Set(cancelled.sent.map((m) => m.to))).toEqual(new Set([RAY_TOKEN, SAM_TOKEN]));
+  });
+
+  it("tells the members a crew visit moved", async () => {
+    const crewId = await crewOfTwo();
+    const start = new Date(Date.now() + 26 * 3_600_000);
+    const { visitId } = await visit(start);
+    await crews.assign(owner(), { id: visitId, crewId });
+    await pass(new FakePush());
+    await inTenant(owner(), async (tx) => {
+      const before = (await sideOf(tx, visitId))!;
+      await tx.execute(sql`update public.visit set window_start = ${new Date(start.getTime() + 864e5).toISOString()}::timestamptz where id = ${visitId}`);
+      await announce(tx, owner(), visitId, before);
+    });
+    const provider = new FakePush();
+    await pass(provider);
+    expect(provider.sent.map((m) => m.title)).toEqual(["Job moved", "Job moved"]);
+  });
+
+  it("hands a crew's visit to one person: off the crew, the others told it is not theirs", async () => {
+    const crewId = await crewOfTwo();
+    const { visitId } = await visit();
+    await crews.assign(owner(), { id: visitId, crewId });
+    await pass(new FakePush());
+
+    await dispatchSvc.assign(owner(), { id: visitId, technicianIds: [rayTech] });
+    const [row] = await raw`select crew_id from public.visit where id = ${visitId}`;
+    expect(row!.crew_id).toBeNull();
+    const provider = new FakePush();
+    await pass(provider);
+    // Ray keeps it, now as his own, so he hears nothing new; Sam hears it came off his day.
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]).toMatchObject({ to: SAM_TOKEN, title: "Job taken off your day" });
+  });
+
+  it("takes a visit off the person who had it when it is sent to a crew", async () => {
+    const crewId = await crewOfTwo();
+    const { visitId } = await visit();
+    await dispatchSvc.assign(owner(), { id: visitId, technicianIds: [samTech] });
+    await crews.assign(owner(), { id: visitId, crewId });
+    expect(await raw`select id from public.visit_assignment where visit_id = ${visitId}`).toHaveLength(0);
+  });
+});
+
+run("a notice that never reached anybody is put in front of the office", () => {
+  const officeTasks = () => raw<{ title: string; body: string; entity_type: string; entity_id: string; priority: string }[]>`
+    select title, body, entity_type, entity_id, priority from public.task
+     where organization_id = ${ORG} and title like '%phone was not told%'`;
+
+  beforeEach(async () => {
+    await raw`delete from public.task where organization_id = ${ORG}`;
+  });
+
+  it("raises one task on the visit once every try has failed, and only once", async () => {
+    const { visitId } = await visit();
+    await dispatchSvc.assign(owner(), { id: visitId, technicianIds: [rayTech] });
+    const provider = new FakePush();
+    provider.send = async () => { throw new Error("connect ECONNREFUSED"); };
+    for (let i = 0; i < push.MAX_ATTEMPTS - 1; i++) await pass(provider);
+    expect(await officeTasks()).toHaveLength(0);
+
+    const last = await pass(provider);
+    expect(last.tasks).toBe(1);
+    const [task] = await officeTasks();
+    expect(task).toMatchObject({ entity_type: "visit", entity_id: visitId, priority: "high" });
+    expect(task!.title).toMatch(/^Ray Nunez's phone was not told: New job on your day/);
+    expect(task!.body).toMatch(/connect ECONNREFUSED\)\. Call Ray Nunez to tell them\.$/);
+
+    await pass(provider);
+    expect(await officeTasks()).toHaveLength(1);
+  });
+
+  it("raises nothing when another of the person's phones got it", async () => {
+    await fieldOps.register(as(RAY, rayTech), { installationId: `ray-${crypto.randomUUID()}`, pushToken: "ExponentPushToken[raysecondphone000000]" });
+    await drainQuietly();
+    const { visitId } = await visit();
+    await dispatchSvc.assign(owner(), { id: visitId, technicianIds: [rayTech] });
+    const provider = new FakePush();
+    provider.answer = (m) => m.to === RAY_TOKEN
+      ? { ok: false, error: "The app is no longer on this phone.", gone: true, retryable: false }
+      : { ok: true, id: "second-phone" };
+    await pass(provider);
+    expect(await officeTasks()).toHaveLength(0);
+  });
+
+  it("raises it when the receipt says the one phone that took it never showed it", async () => {
+    const { visitId } = await visit();
+    await dispatchSvc.assign(owner(), { id: visitId, technicianIds: [samTech] });
+    const provider = new FakePush();
+    await pass(provider);
+    expect(await officeTasks()).toHaveLength(0);
+    provider.receiptFor = () => ({ ok: false, error: "Message rate exceeded.", gone: false });
+    await pass(provider, new Date(Date.now() + 20 * 60_000));
+    const [task] = await officeTasks();
+    expect(task!.title).toMatch(/^Sam Ortiz's phone was not told/);
+  });
+
+  it("says nothing about a phone somebody signed out on purpose", async () => {
+    const { visitId } = await visit();
+    await dispatchSvc.assign(owner(), { id: visitId, technicianIds: [rayTech] });
+    await pass(new FakePush());
+    await raw`update public.push_delivery set status = 'queued' where visit_id = ${visitId}`;
+    await raw`update public.device set push_token = null where technician_id = ${rayTech}`;
+    await pass(new FakePush());
+    expect(await officeTasks()).toHaveLength(0);
   });
 });

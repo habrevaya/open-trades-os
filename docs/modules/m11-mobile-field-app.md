@@ -311,8 +311,14 @@ When the office puts a visit on somebody's day, takes it off, moves it or
 cancels it, the change emits `visit.assigned`, `visit.unassigned`,
 `visit.rescheduled` or `visit.cancelled`, naming the technicians it is about.
 Every path that does those things emits them: the board, booking a job with
-people on it, adding a visit, and the office answering a customer's request to
-move or cancel.
+people on it, adding a visit, the office answering a customer's request to
+move or cancel, a customer taking a time the office offered, the several
+day rebalance, and cancelling a whole job with its visits still to come.
+
+A visit sent to a crew is on every member's day, so a change to it names
+each member of the crew as it stands: sending it to the crew tells them all
+it is theirs, moving or cancelling it tells them all, and a crew card handed
+to one person on the board tells the others it is off their day.
 
 The worker reads them from its own place in each company's log and pushes a
 notice through Expo's push service to every phone of those technicians with a
@@ -329,6 +335,18 @@ call technician's day at ten for eleven rings. A change read more than twelve
 hours after it was made is skipped as old news. When Expo says the app is gone
 from a phone, at the send or in the receipt a quarter of an hour later, the
 phone's token is forgotten.
+
+A notice that never reached anybody is put in front of the office. Once
+every one of a person's phones has finished with a change (five tries, or
+twelve hours, or a receipt saying it was not shown) and none of them got
+it, the worker raises a task in the office queue on the visit, high and due
+when the work starts: "Ray Nunez's phone was not told: Job cancelled", with
+the notice's own words, why it could not be sent, and "Call Ray Nunez to
+tell them." One task per change per person, never one per retry. A phone
+signed out or taken away on purpose raises nothing, and nor does a change
+another of their phones received. A task rather than the field conflicts
+list, because a conflict is something a phone sent that the office must
+reconcile, and this is something the office sent that never arrived.
 
 The app asks for permission on its first launch, makes the two Android
 channels the server sends to, and registers its token with
@@ -369,10 +387,17 @@ person being located:
   (`visit:dispatch`), not to a CSR and not to other technicians. A customer
   sees one pin, only on the way to their own visit, only after the text, and
   nothing once the technician arrives.
-- **Kept briefly.** Three days unless the company sets one to thirty, then
-  deleted by the worker. Turning sharing off for the company or a person
-  deletes what was kept at once; shortening the retention deletes what is now
-  past it.
+- **Kept briefly, and bounded.** Three days unless the company sets one to
+  thirty, then deleted by the worker. Turning sharing off for the company or
+  a person deletes what was kept at once; shortening the retention deletes
+  what is now past it. No two positions of one person are kept closer
+  together than half the company's interval (never under five seconds), so a
+  person's day is at most 2,880 positions at the default of one a minute,
+  and the whole store at most that times the retention.
+- **Today's path, to the same few people.** The dispatch map draws the path
+  each person took today behind their pin, from the positions already kept,
+  for `visit:dispatch` only. Yesterday's is inside the retention for the
+  record and is not drawn.
 - **Not precise beyond need.** A fix less accurate than a kilometre, one from
   the future, one at 0, 0 and one from a phone faking its GPS are refused.
   The phone thins what it keeps: a parked van sends one every few minutes.
@@ -385,6 +410,26 @@ Telling the customer you are on the way also moves the visit on the way on
 the phone, into the queue like every other tap, so the tracking link has a
 van to show and the office sees the visit move whether or not the text got
 through.
+
+### Opening `/my-day` with no signal
+
+The first time `/my-day` is opened on a phone with a signal, it registers a
+service worker for `/my-day` alone (`/my-day-sw.js`) and keeps two things on
+the phone: the day as the server drew it for the person signed in, and the
+page's own script and style files. A line at the top says "This day is
+saved on this phone, so it opens with no signal." From then on, every time
+the page is opened with a signal the kept copy is refreshed; opened with no
+answer from the network, the kept copy is shown instead, with "No signal.
+This is your day as it was last saved on this phone", and everything done
+on it goes into the queue as it would on a page already open.
+
+Only that person's own day is kept, never another screen and never an API
+answer. The copy is written down as belonging to whoever is signed in:
+every signed in page checks it, and a different person signing in on the
+same phone empties it before anything of theirs is kept. The sign in page
+empties it outright, and signing out and an ended session both land there,
+so a shared or borrowed phone keeps nobody's day once they have gone.
+`apps/web/src/lib/my-day-offline.ts` has the rules.
 
 ### Offline, and sending
 
@@ -494,8 +539,9 @@ resolves a conflict and does not write a report.
 
 **Can a technician open the app with no signal?** The phone app, yes: it opens
 on the day it last fetched, with everything done since laid over it. The web
-page, no: they can record a day on a page already open, and true offline page
-loads need a service worker.
+page, yes, once it has been opened on that phone with a signal: it opens as
+the day was when it was last saved there, says so, and keeps recording into
+the queue.
 
 **What happens to a photo taken offline?** The record that it exists syncs with
 everything else; the bytes follow separately, and the office can see what has
@@ -523,13 +569,10 @@ against a fake of the push service, and a build needs an Expo project id
 (`eas init`) before the app can get a token at all. There is no store listing
 and no icon of its own; a company builds and distributes it.
 
-Notices go to the technicians on a visit's assignment list. A visit sent to a
-crew is not on any one technician's phone day, so a change to it tells nobody.
-Cancelling a whole job does not cancel its visits, so it sends no notice; a
-visit is cancelled today when the office agrees to a customer's request.
-A notice that could not be sent is tried again on the worker's next passes for
-twelve hours and then left, with the reason on its row; nobody is told about
-a phone that missed one.
+Notices go to the technicians on a visit's assignment list and to the
+members of the crew it is sent to. Somebody with no phone registered for
+notices is told nothing and raises no task, because there was nothing to
+send; the office sees which phones get changes on `/settings/phones`.
 
 A code is sent only by a company with a text number or a mail provider
 connected; with neither, the person is told a code is on its way and none
@@ -566,6 +609,15 @@ and keeps every read behind the company's own permission. The customer portal sh
 the job link, the treatment the logo already has (a token that already grants
 sight of the record), and only the ones somebody chose with **Show the
 customer** or all of them when the company says so (M05). There is still no
-unauthenticated way to read one. True
-offline page loads need a service worker: a technician with no signal can record
-a day on a page already open; they cannot open the page.
+unauthenticated way to read one.
+
+`/my-day` opens with no signal only once it has been opened on that phone
+with one, only in a browser that keeps service workers (any current one, on
+HTTPS or localhost), and only as the day was when it was last saved: a
+visit the office added since is not on it until the signal is back, and
+neither is anything the server would have redrawn (a closed punch, a
+finished visit) beyond what the phone's own queue lays over it. A day kept
+from yesterday opens as yesterday's, with its date. Other screens do not
+open without a signal. The copy kept is the page and its script files,
+nothing else, so photographs of earlier visits and the price book's
+pictures are not there offline.

@@ -16,15 +16,19 @@ export async function applyDays(input: {
   days: number;
   basis: string;
   key: string;
-  dayMoves: { visitId: string; toDate: string; technicianId: string }[];
-  moves: { visitId: string; technicianId: string }[];
+  dayMoves: { visitId: string; toDate: string; technicianId?: string | undefined; crewId?: string | undefined }[];
+  moves: { visitId: string; technicianId?: string | undefined; crewId?: string | undefined }[];
   orders: { date: string; technicianId: string; visitIds: string[] }[];
+  crewOrders: { date: string; crewId: string; visitIds: string[] }[];
 }): Promise<{ ok: true; movedDays: number; told: number } | { ok: false; message: string }> {
   const user = await requireSetupUser();
   try {
     const result = await dispatchDays.applyRebalanceDays(
       { actor: user.actor, db: getDb(), idempotencyKey: `rebalance-days:${input.key}` },
-      { from: input.from, days: input.days, basis: input.basis, dayMoves: input.dayMoves, moves: input.moves, orders: input.orders },
+      {
+        from: input.from, days: input.days, basis: input.basis,
+        dayMoves: input.dayMoves, moves: input.moves, orders: input.orders, crewOrders: input.crewOrders,
+      },
     );
     revalidatePath("/schedule");
     return { ok: true, movedDays: result.movedDays, told: result.told.filter((t) => t.notified === "queued").length };

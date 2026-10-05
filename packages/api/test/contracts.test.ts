@@ -174,6 +174,7 @@ describe("permissions", () => {
       "POST /v1/portal/invoice/pay",
       "POST /v1/portal/sign-out",
       "POST /v1/portal/visit-change",
+      "POST /v1/portal/visit-change/answer",
       "POST /v1/public/bookings",
       /**
        * A third party asking to be installed, and coming back for its

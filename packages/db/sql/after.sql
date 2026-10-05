@@ -2819,6 +2819,8 @@ returns table (organization_id uuid)
         from public.push_delivery d
        where d.status in ('queued', 'sending')
           or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
+          -- A notice that ended without reaching anybody, not yet put to the office.
+          or (d.status in ('failed', 'skipped') and d.office_told_at is null)
        group by d.organization_id
     ) x
     where not exists (
@@ -3129,3 +3131,14 @@ returns table (organization_id uuid, files bigint)
 
 revoke all on function app.file_store_organizations(text, int) from public;
 grant execute on function app.file_store_organizations(text, int) to background;
+
+-- ---- One open request per visit ---------------------------------------------
+-- A customer's request to move or cancel a visit is open while the office has
+-- not answered it (`pending`) and while an offer of a different time waits on
+-- the customer (`proposed`). Built here rather than in the migration that
+-- added `proposed`, because Postgres will not use an enum value inside the
+-- transaction that created it and the generated migrations run in one. The
+-- schema (`visit_change_request.pendingIdx`) declares the same index.
+create unique index if not exists visit_change_request_pending_idx
+  on public.visit_change_request using btree (visit_id)
+  where status in ('pending', 'proposed');

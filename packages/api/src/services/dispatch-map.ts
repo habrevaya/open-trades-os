@@ -630,7 +630,7 @@ export const minutesFrom = (origin: Date, at: Date) => Math.round((at.getTime() 
 export const atLocal = (day: Day, hhmm: string) => minutesFrom(day.origin, time.instantOfLocal(day.date, minutesOfDay(hhmm), day.zone));
 
 /** When the van leaves, in minutes from local midnight: the day's start, or now if that has passed. */
-function departureOf(day: Day, startsAt: string = day.travel.dayStartsAt): number {
+export function departureOf(day: Day, startsAt: string = day.travel.dayStartsAt): number {
   const startsAtInstant = time.instantOfLocal(day.date, minutesOfDay(startsAt), day.zone);
   const now = new Date();
   const from = now > startsAtInstant && time.dateIn(now, day.zone) === day.date ? now : startsAtInstant;

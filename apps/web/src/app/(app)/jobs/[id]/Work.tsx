@@ -94,6 +94,57 @@ export function JobLifecycle({
   return null;
 }
 
+/**
+ * Calling the whole job off. The visits still to come are offered with it,
+ * ticked, for somebody who may cancel visits: a job cancelled with its
+ * visits left on the board sends a van to work nobody wants. Visits already
+ * under way are named and left, because the person on one is the one to
+ * ring.
+ */
+export function CancelJob({
+  action, jobId, status, toCome, underWay, mayCancelVisits,
+}: {
+  action: Action; jobId: string; status: string;
+  /** Visits not started whose window has not passed. */
+  toCome: number;
+  /** Visits somebody is on the way to or working. */
+  underWay: number;
+  mayCancelVisits: boolean;
+}) {
+  if (!["lead", "estimating", "scheduled", "in_progress", "on_hold", "completed"].includes(status)) return null;
+  return (
+    <details className="mt-4 rounded-md border border-steel-200 p-4">
+      <summary className="cursor-pointer text-sm font-medium">Cancel this job</summary>
+      <ActionForm action={action} submit="Cancel the job" tone="danger"
+                  hidden={{ jobId, status: "cancelled" }} className="mt-3 space-y-3">
+        <p className="text-sm text-ink-700">The job stays on record as cancelled. Nothing is deleted.</p>
+        {toCome > 0 && mayCancelVisits && (
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="cancelVisits" value="1" defaultChecked className="mt-0.5 h-4 w-4" />
+            <span>
+              Also cancel its {toCome === 1 ? "visit" : `${toCome} visits`} still to come, and tell the
+              technicians on {toCome === 1 ? "it" : "them"} not to go
+            </span>
+          </label>
+        )}
+        {toCome > 0 && !mayCancelVisits && (
+          <p className="text-sm text-amber-700">
+            Its {toCome === 1 ? "visit" : `${toCome} visits`} still to come stay on the board. Ask somebody who
+            reschedules visits to cancel {toCome === 1 ? "it" : "them"}.
+          </p>
+        )}
+        {underWay > 0 && (
+          <p className="text-sm text-amber-700">
+            {underWay === 1 ? "One visit is" : `${underWay} visits are`} already under way and{" "}
+            {underWay === 1 ? "is" : "are"} left as {underWay === 1 ? "it is" : "they are"}. Call whoever is on{" "}
+            {underWay === 1 ? "it" : "them"}.
+          </p>
+        )}
+      </ActionForm>
+    </details>
+  );
+}
+
 /** What was used on the job, and whether each one has been billed. */
 export function UsedOnJob({ lines }: { lines: UsedLine[] }) {
   if (lines.length === 0) return null;

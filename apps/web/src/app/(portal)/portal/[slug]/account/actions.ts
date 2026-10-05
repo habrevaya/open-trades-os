@@ -122,3 +122,24 @@ export async function requestSessionVisitChange(slug: string, input: {
   if (input.visitId) revalidatePath(`${home(slug)}/change/${input.visitId}`);
   return { ok: true };
 }
+
+/** Taking or turning down the time the office offered, as the account link does, from the sign in. */
+export async function answerSessionVisitChangeProposal(slug: string, input: {
+  visitId?: string | undefined;
+  accept: boolean;
+  answer?: string | undefined;
+}): Promise<VisitChangeResult> {
+  const session = await requirePortalSession(slug);
+  try {
+    await visitChanges.answer(getDb(), {
+      token: session.token,
+      ...(input.visitId ? { visitId: input.visitId } : {}),
+      accept: input.accept,
+      ...(input.answer?.trim() ? { answer: input.answer.trim() } : {}),
+    }, await requestMeta());
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? "Something went wrong sending that. Please contact us." };
+  }
+  if (input.visitId) revalidatePath(`${home(slug)}/change/${input.visitId}`);
+  return { ok: true };
+}

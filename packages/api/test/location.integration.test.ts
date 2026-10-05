@@ -187,6 +187,16 @@ run("what the server keeps", () => {
     const rows = await kept();
     expect(rows[rows.length - 1]).toMatchObject({ reason: "on_the_way", visit_id: visit });
   });
+
+  it("keeps no two positions of one person closer together than half the company's interval", async () => {
+    const before = (await kept()).length;
+    const at = minutesAgo(2);
+    const result = await send({
+      positions: [fix(at, 30.255, -97.755), fix(new Date(at.getTime() + 5_000), 30.2551, -97.7551)],
+    });
+    expect(result.positions).toEqual({ stored: 1, dropped: { too_soon: 1 } });
+    expect((await kept()).length).toBe(before + 1);
+  });
 });
 
 run("who sees where people are", () => {
@@ -196,6 +206,16 @@ run("who sees where people are", () => {
     const ray = live.positions.find((p) => p.technicianId === technicianId)!;
     expect(ray).toMatchObject({ displayName: "Ray Nunez", reason: "on_the_way", freshness: "live" });
     expect(ray.lastSeen).toMatch(/minutes? ago|just now/);
+  });
+
+  it("draws the path they took today, oldest first, ending where they are now", async () => {
+    const live = await liveLocation.latest(dispatcher());
+    const ray = live.positions.find((p) => p.technicianId === technicianId)!;
+    const today = (await kept()).filter((r) => r.recorded_at >= new Date(Date.now() - 40 * 60_000));
+    expect(ray.trail.length).toBeGreaterThanOrEqual(2);
+    expect(ray.trail.length).toBeLessThanOrEqual(today.length);
+    expect(ray.trail.map((p) => p.at)).toEqual([...ray.trail.map((p) => p.at)].sort());
+    expect(ray.trail.at(-1)).toMatchObject({ lat: ray.lat, lng: ray.lng, at: ray.recordedAt });
   });
 
   it("does not show a technician where their colleagues are", async () => {
