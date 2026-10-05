@@ -121,6 +121,16 @@ describe("the phone prices an estimate option the way the server does", () => {
     }
   });
 
+  it("shows lines whose tax adds up to the document's, at several rates on one document", () => {
+    for (let seed = 7001; seed <= 8000; seed++) {
+      const g = generator(seed);
+      const lines = Array.from({ length: g.int(1, 8) }, () => ({ ...randomLine(g), isOptional: false }));
+      const phone = priceOnSite(lines, randomMember(g));
+      const added = phone.lines.reduce((total, l) => add(total, usd(l.taxAmount)), zero("USD"));
+      expect(toString(added), `seed ${seed}`).toBe(phone.totals.taxTotal);
+    }
+  });
+
   it("shows a line the office priced as priced, without taking the member's part off twice", () => {
     const priced = priceOnSite([{
       quantity: "1", unitPrice: "200.00", discountAmount: "20.00", memberDiscountAmount: "20.00",

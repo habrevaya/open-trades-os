@@ -1,4 +1,5 @@
 import { type Money, add, subtract, zero, toString, isZero, isNegative, isPositive, allocate, multiply, round, sum, compare, money } from "../money/index.js";
+import { shareTax, asMetadata, type RateTotal } from "../tax/index.js";
 
 /**
  * POSTING TO THE LEDGER
@@ -143,6 +144,13 @@ export interface LedgerEntry {
    * migration so that a correction can point at what it corrects.
    */
   reversesEntryId?: string | undefined;
+  /**
+   * Facts about the entry a report reads back: on sales tax payable, which
+   * of the company's rates it was and the sales it was charged on
+   * (`tax.asMetadata`), so tax collected by rate is read from the ledger
+   * like every other financial figure.
+   */
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export interface Posting {
@@ -252,6 +260,13 @@ export interface ComputedLine {
  * expects and what the customer's own arithmetic will produce. Per-line
  * rounding drifts by a cent on roughly a third of multi-line invoices, and
  * every one of those is a phone call.
+ *
+ * The rounded tax is then shared back onto the lines (`tax.shareTax`), so
+ * each line shows its tax to the cent and the lines add up to the tax on
+ * the document exactly: a filing report summed from lines, and the ledger's
+ * one entry per rate, agree with the total the customer was sent. A
+ * document with a stated tax on any line is history, and keeps each line's
+ * stated figure as it was charged.
  */
 export function computeInvoice(lines: InvoiceLineInput[]): { lines: ComputedLine[]; totals: InvoiceTotals } {
   const currency = lines[0]?.unitPrice.currency ?? "USD";
@@ -276,8 +291,12 @@ export function computeInvoice(lines: InvoiceLineInput[]): { lines: ComputedLine
   const taxTotal = round(sum(computed.map((l) => l.taxAmount), currency), 2);
   const total = round(add(subtract(subtotal, discountTotal), taxTotal), 2);
 
+  const stated = lines.some((line) => line.taxAmount !== undefined);
+  const shared = stated ? null : shareTax(computed.map((l) => l.taxAmount), taxTotal);
   return {
-    lines: computed.map((l) => ({ ...l, taxAmount: round(l.taxAmount, 2), lineTotal: round(l.lineTotal, 2) })),
+    lines: computed.map((l, i) => ({
+      ...l, taxAmount: shared ? shared[i]! : round(l.taxAmount, 2), lineTotal: round(l.lineTotal, 2),
+    })),
     totals: { subtotal, discountTotal, taxTotal, total },
   };
 }
@@ -355,6 +374,8 @@ export function postInvoice(input: {
   customerId?: string | undefined;
   jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The tax by rate (`tax.byRate`), posted one entry per rate. Omitted, the tax is one entry. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -368,9 +389,33 @@ export function postInvoice(input: {
       dr(ACCOUNTS.AR, totals.total, "Invoice issued", tag),
       dr(ACCOUNTS.DISCOUNTS, totals.discountTotal, "Discount given", tag),
       cr(revenueAccount, totals.subtotal, "Revenue earned", tag),
-      cr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax collected", tag),
+      ...taxEntries("credit", totals.taxTotal, input.taxByRate, "Sales tax collected", tag),
     ]),
   });
+}
+
+/**
+ * SALES TAX PAYABLE, ONE ENTRY PER RATE.
+ *
+ * A document that charged two rates owes each to whoever collects it, and a
+ * filing return asks for each separately. One entry for the whole tax would
+ * leave "how much of this was Travis County" to be reconstructed from
+ * invoice lines, which is the cache the ledger exists not to trust. So each
+ * rate is its own entry, carrying the rate and the sales it was charged on
+ * in its metadata, and the entries add up to the document's tax: refused
+ * here, before the database, if they do not.
+ */
+function taxEntries(
+  direction: Direction, total: Money, byRate: readonly RateTotal[] | undefined, memo: string,
+  tag: Partial<LedgerEntry>,
+): LedgerEntry[] {
+  const side = direction === "credit" ? cr : dr;
+  if (!byRate || byRate.length === 0) return [side(ACCOUNTS.TAX_PAYABLE, total, memo, tag)];
+  const stated = sum(byRate.map((r) => r.tax), total.currency);
+  if (compare(stated, total) !== 0) {
+    throw new UnbalancedPostingError(subtract(total, stated));
+  }
+  return byRate.map((row) => side(ACCOUNTS.TAX_PAYABLE, row.tax, memo, { ...tag, metadata: asMetadata(row) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -647,6 +692,8 @@ export function postVoid(input: {
   customerId?: string | undefined;
   jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The invoice's tax by rate, reversed one entry per rate as it was posted. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -661,7 +708,7 @@ export function postVoid(input: {
       cr(ACCOUNTS.AR, totals.total, "Invoice voided", tag),
       cr(ACCOUNTS.DISCOUNTS, totals.discountTotal, "Discount reversed", tag),
       dr(revenueAccount, totals.subtotal, "Revenue reversed", tag),
-      dr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax reversed", tag),
+      ...taxEntries("debit", totals.taxTotal, input.taxByRate, "Sales tax reversed", tag),
     ]),
   });
 }
@@ -703,6 +750,8 @@ export function postCreditNote(input: {
   jobId?: string | undefined;
   invoiceId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The credited tax by rate, taken off one entry per rate. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -714,7 +763,7 @@ export function postCreditNote(input: {
     occurredAt: input.occurredAt,
     entries: compact([
       dr(revenueAccount, totals.subtotal, "Revenue credited back", tag),
-      dr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax credited back", tag),
+      ...taxEntries("debit", totals.taxTotal, input.taxByRate, "Sales tax credited back", tag),
       /**
        * The other side sits in customer deposits, which is where unapplied money
        * owed to a customer already lives in this chart. It is a liability and it
@@ -771,6 +820,8 @@ export function postCreditNoteVoid(input: {
    */
   jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The credited tax by rate, restored one entry per rate. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -783,7 +834,7 @@ export function postCreditNoteVoid(input: {
     entries: compact([
       dr(ACCOUNTS.CUSTOMER_DEPOSITS, totals.total, "Credit withdrawn", tag),
       cr(revenueAccount, totals.subtotal, "Revenue restored", tag),
-      cr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax restored", tag),
+      ...taxEntries("credit", totals.taxTotal, input.taxByRate, "Sales tax restored", tag),
     ]),
   });
 }

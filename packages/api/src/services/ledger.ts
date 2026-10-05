@@ -45,6 +45,7 @@ export async function writePosting(
       ...(entry.jobId ? { jobId: entry.jobId } : {}),
       ...(entry.memo ? { memo: entry.memo } : {}),
       ...(entry.reversesEntryId ? { reversesEntryId: entry.reversesEntryId } : {}),
+      ...(entry.metadata ? { metadata: entry.metadata } : {}),
     })),
   );
 

@@ -63,6 +63,7 @@ export * as retention from "./retention/index.js";
 export * as safety from "./safety/index.js";
 export * as financing from "./financing/index.js";
 export * as costing from "./costing/index.js";
+export * as tax from "./tax/index.js";
 export * as budget from "./budget/index.js";
 export * as pdf from "./pdf/index.js";
 export * as portability from "./portability/index.js";
