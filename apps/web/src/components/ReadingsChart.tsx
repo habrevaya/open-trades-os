@@ -15,9 +15,11 @@ import { Series } from "./ReportChart";
  * and both are in the table. Nothing is drawn for fewer than two days,
  * because a line needs two ends.
  */
-export function ReadingsChart({ label, unit, points }: {
+export function ReadingsChart({ label, unit, equipment = null, points }: {
   label: string;
   unit: string | null;
+  /** The unit the readings were taken on, which names the chart beside the reading. */
+  equipment?: string | null | undefined;
   points: { at: string; value: string }[];
 }) {
   const byDay = new Map<string, string>();
@@ -37,7 +39,8 @@ export function ReadingsChart({ label, unit, points }: {
   if (!decision.ok) return null;
   return (
     <figure className="mt-2">
-      <Series plan={decision.plan} drill={undefined} title={label} described={`${measure} by date`} />
+      <Series plan={decision.plan} drill={undefined} title={equipment ? `${label}, ${equipment}` : label}
+              described={`${measure} by date`} />
     </figure>
   );
 }

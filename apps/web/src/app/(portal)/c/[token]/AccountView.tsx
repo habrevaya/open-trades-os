@@ -349,8 +349,7 @@ export function AccountView({
                     {series.label}
                     {series.equipment ? <span className="font-normal text-ink-500">, {series.equipment}</span> : null}
                   </p>
-                  <ReadingsChart label={series.equipment ? `${series.label}, ${series.equipment}` : series.label}
-                                 unit={series.unit} points={series.points} />
+                  <ReadingsChart label={series.label} unit={series.unit} equipment={series.equipment} points={series.points} />
                   <table className="mt-1 w-full text-sm">
                     <tbody>
                       {series.points.map((p, i) => (

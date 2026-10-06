@@ -629,3 +629,24 @@ run("Stripe's off session charge, as the adapter sends it", () => {
     }
   });
 });
+
+/* ============================================ a bank payment on its way === */
+
+run("an invoice with a bank payment on its way", () => {
+  it("shows the customer it is on its way and offers no second way to pay", async () => {
+    const kim = await aCustomer(ORG, owner(), "Kim Bank", "kim@onfile.test");
+    const invoiceId = await anInvoice(kim, "66.00");
+    const link = await inTenant(owner(), (tx) => portal.mintGrant(tx, {
+      organizationId: ORG, customerId: kim, scope: "invoice", subjectId: invoiceId, expiresInDays: 1,
+    }));
+    const { viewInvoice } = await import("../src/services/invoice-delivery");
+    expect(await viewInvoice(db(), { token: link.token })).toMatchObject({ payable: true, paymentOnItsWay: null });
+    await raw`insert into public.integration_event (organization_id, direction, provider, event_type, idempotency_key, status,
+      entity_type, entity_id, request_payload)
+      values (${ORG}, 'outbound', 'stripe', 'payment.intent', ${`bank-${invoiceId}`}, 'in_flight', 'customer', ${kim},
+        ${raw.json({ amount: "66.0000", method: "ach", allocations: [{ invoiceId, amount: "66.0000" }] } as never)})`;
+    expect(await viewInvoice(db(), { token: link.token })).toMatchObject({
+      payable: false, onlinePaymentAvailable: false, paymentOnItsWay: { amount: "66.0000" },
+    });
+  });
+});

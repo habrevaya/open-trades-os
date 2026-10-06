@@ -49731,6 +49731,254 @@
         ]
       }
     },
+    "/v1/invoices/{id}/cards-on-file": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listInvoiceCardsOnFile",
+        "summary": "The saved cards an invoice's payer agreed may be charged, and the charges on it",
+        "description": "Only cards whose customer agreed, in their own account, to be charged without pressing Pay, and every charge of one on this invoice: by whom, automatically or not, and what became of it.\n\nRequires a session holding: payment:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The saved cards an invoice's payer agreed may be charged, and the charges on it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListInvoiceCardsOnFileOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:read"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/charge-card": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "chargeInvoiceCardOnFile",
+        "summary": "Charge the invoice's balance to a saved card the payer agreed may be charged",
+        "description": "Refused for a card without the customer's live agreement, a card that is not the payer's, and an invoice with nothing owed. Charged off session through the processor; the invoice shows paid when its signed webhook says the money moved. When the bank wants the customer to confirm it themselves, the customer is sent the link to pay and the answer says so. The person charging is named on the charge and in the audit log.\n\nRequires a session holding: payment:charge_saved, payment:collect.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChargeInvoiceCardOnFileInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Charge the invoice's balance to a saved card the payer agreed may be charged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChargeInvoiceCardOnFileOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:charge_saved",
+          "payment:collect"
+        ]
+      }
+    },
     "/v1/invoices/{id}/custom-fields": {
       "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -74317,6 +74565,228 @@
         ]
       }
     },
+    "/v1/portal-layout": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getPortalLayout",
+        "summary": "The blocks on a customer's account page, in order",
+        "description": "Every block the page could show: the ones it shows, in order, then the ones it does not. Starts from the layout the trade pack seeded.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M05"
+        ],
+        "responses": {
+          "200": {
+            "description": "The blocks on a customer's account page, in order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPortalLayoutOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "setPortalLayout",
+        "summary": "Rearrange, hide and retitle the blocks on a customer's account page",
+        "description": "Name every block once, in the order to draw them, each shown or not, with a heading of up to 60 characters or none for the usual words. The bills cannot be hidden. Saved on the company's layout, so a trade pack upgrade keeps it and lists it as the company's own.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPortalLayoutInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rearrange, hide and retitle the blocks on a customer's account page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPortalLayoutOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/portal-settings": {
       "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -75397,7 +75867,7 @@
       "get": {
         "operationId": "listPortalCards",
         "summary": "The cards and bank accounts the customer has saved",
-        "description": "From a sign in only. The brand or bank, the last four digits and a card's expiry, which is all that is kept: the card or account itself is held by the processor.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
+        "description": "From a sign in only. The brand or bank, the last four digits and a card's expiry, which is all that is kept: the card or account itself is held by the processor. Each says whether the customer lets the company charge it without pressing Pay and pay their bills automatically with it, and the words they would agree to if not.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -75420,6 +75890,306 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListPortalCardsOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
+    "/v1/portal/cards/{cardId}/agreement": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "agreeToPortalCardCharges",
+        "summary": "Let the company charge a saved card without pressing Pay",
+        "description": "From a sign in only. `wording` is the text the customer was shown for this card (from `GET /v1/portal/cards`), and is refused when it is not the words the server builds for it now. Records the words, when, from which sign in, as which contact and from where. Agreeing to a card already agreed returns the agreement that stands.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgreeToPortalCardChargesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Let the company charge a saved card without pressing Pay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgreeToPortalCardChargesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
+    "/v1/portal/cards/{cardId}/agreement/withdraw": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "withdrawPortalCardAgreement",
+        "summary": "Stop the company charging a saved card",
+        "description": "From a sign in only. Ends the agreement and paying automatically at once; the card stays saved for paying by pressing Pay. Withdrawing when there is nothing to withdraw changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawPortalCardAgreementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop the company charging a saved card",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawPortalCardAgreementOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
+    "/v1/portal/cards/{cardId}/autopay": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setPortalCardAutopay",
+        "summary": "Pay each bill automatically with a saved card, or stop",
+        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card. Turning it off needs no words.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPortalCardAutopayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pay each bill automatically with a saved card, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPortalCardAutopayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -122053,6 +122823,77 @@
           "statement"
         ]
       },
+      "AgreeToPortalCardChargesInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          },
+          "wording": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "token",
+          "wording"
+        ]
+      },
+      "AgreeToPortalCardChargesOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "wording": {
+            "type": "string"
+          },
+          "agreedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agreedByContact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopay": {
+            "type": "boolean"
+          },
+          "autopayAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "autopayWording": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "wording",
+          "agreedAt",
+          "agreedByContact",
+          "autopay",
+          "autopayAt",
+          "autopayWording"
+        ]
+      },
       "AnnotateServiceReportInput": {
         "type": "object",
         "properties": {
@@ -127696,6 +128537,38 @@
           "lastError",
           "createdAt",
           "finishedAt"
+        ]
+      },
+      "ChargeInvoiceCardOnFileInput": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "cardId"
+        ]
+      },
+      "ChargeInvoiceCardOnFileOutput": {
+        "type": "object",
+        "properties": {
+          "chargeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chargeId",
+          "status",
+          "message"
         ]
       },
       "CheckCallTrackingInput": {
@@ -163846,6 +164719,78 @@
           "explanation"
         ]
       },
+      "GetPortalLayoutOutput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "customTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usualTitle": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "boolean"
+                },
+                "hideable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "customTitle",
+                "usualTitle",
+                "visible",
+                "hideable"
+              ]
+            }
+          },
+          "startedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "blocks",
+          "startedFrom",
+          "changed"
+        ]
+      },
       "GetPortalSettingsOutput": {
         "type": "object",
         "properties": {
@@ -182064,6 +183009,147 @@
           "drafts"
         ]
       },
+      "ListInvoiceCardsOnFileOutput": {
+        "type": "object",
+        "properties": {
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "agreementId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "cardId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "bank_account"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "agreedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "agreedByContact": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "autopay": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "agreementId",
+                "cardId",
+                "kind",
+                "label",
+                "agreedAt",
+                "agreedByContact",
+                "autopay"
+              ]
+            }
+          },
+          "charges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "trigger": {
+                  "type": "string",
+                  "enum": [
+                    "office",
+                    "autopay"
+                  ]
+                },
+                "attempt": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "card": {
+                  "type": "string"
+                },
+                "requestedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "retryAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "customerTold": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerToldNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "trigger",
+                "attempt",
+                "status",
+                "amount",
+                "card",
+                "requestedBy",
+                "failureReason",
+                "retryAt",
+                "customerTold",
+                "customerToldNote",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "cards",
+          "charges"
+        ]
+      },
       "ListInvoiceDeliveriesOutput": {
         "type": "object",
         "properties": {
@@ -186478,6 +187564,76 @@
                 "savedAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "agreement": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "cardId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "wording": {
+                      "type": "string"
+                    },
+                    "agreedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "agreedByContact": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "autopay": {
+                      "type": "boolean"
+                    },
+                    "autopayAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "autopayWording": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "cardId",
+                    "wording",
+                    "agreedAt",
+                    "agreedByContact",
+                    "autopay",
+                    "autopayAt",
+                    "autopayWording"
+                  ]
+                },
+                "wording": {
+                  "type": "object",
+                  "properties": {
+                    "agreement": {
+                      "type": "string"
+                    },
+                    "autopay": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "agreement",
+                    "autopay"
+                  ]
                 }
               },
               "required": [
@@ -186487,7 +187643,9 @@
                 "last4",
                 "expMonth",
                 "expYear",
-                "savedAt"
+                "savedAt",
+                "agreement",
+                "wording"
               ]
             }
           },
@@ -217368,6 +218526,202 @@
           "progress"
         ]
       },
+      "SetPortalCardAutopayInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "wording": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "token",
+          "on"
+        ]
+      },
+      "SetPortalCardAutopayOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "wording": {
+            "type": "string"
+          },
+          "agreedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agreedByContact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopay": {
+            "type": "boolean"
+          },
+          "autopayAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "autopayWording": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "wording",
+          "agreedAt",
+          "agreedByContact",
+          "autopay",
+          "autopayAt",
+          "autopayWording"
+        ]
+      },
+      "SetPortalLayoutInput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200
+                },
+                "visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "visible"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 30
+          }
+        },
+        "required": [
+          "blocks"
+        ]
+      },
+      "SetPortalLayoutOutput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "customTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usualTitle": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "boolean"
+                },
+                "hideable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "customTitle",
+                "usualTitle",
+                "visible",
+                "hideable"
+              ]
+            }
+          },
+          "startedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "blocks",
+          "startedFrom",
+          "changed"
+        ]
+      },
       "SetPortalSettingsInput": {
         "type": "object",
         "properties": {
@@ -233383,6 +234737,12 @@
                         "null"
                       ]
                     },
+                    "equipment": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "points": {
                       "type": "array",
                       "items": {
@@ -233411,6 +234771,7 @@
                     "key",
                     "label",
                     "unit",
+                    "equipment",
                     "points"
                   ]
                 }
@@ -234189,6 +235550,26 @@
           "payable": {
             "type": "boolean"
           },
+          "paymentOnItsWay": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "amount",
+              "startedAt"
+            ]
+          },
           "onlinePaymentAvailable": {
             "type": "boolean"
           },
@@ -234249,6 +235630,7 @@
           "payments",
           "tips",
           "payable",
+          "paymentOnItsWay",
           "onlinePaymentAvailable",
           "tipping"
         ]
@@ -235696,6 +237078,33 @@
           "daysUntilExpiry",
           "actBy",
           "statement"
+        ]
+      },
+      "WithdrawPortalCardAgreementInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "WithdrawPortalCardAgreementOutput": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
         ]
       },
       "WithdrawTimeOffInput": {

@@ -111,6 +111,39 @@ charge it. A charge with one is confirmed on the spot because the customer is
 on the page pressing Pay, and is settled, like every card payment, only by the
 signed webhook.
 
+**A saved card is charged without the customer only with their recorded
+agreement.** Signed in to their own account (never from a link, which can be
+forwarded), the customer reads the words for that card and agrees to let the
+company charge it for their bills. The words they read, when, how, from which
+sign in, as which contact when it was a contact, and from where are kept on
+the agreement, and they withdraw it from the same screen; taking the card off
+withdraws it too. Without a live agreement for that very card, nothing
+charges it: the service refuses, and `payments.intent` refuses again inside
+the transaction that asks the processor, whoever the caller is. The charge is
+Stripe's documented off session payment intent with the saved payment
+method. A bank that wants the cardholder to approve it answers
+`authentication_required`, and the customer is then sent the link to pay
+the invoice themselves; the office is told so, never left with a silent
+failure.
+
+**Paying automatically is a second agreement on the first.** A customer who
+agreed can turn on paying each bill as it is issued, in words of its own.
+The worker charges every bill they are the one paying that was issued after
+they turned it on, a plan's instalments included (M08 invoices those
+straight to open), once per invoice under a unique index. A charge that
+does not go through sends the customer the link to pay and puts a task in
+the office queue. A declined card is tried once more the next day and never
+again; a bank asking the customer to confirm, a card that is expired, lost
+or wrong, and a bank payment that fails days later are not tried again at
+all, because tomorrow will not change the answer. These are the only
+retries there are.
+
+**A bank payment on its way is not money to chase.** While an ACH payment is
+processing, the invoice shows "Payment on its way" on the office's page and
+the customer's, the collections agent (M27) neither drafts nor sends a
+reminder for it, and a workflow on overdue invoices (M29) does not fire for
+it. If the bank turns it down the invoice is still open and is chased then.
+
 **A job already marked paid stays paid when a refund arrives.** Its lifecycle does
 not go backwards, and the invoice is what now shows money owed.
 
@@ -141,6 +174,21 @@ company takes them (`POST /v1/portal/invoice/pay` and
 `POST /v1/portal/cards/{cardId}/pay`. The invoice screen lists the tips that
 came with its payments and who each is for, under **Tips**, and
 `GET /v1/invoices/{id}/tips` is the same list. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
+
+### Charge a card the customer agreed may be charged
+
+When the invoice's payer has agreed to it, the invoice page shows **Saved
+cards the customer lets you charge**, each with who agreed and when, and
+**Charge $N to Visa ending 4242** for whoever holds `payment:charge_saved`
+(office manager and accountant presets; owner and admin hold everything; a
+technician does not). It is `POST /v1/invoices/{id}/charge-card`, which also
+needs `payment:collect`, and the person charging is named on the charge and
+in the audit log. The same panel lists every charge of a saved card on the
+invoice: by whom or by the automatic payment, and what became of it, read
+from the payment attempt, so it says paid as soon as the webhook has said
+so. A second charge is refused while one is still with the processor.
+`GET /v1/invoices/{id}/cards-on-file` (`payment:read`) is the same read.
+The customer's side (agreeing, paying automatically, withdrawing) is M05's.
 
 ### On site
 
@@ -333,6 +381,11 @@ customers see a link.
 | Technician | Reads an invoice, takes a payment on site, and raises and issues the invoice for their own visit's work (`invoice:raise_on_site`). Does not write, edit or issue invoices otherwise |
 | Accountant | Everything on this module, including refunds, credits and write offs |
 
+Charging a saved card with nobody on the page is its own permission,
+`payment:charge_saved`, separate from `payment:collect`: a technician takes
+payments all day from the person in front of them, and reaching into a
+customer's saved card without them is a different act.
+
 Five separate permissions on one document, deliberately: `invoice:write`,
 `invoice:send`, `invoice:void`, `invoice:writeoff` and `invoice:credit`. Voiding
 says the invoice should never have existed; writing off says it existed and will
@@ -367,6 +420,11 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/payments` | `payment:collect` |
 | `POST /v1/payments/{id}/apply` | `payment:collect` |
 | `POST /v1/payments/{paymentId}/refund` | `payment:refund` |
+| `GET /v1/invoices/{id}/cards-on-file` | `payment:read` |
+| `POST /v1/invoices/{id}/charge-card` | `payment:charge_saved`, `payment:collect` |
+| `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
 | `GET /v1/invoices/{invoiceId}/financing` | `invoice:read` |
 | `GET /v1/financing/applications` | `payment:read` |
@@ -420,13 +478,27 @@ and cash screens record none, and refunding a payment refunds the invoice part a
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
 until somebody corrects it by hand. Saved cards are
-Stripe's only. Tax rate determination is deliberately not
+Stripe's only, and so is charging one on file. A card saved before its customer
+agreed was set up for use with them on the page, so Stripe may more often ask
+for the cardholder on a charge without them; that is answered with the link
+to pay, and the card is not saved again. Paying automatically charges bills
+issued after it was turned on, judged by when the invoice was issued (or,
+for an invoice that was never a draft, written) and by its issue date, so a
+bill backdated before that day is not charged; nothing already owed is swept
+up when it is turned on. One card pays automatically per customer. A charge
+on file takes the whole balance and no tip. The customer is told of a
+failure by email to the address on their record, or by text when the email
+cannot go and it is not quiet hours; when neither can go, the office task
+says so. A bank payment returned days later sends the link and leaves the
+office the bank payment's own task. Tax rate determination is deliberately not
 built: the rate is on the line it was charged on, and BUILD.md says why. Overdue
 invoices are chased by the collections agent (M27): a reminder per step the
 company sets, drafted on the company's model key and sent from
 `/invoices/reminders` by a person or on its own when the company lets it. It
 needs the company's own model key (M27); chasing without one is a workflow
-somebody builds in M29. Financing has one lender adapter, Wisetack, tested against a fake rather
+somebody builds in M29. Neither chases an invoice while a bank payment for it
+is on its way; a workflow started by some other event than the invoice
+being past its due date is the company's own and is not checked. Financing has one lender adapter, Wisetack, tested against a fake rather
 than a live account; a loan Wisetack refunds after funding is flagged on the
 application and not reversed, so the refund is recorded on the payment by hand,
 and the payment is dated when the funding was heard about rather than the

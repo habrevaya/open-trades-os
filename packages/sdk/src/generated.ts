@@ -375,6 +375,22 @@ export interface AdvanceRegulatorySubmissionOutput {
   statement: string;
 }
 
+export interface AgreeToPortalCardChargesInput {
+  token: string;
+  wording: string;
+}
+
+export interface AgreeToPortalCardChargesOutput {
+  id: string;
+  cardId: string;
+  wording: string;
+  agreedAt: string;
+  agreedByContact: string | null;
+  autopay: boolean;
+  autopayAt: string | null;
+  autopayWording: string | null;
+}
+
 export interface AnnotateServiceReportInput {
   summary?: string | null;
   observations?: string | null;
@@ -1489,6 +1505,16 @@ export interface CancelWebhookReplayOutput {
   lastError: string | null;
   createdAt: string;
   finishedAt: string | null;
+}
+
+export interface ChargeInvoiceCardOnFileInput {
+  cardId: string;
+}
+
+export interface ChargeInvoiceCardOnFileOutput {
+  chargeId: string;
+  status: string;
+  message: string;
 }
 
 export type CheckCallTrackingInput = Record<string, unknown>;
@@ -8482,6 +8508,19 @@ export interface GetPortalJobLiveOutput {
   explanation: string;
 }
 
+export interface GetPortalLayoutOutput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title: string;
+    customTitle: string | null;
+    usualTitle: string;
+    visible: boolean;
+    hideable: boolean;
+  }>;
+  startedFrom: string | null;
+  changed: boolean;
+}
+
 export interface GetPortalSettingsOutput {
   tipping: {
     enabled: boolean;
@@ -11950,6 +11989,32 @@ export interface ListIntakeDraftsOutput {
   }>;
 }
 
+export interface ListInvoiceCardsOnFileOutput {
+  cards: Array<{
+    agreementId: string;
+    cardId: string;
+    kind: "card" | "bank_account";
+    label: string;
+    agreedAt: string;
+    agreedByContact: string | null;
+    autopay: boolean;
+  }>;
+  charges: Array<{
+    id: string;
+    trigger: "office" | "autopay";
+    attempt: number;
+    status: string;
+    amount: string | null;
+    card: string;
+    requestedBy: string | null;
+    failureReason: string | null;
+    retryAt: string | null;
+    customerTold: string | null;
+    customerToldNote: string | null;
+    createdAt: string;
+  }>;
+}
+
 export interface ListInvoiceDeliveriesOutput {
   deliveries: Array<{
     id: string;
@@ -12781,6 +12846,20 @@ export interface ListPortalCardsOutput {
     expMonth: number | null;
     expYear: number | null;
     savedAt: string;
+    agreement: {
+      id: string;
+      cardId: string;
+      wording: string;
+      agreedAt: string;
+      agreedByContact: string | null;
+      autopay: boolean;
+      autopayAt: string | null;
+      autopayWording: string | null;
+    } | null;
+    wording: {
+      agreement: string;
+      autopay: string;
+    };
   }>;
   canSave: boolean;
   canSaveBank: boolean;
@@ -19056,6 +19135,44 @@ export interface SetOnboardingLineOutput {
   };
 }
 
+export interface SetPortalCardAutopayInput {
+  token: string;
+  on: boolean;
+  wording?: string;
+}
+
+export interface SetPortalCardAutopayOutput {
+  id: string;
+  cardId: string;
+  wording: string;
+  agreedAt: string;
+  agreedByContact: string | null;
+  autopay: boolean;
+  autopayAt: string | null;
+  autopayWording: string | null;
+}
+
+export interface SetPortalLayoutInput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title?: string | null;
+    visible: boolean;
+  }>;
+}
+
+export interface SetPortalLayoutOutput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title: string;
+    customTitle: string | null;
+    usualTitle: string;
+    visible: boolean;
+    hideable: boolean;
+  }>;
+  startedFrom: string | null;
+  changed: boolean;
+}
+
 export interface SetPortalSettingsInput {
   tipping?: {
     enabled: boolean;
@@ -22252,6 +22369,7 @@ export interface ViewPortalAccountOutput {
       key: string;
       label: string;
       unit: string | null;
+      equipment: string | null;
       points: Array<{
         at: string;
         value: string;
@@ -22403,6 +22521,10 @@ export interface ViewPortalInvoiceOutput {
     amount: string;
   }>;
   payable: boolean;
+  paymentOnItsWay: {
+    amount: string;
+    startedAt: string;
+  } | null;
   onlinePaymentAvailable: boolean;
   tipping: {
     available: boolean;
@@ -22682,6 +22804,14 @@ export interface WithdrawComplianceDocumentOutput {
   statement: string;
 }
 
+export interface WithdrawPortalCardAgreementInput {
+  token: string;
+}
+
+export interface WithdrawPortalCardAgreementOutput {
+  ok: true;
+}
+
 export type WithdrawTimeOffInput = Record<string, unknown>;
 
 export interface WithdrawTimeOffOutput {
@@ -22834,6 +22964,10 @@ export interface AdvanceRegulatorySubmissionParams {
   id: string;
 }
 
+export interface AgreeToPortalCardChargesParams {
+  cardId: string;
+}
+
 export interface AnnotateServiceReportParams {
   id: string;
 }
@@ -22959,6 +23093,10 @@ export interface CancelMailCampaignParams {
 export interface CancelWebhookReplayParams {
   id: string;
   replayId: string;
+}
+
+export interface ChargeInvoiceCardOnFileParams {
+  id: string;
 }
 
 export interface CheckInAssetParams {
@@ -23622,6 +23760,8 @@ export interface GetPortalJobLiveInput {
   token: string;
 }
 
+export type GetPortalLayoutInput = Record<string, never>;
+
 export type GetPortalSettingsInput = Record<string, never>;
 
 export interface GetPortalVisitChangeInput {
@@ -24253,6 +24393,10 @@ export interface ListIntakeDraftsInput {
   limit?: number;
   sourceKind?: "conversation" | "call" | "form_submission";
   sourceId?: string;
+}
+
+export interface ListInvoiceCardsOnFileInput {
+  id: string;
 }
 
 export interface ListInvoiceDeliveriesInput {
@@ -25420,6 +25564,10 @@ export interface SetOnboardingLineParams {
   id: string;
 }
 
+export interface SetPortalCardAutopayParams {
+  cardId: string;
+}
+
 export interface SetPriceBookItemActiveParams {
   id: string;
 }
@@ -25831,6 +25979,10 @@ export interface WithdrawComplianceDocumentParams {
   id: string;
 }
 
+export interface WithdrawPortalCardAgreementParams {
+  cardId: string;
+}
+
 export interface WithdrawTimeOffParams {
   id: string;
 }
@@ -25862,6 +26014,7 @@ export interface OperationTypes {
   addServiceRouteStop: { input: AddServiceRouteStopParams & AddServiceRouteStopInput; output: AddServiceRouteStopOutput };
   addTaskChecklistItem: { input: AddTaskChecklistItemParams & AddTaskChecklistItemInput; output: AddTaskChecklistItemOutput };
   advanceRegulatorySubmission: { input: AdvanceRegulatorySubmissionParams & AdvanceRegulatorySubmissionInput; output: AdvanceRegulatorySubmissionOutput };
+  agreeToPortalCardCharges: { input: AgreeToPortalCardChargesParams & AgreeToPortalCardChargesInput; output: AgreeToPortalCardChargesOutput };
   annotateServiceReport: { input: AnnotateServiceReportParams & AnnotateServiceReportInput; output: AnnotateServiceReportOutput };
   answerNumberHere: { input: AnswerNumberHereParams & AnswerNumberHereInput; output: AnswerNumberHereOutput };
   answerPortalVisitChangeProposal: { input: AnswerPortalVisitChangeProposalInput; output: AnswerPortalVisitChangeProposalOutput };
@@ -25906,6 +26059,7 @@ export interface OperationTypes {
   cancelCampaign: { input: CancelCampaignParams & CancelCampaignInput; output: CancelCampaignOutput };
   cancelMailCampaign: { input: CancelMailCampaignParams & CancelMailCampaignInput; output: CancelMailCampaignOutput };
   cancelWebhookReplay: { input: CancelWebhookReplayParams & CancelWebhookReplayInput; output: CancelWebhookReplayOutput };
+  chargeInvoiceCardOnFile: { input: ChargeInvoiceCardOnFileParams & ChargeInvoiceCardOnFileInput; output: ChargeInvoiceCardOnFileOutput };
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
   checkInAsset: { input: CheckInAssetParams & CheckInAssetInput; output: CheckInAssetOutput };
   checkOutAsset: { input: CheckOutAssetParams & CheckOutAssetInput; output: CheckOutAssetOutput };
@@ -26150,6 +26304,7 @@ export interface OperationTypes {
   getPortalBookingAvailability: { input: GetPortalBookingAvailabilityInput; output: GetPortalBookingAvailabilityOutput };
   getPortalBookingOptions: { input: GetPortalBookingOptionsInput; output: GetPortalBookingOptionsOutput };
   getPortalJobLive: { input: GetPortalJobLiveInput; output: GetPortalJobLiveOutput };
+  getPortalLayout: { input: GetPortalLayoutInput; output: GetPortalLayoutOutput };
   getPortalSettings: { input: GetPortalSettingsInput; output: GetPortalSettingsOutput };
   getPortalVisitChange: { input: GetPortalVisitChangeInput; output: GetPortalVisitChangeOutput };
   getPriceBookItem: { input: GetPriceBookItemInput; output: GetPriceBookItemOutput };
@@ -26307,6 +26462,7 @@ export interface OperationTypes {
   listInspectionPrograms: { input: ListInspectionProgramsInput; output: ListInspectionProgramsOutput };
   listInspections: { input: ListInspectionsInput; output: ListInspectionsOutput };
   listIntakeDrafts: { input: ListIntakeDraftsInput; output: ListIntakeDraftsOutput };
+  listInvoiceCardsOnFile: { input: ListInvoiceCardsOnFileInput; output: ListInvoiceCardsOnFileOutput };
   listInvoiceDeliveries: { input: ListInvoiceDeliveriesInput; output: ListInvoiceDeliveriesOutput };
   listInvoiceTips: { input: ListInvoiceTipsInput; output: ListInvoiceTipsOutput };
   listInvoices: { input: ListInvoicesInput; output: ListInvoicesOutput };
@@ -26669,6 +26825,8 @@ export interface OperationTypes {
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
+  setPortalCardAutopay: { input: SetPortalCardAutopayParams & SetPortalCardAutopayInput; output: SetPortalCardAutopayOutput };
+  setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
   setPriceBookItemActive: { input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput; output: SetPriceBookItemActiveOutput };
   setProjectPhaseDates: { input: SetProjectPhaseDatesParams & SetProjectPhaseDatesInput; output: SetProjectPhaseDatesOutput };
@@ -26811,6 +26969,7 @@ export interface OperationTypes {
   waiveObligation: { input: WaiveObligationParams & WaiveObligationInput; output: WaiveObligationOutput };
   withdrawChangeOrder: { input: WithdrawChangeOrderParams & WithdrawChangeOrderInput; output: WithdrawChangeOrderOutput };
   withdrawComplianceDocument: { input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput; output: WithdrawComplianceDocumentOutput };
+  withdrawPortalCardAgreement: { input: WithdrawPortalCardAgreementParams & WithdrawPortalCardAgreementInput; output: WithdrawPortalCardAgreementOutput };
   withdrawTimeOff: { input: WithdrawTimeOffParams & WithdrawTimeOffInput; output: WithdrawTimeOffOutput };
   writeOffInvoice: { input: WriteOffInvoiceParams & WriteOffInvoiceInput; output: WriteOffInvoiceOutput };
   writeOffStockUnits: { input: WriteOffStockUnitsInput; output: WriteOffStockUnitsOutput };
@@ -26840,6 +26999,7 @@ export const OPERATIONS = {
   addServiceRouteStop: { method: "POST", path: "/v1/service-routes/{id}/stops", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   addTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   advanceRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/state", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  agreeToPortalCardCharges: { method: "POST", path: "/v1/portal/cards/{cardId}/agreement", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   annotateServiceReport: { method: "PATCH", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   answerNumberHere: { method: "POST", path: "/v1/phone-numbers/{id}/answer-here", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   answerPortalVisitChangeProposal: { method: "POST", path: "/v1/portal/visit-change/answer", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -26884,6 +27044,7 @@ export const OPERATIONS = {
   cancelCampaign: { method: "POST", path: "/v1/campaigns/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelWebhookReplay: { method: "POST", path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel", pathParams: ["id","replayId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  chargeInvoiceCardOnFile: { method: "POST", path: "/v1/invoices/{id}/charge-card", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:charge_saved","payment:collect"] },
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkInAsset: { method: "POST", path: "/v1/assets/{assetId}/check-in", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkOutAsset: { method: "POST", path: "/v1/assets/{assetId}/check-out", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
@@ -27128,6 +27289,7 @@ export const OPERATIONS = {
   getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId","propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalBookingOptions: { method: "GET", path: "/v1/portal/booking", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalJobLive: { method: "GET", path: "/v1/portal/job/live", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  getPortalLayout: { method: "GET", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalSettings: { method: "GET", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalVisitChange: { method: "GET", path: "/v1/portal/visit-change", pathParams: [], queryParams: ["token","visitId","from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPriceBookItem: { method: "GET", path: "/v1/pricebook/items/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -27285,6 +27447,7 @@ export const OPERATIONS = {
   listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listInspections: { method: "GET", path: "/v1/inspections", pathParams: [], queryParams: ["propertyId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listIntakeDrafts: { method: "GET", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: ["status","limit","sourceKind","sourceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
+  listInvoiceCardsOnFile: { method: "GET", path: "/v1/invoices/{id}/cards-on-file", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listInvoiceDeliveries: { method: "GET", path: "/v1/invoices/{invoiceId}/deliveries", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listInvoiceTips: { method: "GET", path: "/v1/invoices/{id}/tips", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
@@ -27647,6 +27810,8 @@ export const OPERATIONS = {
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setPortalCardAutopay: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPriceBookItemActive: { method: "POST", path: "/v1/pricebook/items/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setProjectPhaseDates: { method: "POST", path: "/v1/project-phases/{id}/dates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -27789,6 +27954,7 @@ export const OPERATIONS = {
   waiveObligation: { method: "POST", path: "/v1/obligations/{id}/waive", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   withdrawChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   withdrawComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
+  withdrawPortalCardAgreement: { method: "POST", path: "/v1/portal/cards/{cardId}/agreement/withdraw", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   withdrawTimeOff: { method: "POST", path: "/v1/time-off/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
   writeOffInvoice: { method: "POST", path: "/v1/invoices/{id}/write-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:writeoff"] },
   writeOffStockUnits: { method: "POST", path: "/v1/stock/write-offs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -27996,6 +28162,15 @@ export abstract class GeneratedOperations {
    */
   advanceRegulatorySubmission(input: AdvanceRegulatorySubmissionParams & AdvanceRegulatorySubmissionInput, options?: CallOptions): Promise<AdvanceRegulatorySubmissionOutput> {
     return this.call("advanceRegulatorySubmission", input, options);
+  }
+
+  /**
+   * Let the company charge a saved card without pressing Pay.
+   *
+   * POST /v1/portal/cards/{cardId}/agreement.
+   */
+  agreeToPortalCardCharges(input: AgreeToPortalCardChargesParams & AgreeToPortalCardChargesInput, options?: CallOptions): Promise<AgreeToPortalCardChargesOutput> {
+    return this.call("agreeToPortalCardCharges", input, options);
   }
 
   /**
@@ -28392,6 +28567,15 @@ export abstract class GeneratedOperations {
    */
   cancelWebhookReplay(input: CancelWebhookReplayParams & CancelWebhookReplayInput, options?: CallOptions): Promise<CancelWebhookReplayOutput> {
     return this.call("cancelWebhookReplay", input, options);
+  }
+
+  /**
+   * Charge the invoice's balance to a saved card the payer agreed may be charged.
+   *
+   * POST /v1/invoices/{id}/charge-card. Needs payment:charge_saved, payment:collect.
+   */
+  chargeInvoiceCardOnFile(input: ChargeInvoiceCardOnFileParams & ChargeInvoiceCardOnFileInput, options?: CallOptions): Promise<ChargeInvoiceCardOnFileOutput> {
+    return this.call("chargeInvoiceCardOnFile", input, options);
   }
 
   /**
@@ -30591,6 +30775,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The blocks on a customer's account page, in order.
+   *
+   * GET /v1/portal-layout. Needs settings:read.
+   */
+  getPortalLayout(input: GetPortalLayoutInput = {} as GetPortalLayoutInput, options?: CallOptions): Promise<GetPortalLayoutOutput> {
+    return this.call("getPortalLayout", input, options);
+  }
+
+  /**
    * What customers may do for themselves on the portal.
    *
    * GET /v1/portal-settings. Needs settings:read.
@@ -32001,6 +32194,15 @@ export abstract class GeneratedOperations {
    */
   listIntakeDrafts(input: ListIntakeDraftsInput = {} as ListIntakeDraftsInput, options?: CallOptions): Promise<ListIntakeDraftsOutput> {
     return this.call("listIntakeDrafts", input, options);
+  }
+
+  /**
+   * The saved cards an invoice's payer agreed may be charged, and the charges on it.
+   *
+   * GET /v1/invoices/{id}/cards-on-file. Needs payment:read.
+   */
+  listInvoiceCardsOnFile(input: ListInvoiceCardsOnFileInput, options?: CallOptions): Promise<ListInvoiceCardsOnFileOutput> {
+    return this.call("listInvoiceCardsOnFile", input, options);
   }
 
   /**
@@ -35262,6 +35464,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Pay each bill automatically with a saved card, or stop.
+   *
+   * POST /v1/portal/cards/{cardId}/autopay.
+   */
+  setPortalCardAutopay(input: SetPortalCardAutopayParams & SetPortalCardAutopayInput, options?: CallOptions): Promise<SetPortalCardAutopayOutput> {
+    return this.call("setPortalCardAutopay", input, options);
+  }
+
+  /**
+   * Rearrange, hide and retitle the blocks on a customer's account page.
+   *
+   * PUT /v1/portal-layout. Needs settings:write.
+   */
+  setPortalLayout(input: SetPortalLayoutInput, options?: CallOptions): Promise<SetPortalLayoutOutput> {
+    return this.call("setPortalLayout", input, options);
+  }
+
+  /**
    * Turn tipping and bank payments on or off, and choose which job photographs customers see.
    *
    * PATCH /v1/portal-settings. Needs settings:write.
@@ -36537,6 +36757,15 @@ export abstract class GeneratedOperations {
    */
   withdrawComplianceDocument(input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput, options?: CallOptions): Promise<WithdrawComplianceDocumentOutput> {
     return this.call("withdrawComplianceDocument", input, options);
+  }
+
+  /**
+   * Stop the company charging a saved card.
+   *
+   * POST /v1/portal/cards/{cardId}/agreement/withdraw.
+   */
+  withdrawPortalCardAgreement(input: WithdrawPortalCardAgreementParams & WithdrawPortalCardAgreementInput, options?: CallOptions): Promise<WithdrawPortalCardAgreementOutput> {
+    return this.call("withdrawPortalCardAgreement", input, options);
   }
 
   /**

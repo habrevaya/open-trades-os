@@ -36,6 +36,10 @@ export interface FakeIntent {
   currency: string;
   metadata: Record<string, string>;
   authorization: string | undefined;
+  /** Whether the server charged a saved card with nobody on the page. */
+  offSession: boolean;
+  /** The key the server sent, which is what makes a retried charge the same charge. */
+  idempotencyKey: string | undefined;
 }
 
 export interface FakeRefund {
@@ -149,6 +153,8 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
         currency: params.get("currency") ?? "usd",
         metadata,
         authorization: request.headers.authorization,
+        offSession: params.get("off_session") === "true",
+        idempotencyKey: typeof request.headers["idempotency-key"] === "string" ? request.headers["idempotency-key"] : undefined,
       };
       intents.push(intent);
       /*
