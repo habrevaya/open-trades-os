@@ -168,13 +168,13 @@ run("turning one on and off", () => {
      */
     const flow = await scheduled();
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
-    await schedule.tick(db(), { now: new Date("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-22T17:00:00Z") });
 
     await workflows.setEnabled(owner(), { id: flow.id, enabled: false });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
 
     // Days later. A stale due time would fire here.
-    const [result] = await schedule.tick(db(), { now: new Date("2026-09-26T17:00:00Z") });
+    const [result] = await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-26T17:00:00Z") });
     expect(result!.action).toBe("planned");
     expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(0);
   });
@@ -186,13 +186,13 @@ run("turning one on and off", () => {
       steps: [{ kind: "wait", config: { days: 1 } }, TASK_STEP],
     });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
-    await schedule.tick(db(), { now: new Date("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: new Date("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-23T04:00:30Z") });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: false });
 
     await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
               where organization_id = ${ORG}`;
-    const [resumed] = await schedule.resumeDue(db());
+    const [resumed] = await schedule.resumeDue(db(), { only: [ORG] });
     expect(resumed!.run.status).toBe("succeeded");
     expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(1);
   });
@@ -255,8 +255,8 @@ run("changing one", () => {
       name: "Nightly", triggerKind: "schedule", schedule: "0 23 * * *", steps: [TASK_STEP],
     });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
-    await schedule.tick(db(), { now: new Date("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: new Date("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-23T04:00:30Z") });
 
     await workflows.remove(owner(), { id: flow.id });
     expect(await workflows.list(owner())).toHaveLength(0);
@@ -271,7 +271,7 @@ run("seeing what happened", () => {
       name: "Nightly", triggerKind: "schedule", schedule: "0 23 * * *", steps: [TASK_STEP],
     });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
-    await schedule.tick(db(), { now: new Date("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-22T17:00:00Z") });
 
     const [summary] = await workflows.list(owner());
     expect(summary!.scheduleText).toBe("Every day at 23:00");
@@ -288,7 +288,7 @@ run("seeing what happened", () => {
     });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
     await raw`update public.workflow set schedule = 'whenever' where id = ${flow.id}`;
-    await schedule.tick(db(), { now: new Date("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-22T17:00:00Z") });
 
     const [summary] = await workflows.list(owner());
     expect(summary!.scheduleError).toMatch(/five fields/);
@@ -300,8 +300,8 @@ run("seeing what happened", () => {
       steps: [{ kind: "wait", config: { days: 1 } }, TASK_STEP],
     });
     await workflows.setEnabled(owner(), { id: flow.id, enabled: true });
-    await schedule.tick(db(), { now: new Date("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: new Date("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: new Date("2026-09-23T04:00:30Z") });
 
     const detail = await workflows.detail(owner(), { id: flow.id });
     expect(detail.runs).toHaveLength(1);

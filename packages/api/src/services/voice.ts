@@ -18,6 +18,7 @@ import { memberActor } from "./session";
 import { loadHolidays } from "./holidays";
 import { emit } from "./events";
 import { leaseForCall } from "./website-tracking";
+import { readerFor } from "../secrets/store";
 import {
   DEFAULT_DEPS, baseOf, carrierFor, relayBaseOf, voiceWebhookPath, webhooksFor, type VoiceDeps,
 } from "./voice-carrier";
@@ -304,7 +305,9 @@ export async function resolveWebhook(db: Database, token: string, deps: VoiceDep
   }>(sql`select * from app.messaging_webhook_connection(${token})`);
   const row = rows[0];
   if (!row || !voiceCapableProviders().includes(row.provider)) return null;
-  const secret = row.credential_ref ? await deps.readSecret(row.credential_ref) : "";
+  const secret = row.credential_ref
+    ? await (deps.readSecret ?? readerFor(db, row.organization_id))(row.credential_ref)
+    : "";
   return {
     connectionId: row.connection_id,
     organizationId: row.organization_id,
@@ -367,8 +370,12 @@ export async function handle(
   now: Date = new Date(),
 ): Promise<VoiceReply> {
   if (!connection.provider.verify(request)) return { status: 403, twiml: null };
-  const form: Record<string, string> = {};
-  for (const [key, value] of new URLSearchParams(request.body)) form[key] = value;
+  // The carrier's field names are not ours to trust: no prototype, and keys
+  // defined rather than assigned, so `__proto__` is just another field name.
+  const form: Record<string, string> = Object.assign(
+    Object.create(null) as Record<string, string>,
+    Object.fromEntries(new URLSearchParams(request.body)),
+  );
   const query = new URL(request.url).searchParams;
 
   const base = baseOf(deps);

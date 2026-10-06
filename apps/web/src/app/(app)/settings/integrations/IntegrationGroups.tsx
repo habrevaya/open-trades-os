@@ -1,7 +1,7 @@
-import { leadIntake, payments, type ServiceContext } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { leadIntake, payments, secrets, type ServiceContext } from "@opentradesos/api/services";
+import { can, connectors as connectorRules } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
-import { ConnectForm } from "./ConnectForm";
+import { ConnectForm, SecretRow } from "./ConnectForm";
 import { SignIn } from "./SignIn";
 import { FORMS } from "./fields";
 // Registers the marketing adapters, so the catalogue's built entries resolve.
@@ -59,6 +59,15 @@ export async function IntegrationGroups({
   ]);
   const writes = can(ctx.actor, "integration:write");
   const configuresAi = can(ctx.actor, "agent:configure");
+  /**
+   * Where a named secret is read from, said on the form, because the name
+   * typed is not the variable read: the server adds this company's prefix.
+   * With the database store the value is pasted instead, write only.
+   */
+  const store = secrets.secretStore().kind;
+  const environmentPrefix = store === "environment"
+    ? connectorRules.environmentVariablePrefix(ctx.actor.organizationId)
+    : null;
   const groups = only
     ? only.map((key) => GROUPS.find((g) => g.capability === key)).filter((g): g is (typeof GROUPS)[number] => !!g)
     : GROUPS;
@@ -97,10 +106,36 @@ export async function IntegrationGroups({
                       <span className="font-medium text-ink-700">Will not tell you: </span>{c.limitation}
                     </p>
 
-                    {c.connected && c.credentialRef && (
-                      <p className="mt-2 text-sm text-ink-700">
-                        Secret name: <code className="font-mono text-xs">{c.credentialRef}</code>
-                      </p>
+                    {c.connected && c.secrets.length > 0 && (
+                      /*
+                        Every secret the connection names, whether anything
+                        is stored under it, and where to put it. With the
+                        environment store that is a variable under this
+                        company's own prefix: the server reads nothing else,
+                        so the name typed below can never reach one of the
+                        deployment's own variables.
+                      */
+                      <ul className="mt-2 grid gap-1 text-sm text-ink-700">
+                        {c.secrets.map((secret) => (
+                          <li key={secret.name} className="flex flex-wrap items-baseline gap-2">
+                            <span>
+                              Secret <code className="font-mono text-xs">{secret.name}</code>
+                            </span>
+                            {secret.set
+                              ? <Chip tone="success">{secret.last4 ? `Set · ends ${secret.last4}` : "Set"}</Chip>
+                              : <Chip tone="danger">Not set</Chip>}
+                            {secret.environmentVariable && (
+                              <span className="text-ink-500">
+                                environment variable{" "}
+                                <code className="break-all font-mono text-xs">{secret.environmentVariable}</code>
+                              </span>
+                            )}
+                            {store === "database" && writes && (
+                              <SecretRow name={secret.name} set={secret.set} last4={secret.last4} />
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                     {c.key === "stripe" && c.connected && !card.webhookConfigured && (
                       /*
@@ -136,6 +171,8 @@ export async function IntegrationGroups({
                         connected={c.connected}
                         saved={c.connectionStatus !== null && c.connectionStatus !== "disconnected"}
                         credentialRef={c.credentialRef}
+                        environmentPrefix={environmentPrefix}
+                        store={store}
                       />
                     )}
                     {c.state === "built" && form?.signIn && c.connectionStatus && c.connectionStatus !== "disconnected" && (

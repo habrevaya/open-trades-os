@@ -1,3 +1,5 @@
+import { adapterSettings } from "../secrets/endpoints";
+
 /**
  * THE PAYMENTS SEAM
  *
@@ -365,7 +367,8 @@ export function createPaymentProvider(
 ): PaymentProvider {
   const factory = registry.get(name);
   if (!factory) throw new PaymentProviderNotConfiguredError(name);
-  return factory(settings, secret);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory(adapterSettings(name, settings), secret);
 }
 
 export const registeredPaymentProviders = (): string[] => [...registry.keys()];

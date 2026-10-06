@@ -3198,6 +3198,7 @@ export interface CreateLeadConnectorOutput {
   active: boolean;
   webhookPath: string | null;
   secretRef: string;
+  secretEnvironmentVariable: string | null;
   fieldMap: Record<string, string>;
   autoAcceptEnabled: boolean;
   autoAcceptRules: Record<string, unknown>;
@@ -4936,6 +4937,13 @@ export type DeleteRingGroupInput = Record<string, unknown>;
 export interface DeleteRingGroupOutput {
   id: string;
   deleted: true;
+}
+
+export type DeleteSecretInput = Record<string, unknown>;
+
+export interface DeleteSecretOutput {
+  name: string;
+  removed: true;
 }
 
 export type DeleteWebhookEndpointInput = Record<string, unknown>;
@@ -11635,6 +11643,13 @@ export interface ListConnectorsOutput {
     webhookPath: string | null;
     credentialRef: string | null;
     notice: string | null;
+    secrets: Array<{
+      name: string;
+      set: boolean;
+      last4: string | null;
+      updatedAt: string | null;
+      environmentVariable: string | null;
+    }>;
   }>;
 }
 
@@ -12859,6 +12874,7 @@ export interface ListLeadConnectorsOutput {
     active: boolean;
     webhookPath: string | null;
     secretRef: string;
+    secretEnvironmentVariable: string | null;
     fieldMap: Record<string, string>;
     autoAcceptEnabled: boolean;
     autoAcceptRules: Record<string, unknown>;
@@ -14286,6 +14302,17 @@ export interface ListScheduledRevisionsOutput {
     price: string;
     currentPrice: string | null;
     effectiveFrom: string;
+  }>;
+}
+
+export interface ListSecretsOutput {
+  store: "environment" | "database";
+  secrets: Array<{
+    name: string;
+    set: boolean;
+    last4: string | null;
+    updatedAt: string | null;
+    environmentVariable: string | null;
   }>;
 }
 
@@ -16534,6 +16561,18 @@ export interface PutBackupDestinationOutput {
     ok: boolean;
     error: string | null;
   };
+}
+
+export interface PutSecretInput {
+  value: string;
+}
+
+export interface PutSecretOutput {
+  name: string;
+  set: boolean;
+  last4: string | null;
+  updatedAt: string | null;
+  environmentVariable: string | null;
 }
 
 export interface QueueEmailInput {
@@ -18847,6 +18886,7 @@ export interface RotateLeadConnectorSecretOutput {
   active: boolean;
   webhookPath: string | null;
   secretRef: string;
+  secretEnvironmentVariable: string | null;
   fieldMap: Record<string, string>;
   autoAcceptEnabled: boolean;
   autoAcceptRules: Record<string, unknown>;
@@ -22298,6 +22338,7 @@ export interface UpdateLeadConnectorOutput {
   active: boolean;
   webhookPath: string | null;
   secretRef: string;
+  secretEnvironmentVariable: string | null;
   fieldMap: Record<string, string>;
   autoAcceptEnabled: boolean;
   autoAcceptRules: Record<string, unknown>;
@@ -24371,6 +24412,10 @@ export interface DeleteRingGroupParams {
   id: string;
 }
 
+export interface DeleteSecretParams {
+  name: string;
+}
+
 export interface DeleteWebhookEndpointParams {
   id: string;
 }
@@ -25874,6 +25919,8 @@ export interface ListSafetyTopicsInput {
 
 export type ListScheduledRevisionsInput = Record<string, never>;
 
+export type ListSecretsInput = Record<string, never>;
+
 export interface ListServiceReportTemplatesInput {
   includeRetired?: boolean;
 }
@@ -26229,6 +26276,10 @@ export interface PublishServiceReportParams {
 
 export interface PublishWorkflowParams {
   id: string;
+}
+
+export interface PutSecretParams {
+  name: string;
 }
 
 export interface QuoteDeficiencyParams {
@@ -27380,6 +27431,7 @@ export interface OperationTypes {
   deleteRecording: { input: DeleteRecordingParams & DeleteRecordingInput; output: DeleteRecordingOutput };
   deleteReportSchedule: { input: DeleteReportScheduleParams & DeleteReportScheduleInput; output: DeleteReportScheduleOutput };
   deleteRingGroup: { input: DeleteRingGroupParams & DeleteRingGroupInput; output: DeleteRingGroupOutput };
+  deleteSecret: { input: DeleteSecretParams & DeleteSecretInput; output: DeleteSecretOutput };
   deleteWebhookEndpoint: { input: DeleteWebhookEndpointParams & DeleteWebhookEndpointInput; output: DeleteWebhookEndpointOutput };
   deleteWorkflow: { input: DeleteWorkflowParams & DeleteWorkflowInput; output: DeleteWorkflowOutput };
   deliverAgreementVisit: { input: DeliverAgreementVisitParams & DeliverAgreementVisitInput; output: DeliverAgreementVisitOutput };
@@ -27760,6 +27812,7 @@ export interface OperationTypes {
   listSafetyTalkSchedules: { input: ListSafetyTalkSchedulesInput; output: ListSafetyTalkSchedulesOutput };
   listSafetyTopics: { input: ListSafetyTopicsInput; output: ListSafetyTopicsOutput };
   listScheduledRevisions: { input: ListScheduledRevisionsInput; output: ListScheduledRevisionsOutput };
+  listSecrets: { input: ListSecretsInput; output: ListSecretsOutput };
   listServiceReportTemplates: { input: ListServiceReportTemplatesInput; output: ListServiceReportTemplatesOutput };
   listServiceReports: { input: ListServiceReportsInput; output: ListServiceReportsOutput };
   listServiceRouteStops: { input: ListServiceRouteStopsInput; output: ListServiceRouteStopsOutput };
@@ -27869,6 +27922,7 @@ export interface OperationTypes {
   publishServiceReport: { input: PublishServiceReportParams & PublishServiceReportInput; output: PublishServiceReportOutput };
   publishWorkflow: { input: PublishWorkflowParams & PublishWorkflowInput; output: PublishWorkflowOutput };
   putBackupDestination: { input: PutBackupDestinationInput; output: PutBackupDestinationOutput };
+  putSecret: { input: PutSecretParams & PutSecretInput; output: PutSecretOutput };
   queueEmail: { input: QueueEmailInput; output: QueueEmailOutput };
   quoteDeficiency: { input: QuoteDeficiencyParams & QuoteDeficiencyInput; output: QuoteDeficiencyOutput };
   raiseProjectApplication: { input: RaiseProjectApplicationParams & RaiseProjectApplicationInput; output: RaiseProjectApplicationOutput };
@@ -28408,6 +28462,7 @@ export const OPERATIONS = {
   deleteRecording: { method: "DELETE", path: "/v1/calls/{id}/recording", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   deleteReportSchedule: { method: "DELETE", path: "/v1/report-schedules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   deleteRingGroup: { method: "DELETE", path: "/v1/ring-groups/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  deleteSecret: { method: "DELETE", path: "/v1/secrets/{name}", pathParams: ["name"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   deleteWebhookEndpoint: { method: "DELETE", path: "/v1/webhooks/endpoints/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   deleteWorkflow: { method: "DELETE", path: "/v1/workflows/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   deliverAgreementVisit: { method: "POST", path: "/v1/agreement-visits/{id}/deliver", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
@@ -28788,6 +28843,7 @@ export const OPERATIONS = {
   listSafetyTalkSchedules: { method: "GET", path: "/v1/safety/schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listSafetyTopics: { method: "GET", path: "/v1/safety/topics", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listScheduledRevisions: { method: "GET", path: "/v1/pricebook/scheduled", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
+  listSecrets: { method: "GET", path: "/v1/secrets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listServiceReportTemplates: { method: "GET", path: "/v1/service-report-templates", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
   listServiceReports: { method: "GET", path: "/v1/service-reports", pathParams: [], queryParams: ["jobId","visitId","customerId","propertyId","status","outOfRangeOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
   listServiceRouteStops: { method: "GET", path: "/v1/service-routes/{id}/stops", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -28897,6 +28953,7 @@ export const OPERATIONS = {
   publishServiceReport: { method: "POST", path: "/v1/service-reports/{id}/publish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
   publishWorkflow: { method: "POST", path: "/v1/workflows/{id}/versions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   putBackupDestination: { method: "PUT", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
+  putSecret: { method: "PUT", path: "/v1/secrets/{name}", pathParams: ["name"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   queueEmail: { method: "POST", path: "/v1/email/messages", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   quoteDeficiency: { method: "POST", path: "/v1/inspection-deficiencies/{id}/quote", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write","estimate:write"] },
   raiseProjectApplication: { method: "POST", path: "/v1/project-applications/{id}/raise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
@@ -30974,6 +31031,15 @@ export abstract class GeneratedOperations {
    */
   deleteRingGroup(input: DeleteRingGroupParams & DeleteRingGroupInput, options?: CallOptions): Promise<DeleteRingGroupOutput> {
     return this.call("deleteRingGroup", input, options);
+  }
+
+  /**
+   * Clear a secret.
+   *
+   * DELETE /v1/secrets/{name}. Needs integration:write.
+   */
+  deleteSecret(input: DeleteSecretParams & DeleteSecretInput, options?: CallOptions): Promise<DeleteSecretOutput> {
+    return this.call("deleteSecret", input, options);
   }
 
   /**
@@ -34397,6 +34463,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Which secrets this company has set, never what they are.
+   *
+   * GET /v1/secrets. Needs integration:read.
+   */
+  listSecrets(input: ListSecretsInput = {} as ListSecretsInput, options?: CallOptions): Promise<ListSecretsOutput> {
+    return this.call("listSecrets", input, options);
+  }
+
+  /**
    * What this company asks a technician to record.
    *
    * GET /v1/service-report-templates. Needs servicereport:read.
@@ -35375,6 +35450,15 @@ export abstract class GeneratedOperations {
    */
   putBackupDestination(input: PutBackupDestinationInput, options?: CallOptions): Promise<PutBackupDestinationOutput> {
     return this.call("putBackupDestination", input, options);
+  }
+
+  /**
+   * Paste a secret, or replace one.
+   *
+   * PUT /v1/secrets/{name}. Needs integration:write.
+   */
+  putSecret(input: PutSecretParams & PutSecretInput, options?: CallOptions): Promise<PutSecretOutput> {
+    return this.call("putSecret", input, options);
   }
 
   /**

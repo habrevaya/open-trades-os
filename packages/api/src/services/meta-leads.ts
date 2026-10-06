@@ -6,6 +6,7 @@ import {
   AuthorizationLostError, PlatformUnavailableError, META_SIGNATURE_HEADER, parseOAuthClient, verifyMetaSignature,
   type PulledLead,
 } from "../ads/index";
+import { readerFor } from "../secrets/store";
 
 /**
  * META'S WEBHOOK FOR INSTANT FORM LEADS
@@ -79,18 +80,14 @@ export async function receive(
     isNull(schema.integrationConnection.deletedAt),
     sql`regexp_replace(${schema.integrationConnection.settings} ->> 'pageId', '[^0-9]', '', 'g') in (${sql.join(posted.map((p) => sql`${p.pageId}`), sql`, `)})`,
   ));
-  const readSecret = deps.readSecret ?? (async (ref: string) => {
-    const value = process.env[ref];
-    if (!value) throw new Error(`No secret in the environment for "${ref}".`);
-    return value;
-  });
 
   const verified: Connection[] = [];
   for (const row of candidates) {
     const ref = (row.settings as Record<string, unknown> | null)?.["oauthClientRef"];
     if (typeof ref !== "string") continue;
     try {
-      const client = parseOAuthClient(await readSecret(ref));
+      // Each candidate's own company's secret, never a variable with the bare name.
+      const client = parseOAuthClient(await (deps.readSecret ?? readerFor(db, row.organizationId))(ref));
       if (verifyMetaSignature(input.body, input.headers[META_SIGNATURE_HEADER], client.clientSecret)) verified.push(row);
     } catch {
       /* A connection whose app secret cannot be read cannot vouch for anything. */

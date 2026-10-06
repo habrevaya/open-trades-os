@@ -42,11 +42,21 @@ export interface SettingSpec {
    * install that set one by hand before the product minted them.
    */
   system?: true;
-  /** Exists so a test can point the adapter at a fake server. */
-  testOnly?: true;
+  /**
+   * Says WHERE the adapter sends its requests, and therefore where it sends
+   * the credential it was handed. Exists so a test can point the adapter at a
+   * fake server, and for nothing else.
+   *
+   * Refused on connect, and dropped from stored settings before an adapter is
+   * built, unless the deployment sets `ALLOW_PROVIDER_BASE_URL=1` (only the
+   * test suites do). Allowed, it lets anybody holding `integration:write`
+   * send the server's copy of a provider credential to a host they choose,
+   * which is a credential leak with a settings form on the front of it.
+   */
+  endpoint?: true;
 }
 
-const BASE_URL: SettingSpec = { kind: "text", testOnly: true };
+const BASE_URL: SettingSpec = { kind: "text", endpoint: true };
 const WEBHOOK_TOKEN: SettingSpec = { kind: "text", system: true };
 
 /**
@@ -79,6 +89,13 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     accountSid: { kind: "text" },
     messagingServiceSid: { kind: "text" },
     webhookToken: WEBHOOK_TOKEN,
+    /**
+     * The browser phone, written by its own setup (services/softphone.ts):
+     * an API key SID, the NAME of the secret holding that key's secret
+     * (`apiKeySecretRef`, read from the company's own secrets like any other),
+     * the TwiML app and the caller id number.
+     */
+    softphone: { kind: "record", system: true },
     baseUrl: BASE_URL,
   },
   justcall: {
@@ -122,8 +139,14 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
   },
   google: { defaultModel: { kind: "text" }, rates: { kind: "record" }, baseUrl: BASE_URL },
   nominatim: {
-    /** A self hosted server, or the public one when absent. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the lookups go. An endpoint like any other: no credential rides
+     * on it, but every customer address does, and a server fetching a URL a
+     * company typed is a way into the deployment's own network. A self
+     * hosted Nominatim is the deployment's choice, `NOMINATIM_URL`, never a
+     * company's (docs/self-hosting/worker.md).
+     */
+    endpoint: BASE_URL,
     /** Who the public server's operators can write to, as their usage policy asks. */
     contactEmail: { kind: "text" },
     /** Slower than the floor is allowed; faster than one a second against the public server is not. */
@@ -148,10 +171,15 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     maxAmount: { kind: "text" },
     /** Off hides the monthly figure everywhere and keeps the apply link. On by default once connected. */
     showMonthly: { kind: "boolean" },
+    baseUrl: BASE_URL,
   },
   osrm: {
-    /** The address of the company's own OSRM server. Required: there is no public default. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the routing server is. An endpoint: every customer's coordinates
+     * go to it, from inside the deployment's network. A self hosted OSRM is
+     * the deployment's `OSRM_URL`, never a company's connection.
+     */
+    endpoint: BASE_URL,
     /** The OSRM profile, `driving` unless the server was built with another. */
     profile: { kind: "text" },
   },
@@ -161,15 +189,23 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     baseUrl: BASE_URL,
   },
   openrouteservice: {
-    /** A self hosted server; the hosted service when absent. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the API is. An endpoint, which would receive the key: a self
+     * hosted server is the deployment's `OPENROUTESERVICE_URL`.
+     */
+    endpoint: BASE_URL,
     /** `driving-car` unless a truck profile suits the vans better. */
     profile: { kind: "text" },
     baseUrl: BASE_URL,
   },
   whisper: {
-    /** Where the API lives: OpenAI's, or a Whisper server the company runs itself. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the API lives. An endpoint like `baseUrl`: the API key and every
+     * customer's recorded voice go to it. A Whisper server of the
+     * deployment's own is `WHISPER_URL`, set by whoever runs it
+     * (docs/self-hosting/voice.md), never a company's connection.
+     */
+    endpoint: BASE_URL,
     model: { kind: "text" },
     language: { kind: "text" },
     baseUrl: BASE_URL,
@@ -242,6 +278,8 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     accountId: { kind: "text" },
     developerTokenRef: { kind: "secret_name" },
     oauthClientRef: { kind: "secret_name" },
+    /** How long to wait between asks for a report Microsoft is still building. */
+    pollMs: { kind: "number" },
     baseUrl: BASE_URL,
     authUrl: BASE_URL,
     tokenUrl: BASE_URL,
@@ -343,6 +381,103 @@ export function looksLikeSecretValue(value: string): boolean {
 
 export type SettingsCheck = { ok: true } | { ok: false; reason: string };
 
+/**
+ * Keys that say where a provider's requests go, on any provider.
+ *
+ * Listed apart from the per-provider table as well as in it, so that a
+ * provider added without declaring its override as an `endpoint` still has
+ * the override stripped before its adapter is built.
+ */
+const ENDPOINT_KEYS = new Set(["baseUrl", "tokenUrl", "apiUrl", "endpoint", "apiBase", "authUrl"]);
+
+/** Whether this key, on this provider, says where requests are sent. */
+export function isEndpointSetting(provider: string, key: string): boolean {
+  return ENDPOINT_KEYS.has(key) || CONNECTOR_SETTINGS[provider]?.[key]?.endpoint === true;
+}
+
+/**
+ * The settings an adapter may be built with.
+ *
+ * Endpoint overrides are removed unless the deployment allows them. This is
+ * the use-time half of the rule: a value written before the connect-time
+ * refusal existed, or written straight into the row, is ignored rather than
+ * obeyed, so no stored setting can send a credential anywhere but the
+ * provider's own address.
+ */
+export function withoutEndpointOverrides(
+  provider: string,
+  settings: Record<string, unknown>,
+  options: { allowEndpointOverrides: boolean },
+): Record<string, unknown> {
+  if (options.allowEndpointOverrides) return settings;
+  let stripped: Record<string, unknown> | null = null;
+  for (const key of Object.keys(settings)) {
+    if (!isEndpointSetting(provider, key)) continue;
+    stripped ??= { ...settings };
+    delete stripped[key];
+  }
+  return stripped ?? settings;
+}
+
+/**
+ * What a secret may be called.
+ *
+ * An identifier: letters, digits and underscores, starting with a letter or
+ * an underscore, at most a hundred characters. It has to be, because the
+ * default store turns it into part of an environment variable's name, and a
+ * name with a slash or a dot in it is one no shell can set. Uppercase is the
+ * convention and not a rule.
+ */
+export const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,99}$/;
+
+export function checkSecretName(name: string): SettingsCheck {
+  if (SECRET_NAME_PATTERN.test(name)) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      `"${name.length > 40 ? `${name.slice(0, 40)}…` : name}" is not a usable secret name. Use letters, `
+      + "digits and underscores, starting with a letter, such as STRIPE_SECRET_KEY.",
+  };
+}
+
+/**
+ * The environment variable the default secret store reads for one company's
+ * secret.
+ *
+ * The company's id is part of the variable's name and the company does not
+ * choose it, which is the whole point. Before this, the name a company typed
+ * was the variable read, so a company could name AUTH_SECRET or DATABASE_URL
+ * and have the server read the deployment's own secrets on its behalf. Now
+ * the most a company can name is a variable under its own prefix.
+ *
+ *   OTS_SECRET__<organization id, no dashes, uppercase>__<name>
+ */
+export function environmentVariableFor(organizationId: string, name: string): string {
+  const checked = checkSecretName(name);
+  if (!checked.ok) throw new Error(checked.reason);
+  return `${environmentVariablePrefix(organizationId)}${name}`;
+}
+
+/**
+ * The name a secret pasted on the settings screen is stored under, when the
+ * database store holds it and nobody chose one: `STRIPE_CREDENTIAL`,
+ * `STRIPE_WEBHOOK_SECRET`. Stable, so pasting again replaces rather than
+ * adds, and readable, so the list of a company's secrets says what each is.
+ */
+export function defaultSecretName(provider: string, key: "credential" | string): string {
+  const field = key === "credential"
+    ? "CREDENTIAL"
+    : key.replace(/Ref$/, "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_${field}`;
+}
+
+/** Everything before the name: `OTS_SECRET__<organization id>__`. */
+export function environmentVariablePrefix(organizationId: string): string {
+  const org = organizationId.replace(/-/g, "").toUpperCase();
+  if (!/^[0-9A-F]{32}$/.test(org)) throw new Error(`Not an organization id: ${organizationId}`);
+  return `OTS_SECRET__${org}__`;
+}
+
 function kindMatches(kind: SettingKind, value: unknown): boolean {
   switch (kind) {
     case "text":
@@ -362,10 +497,22 @@ function kindMatches(kind: SettingKind, value: unknown): boolean {
  * legacy secret key with its replacement named, a value of the wrong kind,
  * and a secret name that is plainly a secret.
  */
-export function checkConnectorSettings(provider: string, settings: Record<string, unknown>): SettingsCheck {
+export function checkConnectorSettings(
+  provider: string,
+  settings: Record<string, unknown>,
+  options: { allowEndpointOverrides?: boolean } = {},
+): SettingsCheck {
   const declared = CONNECTOR_SETTINGS[provider] ?? {};
   const legacy = LEGACY_SECRET_SETTINGS[provider] ?? {};
   for (const [key, value] of Object.entries(settings)) {
+    if (isEndpointSetting(provider, key) && !options.allowEndpointOverrides) {
+      return {
+        ok: false,
+        reason:
+          `"${key}" would change where this server sends ${provider}'s credential, and this deployment `
+          + `does not allow that. Nothing was saved. The adapter always talks to ${provider}'s own address.`,
+      };
+    }
     const replacement = legacy[key];
     if (replacement) {
       return {
@@ -377,7 +524,7 @@ export function checkConnectorSettings(provider: string, settings: Record<string
     }
     const spec = declared[key];
     if (!spec) {
-      const known = Object.keys(declared).filter((k) => !declared[k]!.testOnly && !declared[k]!.system);
+      const known = Object.keys(declared).filter((k) => !declared[k]!.endpoint && !declared[k]!.system);
       return {
         ok: false,
         reason:
@@ -395,6 +542,10 @@ export function checkConnectorSettings(provider: string, settings: Record<string
           `"${key}" takes the NAME a secret is kept under in your secret store, and that looks like the secret `
           + `itself. Nothing was saved. Put the value in the store and send the name.`,
       };
+    }
+    if (spec.kind === "secret_name") {
+      const named = checkSecretName(value as string);
+      if (!named.ok) return { ok: false, reason: `"${key}": ${named.reason}` };
     }
   }
   return { ok: true };

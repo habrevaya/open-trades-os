@@ -18,7 +18,8 @@ import { E2E_STRIPE_ENV } from "./stripe-env";
  *
  *  - the intent is created by a local HTTP server standing in for
  *    api.stripe.com, reached through the adapter's own `baseUrl` setting,
- *    which exists for exactly this and has no screen;
+ *    which exists for exactly this, has no screen, and is obeyed only
+ *    because the suite starts the server with ALLOW_PROVIDER_BASE_URL=1;
  *  - Stripe.js is answered by a page route with a stand-in that mounts a
  *    placeholder element and, on confirm, sends the browser back to the
  *    return URL the way Stripe does after a card is accepted;

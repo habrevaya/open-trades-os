@@ -130,17 +130,47 @@ export function stripQuotedReply(text: string): { reply: string; quoted: boolean
  * read in the thread.
  */
 export function textFromHtml(html: string): string {
-  return html
-    .replace(/<(script|style|head)[\s\S]*?<\/\1>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, "&")
+  let out = "";
+  let i = 0;
+  const n = html.length;
+  const lower = html.toLowerCase();
+  while (i < n) {
+    const lt = html.indexOf("<", i);
+    if (lt === -1) { out += html.slice(i); break; }
+    out += html.slice(i, lt);
+    const next = html[lt + 1] ?? "";
+    // A "<" that does not open a tag or a comment is just a less-than sign.
+    if (!/[a-zA-Z/!?]/.test(next)) { out += "<"; i = lt + 1; continue; }
+    if (html.startsWith("<!--", lt)) {
+      const end = html.indexOf("-->", lt + 4);
+      if (end === -1) break;
+      i = end + 3;
+      continue;
+    }
+    const gt = html.indexOf(">", lt + 1);
+    // A tag that never closes is dropped with everything after it, so no
+    // half a tag survives into the text.
+    if (gt === -1) break;
+    const tag = /^<\/?([a-zA-Z][a-zA-Z0-9]*)/.exec(html.slice(lt, gt + 1));
+    const name = tag ? tag[1]!.toLowerCase() : "";
+    const closing = html[lt + 1] === "/";
+    i = gt + 1;
+    if (!closing && (name === "script" || name === "style" || name === "head")) {
+      // Everything up to the matching close goes with it; unclosed, the rest.
+      const close = lower.indexOf(`</${name}`, i);
+      if (close === -1) break;
+      const closeEnd = html.indexOf(">", close);
+      if (closeEnd === -1) break;
+      i = closeEnd + 1;
+      continue;
+    }
+    if (name === "br" || (closing && /^(p|div|li|tr|h[1-6]|blockquote)$/.test(name))) out += "\n";
+  }
+  const entities: Record<string, string> = {
+    nbsp: " ", lt: "<", gt: ">", quot: "\"", "#39": "'", apos: "'", amp: "&",
+  };
+  return out
+    .replace(/&(nbsp|lt|gt|quot|#39|apos|amp);/gi, (_m, name: string) => entities[name.toLowerCase()]!)
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

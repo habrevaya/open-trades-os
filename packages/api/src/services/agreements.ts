@@ -13,6 +13,7 @@ import { nextNumber } from "./jobs";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
 import { resolveIn } from "./entitlements";
+import { within } from "./workflow-schedule";
 import * as once from "./once";
 import { inForceAt } from "./pricebook";
 import * as notices from "./agreement-notices";
@@ -2169,11 +2170,11 @@ async function sendRenewalNotice(
  */
 export async function renewalsPass(
   db: Database,
-  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<RenewalPassResult[]> {
-  const rows = await db.execute<{ organization_id: string }>(
+  const rows = within(options.only, await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.agreement_renewal_organizations(${options.limit ?? 100})`,
-  );
+  ));
   const results: RenewalPassResult[] = [];
   for (const row of rows) {
     if (options.shouldStop?.()) break;

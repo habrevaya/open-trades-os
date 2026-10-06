@@ -186,10 +186,19 @@ export async function drainAll(db: Database, options: {
   organizations?: number;
   perOrganization?: number;
   shouldStop?: () => boolean;
+  /**
+   * Only these companies, still discovered rather than assumed: the ones
+   * named that have nothing unread are skipped exactly as they would be in a
+   * full pass. The worker never sets it. It is for a pass that must not touch
+   * tenants it was not asked about, which in practice is a test sharing its
+   * database with every other test file.
+   */
+  only?: readonly string[];
 } = {}): Promise<DrainResult[]> {
+  const only = options.only ? sql`${`{${options.only.join(",")}}`}::uuid[]` : sql`null::uuid[]`;
   const rows = await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.pending_event_organizations(
-          ${CONSUMER}, ${options.organizations ?? 50})`,
+          ${CONSUMER}, ${options.organizations ?? 50}, ${only})`,
   );
 
   const results: DrainResult[] = [];
@@ -264,6 +273,11 @@ export interface PassOptions {
    */
   shouldStop?: () => boolean;
   /**
+   * Only these companies, for every part of the pass. Never set by the
+   * worker; see `only` on `drainAll` for who it is for.
+   */
+  only?: readonly string[];
+  /**
    * Whether this pass also delivers the webhooks owed in companies that had
    * no events: replays somebody asked for and retries a receiver is waiting
    * on. On by default; `false` turns it off, and an object passes the
@@ -323,6 +337,10 @@ const CLIENT_PURGE_INTERVAL_MS = 60 * 60_000;
  */
 export async function runPass(options: PassOptions): Promise<DrainResult[]> {
   const stop = options.shouldStop;
+  const scope = {
+    ...(stop ? { shouldStop: stop } : {}),
+    ...(options.only ? { only: options.only } : {}),
+  };
 
   /**
    * The clock first, so anything it fires is in the log before this pass
@@ -338,11 +356,11 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
 
   if (options.schedules !== false) {
     try {
-      await tick(options.db, stop ? { shouldStop: stop } : {});
+      await tick(options.db, scope);
       // And the runs that are partway through one, waiting on a clock.
-      await resumeDue(options.db, stop ? { shouldStop: stop } : {});
+      await resumeDue(options.db, scope);
       // And the records that have been sitting there too long.
-      await sweep(options.db, stop ? { shouldStop: stop } : {});
+      await sweep(options.db, scope);
       /**
        * And the agreements whose term is ending: renewed when the plan and the
        * member both said so, lapsed when they did not, and told beforehand
@@ -352,13 +370,13 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
        * renewal and notice writes an event, so the drain below sends them on
        * this pass.
        */
-      await renewalsPass(options.db, stop ? { shouldStop: stop } : {});
+      await renewalsPass(options.db, scope);
       /**
        * And the campaign sends that are due: a scheduled one whose time has
        * come, or a staged one with a new day of its carrier's cap. Before the
        * drain, like the schedules, so the texts it queues leave on this pass.
        */
-      for (const due of await sendDue(options.db, stop ? { shouldStop: stop } : {})) {
+      for (const due of await sendDue(options.db, scope)) {
         if (due.action === "sent") delivered.add(due.organizationId);
       }
     } catch (error) {
@@ -374,7 +392,7 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
      * a unique index, so a pass cut short and repeated raises and tells once.
      */
     try {
-      for (const result of await taskPass(options.db, stop ? { shouldStop: stop } : {})) {
+      for (const result of await taskPass(options.db, scope)) {
         if (result.escalated.length > 0) delivered.add(result.organizationId);
         for (const failure of result.failed) console.error(`[worker] tasks ${result.organizationId}: ${failure}`);
       }
@@ -488,7 +506,7 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
      * schedule cannot hold up the Monday reports, and the other way round.
      */
     try {
-      for (const tick of await deliverDue(options.db, stop ? { shouldStop: stop } : {})) {
+      for (const tick of await deliverDue(options.db, scope)) {
         if (tick.queued) delivered.add(tick.organizationId);
       }
     } catch (error) {
@@ -549,7 +567,7 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
     try {
       const geocoding = options.geocoding ?? {};
       await geocodePending(options.db, {
-        ...(stop ? { shouldStop: stop } : {}),
+        ...scope,
         ...(geocoding.deps ? { deps: geocoding.deps } : {}),
         ...(geocoding.budgetMs !== undefined ? { budgetMs: geocoding.budgetMs } : {}),
       });
@@ -589,7 +607,7 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
     }
   }
 
-  const results = await drainAll(options.db, stop ? { shouldStop: stop } : {});
+  const results = await drainAll(options.db, scope);
 
   /**
    * NOT cut short by `shouldStop`. The drain for these organizations has
@@ -639,7 +657,7 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       await deliverOwed(options.db, {
         /** Only when the hook ran: without one, nobody has delivered to them yet. */
         skip: options.afterDrain ? sending : new Set(),
-        ...(stop ? { shouldStop: stop } : {}),
+        ...scope,
         ...(options.webhooks?.send ? { send: options.webhooks.send } : {}),
       });
     } catch (error) {

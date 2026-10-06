@@ -340,6 +340,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   brand_asset_kind_idx:
     "One asset per kind (a logo, a mark, a favicon), replaced rather than added to on upload.",
   integration_connection_uniq_idx: "One connection per provider and capability, upserted.",
+  integration_secret_org_name_idx: "One secret per company and name, upserted: pasting again replaces it.",
   account_mapping_code_idx: "One mapping per account code, upserted.",
   accounting_entity_link_entity_idx: "One link per local record, upserted by the sync.",
   accounting_entity_link_external_idx: "One link per remote record, upserted by the sync.",

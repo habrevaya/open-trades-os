@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
  *
  * `POST /api/internal/worker/tick` runs the worker until there is nothing left
  * to do or WORKER_TICK_BUDGET_MS (twenty seconds by default) is spent, and
- * answers with what it did. A scheduler calls it every minute: the Netlify
- * template in deploy/templates/netlify does exactly that.
+ * answers with what it did. A scheduler calls it every minute: on Netlify,
+ * apps/web/netlify/functions/worker-tick.mts does exactly that.
  *
  * Off unless WORKER_TICK_TOKEN is set to at least 32 characters, and then
  * only for a request carrying it as a bearer token. Everything else, including

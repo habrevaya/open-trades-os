@@ -743,6 +743,20 @@
       "when": 1791290670108,
       "tag": "0105_medical_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1791290671108,
+      "tag": "0106_mighty_sprite",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1791290672108,
+      "tag": "0107_lean_wendell_rand",
+      "breakpoints": true
     }
   ]
 }

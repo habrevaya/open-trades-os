@@ -6,6 +6,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, type ServiceContext,
 } from "./context";
 import { claim } from "./comms-outbox";
+import { readerFor } from "../secrets/store";
 import * as invites from "./invites";
 import {
   createEmailProvider, EmailProviderNotConfiguredError,
@@ -1229,18 +1230,11 @@ export interface WebhookConnection {
 /**
  * Read a secret by reference.
  *
- * The default is the environment, because that is what `apps/web` already
- * does for the carrier webhook and two different answers to the same question
- * in one deployment is worse than a plain one. A deployment with a real
- * secret store passes its own reader.
+ * The default is the deployment's secret store, read for the organization the
+ * connection belongs to (`readerFor`), which is what every other provider
+ * path does. A test passes its own reader.
  */
 export type ReadSecret = (ref: string) => Promise<string>;
-
-const envSecret: ReadSecret = async (ref) => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
 
 const warnedLegacy = new Set<string>();
 
@@ -1307,7 +1301,8 @@ export async function secretsFor(
 export async function resolveWebhook(
   db: Database,
   token: string,
-  readSecret: ReadSecret = envSecret,
+  /** For a test. Left out, the organization the token resolves to has its own store read. */
+  readSecret?: ReadSecret,
 ): Promise<WebhookConnection | null> {
   const rows = await db.execute<{
     connection_id: string;
@@ -1320,13 +1315,14 @@ export async function resolveWebhook(
   const row = rows[0];
   if (!row) return null;
 
-  const secret = row.credential_ref ? await readSecret(row.credential_ref) : "";
+  const read = readSecret ?? readerFor(db, row.organization_id);
+  const secret = row.credential_ref ? await read(row.credential_ref) : "";
   return {
     connectionId: row.connection_id,
     organizationId: row.organization_id,
     provider: createEmailProvider(
       row.provider, row.settings, secret,
-      await secretsFor(row.connection_id, row.settings, readSecret),
+      await secretsFor(row.connection_id, row.settings, read),
     ),
     settings: row.settings ?? {},
   };
@@ -1378,7 +1374,7 @@ export async function receive(
 export async function receiveByToken(
   db: Database,
   input: { token: string; url: string; headers: Record<string, string>; rawBody: string },
-  readSecret: ReadSecret = envSecret,
+  readSecret?: ReadSecret,
 ): Promise<WebhookOutcome> {
   const connection = await resolveWebhook(db, input.token, readSecret);
   if (!connection) return { kind: "rejected", reason: "unknown_token" };
@@ -1400,7 +1396,8 @@ export async function receiveByToken(
 export async function providerFor(
   db: Database,
   organizationId: string,
-  readSecret: ReadSecret = envSecret,
+  /** For a test. Left out, this organization's own store is read. */
+  readSecret: ReadSecret = readerFor(db, organizationId),
 ): Promise<EmailProvider> {
   const ctx = workerContext(db, organizationId);
   const resolved = await guardedRead(ctx, "message:read", async (tx) =>

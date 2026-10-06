@@ -79,6 +79,12 @@ export interface RouteDefinition<
   /** Excluded from the public OpenAPI document. */
   internal?: boolean;
   /**
+   * `false` keeps the route off the MCP tool list while it stays in the API.
+   * For a route whose INPUT must not pass through a model provider: a tool
+   * call's arguments are in the agent's transcript, on the vendor's side.
+   */
+  agentTool?: false;
+  /**
    * A bulk operation that can be asked what it WOULD change.
    *
    * Sent with `x-otos-dry-run: true`, the route runs exactly as it would, in

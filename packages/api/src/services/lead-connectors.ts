@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, marketing as mk } from "@opentradesos/core";
+import { assertCan, connectors, marketing as mk } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { FALLBACKS, type LeadFieldMap } from "../marketing/lead-webhook";
+import { secretStore } from "../secrets/store";
 import * as acquisition from "./acquisition";
 
 /**
@@ -264,12 +265,30 @@ function shape(row: typeof schema.leadSourceConnector.$inferSelect) {
     webhookPath: row.webhookToken ? `/api/webhooks/leads/${row.webhookToken}` : null,
     /** Where the signing secret is expected to be found. Never the secret. */
     secretRef: refFor(row.id),
+    /**
+     * The variable to put the secret in, when this deployment keeps secrets
+     * in its environment: this company's own prefix and then `secretRef`.
+     */
+    secretEnvironmentVariable: secretStore().kind === "environment"
+      ? connectors.environmentVariableFor(row.organizationId, refFor(row.id))
+      : null,
     fieldMap: row.fieldMap ?? {},
     autoAcceptEnabled: row.autoAcceptEnabled,
     autoAcceptRules: row.autoAcceptRules,
     commissionRate: row.commissionRate,
     leadFee: row.leadFee,
   };
+}
+
+/**
+ * With the database store, the signing secret is put in this company's
+ * store as it is minted, in the same transaction, so the webhook works the
+ * moment the sender has the value and nobody has to paste it back in. With
+ * the environment store the operator sets `secretEnvironmentVariable`.
+ */
+async function keepIfStoreCan(tx: Database, organizationId: string, name: string, secret: string): Promise<void> {
+  const store = secretStore();
+  if (store.kind === "database") await store.write(tx, organizationId, name, secret);
 }
 
 export interface ConnectorInput {
@@ -370,6 +389,8 @@ export async function create(ctx: ServiceContext, input: ConnectorInput) {
       .where(eq(schema.leadSourceConnector.id, row!.id))
       .returning();
 
+    await keepIfStoreCan(tx, ctx.actor.organizationId, refFor(row!.id), secret);
+
     /**
      * The secret is NOT in the audit entry. `audit:read` is a much longer
      * list of people than the one person who set this up.
@@ -466,6 +487,7 @@ export async function rotateSecret(ctx: ServiceContext, input: { id: string }) {
       .set({ webhookToken: newToken(), updatedAt: new Date() })
       .where(eq(schema.leadSourceConnector.id, input.id))
       .returning();
+    await keepIfStoreCan(tx, ctx.actor.organizationId, refFor(input.id), secret);
 
     await audit(tx, ctx, "lead_connector.rotated", "lead_source_connector", input.id, before, after!);
     return { ...shape(after!), secret };

@@ -6,9 +6,10 @@ import { registerTranscriptionProvider, type TranscriptionProvider } from "./tra
  *
  * The audio transcription endpoint OpenAI publishes, which is also what the
  * self hosted Whisper servers speak (faster-whisper-server, LocalAI, the
- * whisper.cpp server). A company that does not want its customers' calls to
- * leave the building points `endpoint` at a box in its own office, with no
- * key at all, and nothing else changes.
+ * whisper.cpp server). A deployment that does not want its customers' calls
+ * to leave the building sets `WHISPER_URL` to a box on its own network, with
+ * no key at all, and nothing else changes. A company cannot: an address on
+ * its connection would receive the key and the audio.
  *
  * Written against the HTTP API directly, like every other adapter, so a self
  * hoster can read the one request that carries a customer's voice off their
@@ -84,7 +85,14 @@ export function createWhisperTranscription(
   transport: Fetch = (url, init) => fetch(url, init),
 ): TranscriptionProvider {
   const config = settings as Settings;
-  const base = (config.baseUrl ?? config.endpoint ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  /**
+   * OpenAI's, or the deployment's own server (`WHISPER_URL`). A connection's
+   * `endpoint` or `baseUrl` reaches here only where endpoint overrides are
+   * allowed, which is the test suites.
+   */
+  const base = (
+    config.baseUrl ?? config.endpoint ?? (process.env["WHISPER_URL"]?.trim() || "https://api.openai.com/v1")
+  ).replace(/\/$/, "");
   const model = config.model?.trim() || "whisper-1";
 
   return {

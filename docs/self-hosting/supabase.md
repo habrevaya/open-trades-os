@@ -105,6 +105,17 @@ dashboard:
 
 With both off, the role is reachable only by the application.
 
+## Provider secrets
+
+A Supabase project hosting more than one company sets `SECRET_STORE=database`
+and `SECRETS_MASTER_KEY`, and never `ALLOW_PROVIDER_BASE_URL`. The secrets live
+in this database's `integration_secret` table as ciphertext, encrypted by the
+application; the key is not in Supabase and must not be put there (not in
+Vault, not in a table, not in a database setting), or a database dump becomes
+every company's Stripe and Twilio keys. Keep it in the host's environment
+beside `AUTH_SECRET`. Supabase Vault is not used.
+[Provider secrets](./secrets.md) has the rest.
+
 ## Storage
 
 Uploads and brand assets are stored in Postgres today, so the database is the

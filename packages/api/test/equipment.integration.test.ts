@@ -51,7 +51,7 @@ const TODAY = "2026-06-15";
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Asset Co", slug: "asset-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Asset Co", slug: "equipment-co" });
 
   const customer = await customers.create(owner(), {
     type: "residential", name: "Rita Rental", phone: "+15125550701",

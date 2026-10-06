@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, rates, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { inGrant, mintGrant, peek, requireScope } from "./portal";
 import { remember, replayed } from "./once";
@@ -181,6 +181,7 @@ const xmlText = (value: string | number | null) => (value === null ? "" : String
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&apos;")
   // Characters XML 1.0 cannot carry at all. Dropped rather than escaped, because there is no escape for them.
+  // eslint-disable-next-line no-control-regex -- matching exactly those characters is the point
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
 
 /**

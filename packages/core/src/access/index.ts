@@ -71,7 +71,18 @@ export interface Actor {
   scopeOverrides?: Partial<Record<ScopedResource, Scope>>;
   /** Set when an AI agent is acting. Recorded on every audit entry. */
   agentId?: string;
+  /**
+   * A session that may look and never touch: the public demo
+   * (docs/self-hosting/demo.md). Whatever the roles and grants say, only
+   * `...:read` permissions survive `permissionsFor`, and the service layer
+   * runs every one of its transactions READ ONLY, so a write that forgot its
+   * permission check is still refused by Postgres.
+   */
+  readOnly?: boolean;
 }
+
+/** A permission that only reveals. Every one of them is named `...:read`. */
+export const isReadPermission = (permission: Permission): boolean => permission.endsWith(":read");
 
 /** Resolve an actor's full permission set. Revocation always wins. */
 export function permissionsFor(actor: Actor): Set<Permission> {
@@ -81,6 +92,9 @@ export function permissionsFor(actor: Actor): Set<Permission> {
   }
   for (const p of actor.grants ?? []) set.add(p);
   for (const p of actor.revocations ?? []) set.delete(p);
+  if (actor.readOnly) {
+    for (const p of set) if (!isReadPermission(p)) set.delete(p);
+  }
   return set;
 }
 

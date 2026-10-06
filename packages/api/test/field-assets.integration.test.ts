@@ -4,7 +4,7 @@ import type { Actor } from "@opentradesos/core";
 import * as visitAssets from "../src/services/visit-assets";
 import * as deliveries from "../src/services/deliveries";
 import * as equipment from "../src/services/equipment";
-import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import { NotFoundError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -75,7 +75,7 @@ afterAll(async () => { if (raw) await raw.end(); });
 
 beforeEach(async () => {
   if (!url) return;
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Field Co", slug: "field-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Field Co", slug: "field-assets-co" });
   const [customer] = await raw<{ id: string }[]>`
     insert into public.customer (organization_id, type, name)
     values (${ORG}, 'commercial', 'Roof Holdings') returning id`;

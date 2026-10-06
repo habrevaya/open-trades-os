@@ -17,6 +17,21 @@ import { Uuid, MoneyString } from "./common";
  */
 export const ConnectorState = z.enum(["built", "declared"]);
 
+/**
+ * Whether a named secret holds anything, and never what.
+ *
+ * `environmentVariable` is where the operator puts it when the deployment
+ * keeps secrets in its environment: the company's own prefix, then the name.
+ * `last4` is only kept by the database store.
+ */
+export const SecretStatus = z.object({
+  name: z.string(),
+  set: z.boolean(),
+  last4: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  environmentVariable: z.string().nullable(),
+});
+
 export const Connector = z.object({
   key: z.string(),
   label: z.string(),
@@ -39,6 +54,8 @@ export const Connector = z.object({
   credentialRef: z.string().nullable(),
   /** Something to do that nothing else here says, such as a secret value left in the database by an earlier version. */
   notice: z.string().nullable(),
+  /** Every secret the connection names and whether anything is stored under it. Never a value. */
+  secrets: z.array(SecretStatus),
 });
 
 export const listConnectors = defineRoute({
@@ -165,6 +182,57 @@ export const listLeadOffers = defineRoute({
   output: z.object({ offers: z.array(LeadOffer) }),
 });
 
+/* ------------------------------------------------------------- secrets */
+
+/** A secret's name, as `credentialRef` and every `...Ref` setting hold it. */
+const SecretName = z.string().min(1).max(100).regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+
+export const listSecrets = defineRoute({
+  method: "get",
+  path: "/v1/secrets",
+  summary: "Which secrets this company has set, never what they are",
+  description:
+    "Every secret this company's connections name, and every one it has stored, with whether it is set and, "
+    + "with the database store, its last four characters. There is no route that returns a value.",
+  module: "M25",
+  permissions: ["integration:read"],
+  input: z.object({}),
+  output: z.object({
+    /** `environment`: the operator sets each one on the server. `database`: pasted here, encrypted. */
+    store: z.enum(["environment", "database"]),
+    secrets: z.array(SecretStatus),
+  }),
+});
+
+export const putSecret = defineRoute({
+  method: "put",
+  path: "/v1/secrets/{name}",
+  summary: "Paste a secret, or replace one",
+  description:
+    "Write only: the value is encrypted and stored, and the answer says it is set and its last four "
+    + "characters. Audited by name, never by value. Refused with the variable to set when the deployment "
+    + "keeps secrets in its environment. Not offered to AI agents, because a value passed to one passes "
+    + "through its model provider.",
+  module: "M25",
+  permissions: ["integration:write"],
+  agentTool: false,
+  input: z.object({
+    name: SecretName,
+    value: z.string().min(1).max(16 * 1024),
+  }),
+  output: SecretStatus,
+});
+
+export const deleteSecret = defineRoute({
+  method: "delete",
+  path: "/v1/secrets/{name}",
+  summary: "Clear a secret",
+  module: "M25",
+  permissions: ["integration:write"],
+  input: z.object({ name: SecretName }),
+  output: z.object({ name: z.string(), removed: z.literal(true) }),
+});
+
 export const acceptLeadOffer = defineRoute({
   method: "post",
   path: "/v1/lead-offers/{id}/accept",
@@ -202,5 +270,6 @@ export const declineLeadOffer = defineRoute({
 
 export const connectorRoutes = {
   listConnectors, connectConnector, disconnectConnector,
+  listSecrets, putSecret, deleteSecret,
   importSpendFile, listLeadOffers, acceptLeadOffer, declineLeadOffer,
 } as const;

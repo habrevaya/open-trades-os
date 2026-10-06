@@ -20,6 +20,9 @@ import { createXeroProvider } from "../src/accounting/xero";
 import "../src/accounting";
 import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
+/** The token endpoint, by its parsed origin rather than by how the address happens to begin. */
+const isTokenUrl = (address: string): boolean => new URL(address).origin === "https://token.test";
+
 /**
  * THE ACCOUNTING BRIDGE
  *
@@ -859,7 +862,7 @@ run("a refunded payment, into each book", () => {
     const calls: Call[] = [];
     const real = createQuickBooksProvider(
       { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : { status: 200, body: { Payment: { Id: `p-${calls.length}`, SyncToken: "0" } } })], calls),
     );
@@ -887,7 +890,7 @@ run("a refunded payment, into each book", () => {
     const calls: Call[] = [];
     const real = createXeroProvider(
       { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : { status: 200, body: { BatchPayments: [{ BatchPaymentID: `bp-${calls.length}` }] } })], calls),
     );
@@ -1018,7 +1021,7 @@ run("a refund after the payment reached the books", () => {
     const calls: Call[] = [];
     const real = createQuickBooksProvider(
       { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : { status: 200, body: { Purchase: { Id: "77", SyncToken: "0" } } })], calls),
     );
@@ -1053,7 +1056,7 @@ run("a refund after the payment reached the books", () => {
     const calls: Call[] = [];
     const real = createXeroProvider(
       { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : call.url.includes("/Invoices")
           ? { status: 200, body: { Invoices: [{ InvoiceID: "inv-r" }] } }
@@ -1066,7 +1069,7 @@ run("a refund after the payment reached the books", () => {
       provider: { ...provider, pushRefund: (r) => real.pushRefund(r), heldMoneyReachesBooks: real.heldMoneyReachesBooks },
     });
 
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
     expect(sent.map((c) => new URL(c.url).pathname)).toEqual(["/Invoices", "/BankTransactions"]);
     const invoice = (JSON.parse(sent[0]!.body!) as { Invoices: Record<string, unknown>[] }).Invoices[0]!;
     expect(invoice["Type"]).toBe("ACCREC");
@@ -2033,13 +2036,13 @@ run("a credit paid out, into the books", () => {
 run("credit notes, as each book is sent them", () => {
   const qbo = (calls: Call[], reply: (call: Call) => unknown) => createQuickBooksProvider(
     { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-    transportFor([(call) => (call.url.startsWith("https://token.test")
+    transportFor([(call) => (isTokenUrl(call.url)
       ? tokenOk
       : { status: 200, body: reply(call) })], calls),
   );
   const xero = (calls: Call[], reply: (call: Call) => unknown) => createXeroProvider(
     { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-    transportFor([(call) => (call.url.startsWith("https://token.test")
+    transportFor([(call) => (isTokenUrl(call.url)
       ? tokenOk
       : { status: 200, body: reply(call) })], calls),
   );
@@ -2071,7 +2074,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await qbo(calls, () => ({ CreditMemo: { Id: "cm-1", SyncToken: "0" } })).pushCreditNote(note);
     expect(result).toMatchObject({ ok: true, externalId: "cm-1" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
     expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/creditmemo");
     const body = JSON.parse(sent[0]!.body!) as Record<string, unknown> & { Line: Record<string, unknown>[] };
     expect(body["DocNumber"]).toBe("CN7");
@@ -2086,7 +2089,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await qbo(calls, () => ({ Payment: { Id: "p-7", SyncToken: "0" } })).pushCreditApplication(application);
     expect(result).toMatchObject({ ok: true, externalId: "p-7" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
     expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/payment");
     const body = JSON.parse(sent[0]!.body!) as Record<string, unknown>;
     expect(body["TotalAmt"]).toBe(0);
@@ -2111,7 +2114,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await xero(calls, () => ({ CreditNotes: [{ CreditNoteID: "xcn-1" }] })).pushCreditNote(note);
     expect(result).toMatchObject({ ok: true, externalId: "xcn-1" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
     expect(sent[0]!.method).toBe("PUT");
     expect(new URL(sent[0]!.url).pathname).toBe("/CreditNotes");
     const body = (JSON.parse(sent[0]!.body!) as { CreditNotes: Record<string, unknown>[] }).CreditNotes[0]!;
@@ -2138,7 +2141,7 @@ run("credit notes, as each book is sent them", () => {
   it("sends tax at several rates to QuickBooks as one line per rate on the tax account", async () => {
     const calls: Call[] = [];
     await qbo(calls, () => ({ CreditMemo: { Id: "cm-2", SyncToken: "0" } })).pushCreditNote(twoRates);
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     const body = JSON.parse(sent[0]!.body!) as { Line: Record<string, unknown>[] };
     expect(body.Line.slice(1)).toEqual([
       expect.objectContaining({ Amount: 8.25, Description: "Sales tax, Travis County 8.25%", SalesItemLineDetail: { ItemRef: { value: "tax-2200" }, Qty: 1 } }),
@@ -2149,7 +2152,7 @@ run("credit notes, as each book is sent them", () => {
   it("sends tax at several rates to Xero as one line per rate, none of it worked out by Xero", async () => {
     const calls: Call[] = [];
     await xero(calls, () => ({ CreditNotes: [{ CreditNoteID: "xcn-2" }] })).pushCreditNote(twoRates);
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     const body = (JSON.parse(sent[0]!.body!) as { CreditNotes: Record<string, unknown>[] }).CreditNotes[0]!;
     expect((body["LineItems"] as unknown[]).slice(1)).toEqual([
       expect.objectContaining({ LineAmount: 8.25, AccountID: "tax-2200", TaxType: "NONE", Description: "Sales tax, Travis County 8.25%" }),
@@ -2172,7 +2175,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await qbo(calls, () => ({ Purchase: { Id: "pu-3", SyncToken: "0" } })).pushCreditNoteRefund!(paidBack);
     expect(result).toMatchObject({ ok: true, externalId: "pu-3" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/purchase");
     const body = JSON.parse(sent[0]!.body!) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -2191,7 +2194,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await xero(calls, () => ({ Payments: [{ PaymentID: "xp-9" }] })).pushCreditNoteRefund!(paidBack);
     expect(result).toMatchObject({ ok: true, externalId: "xp-9" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     expect(sent[0]!.method).toBe("PUT");
     expect(new URL(sent[0]!.url).pathname).toBe("/Payments");
     expect(JSON.parse(sent[0]!.body!)).toEqual({
@@ -2214,7 +2217,7 @@ run("credit notes, as each book is sent them", () => {
     const result = await xero(calls, () => ({ Allocations: [{ AllocationID: "al-1", Amount: 108.25 }] }))
       .pushCreditApplication(application);
     expect(result).toMatchObject({ ok: true, externalId: "al-1" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
     expect(sent[0]!.method).toBe("PUT");
     expect(new URL(sent[0]!.url).pathname).toBe("/CreditNotes/cm-1/Allocations");
     expect(JSON.parse(sent[0]!.body!)).toEqual({

@@ -1,5 +1,6 @@
 import type { transcript } from "@opentradesos/core";
 import type { VoiceResult } from "./provider";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * THE SPEECH TO TEXT SEAM
@@ -58,7 +59,9 @@ export function createTranscriptionProvider(
 ): TranscriptionProvider {
   const factory = registry.get(name);
   if (!factory) throw new TranscriptionNotConfiguredError(name);
-  return factory(settings, secret);
+  // Never a stored endpoint override: see `adapterSettings`. The API key and
+  // the call's audio would both go wherever one pointed.
+  return factory(adapterSettings(name, settings), secret);
 }
 
 export const transcriptionProviders = (): string[] => [...registry.keys()];

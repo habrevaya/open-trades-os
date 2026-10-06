@@ -201,6 +201,12 @@ test("a menu option sends callers to the phone assistant, and its call is on the
   const db = createClient();
   let relay: RelayServer | null = null;
   try {
+    /**
+     * The relay runs in this process, so this process is the one that has to
+     * allow the model connection's `baseUrl` to point at the fake, as the
+     * server's own environment does (e2e/stripe-env.ts). Only a test does.
+     */
+    process.env["ALLOW_PROVIDER_BASE_URL"] = "1";
     relay = await startVoiceRelay({
       db, publicBase: E2E_VOICE_RELAY_ENV.VOICE_RELAY_URL, port: E2E_RELAY_PORT, host: "127.0.0.1",
       voiceDeps: { readSecret: async () => AUTH },

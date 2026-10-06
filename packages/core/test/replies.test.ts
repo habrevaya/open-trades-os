@@ -75,6 +75,24 @@ describe("cutting the quoted history off a reply", () => {
     expect(textFromHtml("<style>p{}</style><p>Friday &amp; Saturday</p><p>are fine<br>thanks</p>"))
       .toBe("Friday & Saturday\nare fine\nthanks");
   });
+
+  it("leaves no tag behind however the tags are nested or cut off", () => {
+    for (const hostile of [
+      "<scr<script>ipt>alert(1)</scr</script>ipt>",
+      "<<script>script>alert(1)<</script>/script>",
+      "<script>alert(1)",
+      "<scr<!-- -->ipt>x",
+      "ok<script",
+      "<style>a{}</style",
+    ]) {
+      expect(textFromHtml(hostile).toLowerCase()).not.toContain("<script");
+      expect(textFromHtml(hostile).toLowerCase()).not.toContain("<style");
+    }
+  });
+
+  it("keeps a plain less-than sign and decodes an entity once", () => {
+    expect(textFromHtml("<p>3 < 5 &amp;lt; ok</p>")).toBe("3 < 5 &lt; ok");
+  });
 });
 
 describe("an automatic reply", () => {

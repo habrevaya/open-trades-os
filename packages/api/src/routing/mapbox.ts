@@ -2,6 +2,7 @@ import {
   registerRouter, tableFrom, failureFrom, USER_AGENT, DAY_SECONDS,
   type RouterOptions, type RoutingProvider,
 } from "./provider";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * MAPBOX: THE MATRIX API, FOR A COMPANY THAT WOULD RATHER PAY THAN RUN A SERVER
@@ -27,7 +28,7 @@ const API = "https://api.mapbox.com";
 
 export function mapboxRouter(options: RouterOptions): RoutingProvider {
   const settings = options.settings;
-  const base = String(settings["baseUrl"] ?? API).replace(/\/+$/, "");
+  const base = trimTrailingSlashes(String(settings["baseUrl"] ?? API));
   const profile = settings["profile"] === "driving-traffic" ? "driving-traffic" : "driving";
   const doFetch = options.fetch ?? fetch;
 

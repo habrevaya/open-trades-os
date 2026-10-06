@@ -1,0 +1,33 @@
+name: Bug
+description: Something does what it should not, or does not do what it should
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. If it could expose another company's data,
+        payments or credentials, stop here and report it privately instead:
+        https://github.com/habrevaya/open-trades-os/security/advisories/new
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open a job\n2. Add a visit\n3. ..."
+    validations: { required: true }
+  - type: dropdown
+    attributes:
+      label: Where are you running it
+      options: [Hosted (opentradesos.com), Self-hosted with Docker, Self-hosted on Netlify and Supabase, Self-hosted somewhere else, Local development]
+    validations: { required: true }
+  - type: input
+    attributes:
+      label: Version or commit
+      description: The commit you are running, if you know it.
+  - type: textarea
+    attributes:
+      label: Anything else
+      description: Screenshots, logs, the browser or phone you used. Remove customer names and phone numbers first.

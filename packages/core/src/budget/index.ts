@@ -195,7 +195,7 @@ export type ParsedBudget =
  * amount is a problem. Nothing is written unless the whole file reads.
  */
 export function parseBudgetCsv(text: string): ParsedBudget {
-  const rows = text.replace(/^﻿/, "").split(/\r?\n/).filter((row) => row.trim() !== "");
+  const rows = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((row) => row.trim() !== "");
   if (rows.length < 2) return { ok: false, problems: ["The file needs a header row and at least one line."] };
 
   const header = cells(rows[0]!);

@@ -77,6 +77,38 @@ export const integrationConnection = pgTable("integration_connection", {
 }));
 
 /**
+ * A company's own provider secrets, encrypted, for a deployment that runs
+ * with `SECRET_STORE=database` (a shared deployment serving several
+ * companies, where the server's environment is the operator's and not
+ * theirs).
+ *
+ * Never plaintext. `sealed_secret` is AES-256-GCM ciphertext made by the
+ * application with a key the database never sees (`SECRETS_MASTER_KEY`), and
+ * it is bound to `organization_id` and `name`: a row copied to another
+ * company, or renamed, fails to decrypt. Row level security scopes it like
+ * every tenant table on top of that. packages/api/src/secrets/database.ts.
+ *
+ * There is no column a secret's value can be read back from, and no API
+ * that reads one: a secret is pasted, replaced or cleared.
+ */
+export const integrationSecret = pgTable("integration_secret", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** What `credentialRef` or a `...Ref` setting names. Letters, digits and underscores. */
+  name: text("name").notNull(),
+  /** `ots1.<key id>.<nonce>.<ciphertext>.<tag>`. Ciphertext only; see above. */
+  envelope: text("sealed_secret").notNull(),
+  /** Which master key sealed it, so a rotation can find what is left to re-encrypt. A fingerprint, not the key. */
+  keyId: text("key_id").notNull(),
+  /** The last four characters, shown so an admin can tell which key is in. Null for a value too short to spare them. */
+  last4: text("secret_last4"),
+  ...timestamps,
+}, (t) => ({
+  uniq: uniqueIndex("integration_secret_org_name_idx").on(t.organizationId, t.name),
+  keyIdx: index("integration_secret_key_idx").on(t.keyId),
+}));
+
+/**
  * DRIVE TIMES, ASKED ONCE
  *
  * The road network's answer for one pair of points, kept so the optimiser,

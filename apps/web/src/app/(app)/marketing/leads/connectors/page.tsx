@@ -133,7 +133,7 @@ export default async function LeadConnectorsPage() {
                   : c.channelId ? channelName.get(c.channelId) ?? "An archived channel" : "Not chosen"}
               </Td>
               <Td className="font-mono text-xs">{c.webhookPath}</Td>
-              <Td className="font-mono text-xs">{c.kind === "webhook" ? c.secretRef : ""}</Td>
+              <Td className="font-mono text-xs">{c.kind === "webhook" ? c.secretEnvironmentVariable ?? c.secretRef : ""}</Td>
             </tr>
           ))}
         </Table>

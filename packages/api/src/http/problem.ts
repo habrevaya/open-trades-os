@@ -1,6 +1,7 @@
 import { PermissionError } from "@opentradesos/core";
 import {
   NotFoundError, ConflictError, InvalidGrantError, OrganizationSuspendedError, UnprocessableError,
+  DemoReadOnlyError,
   SignInRefusedError,
   TooManyRequestsError,
 } from "../services/context";
@@ -52,6 +53,10 @@ export function errorResponse(error: unknown): Response {
    * company's own staff that their data has gone.
    */
   if (error instanceof OrganizationSuspendedError) {
+    return problem(403, error.message, { code: error.code });
+  }
+  // The public demo, which may look and never touch. A code to branch on.
+  if (error instanceof DemoReadOnlyError) {
     return problem(403, error.message, { code: error.code });
   }
   /** The phone app's sign in, refused in words the person typing can act on. */

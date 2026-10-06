@@ -9,7 +9,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { memberActor } from "./session";
-import { agentTurn, secretFromEnvironment, type AiDeps } from "./ai";
+import { agentTurn, type AiDeps } from "./ai";
 import { companyPeople } from "./report-delivery";
 import "../ai/index";
 
@@ -330,7 +330,8 @@ export type Answer =
   | { ok: true; usageId: string; action: a.AgentAction; input: Record<string, unknown> }
   | { ok: false; usageId: string | null; refusal: "unknown" | "not_permitted" | "invalid" | "no_tool" | "limit" | "model"; reason: string };
 
-export const DEFAULT_AGENT_DEPS: AiDeps = { readSecret: secretFromEnvironment };
+/** The company's own model key, read from its own secrets (`ai.ts`), never a bare variable. */
+export const DEFAULT_AGENT_DEPS: AiDeps = {};
 
 /**
  * Ask the model, once, and hold its answer to the agent's rules.

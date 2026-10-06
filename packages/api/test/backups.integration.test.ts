@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import postgres from "postgres";
-import type { Actor } from "@opentradesos/core";
+import { connectors, type Actor } from "@opentradesos/core";
 import * as backups from "../src/services/backups";
 import { openCopy } from "../src/portability/reader";
 import type { ServiceContext } from "../src/services/context";
@@ -53,11 +53,14 @@ beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   bucket = await fakeBucket();
-  process.env[SECRET_NAME] = bucket.secretAccessKey;
+  // The bucket's key is each company's own secret, under its own prefix: never a bare server variable.
+  process.env[connectors.environmentVariableFor(ORG, SECRET_NAME)] = bucket.secretAccessKey;
+  process.env[connectors.environmentVariableFor(EMPTY, SECRET_NAME)] = bucket.secretAccessKey;
   folder = await mkdtemp(join(tmpdir(), "ots-backups-"));
 });
 afterAll(async () => {
-  delete process.env[SECRET_NAME];
+  delete process.env[connectors.environmentVariableFor(ORG, SECRET_NAME)];
+  delete process.env[connectors.environmentVariableFor(EMPTY, SECRET_NAME)];
   if (bucket) await bucket.close();
   if (folder) await rm(folder, { recursive: true, force: true });
   if (raw) {
@@ -82,10 +85,11 @@ run("where copies go", () => {
     expect(bucket.objects.size).toBe(0);
   });
 
-  it("saves a destination whose secret this deployment does not have, and says so", async () => {
+  it("saves a destination whose secret this company does not have, and says so", async () => {
     const saved = await backups.saveDestination(owner(), destination({ secretKeyRef: "NOT_SET_ANYWHERE" }));
     expect(saved.check.ok).toBe(false);
-    expect(saved.check.error).toMatch(/no secret named NOT_SET_ANYWHERE/);
+    expect(saved.check.error).toMatch(/No secret named "NOT_SET_ANYWHERE"/);
+    expect(saved.check.error).toContain(connectors.environmentVariableFor(ORG, "NOT_SET_ANYWHERE"));
     expect((await backups.destination(owner()))!.lastCheckError).toMatch(/NOT_SET_ANYWHERE/);
   });
 

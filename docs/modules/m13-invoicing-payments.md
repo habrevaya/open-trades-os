@@ -150,8 +150,9 @@ not go backwards, and the invoice is what now shows money owed.
 ## Setup
 
 Stripe is connected at `/settings/integrations`, on the company's own account
-with a restricted key, by the names of the secrets rather than by pasting secrets
-into a form. The webhook address Settings shows has to be pasted into the Stripe
+with a restricted key, by the names of the company's own secrets
+(`OTS_SECRET__<company>__<name>`), or with the database store by pasting each one
+write only, never read back (`docs/self-hosting/secrets.md`). The webhook address Settings shows has to be pasted into the Stripe
 dashboard; that is not something this product can do on its screens, and the
 screen says so.
 

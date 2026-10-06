@@ -93,4 +93,65 @@ describe("connection settings", () => {
       expect(connectors.looksLikeSecretValue(value), value).toBe(true);
     }
   });
+
+  it("refuses an override of where a provider's requests go, on every provider, unless allowed", () => {
+    const attacker = ["https://", "collector.example", "/v1"].join("");
+    const offenders: string[] = [];
+    for (const [provider, settings] of Object.entries(connectors.CONNECTOR_SETTINGS)) {
+      for (const [key, spec] of Object.entries(settings)) {
+        if (!spec.endpoint) continue;
+        const check = connectors.checkConnectorSettings(provider, { [key]: attacker });
+        if (check.ok) offenders.push(`${provider}.${key}`);
+        else expect(check.reason).toMatch(/where this server sends/);
+        expect(connectors.checkConnectorSettings(provider, { [key]: attacker }, { allowEndpointOverrides: true }))
+          .toEqual({ ok: true });
+      }
+    }
+    expect(offenders).toEqual([]);
+    // Every adapter reading `baseUrl` declares it as an endpoint.
+    for (const [provider, settings] of Object.entries(connectors.CONNECTOR_SETTINGS)) {
+      for (const key of ["baseUrl", "tokenUrl", "endpoint"]) {
+        if (settings[key]) expect(settings[key]!.endpoint, `${provider}.${key}`).toBe(true);
+      }
+    }
+  });
+
+  it("drops a stored endpoint override before an adapter is built, even an undeclared one", () => {
+    const stored = { publishableKey: "pk", baseUrl: "https://elsewhere.example", tokenUrl: "https://t.example" };
+    expect(connectors.withoutEndpointOverrides("stripe", stored, { allowEndpointOverrides: false }))
+      .toEqual({ publishableKey: "pk" });
+    expect(connectors.withoutEndpointOverrides("some_future_provider", { baseUrl: "x", a: 1 }, {
+      allowEndpointOverrides: false,
+    })).toEqual({ a: 1 });
+    expect(connectors.withoutEndpointOverrides("stripe", stored, { allowEndpointOverrides: true })).toBe(stored);
+  });
+
+  it("names a company's environment variable under that company's own prefix, and nothing else", () => {
+    const org = "0b9c6a8e-1f2d-4c3b-9a8e-7d6c5b4a3f21";
+    expect(connectors.environmentVariableFor(org, "STRIPE_SECRET_KEY"))
+      .toBe("OTS_SECRET__0B9C6A8E1F2D4C3B9A8E7D6C5B4A3F21__STRIPE_SECRET_KEY");
+    // A name is a name: nothing in it can climb out of the prefix.
+    for (const bad of ["", "../AUTH_SECRET", "A B", "vault:kv/x", "acme.twilio", "1ABC", "X".repeat(101)]) {
+      expect(connectors.checkSecretName(bad).ok, bad).toBe(false);
+      expect(() => connectors.environmentVariableFor(org, bad)).toThrow();
+    }
+    expect(() => connectors.environmentVariableFor("not-an-org", "X")).toThrow();
+  });
+
+  it("refuses a secret-name setting that is not a usable name", () => {
+    expect(connectors.checkConnectorSettings("stripe", { webhookSecretRef: "kv/stripe" }).ok).toBe(false);
+  });
+
+  it("names a pasted secret after its provider and field, so pasting again replaces it", () => {
+    expect(connectors.defaultSecretName("stripe", "credential")).toBe("STRIPE_CREDENTIAL");
+    expect(connectors.defaultSecretName("stripe", "webhookSecretRef")).toBe("STRIPE_WEBHOOK_SECRET");
+    for (const [provider, settings] of Object.entries(connectors.CONNECTOR_SETTINGS)) {
+      expect(connectors.checkSecretName(connectors.defaultSecretName(provider, "credential")).ok).toBe(true);
+      for (const [key, spec] of Object.entries(settings)) {
+        if (spec.kind === "secret_name") {
+          expect(connectors.checkSecretName(connectors.defaultSecretName(provider, key)).ok).toBe(true);
+        }
+      }
+    }
+  });
 });

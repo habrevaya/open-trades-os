@@ -11,8 +11,9 @@
  * the worker itself would be a second copy of it, bundled separately, that
  * nothing tests.
  *
- * Needs WORKER_TICK_TOKEN in the site's environment, scoped to Functions,
- * and the same value the app reads. `URL` is set by Netlify: the site's main
+ * Lives at apps/web/netlify/functions, beside apps/web/netlify.toml, and is
+ * read by nothing but Netlify. Needs WORKER_TICK_TOKEN in the site's
+ * environment, scoped to Functions, and the same value the app reads. `URL` is set by Netlify: the site's main
  * address. Scheduled functions only run on the published deploy, never on a
  * deploy preview or a branch deploy, which is the right way round: a preview
  * pointed at the production database must not also be running its worker.

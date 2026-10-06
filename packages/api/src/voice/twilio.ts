@@ -102,8 +102,9 @@ export function createTwilioVoice(
     verify(request: WebhookRequest): boolean {
       const signature = request.headers["x-twilio-signature"];
       if (!signature) return false;
-      const params: Record<string, string> = {};
-      for (const [key, value] of new URLSearchParams(request.body)) params[key] = value;
+      // fromEntries defines each field rather than assigning it, so a field
+      // named `__proto__` is only a field.
+      const params: Record<string, string> = Object.fromEntries(new URLSearchParams(request.body));
       return equal(signature, twilioSignature(authToken, request.url, params));
     },
 

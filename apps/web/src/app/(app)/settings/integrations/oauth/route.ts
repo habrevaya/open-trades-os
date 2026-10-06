@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { adPlatforms } from "@opentradesos/api/services";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   const url = new URL(request.url);
-  const base = (process.env["PUBLIC_URL"] || url.origin).replace(/\/+$/, "");
+  const base = trimTrailingSlashes((process.env["PUBLIC_URL"] || url.origin));
   const back = (query: Record<string, string>) =>
     Response.redirect(`${base}/settings/integrations?${new URLSearchParams(query).toString()}`, 303);
 

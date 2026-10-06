@@ -204,11 +204,27 @@ run("draining the log", () => {
     await defineWorkflow();
     await completeAJob();
 
-    // Every company with work, not the default fifty: the suite runs a few
-    // hundred files at once, and the companies they leave events in sort
-    // ahead of this one by how long they have waited.
-    const results = await drainAll(db(), { organizations: 100_000 });
-    expect(results.some((r) => r.organizationId === ORG)).toBe(true);
+    // Discovery across the whole database, which is a read and nothing else.
+    const pending = await raw<{ organization_id: string }[]>`
+      select organization_id from app.pending_event_organizations('workflow', 100000)`;
+    expect(pending.map((r) => r.organization_id)).toContain(ORG);
+
+    /**
+     * The drain itself, kept to this file's own companies.
+     *
+     * This called `drainAll` with nothing else, and in a database shared with
+     * every other test file that meant draining up to fifty other companies'
+     * logs (running their workflows, writing their messages, moving their
+     * cursors under them) before reaching this one, which sorts last because
+     * its events are the newest. Under the full suite that was most of the
+     * five second timeout, and a test elsewhere counting its own messages
+     * could find one it never sent. `only` still goes through discovery: a
+     * company named here with nothing unread is skipped, as it would be in a
+     * full pass.
+     */
+    const idle = fixtureId("wk:idle-org");
+    const results = await drainAll(db(), { only: [idle, ORG] });
+    expect(results.map((r) => r.organizationId)).toEqual([ORG]);
     expect(await messages()).toHaveLength(1);
   });
 });

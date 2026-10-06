@@ -9,7 +9,7 @@ import {
 } from "./context";
 import * as email from "./email";
 import { sendTransactional } from "./comms-send";
-import { companyFor, throttle } from "./website-tracking";
+import { companyFor, throttle, writableCompanyFor } from "./website-tracking";
 import { inGrant, mintGrant, peek, type ResolvedGrant } from "./portal";
 
 /**
@@ -203,7 +203,7 @@ export async function requestCode(
   meta?: RequestMeta,
 ): Promise<CodeRequested> {
   const address = addressOrRefuse(input.address);
-  const org = await companyFor(db, input.organizationSlug);
+  const org = await writableCompanyFor(db, input.organizationSlug);
 
   await throttle(db, `portal-code:ip:${ipOf(meta)}`, cp.LIMITS.codesPerIp.limit, cp.LIMITS.codesPerIp.windowSeconds);
   const key = `portal-code:addr:${org.id}:${address.address}`;

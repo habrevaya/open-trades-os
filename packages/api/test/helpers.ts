@@ -275,6 +275,8 @@ const ORDER = [
    */
   "oauth_authorization", "sealed_credential", "ad_platform_campaign",
   "integration_connection",
+  // A company's encrypted provider secrets. Nothing points at them.
+  "integration_secret",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
   "oauth_refresh_token", "oauth_code",
@@ -483,6 +485,11 @@ let shared: Database | undefined;
 export function testDb(url: string): Database {
   shared ??= createClient(url);
   return shared;
+}
+
+/** A string as a regular expression that matches it literally, every metacharacter and the backslash included. */
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

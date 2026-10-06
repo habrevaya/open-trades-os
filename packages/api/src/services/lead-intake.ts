@@ -15,6 +15,8 @@ import {
   createLeadSource, createSpendSource, registeredLeadSources, registeredSpendSources,
   type InboundLead, type WebhookRequest,
 } from "../marketing/index";
+import { assertSecretName, secretStore, type SecretStatus } from "../secrets/store";
+import { providerEndpointOverridesAllowed } from "../secrets/endpoints";
 
 /**
  * LEADS ARRIVING FROM OUTSIDE
@@ -70,6 +72,26 @@ export interface ConnectorView {
    * secrets moved to the store, and which name to move it to.
    */
   notice: string | null;
+  /**
+   * Every secret the connection names, and whether anything is stored under
+   * each: the credential first, then each `...Ref` setting. Never a value.
+   * With the environment store, the variable the operator has to set.
+   */
+  secrets: SecretStatus[];
+}
+
+/** The secret names a connection points at: its credential, then each `...Ref` setting. */
+export function secretNamesOf(
+  provider: string, credentialRef: string | null, settings: Record<string, unknown> | null,
+): string[] {
+  const declared = cat.CONNECTOR_SETTINGS[provider] ?? {};
+  const names = [
+    ...(credentialRef ? [credentialRef] : []),
+    ...Object.entries(settings ?? {})
+      .filter(([key, value]) => declared[key]?.kind === "secret_name" && typeof value === "string" && value !== "")
+      .map(([, value]) => value as string),
+  ];
+  return [...new Set(names)];
 }
 
 /** A secret value stored in settings by an older version, as a sentence to act on. */
@@ -119,9 +141,13 @@ export async function catalogue(ctx: ServiceContext): Promise<ConnectorView[]> {
         isNull(schema.integrationConnection.deletedAt),
       ));
     const byProvider = new Map(rows.map((row) => [row.provider, row]));
+    const store = secretStore();
 
-    return cat.CONNECTORS.map((spec) => {
+    return Promise.all(cat.CONNECTORS.map(async (spec) => {
       const connection = byProvider.get(spec.key);
+      const names = connection
+        ? secretNamesOf(spec.key, connection.credentialRef, connection.settings as Record<string, unknown> | null)
+        : [];
       return {
         key: spec.key,
         label: spec.label,
@@ -140,8 +166,9 @@ export async function catalogue(ctx: ServiceContext): Promise<ConnectorView[]> {
         notice: connection
           ? legacySecretNotice(spec.key, connection.settings as Record<string, unknown> | null)
           : null,
+        secrets: names.length > 0 ? await store.status(tx, ctx.actor.organizationId, names) : [],
       };
-    });
+    }));
   });
 }
 
@@ -196,7 +223,17 @@ export async function connect(
         + "secret itself. Nothing was saved. Put the value in your secret store and send its name.",
       );
     }
-    const checked = cat.checkConnectorSettings(spec.key, input.settings ?? {});
+    if (input.credentialRef) assertSecretName(input.credentialRef);
+    /**
+     * And never where the provider's requests go. A `baseUrl` here was the
+     * second half of reading the deployment's secrets: name one as the
+     * credential, point the adapter at your own host, and the server posts
+     * it to you. Only a deployment that sets ALLOW_PROVIDER_BASE_URL (the
+     * test suites) accepts one.
+     */
+    const checked = cat.checkConnectorSettings(spec.key, input.settings ?? {}, {
+      allowEndpointOverrides: providerEndpointOverridesAllowed(),
+    });
     if (!checked.ok) throw new ConflictError(checked.reason);
 
     /**

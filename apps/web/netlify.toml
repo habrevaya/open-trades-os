@@ -1,0 +1,56 @@
+# Netlify, for the web app and a once a minute worker tick.
+#
+# Committed here, at apps/web/netlify.toml, because Netlify reads it from the
+# package directory of a monorepo. A deployment that is not on Netlify never
+# reads this file or apps/web/netlify/: Docker, a VPS or any other host builds
+# and runs exactly the same app with or without them.
+# deploy/templates/netlify/README.md says what runs where and what to set.
+#
+# In the Netlify UI, for this repository:
+#
+#   Base directory      (leave empty: the repository root, where the pnpm
+#                        workspace and the lockfile are)
+#   Package directory   apps/web
+#
+# Paths in this file are relative to the BASE directory, which is the root,
+# even though the file itself sits in apps/web. That is Netlify's rule for
+# monorepos and the most common way to get this file wrong.
+
+[build]
+  # Netlify runs `pnpm install` at the base directory first, because it finds
+  # pnpm-lock.yaml there. Then this builds the one app that deploys. The
+  # workspace packages ship TypeScript source and are compiled by Next as
+  # part of this build, so there is nothing else to build first.
+  command = "pnpm --filter @opentradesos/web build"
+  publish = "apps/web/.next"
+
+  # WHEN A GIT PUSH BUILDS, AND WHEN ONLY A BUILD HOOK DOES.
+  #
+  # Exit 1 builds, exit 0 skips. By default (BUILD_HOOK_ONLY unset) every
+  # push builds, which is what somebody deploying their own fork expects.
+  #
+  # A site that sets BUILD_HOOK_ONLY=true in its environment builds ONLY when
+  # a build hook starts it. The hosted deployment does: its hook is called by
+  # .github/workflows/deploy.yml after the database has been migrated, and a
+  # build started by the push itself would race that migration and could
+  # publish code against a schema it does not have yet. Production, branch
+  # deploys and deploy previews are all skipped by this when they come from
+  # git; previews on purpose, since CI already proves a pull request builds
+  # and a preview would run server code against whatever database its
+  # context points at, unmigrated. Netlify sets INCOMING_HOOK_* for a hook's
+  # build and never cancels one whatever this returns; the check is belt and
+  # braces.
+  ignore = 'if [ "$BUILD_HOOK_ONLY" = "true" ] && [ -z "$INCOMING_HOOK_TITLE$INCOMING_HOOK_URL" ]; then echo "Skipped: this site builds only from its build hook (the Deploy workflow, after migrations)."; exit 0; fi; exit 1'
+
+[build.environment]
+  # The engines field in package.json says 22, and an older default fails on
+  # syntax rather than with a message about versions.
+  NODE_VERSION = "22"
+  # Netlify reads packageManager from package.json; pinned here as well so a
+  # build image default never decides it.
+  PNPM_VERSION = "9.12.0"
+
+[functions]
+  # The worker tick's scheduler. Next.js's own server functions are generated
+  # by Netlify's Next.js adapter during the build and need no entry here.
+  directory = "apps/web/netlify/functions"

@@ -141,7 +141,19 @@ fake.on("GET", /^https:\/\/graph\.fake\/v21\.0\/9001\?fields=/, (call) => {
   return { status: 200, body: metaLead("9001") };
 });
 
+/**
+ * The platforms are local fakes, reached through the connections' own
+ * `baseUrl`/`authUrl`. Only a test may point a provider somewhere else
+ * (docs/self-hosting/secrets.md), and this file says so for itself.
+ */
+const allowedBefore = process.env["ALLOW_PROVIDER_BASE_URL"];
+afterAll(() => {
+  if (allowedBefore === undefined) delete process.env["ALLOW_PROVIDER_BASE_URL"];
+  else process.env["ALLOW_PROVIDER_BASE_URL"] = allowedBefore;
+});
+
 beforeAll(async () => {
+  process.env["ALLOW_PROVIDER_BASE_URL"] = "1";
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Ads MS Meta Co", slug: "ads-ms-meta-co" });

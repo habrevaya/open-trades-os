@@ -13,6 +13,7 @@ import {
   type ReportSource, type DeliveryRecipient,
 } from "./report-delivery";
 import { deliverStatements, type StatementRunResult } from "./statement-delivery";
+import { within } from "./workflow-schedule";
 import { replayed, remember } from "./once";
 
 /**
@@ -685,12 +686,12 @@ export async function deliverOne(
  */
 export async function deliverDue(
   db: Database,
-  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<DeliveryTick[]> {
   const now = options.now ?? new Date();
-  const rows = await db.execute<{ organization_id: string; schedule_id: string; kind: string }>(
+  const rows = within(options.only, await db.execute<{ organization_id: string; schedule_id: string; kind: string }>(
     sql`select organization_id, schedule_id, kind from app.due_deliveries(${options.limit ?? 100})`,
-  );
+  ));
 
   const results: DeliveryTick[] = [];
   for (const row of rows) {

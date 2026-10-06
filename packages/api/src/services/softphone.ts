@@ -6,6 +6,7 @@ import {
 } from "./context";
 import { baseOf, carrierFor, DEFAULT_DEPS, voiceWebhookPath, type VoiceDeps } from "./voice-carrier";
 import { voiceAccessToken } from "../voice/access-token";
+import { readerFor } from "../secrets/store";
 
 /**
  * THE BROWSER PHONE
@@ -88,9 +89,9 @@ export async function setup(ctx: ServiceContext, input: SetupInput, deps: VoiceD
       throw new ConflictError("Name the secret in capitals, like TWILIO_API_KEY_SECRET: the name it is stored under, never the secret itself.");
     }
     try {
-      await deps.readSecret(ref);
+      await (deps.readSecret ?? readerFor(tx, ctx.actor.organizationId))(ref);
     } catch {
-      throw new ConflictError(`Nothing is stored under ${ref} in this installation's secrets yet. Add the API key's secret there first.`);
+      throw new ConflictError(`Nothing is stored under ${ref} in this company's secrets yet. Add the API key's secret there first (Settings, Integrations shows where).`);
     }
     const [number] = await tx.select().from(schema.phoneNumber)
       .where(and(
@@ -197,7 +198,8 @@ export async function token(ctx: ServiceContext, deps: VoiceDeps = DEFAULT_DEPS,
       throw new ConflictError("The number calls are placed from is no longer answered here. An owner chooses another on Settings, Phone menus.");
     }
     const accountSid = typeof connection["accountSid"] === "string" ? connection["accountSid"] : "";
-    const secret = await deps.readSecret(settings.apiKeySecretRef);
+    // The company's own secret, never a variable with the bare name.
+    const secret = await (deps.readSecret ?? readerFor(tx, ctx.actor.organizationId))(settings.apiKeySecretRef);
     const identity = voice.softphoneIdentity(ctx.actor.userId);
     const minted = voiceAccessToken({
       accountSid, apiKeySid: settings.apiKeySid, apiKeySecret: secret, identity,

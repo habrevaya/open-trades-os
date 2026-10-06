@@ -26,7 +26,9 @@ export const dynamic = "force-dynamic";
  * a button that would connect nothing.
  *
  * Secrets are never typed here. A credential is the NAME of a secret in the
- * deployment's own store, and nothing stored is ever shown back.
+ * deployment's own store, and nothing stored is ever shown back. With the
+ * environment store the name becomes a variable under this company's own
+ * prefix (`OTS_SECRET__<company>__<name>`), and the screen says which.
  */
 
 

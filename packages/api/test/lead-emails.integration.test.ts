@@ -6,7 +6,7 @@ import * as emailInbound from "../src/services/email-inbound";
 import * as marketplaceLeads from "../src/services/marketplace-leads";
 import { svixSignature } from "../src/email/resend";
 import { type ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, escapeRegExp } from "./helpers";
 
 /**
  * THE LEAD INBOX, THROUGH THE SIGNED EMAIL WEBHOOK
@@ -73,7 +73,7 @@ const ANGI_EMAIL = [
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Inbox Co", slug: "inbox-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Inbox Co", slug: "lead-emails-co" });
 });
 afterAll(async () => { if (raw) await raw.end(); });
 
@@ -88,7 +88,7 @@ run("the lead inbox address", () => {
               values (${ORG}, 'email', 'resend', 'connected', 'RESEND_KEY',
                       ${raw.json({ fromAddress: "office@inbox-co.example", replyDomain: DOMAIN, webhookToken: TOKEN, webhookSecretRef: "RESEND_HOOK", baseUrl: "http://127.0.0.1:9" })})`;
     inbox = (await leadEmails.inbox(ctx())).address!;
-    expect(inbox).toMatch(new RegExp(`^leads\\+[a-z0-9_-]{16,}@${DOMAIN.replace(/\./g, "\\.")}$`));
+    expect(inbox).toMatch(new RegExp(`^leads\\+[a-z0-9_-]{16,}@${escapeRegExp(DOMAIN)}$`));
     expect((await leadEmails.inbox(ctx())).address).toBe(inbox);
   });
 });
