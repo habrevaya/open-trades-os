@@ -7,6 +7,7 @@ import {
 import {
   audit, guardedRead, guardedWrite, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import * as scoped from "./people-scope";
 import { liveBranch } from "./branches";
 import * as email from "./email";
 import * as invites from "./invites";
@@ -87,7 +88,12 @@ export async function roster(ctx: ServiceContext): Promise<TeamMember[]> {
       .leftJoin(schema.businessUnit, eq(schema.businessUnit.id, schema.membership.businessUnitId))
       .leftJoin(schema.location, eq(schema.location.id, schema.membership.locationId))
       .leftJoin(schema.technician, eq(schema.technician.membershipId, schema.membership.id))
-      .where(eq(schema.membership.organizationId, ctx.actor.organizationId))
+      /**
+       * A branch manager's Team is their branch's people, the way their
+       * timesheets are; somebody in no branch is the whole company's
+       * (`people-scope.ts`).
+       */
+      .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), scoped.members(ctx)))
       .orderBy(asc(schema.membership.createdAt));
 
     const standing = await invites.standings(
@@ -270,12 +276,7 @@ export async function resendInvite(ctx: ServiceContext, input: { membershipId: s
   return guardedWrite(ctx, "user:invite", async (tx) => {
     const seen = await replayed<InviteResult>(tx, ctx, "membership_invite_resend");
     if (seen) return seen;
-    const [member] = await tx.select().from(schema.membership)
-      .where(and(
-        eq(schema.membership.id, input.membershipId),
-        eq(schema.membership.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!member) throw new NotFoundError("Person");
+    const member = await scoped.memberWithin(tx, ctx, input.membershipId);
     if (!member.active) throw new ConflictError("They are turned off. Turn them back on before sending a link.");
     const [directory] = await tx.execute<{ name: string | null; email: string }>(
       sql`select name, email from app.organization_people() where membership_id = ${member.id}`,
@@ -414,12 +415,7 @@ async function linkFor(tx: Database, userId: string, expiresAt: Date): Promise<s
 export async function setRole(ctx: ServiceContext, input: { membershipId: string; role: string }) {
   return guardedWrite(ctx, "user:write", async (tx) => {
     const role = assertMayHandOut(ctx, input.role);
-    const [before] = await tx.select().from(schema.membership)
-      .where(and(
-        eq(schema.membership.id, input.membershipId),
-        eq(schema.membership.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!before) throw new NotFoundError("Person");
+    const before = await scoped.memberWithin(tx, ctx, input.membershipId);
     if (before.userId === ctx.actor.userId) {
       throw new ConflictError("That is your own role. Somebody else has to change it, so nobody locks themselves out.");
     }

@@ -221,7 +221,8 @@ export function DispatchMap({
                     className="mt-1 h-9 w-full rounded border border-steel-300 bg-canvas px-2"
                   >
                     <option value="">Choose somebody</option>
-                    {map.technicians.map((t) => (
+                    {/* Only your own people: somebody from another team is on the map for your job they cover, not to be given more. */}
+                    {map.technicians.filter((t) => t.inScope).map((t) => (
                       <option key={t.id} value={t.id}>{t.displayName}{t.timeOff ? " (off)" : ""}</option>
                     ))}
                   </select>

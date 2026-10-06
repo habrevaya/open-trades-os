@@ -7,6 +7,7 @@ import {
 import {
   audit, guardedRead, guardedWrite, inTenant, scopeOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { memberWithin } from "./people-scope";
 import { replayed, remember } from "./once";
 
 /**
@@ -298,12 +299,20 @@ export async function setMemberBranch(
   ctx: ServiceContext, input: { membershipId: string; businessUnitId: string | null },
 ) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [before] = await tx.select().from(schema.membership)
-      .where(and(
-        eq(schema.membership.id, input.membershipId),
-        eq(schema.membership.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!before) throw new NotFoundError("Person");
+    const before = await memberWithin(tx, ctx, input.membershipId);
+
+    /**
+     * MOVING PEOPLE BETWEEN BRANCHES IS FOR THE WHOLE COMPANY, the rule
+     * moving work follows (`assignJobs`). Somebody limited to their branch
+     * sees only its people, so anybody they could move is already theirs,
+     * and moving them out is a person they would not see again.
+     */
+    if (before.businessUnitId !== input.businessUnitId && scopeOf(ctx, "timesheet") !== "all") {
+      throw new ConflictError(
+        "Moving somebody to another branch is for somebody who sees the whole company. "
+        + "Ask an owner or an administrator to do it.",
+      );
+    }
 
     if (input.businessUnitId !== null) await liveBranch(tx, ctx, input.businessUnitId);
 
@@ -341,12 +350,13 @@ export async function setMemberLocation(
   ctx: ServiceContext, input: { membershipId: string; locationId: string | null },
 ) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [before] = await tx.select().from(schema.membership)
-      .where(and(
-        eq(schema.membership.id, input.membershipId),
-        eq(schema.membership.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!before) throw new NotFoundError("Person");
+    const before = await memberWithin(tx, ctx, input.membershipId);
+    /** The same rule for a shop, for somebody limited to theirs: moving a person out of it is a hand off. */
+    if (before.locationId !== input.locationId && scopeOf(ctx, "timesheet") === "location") {
+      throw new ConflictError(
+        "Moving somebody to another shop is for somebody who sees more than one shop. Ask an owner or an administrator to do it.",
+      );
+    }
 
     if (input.locationId !== null) {
       const [place] = await tx.select().from(schema.location)

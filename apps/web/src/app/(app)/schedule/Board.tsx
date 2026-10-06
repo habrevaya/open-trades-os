@@ -397,7 +397,7 @@ export function Board({
               onDragStart={(id) => setDragging({ id, from: t.id })}
               onDrop={(beforeVisitId) => drop(t.id, beforeVisitId)}
               time={time}
-              onOptimise={canReorder ? () => {
+              onOptimise={canReorder && t.inScope ? () => {
                 clearMessages();
                 start(async () => {
                   const result = await proposeRoute({ technicianId: t.id, date });
@@ -443,9 +443,9 @@ function TechnicianColumn({
       className={`flex w-72 shrink-0 flex-col rounded-md border bg-canvas ${
         over ? "border-ink-900 ring-1 ring-ink-900" : "border-steel-200"
       }`}
-      onDragOver={(e) => { if (canDispatch && dragging) { e.preventDefault(); setOver(true); } }}
+      onDragOver={(e) => { if (canDispatch && dragging && technician.inScope) { e.preventDefault(); setOver(true); } }}
       onDragLeave={() => setOver(false)}
-      onDrop={() => { setOver(false); onDrop(); }}
+      onDrop={() => { setOver(false); if (technician.inScope) onDrop(); }}
     >
       <header className="flex items-center gap-2 border-b border-steel-200 px-3 py-2.5">
         <span
@@ -463,6 +463,16 @@ function TechnicianColumn({
           {technician.timeOff ? "Off" : `${Math.round(minutes / 6) / 10}h`}
         </span>
       </header>
+      {/*
+        Somebody from another branch, here only for the visit of yours they
+        cover. Their day is their branch's to fill, so nothing more can be
+        dropped on it from here.
+      */}
+      {!technician.inScope && (
+        <p className="border-b border-steel-200 px-3 py-1.5 text-xs text-ink-500">
+          From another team. Here for your job only.
+        </p>
+      )}
       {onOptimise && technician.visits.length >= 2 && (
         <button
           type="button"
@@ -503,8 +513,8 @@ function TechnicianColumn({
           {technician.visits.map((v) => (
             <li
               key={v.id}
-              onDragOver={(e) => { if (canDispatch && dragging) e.preventDefault(); }}
-              onDrop={(e) => { e.stopPropagation(); setOver(false); onDrop(v.id); }}
+              onDragOver={(e) => { if (canDispatch && dragging && technician.inScope) e.preventDefault(); }}
+              onDrop={(e) => { e.stopPropagation(); setOver(false); if (technician.inScope) onDrop(v.id); }}
             >
               <VisitCard visit={v} draggable={canDispatch} time={time} onDragStart={() => onDragStart(v.id)} canLock={canDispatch} />
             </li>

@@ -5,6 +5,7 @@ import { Table, Th, Td, Empty } from "@/components/Table";
 export interface CrewRow {
   id: string;
   name: string;
+  businessUnitId?: string | null | undefined;
   productionRatePerDay: string | null;
   productionUnit: string | null;
   skills: string[];
@@ -36,10 +37,12 @@ export interface ShiftRow {
  * the service cannot have produced.
  */
 export function Crews({
-  crews, controls,
+  crews, controls, branchOf,
 }: {
   crews: CrewRow[];
   controls?: ((crew: CrewRow) => ReactNode) | undefined;
+  /** The crew's branch by name, for a company that has branches. */
+  branchOf?: ((crew: CrewRow) => string | null) | undefined;
 }) {
   if (crews.length === 0) {
     return (
@@ -58,6 +61,7 @@ export function Crews({
           <Td>
             <span className="font-medium">{crew.name}</span>
             {crew.active ? null : <Chip tone="neutral" className="ml-2">Retired</Chip>}
+            {branchOf ? <span className="block text-xs text-ink-500">{branchOf(crew) ?? "No branch"}</span> : null}
             {crew.skills.length > 0 ? (
               <span className="mt-1 flex flex-wrap gap-1">
                 {crew.skills.map((skill) => <Chip key={skill} tone="info">{skill}</Chip>)}

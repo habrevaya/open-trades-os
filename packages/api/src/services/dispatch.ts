@@ -6,6 +6,8 @@ import {
   type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit, scopeOf,
 } from "./context";
 import { jobVisibility, technicianScopeFilter } from "./scope";
+import { dispatchPeople } from "./people-scope";
+import { shopOfPeople } from "./visit-shop";
 import { announce, sideOf } from "./visit-notices";
 import { inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
@@ -268,6 +270,7 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         displayName: t.displayName,
         color: t.color,
         timeOff: offToday.has(t.id),
+        inScope: Boolean(t.inScope),
         visits: assigned.get(t.id) ?? [],
       })),
       unassigned: ranked.map(({ v: { isLate: _late, ...rest }, plan }) => ({ ...rest, priorityPlan: plan })),
@@ -303,7 +306,11 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
     /** Who was on it before, so the people added and the people taken off each hear about it. */
     const before = (await sideOf(tx, input.id))!;
 
-    const technicians = await tx.select({ id: schema.technician.id })
+    const people = dispatchPeople(ctx);
+    const technicians = await tx.select({
+      id: schema.technician.id,
+      inScope: people ? sql<boolean>`${people}` : sql<boolean>`true`,
+    })
       .from(schema.technician)
       .where(and(
         eq(schema.technician.organizationId, ctx.actor.organizationId),
@@ -315,6 +322,19 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       throw new ConflictError(
         "One of those technicians is not active in this company.",
       );
+    }
+
+    /**
+     * ONLY THIS PERSON'S OWN PEOPLE, plus whoever is already on the visit.
+     * A branch manager whose board shows Sam from Austin on one Houston job
+     * may move that job's time or add Ray beside him, and may not put Sam on
+     * a second one: filling an Austin person's day is Austin's call. Refused
+     * in the same words as an id that is not there, so the answer does not
+     * say who exists in another branch.
+     */
+    const already = new Set(before.technicianIds);
+    if (technicians.some((t) => !t.inScope && !already.has(t.id))) {
+      throw new ConflictError("One of those technicians is not active in this company.");
     }
 
     /**
@@ -367,6 +387,8 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
     await tx.update(schema.visit).set({
       status,
       crewId: null,
+      /** The shop of whoever now has it (`visit-shop.ts`). */
+      locationId: await shopOfPeople(tx, input.technicianIds, input.leadTechnicianId),
       dispatchedAt: visit.dispatchedAt ?? new Date(),
       ...(input.routeOrder !== undefined ? { routeOrder: input.routeOrder } : {}),
       updatedAt: new Date(),
@@ -404,6 +426,18 @@ export async function reorder(ctx: ServiceContext, input: z.infer<typeof reorder
      */
     const { start: dayStart, end: dayEnd } =
       time.dayBoundsIn(input.date, await timezoneOf(tx, ctx.actor.organizationId));
+
+    /**
+     * Somebody this person dispatches. Another branch's person on one of
+     * this branch's visits keeps the order their own branch gave their day.
+     */
+    const [own] = await tx.select({ id: schema.technician.id }).from(schema.technician)
+      .where(and(
+        eq(schema.technician.id, input.technicianId),
+        eq(schema.technician.organizationId, ctx.actor.organizationId),
+        dispatchPeople(ctx),
+      )).limit(1);
+    if (!own) throw new NotFoundError("Technician");
 
     const theirs = await tx.select({ visitId: schema.visitAssignment.visitId })
       .from(schema.visitAssignment)

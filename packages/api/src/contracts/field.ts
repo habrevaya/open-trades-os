@@ -531,6 +531,13 @@ export const getDispatchBoard = defineRoute({
       /** Off today, so the board shows why the column is empty rather than
        *  inviting a dispatcher to fill it. */
       timeOff: z.boolean(),
+      /**
+       * One of the reader's own people. False for somebody from another
+       * branch drawn only for a visit of this branch's that they cover:
+       * their column shows that visit, and nothing more is put on their day
+       * from here, which the assignment refuses as not found.
+       */
+      inScope: z.boolean(),
       visits: z.array(z.object({
         id: Uuid,
         jobNumber: z.number().int(),

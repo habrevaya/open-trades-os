@@ -4,6 +4,7 @@ import { ROLE_PRESETS, people as peopleCore, qualification as q, time, type Role
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import * as scoped from "./people-scope";
 import * as once from "./once";
 import * as staffDocuments from "./staff-documents";
 
@@ -35,13 +36,12 @@ type Role = typeof schema.memberRole.enumValues[number];
 
 const roleLabel = (role: string) => ROLE_PRESETS[role as RoleId]?.label ?? role;
 
-async function membershipWithin(tx: Database, ctx: ServiceContext, membershipId: string) {
-  const [row] = await tx.select().from(schema.membership)
-    .where(and(eq(schema.membership.id, membershipId), eq(schema.membership.organizationId, ctx.actor.organizationId)))
-    .limit(1);
-  if (!row) throw new NotFoundError("Person");
-  return row;
-}
+/**
+ * Somebody whose record this person keeps, or not found: a branch manager
+ * opens their branch's people and nobody else's (`people-scope.ts`).
+ */
+const membershipWithin = (tx: Database, ctx: ServiceContext, membershipId: string) =>
+  scoped.memberWithin(tx, ctx, membershipId);
 
 /* ------------------------------------------------------------- onboarding */
 
@@ -241,9 +241,11 @@ export function setOnboardingLine(ctx: ServiceContext, input: {
   id: string; done: boolean; note?: string | null | undefined; companyAssetId?: string | null | undefined;
 }) {
   return guardedWrite(ctx, "user:write", async (tx) => {
-    const [line] = await tx.select().from(schema.onboardingItem)
-      .where(eq(schema.onboardingItem.id, input.id)).limit(1);
-    if (!line) throw new NotFoundError("Onboarding line");
+    const [found] = await tx.select({ line: schema.onboardingItem }).from(schema.onboardingItem)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.onboardingItem.membershipId))
+      .where(and(eq(schema.onboardingItem.id, input.id), scoped.members(ctx))).limit(1);
+    if (!found) throw new NotFoundError("Onboarding line");
+    const line = found.line;
     if (input.companyAssetId) {
       const [asset] = await tx.select({ id: schema.companyAsset.id }).from(schema.companyAsset)
         .where(eq(schema.companyAsset.id, input.companyAssetId)).limit(1);
@@ -312,6 +314,11 @@ export function addEmergencyContact(ctx: ServiceContext, input: {
 
 export function removeEmergencyContact(ctx: ServiceContext, input: { id: string }) {
   return guardedWrite(ctx, "user:write", async (tx) => {
+    /** One of the people this person keeps records for, or not found. */
+    const [theirs] = await tx.select({ id: schema.emergencyContact.id }).from(schema.emergencyContact)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.emergencyContact.membershipId))
+      .where(and(eq(schema.emergencyContact.id, input.id), scoped.members(ctx))).limit(1);
+    if (!theirs) throw new NotFoundError("Emergency contact");
     const [row] = await tx.update(schema.emergencyContact).set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(schema.emergencyContact.id, input.id), isNull(schema.emergencyContact.deletedAt))).returning();
     if (!row) throw new NotFoundError("Emergency contact");
@@ -388,13 +395,9 @@ export interface SkillsView {
   ended: SkillRecordView[];
 }
 
-async function technicianWithin(tx: Database, ctx: ServiceContext, technicianId: string) {
-  const [row] = await tx.select().from(schema.technician)
-    .where(and(eq(schema.technician.id, technicianId), eq(schema.technician.organizationId, ctx.actor.organizationId)))
-    .limit(1);
-  if (!row) throw new NotFoundError("Technician");
-  return row;
-}
+/** A technician whose record this person keeps, or not found, the same way. */
+const technicianWithin = (tx: Database, ctx: ServiceContext, technicianId: string) =>
+  scoped.technicianWithin(tx, ctx, technicianId, "records");
 
 async function skillsWithin(tx: Database, technician: typeof schema.technician.$inferSelect): Promise<SkillsView> {
   const rows = await tx.select().from(schema.technicianSkill)
@@ -477,6 +480,10 @@ export function endSkill(ctx: ServiceContext, input: { id: string; reason: strin
     const [row] = await tx.select().from(schema.technicianSkill)
       .where(and(eq(schema.technicianSkill.id, input.id), isNull(schema.technicianSkill.endedOn))).limit(1);
     if (!row) throw new NotFoundError("Open skill record");
+    /** Asked before anything is written: another branch's person's skill reads as not found. */
+    const technician = await technicianWithin(tx, ctx, row.technicianId).catch(() => {
+      throw new NotFoundError("Open skill record");
+    });
     const reason = input.reason.trim();
     if (reason === "") throw new ConflictError("Say why the skill no longer stands.");
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
@@ -484,7 +491,6 @@ export function endSkill(ctx: ServiceContext, input: { id: string; reason: strin
     if (endedOn < row.since) throw new ConflictError("A skill cannot end before it was recorded.");
     await tx.update(schema.technicianSkill).set({ endedOn, endedReason: reason, updatedAt: new Date() })
       .where(eq(schema.technicianSkill.id, row.id));
-    const technician = await technicianWithin(tx, ctx, row.technicianId);
     const list = (technician.skills ?? []).filter((s) => s.trim() !== row.skill);
     const [after] = await tx.update(schema.technician).set({ skills: list, updatedAt: new Date() })
       .where(eq(schema.technician.id, technician.id)).returning();
@@ -597,6 +603,10 @@ export function logContinuingEducation(ctx: ServiceContext, input: {
 
 export function removeContinuingEducation(ctx: ServiceContext, input: { id: string }) {
   return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const [entry] = await tx.select({ technicianId: schema.continuingEducation.technicianId })
+      .from(schema.continuingEducation).where(eq(schema.continuingEducation.id, input.id)).limit(1);
+    if (!entry) throw new NotFoundError("Course");
+    await technicianWithin(tx, ctx, entry.technicianId).catch(() => { throw new NotFoundError("Course"); });
     const [row] = await tx.update(schema.continuingEducation).set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(schema.continuingEducation.id, input.id), isNull(schema.continuingEducation.deletedAt))).returning();
     if (!row) throw new NotFoundError("Course");
@@ -687,7 +697,8 @@ export function roster(ctx: ServiceContext) {
     }).from(schema.membership)
       .leftJoin(schema.role, eq(schema.role.id, schema.membership.roleId))
       .leftJoin(schema.technician, eq(schema.technician.membershipId, schema.membership.id))
-      .where(eq(schema.membership.organizationId, ctx.actor.organizationId))
+      /** Narrowed like Team: a branch manager's people (`people-scope.ts`). */
+      .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), scoped.members(ctx)))
       .orderBy(asc(schema.membership.createdAt));
     const lines = await tx.select({ membershipId: schema.onboardingItem.membershipId, required: schema.onboardingItem.required, doneAt: schema.onboardingItem.doneAt })
       .from(schema.onboardingItem);

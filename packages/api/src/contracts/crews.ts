@@ -52,7 +52,10 @@ export const CrewMember = z.object({
 export const Crew = z.object({
   id: Uuid,
   name: z.string(),
+  /** The branch the crew belongs to. A crew in none is seen only by people who see the whole company. */
   businessUnitId: Uuid.nullable(),
+  /** The shop it is based at, where its day starts. */
+  homeLocationId: Uuid.nullable(),
   /**
    * Units of production per crew-day, in the trade's own unit. It travels
    * with that unit and neither is accepted without the other: "eight hundred
@@ -77,6 +80,8 @@ export const listCrews = defineRoute({
   method: "get",
   path: "/v1/crews",
   summary: "Every crew, with who is on it",
+  description:
+    "Narrowed like the dispatch board: somebody limited to a branch sees that branch's crews (a crew's own branch, not its members'), somebody limited to a shop the crews based there, and somebody limited to their own or their crew's work the crews they are on.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({}),
@@ -88,7 +93,7 @@ export const createCrew = defineRoute({
   path: "/v1/crews",
   summary: "Define a crew",
   description:
-    "A production rate without its unit is refused, and so is a unit without a rate. Half a rate reads as capacity on every screen and means nothing, which is worse than no rate at all because a blank invites somebody to fill it in.",
+    "A production rate without its unit is refused, and so is a unit without a rate. Half a rate reads as capacity on every screen and means nothing, which is worse than no rate at all because a blank invites somebody to fill it in. Somebody limited to a branch makes crews in their own branch only.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -116,13 +121,15 @@ export const updateCrew = defineRoute({
   path: "/v1/crews/{id}",
   summary: "Change a crew's rate, kit or skills",
   description:
-    "The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind.",
+    "The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
   input: z.object({
     id: Uuid,
     name: z.string().min(1).max(200).optional(),
+    businessUnitId: Uuid.nullable().optional(),
+    homeLocationId: Uuid.nullable().optional(),
     productionRatePerDay: MoneyString.nullable().optional(),
     productionUnit: z.string().max(50).nullable().optional(),
     requiredAssetIds: z.array(z.string().max(200)).max(100).optional(),

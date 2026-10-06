@@ -7,6 +7,7 @@ import {
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
+import { memberWithin } from "./people-scope";
 import { refusingDuplicate } from "./duplicates";
 
 /**
@@ -222,9 +223,8 @@ export async function assign(
   },
 ) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [before] = await tx.select().from(schema.membership)
-      .where(eq(schema.membership.id, input.membershipId)).limit(1);
-    if (!before) throw new NotFoundError("Membership");
+    /** Somebody whose record this person keeps, or not found (`people-scope.ts`). */
+    const before = await memberWithin(tx, ctx, input.membershipId);
 
     if (input.roleId) {
       const [target] = await tx.select().from(schema.role)
@@ -406,12 +406,7 @@ export async function setMembershipActive(
   input: { membershipId: string; active: boolean; reason?: string | undefined },
 ) {
   return guardedWrite(ctx, "user:write", async (tx) => {
-    const [before] = await tx.select().from(schema.membership)
-      .where(and(
-        eq(schema.membership.id, input.membershipId),
-        eq(schema.membership.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!before) throw new NotFoundError("Membership");
+    const before = await memberWithin(tx, ctx, input.membershipId);
 
     /**
      * Locking yourself out is refused rather than allowed with a warning.

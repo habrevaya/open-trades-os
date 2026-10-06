@@ -7,6 +7,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { jobVisibility, technicianScopeFilter } from "./scope";
+import { dispatchPeople, technicianWithin } from "./people-scope";
 import { qualify, workSkills } from "./qualification";
 import { travelMatrix, describeSource, type TravelMatrix } from "./travel-times";
 import * as location from "./location";
@@ -274,6 +275,13 @@ export interface Day {
   technicians: {
     id: string; displayName: string; color: string | null; skills: string[];
     timeOff: boolean; start: Start | null;
+    /**
+     * One of this person's own people, rather than somebody from another
+     * branch drawn only because they are on one of its visits. Only these
+     * are offered work: the suggestions, the rebalance and a proposed route
+     * plan nobody else (`plannedOf`).
+     */
+    inScope: boolean;
     /** Their own hours, when they are not the company's. */
     hours: { startsAt: string; endsAt: string } | null;
   }[];
@@ -433,7 +441,7 @@ export async function loadDay(tx: Database, organizationId: string, date: string
     date, zone, origin: dayStart, travel, routeMinutes, workday,
     technicians: people.filter((p) => p.inScope || onVisibleWork.has(p.id) || crewPeople.has(p.id)).map((p) => ({
       id: p.id, displayName: p.displayName, color: p.color, skills: p.skills ?? [],
-      timeOff: offToday.has(p.id), start: startOf(p.homeLocationId),
+      timeOff: offToday.has(p.id), start: startOf(p.homeLocationId), inScope: Boolean(p.inScope),
       hours: p.workday && HHMM.test(p.workday.startsAt) && HHMM.test(p.workday.endsAt) ? p.workday : null,
     })),
     crews: crewRows.map((c) => {
@@ -497,6 +505,14 @@ export function truckWorkOf(
 export const routeOf = (day: Day, technicianId: string): DayVisit[] =>
   day.visits.filter((v) => v.technicianIds.includes(technicianId));
 
+/**
+ * The people a plan may offer work to: this person's own, never somebody
+ * from another branch who is on the day only for one visit. A Houston
+ * manager whose board shows Sam from Austin covering one Houston job is not
+ * offered Sam for the next one; that is Austin's day to fill.
+ */
+export const plannedOf = (day: Day): Day["technicians"] => day.technicians.filter((t) => t.inScope);
+
 export const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 /* -------------------------------------------------------------- the map */
@@ -545,6 +561,7 @@ export async function map(ctx: ServiceContext, input: { date: string }) {
         timeOff: t.timeOff,
         start: t.start ? { locationId: t.start.locationId, name: t.start.name, position: position(t.start.place) } : null,
         startIsCompanyDefault: t.start?.isCompanyDefault ?? false,
+        inScope: t.inScope,
         route: routeOf(day, t.id).filter((v) => !(NOT_STOPS as readonly string[]).includes(v.status)).map((v) => v.id),
       })),
       crews: day.crews.map((c) => ({
@@ -677,7 +694,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     day: await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx)),
     truck: await rentalDispatchOf(tx, ctx.actor.organizationId),
   }));
-  const technician = day.technicians.find((t) => t.id === input.technicianId);
+  /** Another branch's person orders their own day, so they read as not found here. */
+  const technician = plannedOf(day).find((t) => t.id === input.technicianId);
   if (!technician) throw new NotFoundError("Technician");
 
   const theirs = routeOf(day, technician.id);
@@ -871,7 +889,8 @@ export async function suggestions(ctx: ServiceContext, input: { date: string }) 
   const departAt = departureOf(day);
 
   const technicianDays: routing.TechnicianDay[] = [];
-  for (const t of day.technicians) {
+  const offered = plannedOf(day);
+  for (const t of offered) {
     points.set(`start:${t.id}`, { place: t.start?.place ?? null, routeId: null });
     technicianDays.push({
       technicianId: t.id,
@@ -887,7 +906,7 @@ export async function suggestions(ctx: ServiceContext, input: { date: string }) 
   /** Members whose plan promised priority are suggested first, as they are first on the board. */
   const visits: routing.OpenVisit[] = placedOpen.map((v) => ({
     stop: stopOf(day, v),
-    refusals: Object.fromEntries(day.technicians.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
+    refusals: Object.fromEntries(offered.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
     priority: members.has(v.id),
   }));
 
@@ -952,7 +971,7 @@ export function basisOf(day: Day): string {
  */
 export function leftOutOf(day: Day): { technicianId: string; displayName: string; reason: string }[] {
   const out: { technicianId: string; displayName: string; reason: string }[] = [];
-  for (const t of day.technicians) {
+  for (const t of plannedOf(day)) {
     if (!t.start?.place) {
       out.push({ technicianId: t.id, displayName: t.displayName, reason: `Where ${t.displayName}'s day starts is not on the map.` });
     } else if (routeOf(day, t.id).some((v) => v.truckWork !== "none" && !(NOT_STOPS as readonly string[]).includes(v.status))) {
@@ -1047,7 +1066,7 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
 
   /** Who is left out, with their work where it is, and why: see `leftOutOf`. */
   const leftOut = leftOutOf(day);
-  const planned = day.technicians.filter((t) => !leftOut.some((l) => l.technicianId === t.id));
+  const planned = plannedOf(day).filter((t) => !leftOut.some((l) => l.technicianId === t.id));
 
   const points: Points = new Map();
   const { techs, keepFirst } = rebalanceTechnicians(day, planned, points);
@@ -1236,8 +1255,9 @@ export async function technicians(ctx: ServiceContext): Promise<{
   companyStart: { locationId: string; name: string } | null;
 }> {
   return guardedRead(ctx, "visit:read", async (tx) => {
+    /** Narrowed the way the board's columns are: a branch manager's people (`people-scope.ts`). */
     const rows = await tx.select().from(schema.technician)
-      .where(eq(schema.technician.organizationId, ctx.actor.organizationId))
+      .where(and(eq(schema.technician.organizationId, ctx.actor.organizationId), dispatchPeople(ctx)))
       .orderBy(asc(schema.technician.displayName));
     /** The same rule `loadDay` uses: the oldest active location. */
     const [first] = await tx.select({ id: schema.location.id, name: schema.location.name })
@@ -1268,12 +1288,8 @@ export async function updateTechnician(ctx: ServiceContext, input: {
   shareLocation?: boolean | undefined;
 }): Promise<TechnicianProfile> {
   return guardedWrite(ctx, "user:write", async (tx) => {
-    const [before] = await tx.select().from(schema.technician)
-      .where(and(
-        eq(schema.technician.id, input.id),
-        eq(schema.technician.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!before) throw new NotFoundError("Technician");
+    /** Somebody this person can see on the technicians screen, or not found. */
+    const before = await technicianWithin(tx, ctx, input.id, "dispatch");
 
     if (input.homeLocationId) {
       const [location] = await tx.select({ id: schema.location.id }).from(schema.location)
@@ -1330,10 +1346,7 @@ const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
  */
 export async function setTechnicianPhoto(ctx: ServiceContext, input: { id: string; bytes: string | null }): Promise<TechnicianProfile> {
   return guardedWrite(ctx, "user:write", async (tx) => {
-    const [before] = await tx.select().from(schema.technician)
-      .where(and(eq(schema.technician.id, input.id), eq(schema.technician.organizationId, ctx.actor.organizationId)))
-      .limit(1);
-    if (!before) throw new NotFoundError("Technician");
+    const before = await technicianWithin(tx, ctx, input.id, "dispatch");
     let fileId: string | null = null;
     if (input.bytes !== null) {
       const bytes = files.decode(input.bytes);
