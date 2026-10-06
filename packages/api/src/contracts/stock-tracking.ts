@@ -275,9 +275,86 @@ export const restockTruck = defineRoute({
   output: z.object({ moved: QuantityString, movements: z.number().int() }),
 });
 
+const TruckFillLine = z.object({
+  id: Uuid, itemId: Uuid, itemName: z.string(),
+  quantity: QuantityString, onTruck: QuantityString,
+  fromLocationId: Uuid, fromLocationName: z.string(),
+  tracking: Mode.nullable(),
+  why: z.string(),
+});
+
+export const listTruckFills = defineRoute({
+  method: "get",
+  path: "/v1/stock/truck-fills",
+  summary: "Truck fills the night proposed, waiting for a person",
+  description:
+    "One open draft per truck at most: the move from a warehouse that would bring each part back up to its fill level, written by the worker each night after one in the morning in the company's calendar. A draft is a proposal. Nothing has moved until somebody confirms it.",
+  module: "M16",
+  permissions: ["inventory:read"],
+  input: z.object({}),
+  output: z.object({
+    fills: z.array(z.object({
+      id: Uuid, truckId: Uuid, truckName: z.string(),
+      proposedOn: z.string(), refreshedAt: z.string().datetime(),
+      lines: z.array(TruckFillLine),
+    })),
+  }),
+});
+
+export const checkTruckFills = defineRoute({
+  method: "post",
+  path: "/v1/stock/truck-fills",
+  summary: "Check the trucks now",
+  description:
+    "Writes the same proposal the night writes, for somebody who has just set a minimum and does not want to wait. An open draft is rewritten to what its truck needs now rather than doubled, and one the truck has outgrown is withdrawn. Moves nothing.",
+  module: "M16",
+  permissions: ["inventory:adjust"],
+  idempotent: true,
+  input: z.object({}),
+  output: z.object({ created: z.number().int(), refreshed: z.number().int(), withdrawn: z.number().int() }),
+});
+
+export const confirmTruckFill = defineRoute({
+  method: "post",
+  path: "/v1/stock/truck-fills/{id}/confirmation",
+  summary: "Move what a truck fill proposes",
+  description:
+    "Each line is checked against the shelf as it is now and moves the least of what was drafted and what the truck needs now, from the warehouse holding the most, through the one transfer path. All of the lines or none: a tracked part needs its numbers in `units`, and a warehouse that cannot cover a line refuses the whole confirmation and leaves the draft open. A line the truck no longer needs is left alone and listed in `left`; a draft with nothing left to move is withdrawn.",
+  module: "M16",
+  permissions: ["inventory:adjust"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    units: z.array(z.object({
+      itemId: Uuid,
+      units: z.array(StockUnitInput.pick({ number: true, quantity: true })).max(500),
+    })).max(200).optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    status: z.enum(["confirmed", "withdrawn"]),
+    moved: z.array(z.object({ itemId: Uuid, itemName: z.string(), quantity: QuantityString, from: z.string() })),
+    left: z.array(z.object({ itemId: Uuid, itemName: z.string(), reason: z.string() })),
+  }),
+});
+
+export const dismissTruckFill = defineRoute({
+  method: "post",
+  path: "/v1/stock/truck-fills/{id}/dismissal",
+  summary: "Leave a truck fill for now",
+  description:
+    "Nothing moves. The next night proposes again while the truck is still under its minimum, because the minimum is what the truck should carry.",
+  module: "M16",
+  permissions: ["inventory:adjust"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, status: z.literal("dismissed") }),
+});
+
 export const stockTrackingRoutes = {
   setStockTracking, numberStockUnits, returnStockFromJob, traceEquipmentStock,
   listTrackedItems, listStockUnits, traceStockUnit, writeOffStockUnits,
   listStockLocations, listTruckMinimums, setTruckMinimum, clearTruckMinimum,
   listRestockSuggestions, restockTruck,
+  listTruckFills, checkTruckFills, confirmTruckFill, dismissTruckFill,
 } as const;

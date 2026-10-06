@@ -16,6 +16,7 @@ import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
+import { nightlyPass as truckFillPass } from "./truck-fills";
 import { purgePass } from "./retention";
 import { talkPass } from "./safety-talks";
 import { deliverOwed, type Transport } from "./webhooks";
@@ -392,6 +393,20 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] estimate expiry:", (error as Error).message);
+    }
+    /**
+     * Truck fills proposed overnight, as drafts a person confirms, for each
+     * company that keeps a truck minimum: once a day of its own calendar, after
+     * one in the morning. Its own try, because a proposal that fails must not hold
+     * up anything else and a company's failure is kept to that company. It writes
+     * drafts and moves no stock.
+     */
+    try {
+      for (const result of await truckFillPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] truck fills ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] truck fills:", (error as Error).message);
     }
     /**
      * Contract clocks: SLA, invoicing and claim deadlines reconciled against

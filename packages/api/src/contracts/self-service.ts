@@ -186,6 +186,8 @@ export const getMyPayStatements = defineRoute({
         classification: z.string().nullable(),
         lines: z.array(RegisterLine),
         gross: MoneyString,
+        /** What was paid back to you or allowed for a day away, with no tax taken from it. Not in `gross`. */
+        nonTaxable: MoneyString,
         carriedForward: MoneyString,
         warnings: z.array(z.string()),
       }).nullable(),

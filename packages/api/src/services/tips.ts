@@ -1,8 +1,9 @@
-import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customerPortal as cp, money as m } from "@opentradesos/core";
+import { customerPortal as cp, money as m, payExtras as px } from "@opentradesos/core";
 import { guardedRead, type ServiceContext } from "./context";
 import { settingsWithin } from "./portal-settings";
+import { settingsWithin as payExtrasWithin } from "./pay-extras";
 
 /**
  * TIPS
@@ -21,9 +22,17 @@ import { settingsWithin } from "./portal-settings";
  * tip.
  *
  * WHO IT IS FOR. Everybody assigned to a visit on the invoice's job that was
- * not cancelled, split evenly to the cent. Decided when the customer chooses
- * the tip, so the page can say whose it is, and carried through the
- * processor to the moment the money arrives, when the shares are written.
+ * not cancelled. Decided when the customer chooses the tip, so the page can
+ * say whose it is, and carried through the processor to the moment the money
+ * arrives, when the shares are written.
+ *
+ * HOW IT IS SHARED is the company's rule (`payroll:configure`, on Pay rules):
+ * evenly to the cent, as it always was; by the hours each person was clocked
+ * in on the job; or all to the lead on the job's visits. The rule in force
+ * when the money arrives is the one used and is kept on each share, so a
+ * change of rule applies to tips from then on and never re-splits one already
+ * shared. A rule with nothing to go on (no hours recorded, no lead marked)
+ * shares evenly and says so on the share.
  */
 
 /** Everybody who came out for this invoice's work. Empty when nobody is recorded. */
@@ -81,6 +90,45 @@ export async function offerFor(
 }
 
 /**
+ * What the company's rule needs to know about each person on a job: the
+ * seconds they were clocked in on it, closed punches that are paid time, and
+ * whether any of the job's visits that were not cancelled marks them lead.
+ */
+async function tipPeople(
+  tx: Database, jobId: string | null, technicianIds: readonly string[],
+): Promise<px.TipPerson[]> {
+  const people = [...new Set(technicianIds)];
+  if (people.length === 0) return [];
+  if (jobId === null) return people.map((technicianId) => ({ technicianId, seconds: 0, isLead: false }));
+
+  const worked = await tx.select({
+    technicianId: schema.timeclockEntry.technicianId,
+    minutes: sql<number>`coalesce(sum(${schema.timeclockEntry.minutes}), 0)::int`,
+  }).from(schema.timeclockEntry)
+    .where(and(
+      eq(schema.timeclockEntry.jobId, jobId),
+      isNotNull(schema.timeclockEntry.endedAt),
+      ne(schema.timeclockEntry.kind, "unpaid_break"),
+      inArray(schema.timeclockEntry.technicianId, people),
+    ))
+    .groupBy(schema.timeclockEntry.technicianId);
+  const leads = await tx.selectDistinct({ technicianId: schema.visitAssignment.technicianId })
+    .from(schema.visitAssignment)
+    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
+    .where(and(
+      eq(schema.visit.jobId, jobId),
+      ne(schema.visit.status, "cancelled"),
+      eq(schema.visitAssignment.isLead, true),
+      inArray(schema.visitAssignment.technicianId, people),
+    ));
+  const minutes = new Map(worked.map((r) => [r.technicianId, r.minutes]));
+  const lead = new Set(leads.map((r) => r.technicianId));
+  return people.map((technicianId) => ({
+    technicianId, seconds: (minutes.get(technicianId) ?? 0) * 60, isLead: lead.has(technicianId),
+  }));
+}
+
+/**
  * The shares, written once, when the money has arrived.
  *
  * Idempotent on the payment: the settlement path can be run twice for one
@@ -99,9 +147,10 @@ export async function writeShares(tx: Database, input: {
   const existing = await tx.select({ id: schema.tipShare.id }).from(schema.tipShare)
     .where(eq(schema.tipShare.paymentId, input.paymentId)).limit(1);
   if (existing.length > 0) return 0;
-  const shares = cp.splitTip(input.tip, input.technicianIds);
-  if (shares.length === 0) return 0;
-  await tx.insert(schema.tipShare).values(shares.map((share) => ({
+  const rule = (await payExtrasWithin(tx, input.organizationId)).tipSplit;
+  const split = px.splitTipByRule(rule, input.tip, await tipPeople(tx, input.jobId, input.technicianIds));
+  if (split.shares.length === 0) return 0;
+  await tx.insert(schema.tipShare).values(split.shares.map((share) => ({
     organizationId: input.organizationId,
     paymentId: input.paymentId,
     invoiceId: input.invoiceId,
@@ -110,14 +159,20 @@ export async function writeShares(tx: Database, input: {
     amount: m.toString(share.amount),
     currency: share.amount.currency,
     occurredAt: input.occurredAt,
+    splitRule: split.rule,
+    splitNote: split.note === "" ? null : split.note,
   })));
-  return shares.length;
+  return split.shares.length;
 }
 
 export interface InvoiceTip {
   paymentId: string;
   receivedAt: Date;
   amount: string;
+  /** The company's rule the tip was shared by, which is "even" when the chosen one had nothing to go on. */
+  splitRule: string;
+  /** Said when the chosen rule could not be followed, empty otherwise. */
+  splitNote: string;
   shares: { technicianId: string; technicianName: string; amount: string; paidAt: Date | null }[];
 }
 
@@ -138,6 +193,7 @@ export async function forInvoiceWithin(tx: Database, invoiceId: string): Promise
   for (const row of rows) {
     const current = byPayment.get(row.share.paymentId) ?? {
       paymentId: row.share.paymentId, receivedAt: row.receivedAt, amount: "0", shares: [], total: m.zero("USD"),
+      splitRule: row.share.splitRule, splitNote: row.share.splitNote ?? "",
     };
     current.total = m.add(current.total, m.money(row.share.amount, "USD"));
     current.amount = m.toString(current.total);

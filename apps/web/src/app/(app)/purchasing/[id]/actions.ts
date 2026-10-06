@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory, landedCost, purchaseApprovals, purchaseOrderEmail } from "@opentradesos/api/services";
+import { inventory, landedCost, purchaseAcknowledgements, purchaseApprovals, purchaseOrderEmail } from "@opentradesos/api/services";
 import {
   decidePurchaseOrder, editPurchaseOrder, emailPurchaseOrder, receivePurchaseOrder, recordLateLandedCost,
 } from "@opentradesos/api/contracts";
@@ -142,6 +142,31 @@ export async function lateBillAction(_previous: FormState, form: FormData): Prom
     return {
       message: `Spread ${Number(bill.total).toFixed(2)}: ${Number(bill.onShelf).toFixed(2)} onto parts on a shelf, `
         + `${Number(bill.onJobs).toFixed(2)} onto ${jobs || "no jobs"}, ${Number(bill.onGone).toFixed(2)} onto stock already gone.`,
+    };
+  });
+  if (state?.done) refresh(id);
+  return state;
+}
+
+/**
+ * What the vendor said back, written down by hand from their reply. The
+ * service decides what is refused: a draft that was never sent, a finished
+ * order, a promise dated before the order went, and a repeat that says
+ * nothing new.
+ */
+export async function replyAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const state = await attempt(form, async () => {
+    const done = await purchaseAcknowledgements.record(await ctx(), {
+      id,
+      promisedOn: field(form, "promisedOn") ?? null,
+      reference: field(form, "reference") ?? null,
+      note: field(form, "note") ?? null,
+    });
+    return {
+      message: done.promisedOn
+        ? `Written down. They promised it by ${done.promisedOn}.`
+        : "Written down. Add the day they promised it by when they give one.",
     };
   });
   if (state?.done) refresh(id);

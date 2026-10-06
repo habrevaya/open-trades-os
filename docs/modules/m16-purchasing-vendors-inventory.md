@@ -265,6 +265,44 @@ lists them, those waiting first. `/purchasing/returns` is the screen. Nothing
 about the credit posts to the ledger, for the reason receiving stock does not;
 late freight the units carried leaves the inventory account as for any loss.
 
+A part that is only counted goes back through the same call with a `quantity` in
+place of `units`: one `return_to_vendor` movement with no lot, one return, the
+same credit memo and the same screen, where the part's name says "counted". Two
+things differ, and both are the conservative choice. The credit expected has to
+be typed (say 0.00 if none is promised), because counted stock has no receipt of
+its own to read a cost from and may have come from any vendor or from a count
+that found it, so nothing here can check the stock was bought from the vendor it
+is going back to. And stock held for a job does not go back: only what is on the
+shelf less what is reserved. A part tracked by serial or lot is refused a
+quantity, and a counted part is refused numbers, so the two are never mixed up.
+
+### What the vendor said back
+
+A vendor answers an order by email or a phone call, and somebody in the office
+writes it down by hand: `POST /v1/purchase-orders/{id}/acknowledgement` (`po:write`)
+takes the day they promised it by, their reference for the order and what else
+they said, from the form on `/purchasing/{id}`. Nothing is read out of an email:
+a date a program guessed is a date a buyer would trust and nobody wrote. The
+first reply moves a sent order to acknowledged, which the reorder engine already
+counted as on order; each later reply is kept with the promise it replaced, so a
+date that moved twice says so. A draft (never sent) and an order received or
+cancelled take no reply, a promise dated before the day the order was sent or
+more than a year ahead is refused as a slip, and a reply after the first has to
+say something new. The "Vendor confirmed" button on the list writes the same record
+with no date, so it leaves the same trail.
+
+The promise does not overwrite "wanted by", which is what the buyer asked for
+and what the order's PDF says. The reorder suggestions read the promise when
+there is one, due at the end of that day in the company's calendar, so
+"overdue" there and "past its promise" on the purchasing list are one fact.
+
+`/purchasing` lists "Orders to ring about" first: an order sent and not answered
+for the company's number of days, and an order past its promise with something
+still owed. The list rows and the order's page carry the same sentence. The
+number of days is 1 to 30, three until somebody changes it
+(`GET /v1/purchasing/settings` for `po:read`, `POST /v1/purchasing/settings` for
+`po:write`), and applies from then on to every order.
+
 ### Freight on a delivery: landed cost
 
 `POST /v1/purchase-orders/{id}/receipts` takes the charges on the vendor's
@@ -363,6 +401,30 @@ is when it cannot cover it. Buying is still the warehouse reorder point's
 decision. `POST /v1/stock/restocks` makes the move through the ordinary
 transfer. `/inventory/trucks` is the screen.
 
+#### Fills proposed overnight
+
+The worker looks at every truck under a minimum once a day of the company's own
+calendar, after one in the morning there, and writes the move down as a draft:
+`GET /v1/stock/truck-fills` lists them, one open draft per truck at most (an
+index holds it, so a second worker or a retry cannot stack them). The next night
+rewrites an open draft to what the truck needs then, and withdraws it when the
+truck needs nothing. A draft that somebody dismissed comes back the next night
+while the truck is still under its minimum, because the minimum is what the
+truck should carry. `POST /v1/stock/truck-fills` ("Check the trucks now", for
+somebody who has just set a minimum) writes the same proposal at once.
+
+NOTHING MOVES STOCK BY ITSELF. A person confirms a draft on `/inventory/trucks`
+(`POST /v1/stock/truck-fills/{id}/confirmation`, `inventory:adjust`) or leaves
+it (`POST /v1/stock/truck-fills/{id}/dismissal`). A confirmation reads the shelf
+again, because a draft is a night old: each line moves the least of what was
+drafted and what the truck needs now, from the warehouse holding the most now,
+through the one transfer a hand typed move is. A line the truck no longer needs
+is left alone and said so, and a draft with nothing left to move is withdrawn.
+All of a truck's lines move or none do. A tracked part's numbers are typed in the
+box on its line by whoever holds the parts, and a confirmation without them is
+refused in words and leaves the draft open. Who confirmed or dismissed it, when,
+and what it did are kept on the draft and in the audit log.
+
 ### Commodity delivery
 
 `POST /v1/deliveries` records a delivered quantity and
@@ -408,6 +470,10 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `PUT /v1/truck-minimums` | `inventory:adjust` |
 | `GET /v1/stock/restock-suggestions` | `inventory:read` |
 | `POST /v1/stock/restocks` | `inventory:adjust` |
+| `GET /v1/stock/truck-fills` | `inventory:read` |
+| `POST /v1/stock/truck-fills` | `inventory:adjust` |
+| `POST /v1/stock/truck-fills/{id}/confirmation` | `inventory:adjust` |
+| `POST /v1/stock/truck-fills/{id}/dismissal` | `inventory:adjust` |
 | `GET /v1/purchase-approval-rules` | `po:read` |
 | `POST /v1/purchase-approval-rules` | `settings:write` |
 | `POST /v1/purchase-orders/{id}/approvals` | `po:approve`, and the role the waiting step names |
@@ -420,6 +486,9 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `POST /v1/vendor-returns` | `po:write`, `inventory:adjust` |
 | `POST /v1/vendor-returns/{id}/credit` | `po:write` |
 | `POST /v1/purchase-order-receipts/{id}/late-charges` | `po:write` |
+| `POST /v1/purchase-orders/{id}/acknowledgement` | `po:write` |
+| `GET /v1/purchasing/settings` | `po:read` |
+| `POST /v1/purchasing/settings` | `po:write` |
 
 Five of these routes declared inventory permissions while their services checked
 vendor and purchase order ones, so the published list was a promise the service
@@ -458,15 +527,19 @@ is a decision not yet made, and the conservative answer was taken. A vendor's
 credit for a return is recorded, not posted, for the same reason.
 
 A unit back off a job is taken back by serial only; a lot coming back is
-received as found stock. Sending counted stock back to a vendor is not built,
-and the return screen sends serials (a lot goes back through the API, with its
-quantity). The customer's equipment record a returned unit became is left on
-their register for the office to retire.
+received as found stock. A lot goes back to a vendor with its quantity, and
+counted stock with how many. Whether counted stock was bought from the vendor it
+goes back to is the buyer's word, not something checked. The customer's
+equipment record a returned unit became is left on their register for the
+office to retire.
 
 An approval step's amount is the whole order's total, never the part of it in a
 category or for a location. Approvers are told by email only, not by text or in
 the app, and only when the company's email is connected.
 
-A vendor's reply is not read back as an acknowledgement or a promise date.
-Filling a truck is a move somebody makes from the suggestion; nothing fills
-trucks on a clock, and a tracked part's restock needs its numbers typed.
+A vendor's reply is written down by a person and never read out of an email, and
+the promise date is the vendor's word, not a delivery tracked by a carrier.
+Nothing fills a truck without a person: the night only proposes, and a tracked
+part's fill needs its numbers typed by whoever confirms it. The overnight
+proposal is for trucks under a minimum and never buys; a part no warehouse
+holds is left off it, and the suggestions list still says how short it is.

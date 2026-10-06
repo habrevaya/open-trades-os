@@ -197,6 +197,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One employment record per person, written with on conflict do update: saving it again replaces it.",
   staff_document_request_person_idx:
     "One request per person per document. Asking inserts with on conflict do nothing, so asking somebody already asked asks once.",
+  per_diem_person_day_idx:
+    "One day away per person per day. Recording reads the days already recorded first and leaves them as they were, naming them in the answer, so asking again for a longer stretch adds only the new days. Two offices recording the same day in the same instant is the only way to meet this, and that is a bug to see.",
+  truck_fill_draft_open_idx:
+    "One open fill per truck. Proposing inserts with on conflict do nothing and then rewrites the open draft it finds, so a second worker, a retry and the check now button leave one draft.",
   vendor_item_vendor_item_idx:
     "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 

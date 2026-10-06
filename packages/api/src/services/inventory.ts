@@ -6,6 +6,7 @@ import {
 } from "./context";
 import * as equipmentRegister from "./equipment";
 import * as approvals from "./purchase-approvals";
+import * as acknowledgements from "./purchase-acknowledgements";
 import { sendsWithin } from "./purchase-order-email";
 import { refusingDuplicate } from "./duplicates";
 import { nextNumber } from "./jobs";
@@ -475,7 +476,7 @@ export async function toOrder(ctx: ServiceContext, now = new Date()) {
       .where(isNull(schema.reorderPolicy.deletedAt));
     if (policies.length === 0) return [];
 
-    const orders = await loadPurchaseOrders(tx);
+    const orders = await loadPurchaseOrders(tx, ctx.actor.organizationId);
     const suggestions = inv.suggestReorders({
       policies: policies.map((p) => ({
         itemId: p.itemId,
@@ -512,25 +513,33 @@ export async function toOrder(ctx: ServiceContext, now = new Date()) {
   });
 }
 
-async function loadPurchaseOrders(tx: Database): Promise<inv.PurchaseOrder[]> {
+async function loadPurchaseOrders(tx: Database, organizationId: string): Promise<inv.PurchaseOrder[]> {
   const orders = await tx.select().from(schema.purchaseOrder)
     .where(isNull(schema.purchaseOrder.deletedAt));
   if (orders.length === 0) return [];
 
   const lines = await tx.select().from(schema.purchaseOrderLine);
-  return orders.map((order) => toCore(order, lines));
+  const zone = await timezoneOf(tx, organizationId);
+  return orders.map((order) => toCore(order, lines, zone));
 }
 
 /** One stored order, in the shape core reads. */
 function toCore(
   order: typeof schema.purchaseOrder.$inferSelect,
   lines: (typeof schema.purchaseOrderLine.$inferSelect)[],
+  zone = "UTC",
 ): inv.PurchaseOrder {
+  /**
+   * When the order is due. What the vendor promised wins over what the buyer
+   * asked for once somebody has written it down, and a promise kept on its own
+   * day is not late: due at the end of that day in the company's calendar.
+   */
+  const due = order.promisedOn ? time.startOfDayIn(time.nextDay(order.promisedOn), zone) : order.expectedAt;
   return {
     id: order.id,
     vendorId: order.vendorId,
     status: order.status,
-    ...(order.expectedAt ? { expectedAt: order.expectedAt } : {}),
+    ...(due ? { expectedAt: due } : {}),
     ...(order.submittedAt ? { submittedAt: order.submittedAt } : {}),
     lines: lines.filter((l) => l.purchaseOrderId === order.id).map((line) => ({
       id: line.id,
@@ -1006,53 +1015,71 @@ export async function transfer(
   return guardedWrite(ctx, "inventory:adjust", async (tx) => {
     const again = await replayedMovements(tx, ctx, "inventory.transferred");
     if (again) return again;
-    const movements = await history(tx, input.itemId);
-    const from = inv.deriveLevel(movements, input.itemId, input.fromLocationId);
-    const sequence = await nextSequence(tx, ctx.actor.organizationId);
-    const occurredAt = new Date();
-
-    /**
-     * Both halves or neither, and core returns them as one array so there is
-     * no shape of the return value that lets this write one leg. One leg of a
-     * transfer is stock that left a van and arrived nowhere.
-     */
-    const decision = inv.planTransfer({
-      from,
-      toLocationId: input.toLocationId,
-      quantity: inv.quantity(input.quantity),
-      out: { id: crypto.randomUUID(), sequence, occurredAt },
-      in: { id: crypto.randomUUID(), sequence: sequence + 1, occurredAt },
-      transferId: crypto.randomUUID(),
-    });
-    if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
-
-    let planned = decision.movements;
-    const mode = await trackingOf(tx, input.itemId);
-    if (mode) {
-      const { picks } = await leavingUnits(tx, {
-        itemId: input.itemId, mode, quantity: inv.quantity(input.quantity), locationId: input.fromLocationId,
-        units: input.units ?? [], movements,
-      });
-      planned = inv.splitTransfer({
-        out: planned[0]!, in: planned[1]!, picks,
-        stamps: picks.map((_, i) => ({
-          out: { id: crypto.randomUUID(), sequence: sequence + i * 2, occurredAt },
-          in: { id: crypto.randomUUID(), sequence: sequence + i * 2 + 1, occurredAt },
-          transferId: crypto.randomUUID(),
-        })),
-      });
-    } else {
-      await refuseUnitsOnUntracked(tx, input.itemId, input.units);
-    }
-
-    const written = await writeMovements(tx, ctx, planned);
-    await audit(tx, ctx, "inventory.transferred", "price_book_item", input.itemId, null, {
-      from: input.fromLocationId, to: input.toLocationId, quantity: input.quantity,
-      ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
-    });
+    const written = await transferWithin(tx, ctx, input);
     await rememberMovements(tx, ctx, "inventory.transferred", written);
     return written;
   });
+}
+
+/**
+ * The move itself, inside a transaction somebody else opened and without the
+ * once-only memory, so a confirmed truck fill can make several of them in one
+ * transaction (all of a truck's lines or none) under the one idempotency key
+ * the confirmation carries.
+ */
+export async function transferWithin(
+  tx: Database,
+  ctx: ServiceContext,
+  input: {
+    itemId: string; fromLocationId: string; toLocationId: string; quantity: string;
+    units?: readonly UnitInput[] | undefined;
+  },
+) {
+  const movements = await history(tx, input.itemId);
+  const from = inv.deriveLevel(movements, input.itemId, input.fromLocationId);
+  const sequence = await nextSequence(tx, ctx.actor.organizationId);
+  const occurredAt = new Date();
+
+  /**
+   * Both halves or neither, and core returns them as one array so there is
+   * no shape of the return value that lets this write one leg. One leg of a
+   * transfer is stock that left a van and arrived nowhere.
+   */
+  const decision = inv.planTransfer({
+    from,
+    toLocationId: input.toLocationId,
+    quantity: inv.quantity(input.quantity),
+    out: { id: crypto.randomUUID(), sequence, occurredAt },
+    in: { id: crypto.randomUUID(), sequence: sequence + 1, occurredAt },
+    transferId: crypto.randomUUID(),
+  });
+  if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
+
+  let planned = decision.movements;
+  const mode = await trackingOf(tx, input.itemId);
+  if (mode) {
+    const { picks } = await leavingUnits(tx, {
+      itemId: input.itemId, mode, quantity: inv.quantity(input.quantity), locationId: input.fromLocationId,
+      units: input.units ?? [], movements,
+    });
+    planned = inv.splitTransfer({
+      out: planned[0]!, in: planned[1]!, picks,
+      stamps: picks.map((_, i) => ({
+        out: { id: crypto.randomUUID(), sequence: sequence + i * 2, occurredAt },
+        in: { id: crypto.randomUUID(), sequence: sequence + i * 2 + 1, occurredAt },
+        transferId: crypto.randomUUID(),
+      })),
+    });
+  } else {
+    await refuseUnitsOnUntracked(tx, input.itemId, input.units);
+  }
+
+  const written = await writeMovements(tx, ctx, planned);
+  await audit(tx, ctx, "inventory.transferred", "price_book_item", input.itemId, null, {
+    from: input.fromLocationId, to: input.toLocationId, quantity: input.quantity,
+    ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
+  });
+  return written;
 }
 
 /** What a job has consumed, at cost, for job costing. */
@@ -1086,20 +1113,28 @@ export async function purchaseOrders(ctx: ServiceContext) {
     const lines = await tx.select().from(schema.purchaseOrderLine);
     const vendorOf = new Map(vendors.map((v) => [v.id, v.name]));
 
-    return orders.map((order) => {
+    const rows = [];
+    for (const order of orders) {
       const mine = lines.filter((l) => l.purchaseOrderId === order.id);
-      return {
+      const outstanding = mine.some((l) => inv.quantity(l.quantityReceived) < inv.quantity(l.quantityOrdered));
+      const vendorName = vendorOf.get(order.vendorId) ?? "";
+      rows.push({
         id: order.id,
         number: order.number,
         status: order.status,
-        vendorName: vendorOf.get(order.vendorId) ?? "",
+        vendorName,
         expectedAt: order.expectedAt,
+        submittedAt: order.submittedAt,
+        acknowledgedAt: order.acknowledgedAt,
+        promisedOn: order.promisedOn,
+        /** The call to make about it, when there is one: nobody has answered, or the promise has passed. */
+        followUp: await acknowledgements.followUpWithin(tx, ctx.actor.organizationId, order, vendorName, outstanding),
         lineCount: mine.length,
         total: m.toString(approvals.totalOf(mine)),
-        outstanding: mine.some((l) =>
-          inv.quantity(l.quantityReceived) < inv.quantity(l.quantityOrdered)),
-      };
-    });
+        outstanding,
+      });
+    }
+    return rows;
   });
 }
 
@@ -1672,6 +1707,15 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
       vendorAccount: order.vendorAccount,
       expectedAt: order.order.expectedAt?.toISOString() ?? null,
       submittedAt: order.order.submittedAt?.toISOString() ?? null,
+      acknowledgedAt: order.order.acknowledgedAt?.toISOString() ?? null,
+      promisedOn: order.order.promisedOn,
+      vendorReference: order.order.vendorReference,
+      /** Every time they answered, oldest first, with the promise each one replaced. */
+      replies: await acknowledgements.repliesWithin(tx, input.id),
+      followUp: await acknowledgements.followUpWithin(
+        tx, ctx.actor.organizationId, order.order, order.vendorName,
+        lines.some((l) => inv.quantity(l.line.quantityReceived) < inv.quantity(l.line.quantityOrdered)),
+      ),
       notes: order.order.notes,
       total: m.toString(m.round(total, 2)),
       lines: lines.map((l) => ({
@@ -1786,8 +1830,17 @@ export async function setPurchaseOrderStatus(
       return { id: order.id, status: "submitted" as const };
     }
 
-    await tx.update(schema.purchaseOrder).set({ status: input.status, updatedAt: new Date() })
-      .where(eq(schema.purchaseOrder.id, input.id));
+    /**
+     * "The vendor confirmed", said with nothing else, leaves the same record a
+     * reply typed with a date does: when, and by whom. A date can be added
+     * after, from the order's own page.
+     */
+    if (input.status === "acknowledged") {
+      await acknowledgements.writeReply(tx, ctx, order, {});
+    } else {
+      await tx.update(schema.purchaseOrder).set({ status: input.status, updatedAt: new Date() })
+        .where(eq(schema.purchaseOrder.id, input.id));
+    }
     await audit(tx, ctx, "purchase_order.status", "purchase_order", input.id,
       { status: from }, { status: input.status });
     return { id: order.id, status: input.status };

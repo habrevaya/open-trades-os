@@ -1699,6 +1699,30 @@ returns table (organization_id uuid)
 revoke all on function app.autopay_organizations(int) from public;
 grant execute on function app.autopay_organizations(int) to background;
 
+-- ---- Companies with a truck minimum, for the overnight truck fills --------
+-- Each night the worker proposes a fill for every truck under a minimum, as a
+-- draft a person confirms. It has no tenant until it picks one, so it asks here
+-- which companies keep a truck minimum at all, as ids and nothing else. Whether
+-- tonight's proposal has been made is the service's to decide, in the company's
+-- own calendar. A suspended company is left alone, like every other pass.
+create or replace function app.truck_fill_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct m.organization_id from public.truck_stock_minimum m
+       where m.deleted_at is null
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.truck_fill_organizations(int) from public;
+grant execute on function app.truck_fill_organizations(int) to background;
+
 -- ---- Companies whose contract clocks need a pass -------------------------
 -- The commercial module keeps SLA, invoicing and claim clocks on jobs, and
 -- the worker reconciles them and raises a task for any about to breach. The

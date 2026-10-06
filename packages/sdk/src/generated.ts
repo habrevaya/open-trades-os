@@ -176,6 +176,18 @@ export interface AddEstimateOptionPhotoOutput {
   estimateId: string;
 }
 
+export interface AddExpenseReceiptInput {
+  receipt: {
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  };
+}
+
+export interface AddExpenseReceiptOutput {
+  id: string;
+}
+
 export interface AddIncidentFollowUpInput {
   title: string;
   assigneeUserId?: string;
@@ -1594,6 +1606,14 @@ export interface CheckOutAssetOutput {
   heldFrom: string;
 }
 
+export type CheckTruckFillsInput = Record<string, unknown>;
+
+export interface CheckTruckFillsOutput {
+  created: number;
+  refreshed: number;
+  withdrawn: number;
+}
+
 export interface ClaimAppCredentialInput {
   claimSecret: string;
 }
@@ -1908,6 +1928,32 @@ export interface ConfirmReviewMatchOutput {
   jobId: string | null;
 }
 
+export interface ConfirmTruckFillInput {
+  units?: Array<{
+    itemId: string;
+    units: Array<{
+      number: string;
+      quantity?: string;
+    }>;
+  }>;
+}
+
+export interface ConfirmTruckFillOutput {
+  id: string;
+  status: "confirmed" | "withdrawn";
+  moved: Array<{
+    itemId: string;
+    itemName: string;
+    quantity: string;
+    from: string;
+  }>;
+  left: Array<{
+    itemId: string;
+    itemName: string;
+    reason: string;
+  }>;
+}
+
 export type ConfirmUnsubscribeInput = Record<string, unknown>;
 
 export interface ConfirmUnsubscribeOutput {
@@ -2073,6 +2119,31 @@ export interface CopyBackFromSandboxOutput {
     naturalKey: string;
     label: string;
     action: "create" | "update" | "same";
+  }>;
+}
+
+export interface CorrectCashTipInput {
+  amount: string;
+  reason: string;
+}
+
+export interface CorrectCashTipOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  receivedAt: string;
+  note: string | null;
+  recordedBy: "technician" | "office";
+  recordedByName: string | null;
+  corrections: Array<{
+    previousAmount: string;
+    newAmount: string;
+    reason: string;
+    correctedByName: string | null;
+    at: string;
   }>;
 }
 
@@ -4100,10 +4171,11 @@ export interface CreateVendorReturnInput {
   vendorId: string;
   itemId: string;
   locationId: string;
-  units: Array<{
+  units?: Array<{
     number: string;
     quantity?: string;
   }>;
+  quantity?: string | null;
   reason: string;
   reference?: string | null;
   creditExpected?: string | null;
@@ -4288,6 +4360,33 @@ export interface DecideClaimOutput {
   decidedAt: string | null;
   paidAt: string | null;
   decisionNote: string | null;
+}
+
+export interface DecideExpenseInput {
+  decision: "approve" | "refuse";
+  reason?: string | null;
+}
+
+export interface DecideExpenseOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  spentOn: string;
+  description: string;
+  status: "pending" | "approved" | "refused";
+  recordedAt: string;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionReason: string | null;
+  receipts: number;
+  paidIn: {
+    id: string;
+    label: string;
+    closed: boolean;
+  } | null;
 }
 
 export interface DecidePurchaseOrderInput {
@@ -5042,6 +5141,13 @@ export interface DismissIntakeDraftOutput {
   createdAt: string;
 }
 
+export type DismissTruckFillInput = Record<string, unknown>;
+
+export interface DismissTruckFillOutput {
+  id: string;
+  status: "dismissed";
+}
+
 export interface DrillMarketingFunnelOutput {
   key: string;
   label: string;
@@ -5296,6 +5402,7 @@ export interface ExportPayPeriodOutput {
   checksum: string;
   rowCount: number;
   grossTotal: string;
+  reimbursementTotal: string;
   generatedAt: string;
   previouslyExported: boolean;
 }
@@ -7161,7 +7268,18 @@ export interface GetFieldSnapshotOutput {
     };
     financing: boolean;
     assistant: boolean;
+    expenses: boolean;
   };
+  expenses: Array<{
+    id: string;
+    amount: string;
+    spentOn: string;
+    description: string;
+    jobNumber: number | null;
+    status: "pending" | "approved" | "refused";
+    decisionReason: string | null;
+    receipts: number;
+  }>;
 }
 
 export interface GetFinancingReportOutput {
@@ -7550,6 +7668,46 @@ export interface GetJobAttributionOutput {
   }>;
 }
 
+export interface GetJobExpensesOutput {
+  reimbursements: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    spentOn: string;
+    description: string;
+    status: "pending" | "approved" | "refused";
+    recordedAt: string;
+    decidedAt: string | null;
+    decidedByName: string | null;
+    decisionReason: string | null;
+    receipts: number;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  perDiems: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string;
+    jobNumber: number;
+    day: string;
+    amount: string;
+    note: string | null;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  total: string;
+}
+
 export interface GetJobMaterialCostOutput {
   cost: string;
 }
@@ -7626,6 +7784,7 @@ export interface GetJobProfitabilityOutput {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  expenseCost: string;
   grossMargin: string;
   grossMarginPercent: number | null;
   labourBurden: string;
@@ -8305,6 +8464,7 @@ export interface GetMyPayStatementsOutput {
         amount: string;
       }>;
       gross: string;
+      nonTaxable: string;
       carriedForward: string;
       warnings: string[];
     } | null;
@@ -8489,6 +8649,15 @@ export interface GetOnCallNowOutput {
   explanation: string | null;
 }
 
+export interface GetPayExtrasOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+}
+
 export interface GetPaymentsStatusOutput {
   connected: boolean;
   provider: string | null;
@@ -8518,6 +8687,7 @@ export interface GetPayrollRegisterOutput {
       amount: string;
     }>;
     gross: string;
+    nonTaxable: string;
     carriedForward: string;
     warnings: string[];
   }>;
@@ -8527,6 +8697,7 @@ export interface GetPayrollRegisterOutput {
     messages: string[];
   }>;
   grossTotal: string;
+  reimbursementTotal: string;
 }
 
 export interface GetPerformanceOutput {
@@ -9039,6 +9210,7 @@ export interface GetProjectProfitabilityOutput {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  expenseCost: string;
   grossMargin: string;
   costVariance: string | null;
   billedToDate: string;
@@ -9192,6 +9364,23 @@ export interface GetPurchaseOrderOutput {
   vendorAccount: string | null;
   expectedAt: string | null;
   submittedAt: string | null;
+  acknowledgedAt: string | null;
+  promisedOn: string | null;
+  vendorReference: string | null;
+  replies: Array<{
+    id: string;
+    promisedOn: string | null;
+    previousPromisedOn: string | null;
+    reference: string | null;
+    note: string | null;
+    recordedByName: string | null;
+    recordedAt: string;
+  }>;
+  followUp: {
+    kind: "not_acknowledged" | "past_promise";
+    days: number;
+    sentence: string;
+  } | null;
   notes: string | null;
   total: string;
   lines: Array<{
@@ -9274,6 +9463,10 @@ export interface GetPurchaseOrderOutput {
     sentBy: string | null;
     linkExpiresAt: string | null;
   }>;
+}
+
+export interface GetPurchasingSettingsOutput {
+  acknowledgeAfterDays: number;
 }
 
 export interface GetRateCardTermsOutput {
@@ -11159,6 +11352,28 @@ export interface ListCampaignsOutput {
   }>;
 }
 
+export interface ListCashTipsOutput {
+  tips: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    receivedAt: string;
+    note: string | null;
+    recordedBy: "technician" | "office";
+    recordedByName: string | null;
+    corrections: Array<{
+      previousAmount: string;
+      newAmount: string;
+      reason: string;
+      correctedByName: string | null;
+      at: string;
+    }>;
+  }>;
+}
+
 export interface ListCertificationTypesOutput {
   types: Array<{
     id: string;
@@ -11388,7 +11603,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign" | "expense.record";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -12113,6 +12328,32 @@ export interface ListEstimatesOutput {
   hasMore: boolean;
 }
 
+export interface ListExpensesOutput {
+  expenses: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    spentOn: string;
+    description: string;
+    status: "pending" | "approved" | "refused";
+    recordedAt: string;
+    decidedAt: string | null;
+    decidedByName: string | null;
+    decisionReason: string | null;
+    receipts: number;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  waiting: number;
+  perDiemRate: string | null;
+}
+
 export interface ListExpiringCertificationsOutput {
   expiring: Array<{
     id: string;
@@ -12371,6 +12612,8 @@ export interface ListInvoiceTipsOutput {
     paymentId: string;
     receivedAt: string;
     amount: string;
+    splitRule: string;
+    splitNote: string;
     shares: Array<{
       technicianId: string;
       technicianName: string;
@@ -12822,6 +13065,69 @@ export interface ListMessagingRegistrationsOutput {
   }>;
 }
 
+export interface ListMyCashTipsOutput {
+  technician: boolean;
+  tips: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    receivedAt: string;
+    note: string | null;
+    recordedBy: "technician" | "office";
+    recordedByName: string | null;
+    corrections: Array<{
+      previousAmount: string;
+      newAmount: string;
+      reason: string;
+      correctedByName: string | null;
+      at: string;
+    }>;
+  }>;
+}
+
+export interface ListMyExpensesOutput {
+  technician: boolean;
+  expenses: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    spentOn: string;
+    description: string;
+    status: "pending" | "approved" | "refused";
+    recordedAt: string;
+    decidedAt: string | null;
+    decidedByName: string | null;
+    decisionReason: string | null;
+    receipts: number;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  perDiems: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string;
+    jobNumber: number;
+    day: string;
+    amount: string;
+    note: string | null;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+}
+
 export interface ListMySafetyMeetingsOutput {
   meetings: Array<{
     meetingId: string;
@@ -12992,6 +13298,7 @@ export interface ListPayrollExportsOutput {
     format: string;
     rowCount: number;
     grossTotal: string;
+    reimbursementTotal: string;
     checksum: string;
     generatedAt: string;
   }>;
@@ -13066,6 +13373,24 @@ export interface ListPeopleRosterOutput {
       sentence: string;
     };
     emergencyContacts: number;
+  }>;
+}
+
+export interface ListPerDiemOutput {
+  perDiems: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string;
+    jobNumber: number;
+    day: string;
+    amount: string;
+    note: string | null;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
   }>;
 }
 
@@ -13450,6 +13775,14 @@ export interface ListPurchaseOrdersOutput {
     status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
     vendorName: string;
     expectedAt: string | null;
+    submittedAt: string | null;
+    acknowledgedAt: string | null;
+    promisedOn: string | null;
+    followUp: {
+      kind: "not_acknowledged" | "past_promise";
+      days: number;
+      sentence: string;
+    } | null;
     lineCount: number;
     total: string;
     outstanding: boolean;
@@ -14456,6 +14789,27 @@ export interface ListTradePacksOutput {
     upgradable: boolean;
     priceBookItems: number;
     jobTypes: number;
+  }>;
+}
+
+export interface ListTruckFillsOutput {
+  fills: Array<{
+    id: string;
+    truckId: string;
+    truckName: string;
+    proposedOn: string;
+    refreshedAt: string;
+    lines: Array<{
+      id: string;
+      itemId: string;
+      itemName: string;
+      quantity: string;
+      onTruck: string;
+      fromLocationId: string;
+      fromLocationName: string;
+      tracking: "serial" | "lot" | null;
+      why: string;
+    }>;
   }>;
 }
 
@@ -16407,6 +16761,34 @@ export interface RecordAssetServiceOutput {
   lastServicedOn: string | null;
 }
 
+export interface RecordCashTipForInput {
+  technicianId: string;
+  amount: string;
+  receivedOn?: string;
+  jobNumber?: number;
+  reason: string;
+}
+
+export interface RecordCashTipForOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  receivedAt: string;
+  note: string | null;
+  recordedBy: "technician" | "office";
+  recordedByName: string | null;
+  corrections: Array<{
+    previousAmount: string;
+    newAmount: string;
+    reason: string;
+    correctedByName: string | null;
+    at: string;
+  }>;
+}
+
 export interface RecordCertificationInput {
   technicianId: string;
   certificationTypeId: string;
@@ -16491,6 +16873,42 @@ export interface RecordDeliveryOutput {
   tankPercentAfter: string | null;
   wasPartialFill: boolean;
   deliveredAt: string;
+}
+
+export interface RecordExpenseInput {
+  id?: string;
+  jobId?: string | null;
+  jobNumber?: number;
+  amount: string;
+  spentOn: string;
+  description: string;
+  receipt?: {
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  };
+}
+
+export interface RecordExpenseOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  spentOn: string;
+  description: string;
+  status: "pending" | "approved" | "refused";
+  recordedAt: string;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionReason: string | null;
+  receipts: number;
+  paidIn: {
+    id: string;
+    label: string;
+    closed: boolean;
+  } | null;
 }
 
 export interface RecordInspectionInput {
@@ -16648,6 +17066,21 @@ export interface RecordPaymentOutput {
   ledgerTransactionId: string;
 }
 
+export interface RecordPerDiemInput {
+  technicianId: string;
+  jobId?: string;
+  jobNumber?: number;
+  from: string;
+  to: string;
+  note?: string | null;
+}
+
+export interface RecordPerDiemOutput {
+  recorded: string[];
+  alreadyHad: string[];
+  rate: string;
+}
+
 export interface RecordProjectLienRecordInput {
   kind: "notice" | "waiver";
   direction: "sent" | "received";
@@ -16703,6 +17136,19 @@ export interface RecordPublicTouchInput {
 export interface RecordPublicTouchOutput {
   recorded: boolean;
   touchId: string | null;
+}
+
+export interface RecordPurchaseOrderAcknowledgementInput {
+  promisedOn?: string | null;
+  reference?: string | null;
+  note?: string | null;
+}
+
+export interface RecordPurchaseOrderAcknowledgementOutput {
+  id: string;
+  status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
+  promisedOn: string | null;
+  acknowledgedAt: string;
 }
 
 export interface RecordRecurringCompletionInput {
@@ -17313,6 +17759,13 @@ export type RemoveOnboardingTemplateItemInput = Record<string, unknown>;
 export interface RemoveOnboardingTemplateItemOutput {
   id: string;
   removed: boolean;
+}
+
+export type RemovePerDiemInput = Record<string, unknown>;
+
+export interface RemovePerDiemOutput {
+  id: string;
+  removed: true;
 }
 
 export interface RemovePortalCardInput {
@@ -19633,6 +20086,20 @@ export interface SetOnboardingLineOutput {
   };
 }
 
+export interface SetPayExtrasInput {
+  perDiemRate?: string | null;
+  tipSplit?: "even" | "hours" | "lead";
+}
+
+export interface SetPayExtrasOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+}
+
 export interface SetPortalCardAutopayInput {
   token: string;
   on: boolean;
@@ -19746,6 +20213,14 @@ export interface SetPurchaseOrderStatusInput {
 export interface SetPurchaseOrderStatusOutput {
   id: string;
   status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
+}
+
+export interface SetPurchasingSettingsInput {
+  acknowledgeAfterDays: number;
+}
+
+export interface SetPurchasingSettingsOutput {
+  acknowledgeAfterDays: number;
 }
 
 export interface SetRateCardLinesInput {
@@ -20654,7 +21129,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign" | "expense.record";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -23541,6 +24016,10 @@ export interface AddEstimateOptionPhotoParams {
   id: string;
 }
 
+export interface AddExpenseReceiptParams {
+  id: string;
+}
+
 export interface AddIncidentFollowUpParams {
   id: string;
 }
@@ -23764,6 +24243,10 @@ export interface ConfirmReviewMatchParams {
   id: string;
 }
 
+export interface ConfirmTruckFillParams {
+  id: string;
+}
+
 export interface ConfirmUnsubscribeParams {
   token: string;
 }
@@ -23776,6 +24259,10 @@ export interface ConvertEstimateParams {
   id: string;
 }
 
+export interface CorrectCashTipParams {
+  id: string;
+}
+
 export interface CreateProjectApplicationParams {
   projectId: string;
 }
@@ -23785,6 +24272,10 @@ export interface DecideChangeOrderParams {
 }
 
 export interface DecideClaimParams {
+  id: string;
+}
+
+export interface DecideExpenseParams {
   id: string;
 }
 
@@ -23921,6 +24412,10 @@ export interface DismissEstimateDraftParams {
 }
 
 export interface DismissIntakeDraftParams {
+  id: string;
+}
+
+export interface DismissTruckFillParams {
   id: string;
 }
 
@@ -24246,6 +24741,10 @@ export interface GetJobAttributionInput {
   models?: Array<"first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based">;
 }
 
+export interface GetJobExpensesInput {
+  jobId: string;
+}
+
 export interface GetJobMaterialCostInput {
   jobId: string;
 }
@@ -24343,6 +24842,8 @@ export interface GetOnCallNowInput {
   at?: string;
   businessUnitId?: string | null;
 }
+
+export type GetPayExtrasInput = Record<string, never>;
 
 export type GetPaymentsStatusInput = Record<string, never>;
 
@@ -24449,6 +24950,8 @@ export interface GetPurchaseOrderInput {
 export interface GetPurchaseOrderApprovalsInput {
   id: string;
 }
+
+export type GetPurchasingSettingsInput = Record<string, never>;
 
 export interface GetRateCardTermsInput {
   rateCardId: string;
@@ -24745,6 +25248,10 @@ export interface ListCampaignsInput {
   limit?: number;
 }
 
+export interface ListCashTipsInput {
+  technicianId?: string;
+}
+
 export type ListCertificationTypesInput = Record<string, never>;
 
 export interface ListCertificationsInput {
@@ -24980,6 +25487,12 @@ export interface ListEstimatesInput {
   fields?: string[];
 }
 
+export interface ListExpensesInput {
+  status?: "pending" | "approved" | "refused";
+  technicianId?: string;
+  jobId?: string;
+}
+
 export interface ListExpiringCertificationsInput {
   within?: number;
 }
@@ -25144,6 +25657,10 @@ export interface ListMessageTemplatesInput {
 
 export type ListMessagingRegistrationsInput = Record<string, never>;
 
+export type ListMyCashTipsInput = Record<string, never>;
+
+export type ListMyExpensesInput = Record<string, never>;
+
 export type ListMySafetyMeetingsInput = Record<string, never>;
 
 export type ListNetworkMembersInput = Record<string, never>;
@@ -25203,6 +25720,13 @@ export interface ListPeopleInput {
 }
 
 export type ListPeopleRosterInput = Record<string, never>;
+
+export interface ListPerDiemInput {
+  technicianId?: string;
+  jobId?: string;
+  from?: string;
+  to?: string;
+}
 
 export type ListPhoneMenusInput = Record<string, never>;
 
@@ -25462,6 +25986,8 @@ export interface ListTrackingCampaignsInput {
 export type ListTrackingNumbersInput = Record<string, never>;
 
 export type ListTradePacksInput = Record<string, never>;
+
+export type ListTruckFillsInput = Record<string, never>;
 
 export type ListTruckMinimumsInput = Record<string, never>;
 
@@ -25756,6 +26282,10 @@ export interface RecordProjectLienRecordParams {
   projectId: string;
 }
 
+export interface RecordPurchaseOrderAcknowledgementParams {
+  id: string;
+}
+
 export interface RecordRecurringCompletionParams {
   id: string;
 }
@@ -25860,6 +26390,10 @@ export interface RemoveMyEmergencyContactParams {
 }
 
 export interface RemoveOnboardingTemplateItemParams {
+  id: string;
+}
+
+export interface RemovePerDiemParams {
   id: string;
 }
 
@@ -26664,6 +27198,7 @@ export interface OperationTypes {
   addCustomerContact: { input: AddCustomerContactParams & AddCustomerContactInput; output: AddCustomerContactOutput };
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
+  addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
@@ -26726,6 +27261,7 @@ export interface OperationTypes {
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
   checkInAsset: { input: CheckInAssetParams & CheckInAssetInput; output: CheckInAssetOutput };
   checkOutAsset: { input: CheckOutAssetParams & CheckOutAssetInput; output: CheckOutAssetOutput };
+  checkTruckFills: { input: CheckTruckFillsInput; output: CheckTruckFillsOutput };
   claimAppCredential: { input: ClaimAppCredentialParams & ClaimAppCredentialInput; output: ClaimAppCredentialOutput };
   claimTask: { input: ClaimTaskParams & ClaimTaskInput; output: ClaimTaskOutput };
   clearDiscountPolicy: { input: ClearDiscountPolicyInput; output: ClearDiscountPolicyOutput };
@@ -26742,6 +27278,7 @@ export interface OperationTypes {
   confirmBookingRequest: { input: ConfirmBookingRequestParams & ConfirmBookingRequestInput; output: ConfirmBookingRequestOutput };
   confirmPortalCardSetup: { input: ConfirmPortalCardSetupInput; output: ConfirmPortalCardSetupOutput };
   confirmReviewMatch: { input: ConfirmReviewMatchParams & ConfirmReviewMatchInput; output: ConfirmReviewMatchOutput };
+  confirmTruckFill: { input: ConfirmTruckFillParams & ConfirmTruckFillInput; output: ConfirmTruckFillOutput };
   confirmUnsubscribe: { input: ConfirmUnsubscribeParams & ConfirmUnsubscribeInput; output: ConfirmUnsubscribeOutput };
   connectAiProvider: { input: ConnectAiProviderInput; output: ConnectAiProviderOutput };
   connectCallTracking: { input: ConnectCallTrackingInput; output: ConnectCallTrackingOutput };
@@ -26749,6 +27286,7 @@ export interface OperationTypes {
   connectLeadMarketplace: { input: ConnectLeadMarketplaceInput; output: ConnectLeadMarketplaceOutput };
   convertEstimate: { input: ConvertEstimateParams & ConvertEstimateInput; output: ConvertEstimateOutput };
   copyBackFromSandbox: { input: CopyBackFromSandboxInput; output: CopyBackFromSandboxOutput };
+  correctCashTip: { input: CorrectCashTipParams & CorrectCashTipInput; output: CorrectCashTipOutput };
   countStock: { input: CountStockInput; output: CountStockOutput };
   createAgreementPlan: { input: CreateAgreementPlanInput; output: CreateAgreementPlanOutput };
   createBookableService: { input: CreateBookableServiceInput; output: CreateBookableServiceOutput };
@@ -26807,6 +27345,7 @@ export interface OperationTypes {
   deactivateCommissionPlan: { input: DeactivateCommissionPlanInput; output: DeactivateCommissionPlanOutput };
   decideChangeOrder: { input: DecideChangeOrderParams & DecideChangeOrderInput; output: DecideChangeOrderOutput };
   decideClaim: { input: DecideClaimParams & DecideClaimInput; output: DecideClaimOutput };
+  decideExpense: { input: DecideExpenseParams & DecideExpenseInput; output: DecideExpenseOutput };
   decidePurchaseOrder: { input: DecidePurchaseOrderParams & DecidePurchaseOrderInput; output: DecidePurchaseOrderOutput };
   decideRecording: { input: DecideRecordingParams & DecideRecordingInput; output: DecideRecordingOutput };
   declareCommissionPlan: { input: DeclareCommissionPlanInput; output: DeclareCommissionPlanOutput };
@@ -26855,6 +27394,7 @@ export interface OperationTypes {
   dismissDispatchPlan: { input: DismissDispatchPlanParams & DismissDispatchPlanInput; output: DismissDispatchPlanOutput };
   dismissEstimateDraft: { input: DismissEstimateDraftParams & DismissEstimateDraftInput; output: DismissEstimateDraftOutput };
   dismissIntakeDraft: { input: DismissIntakeDraftParams & DismissIntakeDraftInput; output: DismissIntakeDraftOutput };
+  dismissTruckFill: { input: DismissTruckFillParams & DismissTruckFillInput; output: DismissTruckFillOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
@@ -26941,6 +27481,7 @@ export interface OperationTypes {
   getInvoiceFinancing: { input: GetInvoiceFinancingInput; output: GetInvoiceFinancingOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
+  getJobExpenses: { input: GetJobExpensesInput; output: GetJobExpensesOutput };
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
   getJobRateOffers: { input: GetJobRateOffersInput; output: GetJobRateOffersOutput };
@@ -26966,6 +27507,7 @@ export interface OperationTypes {
   getNetworkMembership: { input: GetNetworkMembershipInput; output: GetNetworkMembershipOutput };
   getNetworkRollup: { input: GetNetworkRollupInput; output: GetNetworkRollupOutput };
   getOnCallNow: { input: GetOnCallNowInput; output: GetOnCallNowOutput };
+  getPayExtras: { input: GetPayExtrasInput; output: GetPayExtrasOutput };
   getPaymentsStatus: { input: GetPaymentsStatusInput; output: GetPaymentsStatusOutput };
   getPayrollRegister: { input: GetPayrollRegisterInput; output: GetPayrollRegisterOutput };
   getPerformance: { input: GetPerformanceInput; output: GetPerformanceOutput };
@@ -26991,6 +27533,7 @@ export interface OperationTypes {
   getPublicPortalBranding: { input: GetPublicPortalBrandingInput; output: GetPublicPortalBrandingOutput };
   getPurchaseOrder: { input: GetPurchaseOrderInput; output: GetPurchaseOrderOutput };
   getPurchaseOrderApprovals: { input: GetPurchaseOrderApprovalsInput; output: GetPurchaseOrderApprovalsOutput };
+  getPurchasingSettings: { input: GetPurchasingSettingsInput; output: GetPurchasingSettingsOutput };
   getRateCardTerms: { input: GetRateCardTermsInput; output: GetRateCardTermsOutput };
   getRating: { input: GetRatingInput; output: GetRatingOutput };
   getRatingByTechnician: { input: GetRatingByTechnicianInput; output: GetRatingByTechnicianOutput };
@@ -27077,6 +27620,7 @@ export interface OperationTypes {
   listCallQueues: { input: ListCallQueuesInput; output: ListCallQueuesOutput };
   listCalls: { input: ListCallsInput; output: ListCallsOutput };
   listCampaigns: { input: ListCampaignsInput; output: ListCampaignsOutput };
+  listCashTips: { input: ListCashTipsInput; output: ListCashTipsOutput };
   listCertificationTypes: { input: ListCertificationTypesInput; output: ListCertificationTypesOutput };
   listCertifications: { input: ListCertificationsInput; output: ListCertificationsOutput };
   listChangeOrders: { input: ListChangeOrdersInput; output: ListChangeOrdersOutput };
@@ -27123,6 +27667,7 @@ export interface OperationTypes {
   listEstimateDeliveries: { input: ListEstimateDeliveriesInput; output: ListEstimateDeliveriesOutput };
   listEstimateDrafts: { input: ListEstimateDraftsInput; output: ListEstimateDraftsOutput };
   listEstimates: { input: ListEstimatesInput; output: ListEstimatesOutput };
+  listExpenses: { input: ListExpensesInput; output: ListExpensesOutput };
   listExpiringCertifications: { input: ListExpiringCertificationsInput; output: ListExpiringCertificationsOutput };
   listExternalWorkOrders: { input: ListExternalWorkOrdersInput; output: ListExternalWorkOrdersOutput };
   listExternalWorkSources: { input: ListExternalWorkSourcesInput; output: ListExternalWorkSourcesOutput };
@@ -27158,6 +27703,8 @@ export interface OperationTypes {
   listMarketingPlatforms: { input: ListMarketingPlatformsInput; output: ListMarketingPlatformsOutput };
   listMessageTemplates: { input: ListMessageTemplatesInput; output: ListMessageTemplatesOutput };
   listMessagingRegistrations: { input: ListMessagingRegistrationsInput; output: ListMessagingRegistrationsOutput };
+  listMyCashTips: { input: ListMyCashTipsInput; output: ListMyCashTipsOutput };
+  listMyExpenses: { input: ListMyExpensesInput; output: ListMyExpensesOutput };
   listMySafetyMeetings: { input: ListMySafetyMeetingsInput; output: ListMySafetyMeetingsOutput };
   listNetworkMembers: { input: ListNetworkMembersInput; output: ListNetworkMembersOutput };
   listObligations: { input: ListObligationsInput; output: ListObligationsOutput };
@@ -27172,6 +27719,7 @@ export interface OperationTypes {
   listPendingUploads: { input: ListPendingUploadsInput; output: ListPendingUploadsOutput };
   listPeople: { input: ListPeopleInput; output: ListPeopleOutput };
   listPeopleRoster: { input: ListPeopleRosterInput; output: ListPeopleRosterOutput };
+  listPerDiem: { input: ListPerDiemInput; output: ListPerDiemOutput };
   listPhoneMenus: { input: ListPhoneMenusInput; output: ListPhoneMenusOutput };
   listPlatformCampaigns: { input: ListPlatformCampaignsInput; output: ListPlatformCampaignsOutput };
   listPortalCards: { input: ListPortalCardsInput; output: ListPortalCardsOutput };
@@ -27241,6 +27789,7 @@ export interface OperationTypes {
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
+  listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
   listUndeliveredInvoices: { input: ListUndeliveredInvoicesInput; output: ListUndeliveredInvoicesOutput };
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
@@ -27332,16 +27881,20 @@ export interface OperationTypes {
   recordAssetCost: { input: RecordAssetCostParams & RecordAssetCostInput; output: RecordAssetCostOutput };
   recordAssetReading: { input: RecordAssetReadingParams & RecordAssetReadingInput; output: RecordAssetReadingOutput };
   recordAssetService: { input: RecordAssetServiceParams & RecordAssetServiceInput; output: RecordAssetServiceOutput };
+  recordCashTipFor: { input: RecordCashTipForInput; output: RecordCashTipForOutput };
   recordCertification: { input: RecordCertificationInput; output: RecordCertificationOutput };
   recordClaimPayment: { input: RecordClaimPaymentParams & RecordClaimPaymentInput; output: RecordClaimPaymentOutput };
   recordDelivery: { input: RecordDeliveryInput; output: RecordDeliveryOutput };
+  recordExpense: { input: RecordExpenseInput; output: RecordExpenseOutput };
   recordInspection: { input: RecordInspectionInput; output: RecordInspectionOutput };
   recordLateLandedCost: { input: RecordLateLandedCostParams & RecordLateLandedCostInput; output: RecordLateLandedCostOutput };
   recordMessagingBrand: { input: RecordMessagingBrandInput; output: RecordMessagingBrandOutput };
   recordMessagingCampaign: { input: RecordMessagingCampaignInput; output: RecordMessagingCampaignOutput };
   recordPayment: { input: RecordPaymentInput; output: RecordPaymentOutput };
+  recordPerDiem: { input: RecordPerDiemInput; output: RecordPerDiemOutput };
   recordProjectLienRecord: { input: RecordProjectLienRecordParams & RecordProjectLienRecordInput; output: RecordProjectLienRecordOutput };
   recordPublicTouch: { input: RecordPublicTouchInput; output: RecordPublicTouchOutput };
+  recordPurchaseOrderAcknowledgement: { input: RecordPurchaseOrderAcknowledgementParams & RecordPurchaseOrderAcknowledgementInput; output: RecordPurchaseOrderAcknowledgementOutput };
   recordRecurringCompletion: { input: RecordRecurringCompletionParams & RecordRecurringCompletionInput; output: RecordRecurringCompletionOutput };
   recordRefund: { input: RecordRefundParams & RecordRefundInput; output: RecordRefundOutput };
   recordRentalCharge: { input: RecordRentalChargeParams & RecordRentalChargeInput; output: RecordRentalChargeOutput };
@@ -27376,6 +27929,7 @@ export interface OperationTypes {
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
+  removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
   removePurchaseApprovalRule: { input: RemovePurchaseApprovalRuleParams & RemovePurchaseApprovalRuleInput; output: RemovePurchaseApprovalRuleOutput };
@@ -27504,6 +28058,7 @@ export interface OperationTypes {
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
+  setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
   setPortalCardAutopay: { input: SetPortalCardAutopayParams & SetPortalCardAutopayInput; output: SetPortalCardAutopayOutput };
   setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
@@ -27513,6 +28068,7 @@ export interface OperationTypes {
   setProjectPhaseStatus: { input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput; output: SetProjectPhaseStatusOutput };
   setProposalTerms: { input: SetProposalTermsInput; output: SetProposalTermsOutput };
   setPurchaseOrderStatus: { input: SetPurchaseOrderStatusParams & SetPurchaseOrderStatusInput; output: SetPurchaseOrderStatusOutput };
+  setPurchasingSettings: { input: SetPurchasingSettingsInput; output: SetPurchasingSettingsOutput };
   setRateCardLines: { input: SetRateCardLinesParams & SetRateCardLinesInput; output: SetRateCardLinesOutput };
   setRateCardTerms: { input: SetRateCardTermsParams & SetRateCardTermsInput; output: SetRateCardTermsOutput };
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
@@ -27670,6 +28226,7 @@ export const OPERATIONS = {
   addCustomerContact: { method: "POST", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -27732,6 +28289,7 @@ export const OPERATIONS = {
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkInAsset: { method: "POST", path: "/v1/assets/{assetId}/check-in", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkOutAsset: { method: "POST", path: "/v1/assets/{assetId}/check-out", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
+  checkTruckFills: { method: "POST", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   claimAppCredential: { method: "POST", path: "/v1/public/app-requests/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   claimTask: { method: "POST", path: "/v1/tasks/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   clearDiscountPolicy: { method: "POST", path: "/v1/estimate-discount-policy/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -27748,6 +28306,7 @@ export const OPERATIONS = {
   confirmBookingRequest: { method: "POST", path: "/v1/bookings/{id}/confirm", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide","job:write"] },
   confirmPortalCardSetup: { method: "POST", path: "/v1/portal/card-setup/confirm", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   confirmReviewMatch: { method: "POST", path: "/v1/reviews/{id}/match", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
+  confirmTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/confirmation", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   confirmUnsubscribe: { method: "POST", path: "/v1/public/unsubscribe/{token}", pathParams: ["token"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   connectAiProvider: { method: "POST", path: "/v1/ai/connections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   connectCallTracking: { method: "POST", path: "/v1/call-tracking/connect", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -27755,6 +28314,7 @@ export const OPERATIONS = {
   connectLeadMarketplace: { method: "POST", path: "/v1/lead-marketplaces", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   convertEstimate: { method: "POST", path: "/v1/estimates/{id}/convert", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write","job:write"] },
   copyBackFromSandbox: { method: "POST", path: "/v1/sandbox/copy-back", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
+  correctCashTip: { method: "POST", path: "/v1/cash-tips/{id}/correction", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   countStock: { method: "POST", path: "/v1/stock/counts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   createAgreementPlan: { method: "POST", path: "/v1/agreement-plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   createBookableService: { method: "POST", path: "/v1/booking/services", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -27813,6 +28373,7 @@ export const OPERATIONS = {
   deactivateCommissionPlan: { method: "POST", path: "/v1/commissions/plans/deactivate", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   decideChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:approve"] },
   decideClaim: { method: "POST", path: "/v1/claims/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  decideExpense: { method: "POST", path: "/v1/expenses/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   decidePurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/approvals", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:approve"] },
   decideRecording: { method: "POST", path: "/v1/calls/{id}/recording-decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   declareCommissionPlan: { method: "POST", path: "/v1/commissions/plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
@@ -27861,6 +28422,7 @@ export const OPERATIONS = {
   dismissDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   dismissEstimateDraft: { method: "POST", path: "/v1/ai/estimate-drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   dismissIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
+  dismissTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/dismissal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -27947,6 +28509,7 @@ export const OPERATIONS = {
   getInvoiceFinancing: { method: "GET", path: "/v1/invoices/{invoiceId}/financing", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
   getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["exceptInvoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -27972,6 +28535,7 @@ export const OPERATIONS = {
   getNetworkMembership: { method: "GET", path: "/v1/network", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNetworkRollup: { method: "GET", path: "/v1/network/rollup", pathParams: [], queryParams: ["aggregate","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getOnCallNow: { method: "GET", path: "/v1/on-call", pathParams: [], queryParams: ["at","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getPayExtras: { method: "GET", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getPaymentsStatus: { method: "GET", path: "/v1/payments/connection", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getPayrollRegister: { method: "GET", path: "/v1/payroll/register", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   getPerformance: { method: "GET", path: "/v1/marketing/performance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -27997,6 +28561,7 @@ export const OPERATIONS = {
   getPublicPortalBranding: { method: "GET", path: "/v1/public/portal/{organizationSlug}/branding", pathParams: ["organizationSlug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getPurchaseOrder: { method: "GET", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   getPurchaseOrderApprovals: { method: "GET", path: "/v1/purchase-orders/{id}/approvals", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
+  getPurchasingSettings: { method: "GET", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   getRateCardTerms: { method: "GET", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getRating: { method: "GET", path: "/v1/reviews/rating", pathParams: [], queryParams: ["platform"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRatingByTechnician: { method: "GET", path: "/v1/reviews/by-technician", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -28083,6 +28648,7 @@ export const OPERATIONS = {
   listCallQueues: { method: "GET", path: "/v1/call-queues", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCalls: { method: "GET", path: "/v1/calls", pathParams: [], queryParams: ["customerId","limit","q"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listCampaigns: { method: "GET", path: "/v1/campaigns", pathParams: [], queryParams: ["state","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
+  listCashTips: { method: "GET", path: "/v1/cash-tips", pathParams: [], queryParams: ["technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   listCertificationTypes: { method: "GET", path: "/v1/certification-types", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listCertifications: { method: "GET", path: "/v1/certifications", pathParams: [], queryParams: ["technicianId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listChangeOrders: { method: "GET", path: "/v1/projects/{projectId}/change-orders", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -28129,6 +28695,7 @@ export const OPERATIONS = {
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
+  listExpenses: { method: "GET", path: "/v1/expenses", pathParams: [], queryParams: ["status","technicianId","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listExternalWorkOrders: { method: "GET", path: "/v1/external-work-orders", pathParams: [], queryParams: ["state","sourceSystem","pendingPush","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listExternalWorkSources: { method: "GET", path: "/v1/external-work-sources", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
@@ -28164,6 +28731,8 @@ export const OPERATIONS = {
   listMarketingPlatforms: { method: "GET", path: "/v1/marketing/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMessageTemplates: { method: "GET", path: "/v1/message-templates", pathParams: [], queryParams: ["channel"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listMessagingRegistrations: { method: "GET", path: "/v1/messaging/registrations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listMyCashTips: { method: "GET", path: "/v1/me/cash-tips", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
+  listMyExpenses: { method: "GET", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   listMySafetyMeetings: { method: "GET", path: "/v1/safety/my-meetings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listNetworkMembers: { method: "GET", path: "/v1/network/members", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listObligations: { method: "GET", path: "/v1/obligations", pathParams: [], queryParams: ["overdueOnly","kind","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -28178,6 +28747,7 @@ export const OPERATIONS = {
   listPendingUploads: { method: "GET", path: "/v1/field/uploads", pathParams: [], queryParams: ["deviceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPeopleRoster: { method: "GET", path: "/v1/roster", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listPerDiem: { method: "GET", path: "/v1/per-diem", pathParams: [], queryParams: ["technicianId","jobId","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listPortalCards: { method: "GET", path: "/v1/portal/cards", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -28247,6 +28817,7 @@ export const OPERATIONS = {
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listUndeliveredInvoices: { method: "GET", path: "/v1/invoice-deliveries/undelivered", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -28338,16 +28909,20 @@ export const OPERATIONS = {
   recordAssetCost: { method: "POST", path: "/v1/assets/{assetId}/costs", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordAssetReading: { method: "POST", path: "/v1/assets/{assetId}/readings", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordAssetService: { method: "POST", path: "/v1/asset-maintenance-plans/{planId}/serviced", pathParams: ["planId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  recordCashTipFor: { method: "POST", path: "/v1/cash-tips", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   recordCertification: { method: "POST", path: "/v1/certifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   recordClaimPayment: { method: "POST", path: "/v1/claims/{id}/payments", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect","invoice:read"] },
   recordDelivery: { method: "POST", path: "/v1/deliveries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  recordExpense: { method: "POST", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   recordInspection: { method: "POST", path: "/v1/inspections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   recordLateLandedCost: { method: "POST", path: "/v1/purchase-order-receipts/{id}/late-charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordMessagingBrand: { method: "POST", path: "/v1/messaging/brands", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordMessagingCampaign: { method: "POST", path: "/v1/messaging/campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordPayment: { method: "POST", path: "/v1/payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
+  recordPerDiem: { method: "POST", path: "/v1/per-diem", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   recordProjectLienRecord: { method: "POST", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordPublicTouch: { method: "POST", path: "/v1/public/touches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  recordPurchaseOrderAcknowledgement: { method: "POST", path: "/v1/purchase-orders/{id}/acknowledgement", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordRecurringCompletion: { method: "POST", path: "/v1/recurring-schedules/{id}/completed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordRefund: { method: "POST", path: "/v1/payments/{id}/refunds", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   recordRentalCharge: { method: "POST", path: "/v1/rentals/{id}/charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -28382,6 +28957,7 @@ export const OPERATIONS = {
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   removePurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -28510,6 +29086,7 @@ export const OPERATIONS = {
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setPortalCardAutopay: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -28519,6 +29096,7 @@ export const OPERATIONS = {
   setProjectPhaseStatus: { method: "POST", path: "/v1/project-phases/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProposalTerms: { method: "PUT", path: "/v1/proposal-terms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPurchaseOrderStatus: { method: "POST", path: "/v1/purchase-orders/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  setPurchasingSettings: { method: "POST", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setRateCardLines: { method: "PUT", path: "/v1/rate-cards/{rateCardId}/lines", pathParams: ["rateCardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setRateCardTerms: { method: "PUT", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -28758,6 +29336,15 @@ export abstract class GeneratedOperations {
    */
   addEstimateOptionPhoto(input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput, options?: CallOptions): Promise<AddEstimateOptionPhotoOutput> {
     return this.call("addEstimateOptionPhoto", input, options);
+  }
+
+  /**
+   * Add a photograph of the receipt to one of your own.
+   *
+   * POST /v1/me/expenses/{id}/receipts. Needs expense:own.
+   */
+  addExpenseReceipt(input: AddExpenseReceiptParams & AddExpenseReceiptInput, options?: CallOptions): Promise<AddExpenseReceiptOutput> {
+    return this.call("addExpenseReceipt", input, options);
   }
 
   /**
@@ -29319,6 +29906,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Check the trucks now.
+   *
+   * POST /v1/stock/truck-fills. Needs inventory:adjust.
+   */
+  checkTruckFills(input: CheckTruckFillsInput = {} as CheckTruckFillsInput, options?: CallOptions): Promise<CheckTruckFillsOutput> {
+    return this.call("checkTruckFills", input, options);
+  }
+
+  /**
    * Collect the credential an approved request earned.
    *
    * POST /v1/public/app-requests/{id}/claim.
@@ -29463,6 +30059,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Move what a truck fill proposes.
+   *
+   * POST /v1/stock/truck-fills/{id}/confirmation. Needs inventory:adjust.
+   */
+  confirmTruckFill(input: ConfirmTruckFillParams & ConfirmTruckFillInput, options?: CallOptions): Promise<ConfirmTruckFillOutput> {
+    return this.call("confirmTruckFill", input, options);
+  }
+
+  /**
    * Unsubscribe from marketing email.
    *
    * POST /v1/public/unsubscribe/{token}.
@@ -29523,6 +30128,15 @@ export abstract class GeneratedOperations {
    */
   copyBackFromSandbox(input: CopyBackFromSandboxInput, options?: CallOptions): Promise<CopyBackFromSandboxOutput> {
     return this.call("copyBackFromSandbox", input, options);
+  }
+
+  /**
+   * Change what a cash tip was.
+   *
+   * POST /v1/cash-tips/{id}/correction. Needs tip:record.
+   */
+  correctCashTip(input: CorrectCashTipParams & CorrectCashTipInput, options?: CallOptions): Promise<CorrectCashTipOutput> {
+    return this.call("correctCashTip", input, options);
   }
 
   /**
@@ -30003,7 +30617,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Send serials or lots back to a vendor for credit.
+   * Send serials, lots or counted stock back to a vendor for credit.
    *
    * POST /v1/vendor-returns. Needs po:write, inventory:adjust.
    */
@@ -30045,6 +30659,15 @@ export abstract class GeneratedOperations {
    */
   decideClaim(input: DecideClaimParams & DecideClaimInput, options?: CallOptions): Promise<DecideClaimOutput> {
     return this.call("decideClaim", input, options);
+  }
+
+  /**
+   * Approve or refuse an expense.
+   *
+   * POST /v1/expenses/{id}/decision. Needs expense:approve.
+   */
+  decideExpense(input: DecideExpenseParams & DecideExpenseInput, options?: CallOptions): Promise<DecideExpenseOutput> {
+    return this.call("decideExpense", input, options);
   }
 
   /**
@@ -30477,6 +31100,15 @@ export abstract class GeneratedOperations {
    */
   dismissIntakeDraft(input: DismissIntakeDraftParams & DismissIntakeDraftInput, options?: CallOptions): Promise<DismissIntakeDraftOutput> {
     return this.call("dismissIntakeDraft", input, options);
+  }
+
+  /**
+   * Leave a truck fill for now.
+   *
+   * POST /v1/stock/truck-fills/{id}/dismissal. Needs inventory:adjust.
+   */
+  dismissTruckFill(input: DismissTruckFillParams & DismissTruckFillInput, options?: CallOptions): Promise<DismissTruckFillOutput> {
+    return this.call("dismissTruckFill", input, options);
   }
 
   /**
@@ -31254,6 +31886,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What the company has agreed to pay people for one job.
+   *
+   * GET /v1/jobs/{jobId}/expenses. Needs job.cost:read.
+   */
+  getJobExpenses(input: GetJobExpensesInput, options?: CallOptions): Promise<GetJobExpensesOutput> {
+    return this.call("getJobExpenses", input, options);
+  }
+
+  /**
    * What a job consumed, at cost.
    *
    * GET /v1/jobs/{jobId}/material-cost. Needs inventory:read.
@@ -31479,6 +32120,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The company's rate for a day away, and how tips are shared.
+   *
+   * GET /v1/payroll/pay-extras. Needs timesheet:read.
+   */
+  getPayExtras(input: GetPayExtrasInput = {} as GetPayExtrasInput, options?: CallOptions): Promise<GetPayExtrasOutput> {
+    return this.call("getPayExtras", input, options);
+  }
+
+  /**
    * Whether cards can be taken, and what the form needs.
    *
    * GET /v1/payments/connection. Needs integration:read.
@@ -31701,6 +32351,15 @@ export abstract class GeneratedOperations {
    */
   getPurchaseOrderApprovals(input: GetPurchaseOrderApprovalsInput, options?: CallOptions): Promise<GetPurchaseOrderApprovalsOutput> {
     return this.call("getPurchaseOrderApprovals", input, options);
+  }
+
+  /**
+   * How long a vendor may sit on an order before the list says to ring them.
+   *
+   * GET /v1/purchasing/settings. Needs po:read.
+   */
+  getPurchasingSettings(input: GetPurchasingSettingsInput = {} as GetPurchasingSettingsInput, options?: CallOptions): Promise<GetPurchasingSettingsOutput> {
+    return this.call("getPurchasingSettings", input, options);
   }
 
   /**
@@ -32478,6 +33137,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The cash tips on people's pay, with every change made to each.
+   *
+   * GET /v1/cash-tips. Needs tip:record.
+   */
+  listCashTips(input: ListCashTipsInput = {} as ListCashTipsInput, options?: CallOptions): Promise<ListCashTipsOutput> {
+    return this.call("listCashTips", input, options);
+  }
+
+  /**
    * What this company recognises.
    *
    * GET /v1/certification-types. Needs compliance:read.
@@ -32892,6 +33560,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Everybody's expenses, waiting ones first.
+   *
+   * GET /v1/expenses. Needs expense:approve.
+   */
+  listExpenses(input: ListExpensesInput = {} as ListExpensesInput, options?: CallOptions): Promise<ListExpensesOutput> {
+    return this.call("listExpenses", input, options);
+  }
+
+  /**
    * What is about to run out, and what already has.
    *
    * GET /v1/certifications/expiring. Needs compliance:read.
@@ -33207,6 +33884,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Your own cash tips, whoever recorded them, and every change made to each.
+   *
+   * GET /v1/me/cash-tips. Needs payroll:own.
+   */
+  listMyCashTips(input: ListMyCashTipsInput = {} as ListMyCashTipsInput, options?: CallOptions): Promise<ListMyCashTipsOutput> {
+    return this.call("listMyCashTips", input, options);
+  }
+
+  /**
+   * What you recorded, what the office said, and the days away you were paid for.
+   *
+   * GET /v1/me/expenses. Needs expense:own.
+   */
+  listMyExpenses(input: ListMyExpensesInput = {} as ListMyExpensesInput, options?: CallOptions): Promise<ListMyExpensesOutput> {
+    return this.call("listMyExpenses", input, options);
+  }
+
+  /**
    * The talks I am on, waiting for my signature first.
    *
    * GET /v1/safety/my-meetings. Needs field:sync.
@@ -33330,6 +34025,15 @@ export abstract class GeneratedOperations {
    */
   listPeopleRoster(input: ListPeopleRosterInput = {} as ListPeopleRosterInput, options?: CallOptions): Promise<ListPeopleRosterOutput> {
     return this.call("listPeopleRoster", input, options);
+  }
+
+  /**
+   * Days away that have been recorded.
+   *
+   * GET /v1/per-diem. Needs expense:approve.
+   */
+  listPerDiem(input: ListPerDiemInput = {} as ListPerDiemInput, options?: CallOptions): Promise<ListPerDiemOutput> {
+    return this.call("listPerDiem", input, options);
   }
 
   /**
@@ -33951,6 +34655,15 @@ export abstract class GeneratedOperations {
    */
   listTradePacks(input: ListTradePacksInput = {} as ListTradePacksInput, options?: CallOptions): Promise<ListTradePacksOutput> {
     return this.call("listTradePacks", input, options);
+  }
+
+  /**
+   * Truck fills the night proposed, waiting for a person.
+   *
+   * GET /v1/stock/truck-fills. Needs inventory:read.
+   */
+  listTruckFills(input: ListTruckFillsInput = {} as ListTruckFillsInput, options?: CallOptions): Promise<ListTruckFillsOutput> {
+    return this.call("listTruckFills", input, options);
   }
 
   /**
@@ -34773,6 +35486,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Put a cash tip a customer handed a technician on their pay.
+   *
+   * POST /v1/cash-tips. Needs tip:record.
+   */
+  recordCashTipFor(input: RecordCashTipForInput, options?: CallOptions): Promise<RecordCashTipForOutput> {
+    return this.call("recordCashTipFor", input, options);
+  }
+
+  /**
    * Record that somebody holds a certification.
    *
    * POST /v1/certifications. Needs compliance:write.
@@ -34797,6 +35519,15 @@ export abstract class GeneratedOperations {
    */
   recordDelivery(input: RecordDeliveryInput, options?: CallOptions): Promise<RecordDeliveryOutput> {
     return this.call("recordDelivery", input, options);
+  }
+
+  /**
+   * Record what you paid for the company.
+   *
+   * POST /v1/me/expenses. Needs expense:own.
+   */
+  recordExpense(input: RecordExpenseInput, options?: CallOptions): Promise<RecordExpenseOutput> {
+    return this.call("recordExpense", input, options);
   }
 
   /**
@@ -34845,6 +35576,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record the company's rate for each day somebody was away on a job.
+   *
+   * POST /v1/per-diem. Needs expense:approve.
+   */
+  recordPerDiem(input: RecordPerDiemInput, options?: CallOptions): Promise<RecordPerDiemOutput> {
+    return this.call("recordPerDiem", input, options);
+  }
+
+  /**
    * Record a notice or a waiver.
    *
    * POST /v1/projects/{projectId}/lien-records. Needs invoice:write.
@@ -34860,6 +35600,15 @@ export abstract class GeneratedOperations {
    */
   recordPublicTouch(input: RecordPublicTouchInput, options?: CallOptions): Promise<RecordPublicTouchOutput> {
     return this.call("recordPublicTouch", input, options);
+  }
+
+  /**
+   * Write down what the vendor said back.
+   *
+   * POST /v1/purchase-orders/{id}/acknowledgement. Needs po:write.
+   */
+  recordPurchaseOrderAcknowledgement(input: RecordPurchaseOrderAcknowledgementParams & RecordPurchaseOrderAcknowledgementInput, options?: CallOptions): Promise<RecordPurchaseOrderAcknowledgementOutput> {
+    return this.call("recordPurchaseOrderAcknowledgement", input, options);
   }
 
   /**
@@ -35166,6 +35915,15 @@ export abstract class GeneratedOperations {
    */
   removeOnboardingTemplateItem(input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput, options?: CallOptions): Promise<RemoveOnboardingTemplateItemOutput> {
     return this.call("removeOnboardingTemplateItem", input, options);
+  }
+
+  /**
+   * Take a recorded day away back out.
+   *
+   * POST /v1/per-diem/{id}/removal. Needs expense:approve.
+   */
+  removePerDiem(input: RemovePerDiemParams & RemovePerDiemInput, options?: CallOptions): Promise<RemovePerDiemOutput> {
+    return this.call("removePerDiem", input, options);
   }
 
   /**
@@ -36321,6 +37079,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set the rate for a day away, or how tips are shared.
+   *
+   * POST /v1/payroll/pay-extras. Needs payroll:configure.
+   */
+  setPayExtras(input: SetPayExtrasInput = {} as SetPayExtrasInput, options?: CallOptions): Promise<SetPayExtrasOutput> {
+    return this.call("setPayExtras", input, options);
+  }
+
+  /**
    * Pay each bill automatically with a saved card, or stop.
    *
    * POST /v1/portal/cards/{cardId}/autopay.
@@ -36399,6 +37166,15 @@ export abstract class GeneratedOperations {
    */
   setPurchaseOrderStatus(input: SetPurchaseOrderStatusParams & SetPurchaseOrderStatusInput, options?: CallOptions): Promise<SetPurchaseOrderStatusOutput> {
     return this.call("setPurchaseOrderStatus", input, options);
+  }
+
+  /**
+   * Set how long a vendor may sit on an order before the list says to ring them.
+   *
+   * POST /v1/purchasing/settings. Needs po:write.
+   */
+  setPurchasingSettings(input: SetPurchasingSettingsInput, options?: CallOptions): Promise<SetPurchasingSettingsOutput> {
+    return this.call("setPurchasingSettings", input, options);
   }
 
   /**

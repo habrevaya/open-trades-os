@@ -761,15 +761,15 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      * asks "is there anything new" far more often than it asks for the data,
      * and comparing one integer beats diffing a day of visits.
      */
-    const revision = await computeRevision(
+    const revision = (await computeRevision(
       tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId), rows.map((r) => r.customerId),
-    );
+    )) + await fieldSales.expensesRevision(tx, device.technicianId);
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
       return {
         revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [],
         locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
-        tasks: [], talks: [], abilities: await fieldSales.abilitiesFor(tx, ctx),
+        tasks: [], talks: [], abilities: await fieldSales.abilitiesFor(tx, ctx), expenses: [],
       };
     }
 
@@ -886,6 +886,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       tasks: await fieldSales.tasksFor(tx, ctx),
       talks: await safetyTalks.talksForField(tx, ctx, device.technicianId),
       abilities: await fieldSales.abilitiesFor(tx, ctx),
+      expenses: await fieldSales.expensesFor(tx, device.technicianId),
     };
   });
 }

@@ -188,6 +188,21 @@ export interface FieldAbilities {
   tipping: { enabled: boolean; presets: number[] };
   financing: boolean;
   assistant: boolean;
+  /** Whether this person may record what they paid for the company. Absent from older servers, which is read as no. */
+  expenses?: boolean | undefined;
+}
+
+/** One of this person's own expenses and what the office said, as the server last said. */
+export interface FieldExpense {
+  id: string;
+  amount: string;
+  spentOn: string;
+  description: string;
+  jobNumber: number | null;
+  status: "pending" | "approved" | "refused";
+  /** Why it was refused, in the office's words. */
+  decisionReason: string | null;
+  receipts: number;
 }
 
 export interface FiledInspection {
@@ -274,6 +289,8 @@ export interface FieldSnapshot {
   talks?: FieldTalk[] | undefined;
   /** What this person may do on site. Absent from older servers, which is read as nothing new. */
   abilities?: FieldAbilities | undefined;
+  /** This person's own expenses from the last sixty days. Absent from older servers. */
+  expenses?: FieldExpense[] | undefined;
 }
 
 export interface CodeRequestResult {

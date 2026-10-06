@@ -550,6 +550,12 @@ export const payrollExport = pgTable("payroll_export", {
   format: text("format").notNull(),
   rowCount: integer("row_count").notNull(),
   grossTotal: money("gross_total").notNull(),
+  /**
+   * What the file pays beside the gross without tax taken from it: approved
+   * reimbursements and per diem. Not in the gross total, and kept apart so a
+   * file's two figures can each be checked against the register's.
+   */
+  reimbursementTotal: money("reimbursement_total").notNull().default("0"),
   checksum: text("checksum").notNull(),
   generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
   generatedByUserId: uuid("generated_by_user_id").references(() => user.id, { onDelete: "set null" }),

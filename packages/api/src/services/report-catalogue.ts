@@ -91,6 +91,29 @@ export const JOB_COSTING_SQL = {
   ))`,
 
   /**
+   * WHAT PEOPLE SPENT FOR THE JOB AND THE COMPANY HAS AGREED TO PAY BACK, and
+   * the per diem for the days they were away on it.
+   *
+   * Approved reimbursements only: a waiting one is not yet agreed and a
+   * refused one never will be. A per diem has no approval step, because the
+   * office recording it is the agreement. Read from the two tables rather than
+   * the ledger because neither is posted to it (M17): they are paid through
+   * payroll, and this is where an owner reads them, so a job two hours from the
+   * shop does not look more profitable than it was.
+   *
+   * A receipt for the shop, with no job, is on no job and is not here.
+   */
+  expenseCost: `((
+    select coalesce(sum(e.amount), 0)
+    from public.expense e
+    where e.job_id = job.id and e.status = 'approved'
+  ) + (
+    select coalesce(sum(pd.amount), 0)
+    from public.per_diem pd
+    where pd.job_id = job.id
+  ))`,
+
+  /**
    * LABOUR AT THE RATE THAT WAS ACTUALLY APPLIED.
    *
    * Hours from the timeclock multiplied by `applied_loaded_rate`, which
@@ -337,7 +360,8 @@ export const JOB_COSTING_SQL = {
  */
 export const GROSS_MARGIN_SQL =
   `(${JOB_COSTING_SQL.revenue} - ${JOB_COSTING_SQL.materialCost}`
-  + ` - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.processingFees})`;
+  + ` - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.processingFees}`
+  + ` - ${JOB_COSTING_SQL.expenseCost})`;
 
 /**
  * FULLY LOADED MARGIN: the gross margin above, less labour burden and
@@ -594,6 +618,10 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     {
       key: "processing_fees", label: "Processing fees", kind: "sum", type: "money",
       permission: "job.cost:read", sql: JOB_COSTING_SQL.processingFees,
+    },
+    {
+      key: "expense_cost", label: "Expenses and per diem", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.expenseCost,
     },
     {
       key: "gross_margin", label: "Gross margin (no overhead)", kind: "sum", type: "money",

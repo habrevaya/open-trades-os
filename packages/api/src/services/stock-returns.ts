@@ -41,9 +41,13 @@ import { inForceAt } from "./pricebook";
  * payable in this product for it to come off. Late freight the units carried
  * leaves stock as for any loss.
  *
- * Both are by number only, so only for items tracked by serial (a return off
- * a job) or by serial or lot (to the vendor). A counted part coming back is
- * a count, and a counted part going back is not built.
+ * A return off a job is by number only, so only for items tracked by serial; a
+ * counted part coming back is a count. A return to a vendor takes a numbered
+ * unit by its number and a counted part by how many, as the same vendor return
+ * with the same credit and the same screen. The counted kind cannot know what
+ * the vendor owes (counted stock has no lot, no receipt of its own and may have
+ * come from anybody), so the buyer says the credit they were promised, and parts
+ * held for a job do not go back.
  */
 
 /* ----------------------------------------------------- back off a job */
@@ -179,7 +183,11 @@ async function nextReturnNumber(tx: Database, organizationId: string): Promise<n
 }
 
 export function createVendorReturn(ctx: ServiceContext, input: {
-  vendorId: string; itemId: string; locationId: string; units: readonly UnitInput[];
+  vendorId: string; itemId: string; locationId: string;
+  /** For a part tracked by serial or lot: which units. */
+  units?: readonly UnitInput[] | undefined;
+  /** For a counted part: how many. */
+  quantity?: string | null | undefined;
   reason: string; reference?: string | null | undefined; creditExpected?: string | null | undefined;
 }): Promise<VendorReturnView> {
   return guardedWrite(ctx, "po:write", async (tx) => {
@@ -195,25 +203,62 @@ export function createVendorReturn(ctx: ServiceContext, input: {
     if (!vendor) throw new NotFoundError("Vendor");
     const label = await itemLabel(tx, input.itemId);
     const mode = await trackingOf(tx, input.itemId);
-    if (!mode) {
-      throw new ConflictError(`${label} is not tracked by serial or lot. Sending counted stock back to a vendor is not built: write it off with a count, and record the credit with the vendor.`);
-    }
-
+    const units = input.units ?? [];
     const movements = await history(tx, input.itemId);
-    const quantity = input.units.reduce((total, unit) =>
-      total + (unit.quantity?.trim() ? inv.quantity(unit.quantity) : mode === "serial" ? inv.quantity("1") : inv.ZERO_QUANTITY), inv.ZERO_QUANTITY);
-    if (mode === "lot" && input.units.some((u) => !u.quantity?.trim())) {
-      throw new ConflictError("Say how much of each lot is going back.");
-    }
-    const { picks, numbers } = await leavingUnits(tx, {
-      itemId: input.itemId, mode, quantity, locationId: input.locationId, units: input.units, movements,
-    });
     const level = inv.deriveLevel(movements, input.itemId, input.locationId);
-    if (quantity > level.onHand) {
-      throw new ConflictError(inv.explainRefusal({
-        ok: false, reason: "insufficient_on_hand", itemId: label, locationId: await placeLabel(tx, input.locationId),
-        requested: quantity, onHand: level.onHand, shortfall: quantity - level.onHand,
+
+    let quantity: inv.Quantity;
+    let picks: inv.UnitPick[] = [];
+    let numbers = new Map<string, string>();
+    if (!mode) {
+      /**
+       * COUNTED STOCK. No numbers to name, so the return says how many. What
+       * the vendor owes cannot be read off a receipt here: counted stock on a
+       * shelf has no lot, may have come from any vendor or from a count that
+       * found it, and a guess at the credit would be a number nobody wrote.
+       * So the buyer says what credit they were promised, and the stock that
+       * is held for a job stays on the shelf.
+       */
+      if (units.length > 0) {
+        throw new ConflictError(`${label} is counted, not numbered, so say how many are going back rather than which ones.`);
+      }
+      const asked = input.quantity?.trim();
+      if (!asked) throw new ConflictError(`Say how many ${label} are going back.`);
+      quantity = inv.quantity(asked);
+      if (quantity <= inv.ZERO_QUANTITY) throw new ConflictError("Send back at least one.");
+      if (!input.creditExpected?.trim()) {
+        throw new ConflictError(`${label} is counted, so what it cost is not on record against ${vendor.name}. Say what credit they are giving, even if it is nothing.`);
+      }
+      const free = inv.available(level);
+      if (quantity > level.onHand) {
+        throw new ConflictError(inv.explainRefusal({
+          ok: false, reason: "insufficient_on_hand", itemId: label, locationId: await placeLabel(tx, input.locationId),
+          requested: quantity, onHand: level.onHand, shortfall: quantity - level.onHand,
+        }));
+      }
+      if (quantity > free) {
+        throw new ConflictError(
+          `${inv.quantityLabel(level.onHand)} ${label} are at ${await placeLabel(tx, input.locationId)}, but ${inv.quantityLabel(level.committed)} are held for jobs. Only ${inv.quantityLabel(free < inv.ZERO_QUANTITY ? inv.ZERO_QUANTITY : free)} can go back.`,
+        );
+      }
+    } else {
+      if (input.quantity?.trim()) {
+        throw new ConflictError(`${label} is tracked by ${mode === "serial" ? "serial number" : "lot"}, so say which ones are going back rather than how many.`);
+      }
+      quantity = units.reduce((total, unit) =>
+        total + (unit.quantity?.trim() ? inv.quantity(unit.quantity) : mode === "serial" ? inv.quantity("1") : inv.ZERO_QUANTITY), inv.ZERO_QUANTITY);
+      if (mode === "lot" && units.some((u) => !u.quantity?.trim())) {
+        throw new ConflictError("Say how much of each lot is going back.");
+      }
+      ({ picks, numbers } = await leavingUnits(tx, {
+        itemId: input.itemId, mode, quantity, locationId: input.locationId, units, movements,
       }));
+      if (quantity > level.onHand) {
+        throw new ConflictError(inv.explainRefusal({
+          ok: false, reason: "insufficient_on_hand", itemId: label, locationId: await placeLabel(tx, input.locationId),
+          requested: quantity, onHand: level.onHand, shortfall: quantity - level.onHand,
+        }));
+      }
     }
 
     /**
@@ -267,17 +312,25 @@ export function createVendorReturn(ctx: ServiceContext, input: {
 
     const sequence = await nextSequence(tx, ctx.actor.organizationId);
     const occurredAt = new Date();
-    const planned: inv.Movement[] = picks.map((pick, i) => ({
-      ...stampsFrom(sequence + i, 1, occurredAt)[0]!,
-      itemId: input.itemId, locationId: input.locationId, kind: "return_to_vendor" as const,
-      quantity: pick.quantity, lotId: pick.lotId, reasonCode: reason.slice(0, 200),
-    }));
+    const planned: inv.Movement[] = mode
+      ? picks.map((pick, i) => ({
+        ...stampsFrom(sequence + i, 1, occurredAt)[0]!,
+        itemId: input.itemId, locationId: input.locationId, kind: "return_to_vendor" as const,
+        quantity: pick.quantity, lotId: pick.lotId, reasonCode: reason.slice(0, 200),
+      }))
+      : [{
+        ...stampsFrom(sequence, 1, occurredAt)[0]!,
+        itemId: input.itemId, locationId: input.locationId, kind: "return_to_vendor" as const,
+        quantity, reasonCode: reason.slice(0, 200),
+      }];
     const extras: MovementExtras = new Map(planned.map((mv) => [mv.id, { vendorReturnId: row!.id }]));
     await writeMovements(tx, ctx, planned, extras);
     await relieveLateFreight(tx, ctx, input.itemId, planned.map((p) => p.id), occurredAt);
 
     await audit(tx, ctx, "vendor_return.created", "vendor_return", row!.id, null, {
-      number, vendorId: vendor.id, units: [...numbers.values()], creditExpected: m.toString(m.round(expected, 2)),
+      number, vendorId: vendor.id, units: [...numbers.values()],
+      ...(mode ? {} : { counted: { itemId: input.itemId, quantity: inv.quantityToString(quantity) } }),
+      creditExpected: m.toString(m.round(expected, 2)),
     });
     const view = (await returnsWithin(tx, { id: row!.id }))[0]!;
     await once.remember(tx, ctx, "vendor_return", row!.id, view);
@@ -378,7 +431,8 @@ export const handlers = {
     Promise<{ returns: VendorReturnView[] }> => ({ returns: await vendorReturns(ctx, input) }),
   createVendorReturn: (ctx: ServiceContext, input: {
     vendorId: string; itemId: string; locationId: string; reason: string;
-    units: readonly { number: string; quantity?: string | undefined }[];
+    units?: readonly { number: string; quantity?: string | undefined }[] | undefined;
+    quantity?: string | null | undefined;
     reference?: string | null | undefined; creditExpected?: string | null | undefined;
   }): Promise<VendorReturnView> => createVendorReturn(ctx, input),
   recordVendorCredit: (ctx: ServiceContext, input: { id: string; amount: string; reference?: string | null | undefined }):
