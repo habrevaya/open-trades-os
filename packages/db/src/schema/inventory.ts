@@ -673,6 +673,59 @@ export const truckStockMinimum = pgTable("truck_stock_minimum", {
     .where(sql`${t.deletedAt} is null`),
 }));
 
+export const truckFillStatus = pgEnum("truck_fill_status", ["open", "confirmed", "dismissed", "withdrawn"]);
+
+/**
+ * A TRUCK FILL PROPOSED OVERNIGHT, WAITING FOR A PERSON.
+ *
+ * Each night the worker looks at every truck under a minimum and writes the
+ * move it would make, from the warehouse holding the most. It is only a
+ * proposal: NOTHING MOVES UNTIL SOMEBODY CONFIRMS IT on the truck stock screen,
+ * and a confirmed one moves through the same transfer a hand typed move does.
+ *
+ * ONE OPEN DRAFT PER TRUCK, held by an index so a second worker, a retry and
+ * the "check now" button cannot pile up a stack of the same ask. The next
+ * night's pass rewrites an open draft to what the truck needs then, and
+ * withdraws it when the truck no longer needs anything.
+ */
+export const truckFillDraft = pgTable("truck_fill_draft", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  truckId: uuid("truck_id").notNull().references(() => location.id, { onDelete: "cascade" }),
+  status: truckFillStatus("status").notNull().default("open"),
+  /** The company's calendar day it was first proposed. */
+  proposedOn: date("proposed_on").notNull(),
+  /** The last time the overnight pass looked and wrote it as it stands. */
+  refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Who confirmed or dismissed it, as the name they had then; the overnight pass for a withdrawal. */
+  decidedByName: text("decided_by_name"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** What a confirmation did, in words, when it left a line alone. */
+  outcome: text("outcome"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  oneOpenPerTruck: uniqueIndex("truck_fill_draft_open_idx").on(t.organizationId, t.truckId)
+    .where(sql`${t.status} = 'open'`),
+  truckIdx: index("truck_fill_draft_truck_idx").on(t.organizationId, t.truckId, t.createdAt),
+}));
+
+export const truckFillLine = pgTable("truck_fill_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").notNull().references(() => truckFillDraft.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  fromLocationId: uuid("from_location_id").notNull().references(() => location.id, { onDelete: "cascade" }),
+  /** What was on the truck when it was proposed, and what to move. */
+  onTruck: quantity("on_truck").notNull(),
+  quantity: quantity("quantity").notNull(),
+  /** The same sentence the live suggestion gives. */
+  why: text("why").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  draftIdx: index("truck_fill_line_draft_idx").on(t.organizationId, t.draftId),
+}));
+
 /* ===================================================================== */
 /* Freight and duty billed after the delivery                             */
 /* ===================================================================== */

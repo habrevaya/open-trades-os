@@ -729,6 +729,13 @@
       "when": 1791286573464,
       "tag": "0103_vengeful_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1791287776375,
+      "tag": "0104_fat_captain_america",
+      "breakpoints": true
     }
   ]
 }

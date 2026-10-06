@@ -1015,53 +1015,71 @@ export async function transfer(
   return guardedWrite(ctx, "inventory:adjust", async (tx) => {
     const again = await replayedMovements(tx, ctx, "inventory.transferred");
     if (again) return again;
-    const movements = await history(tx, input.itemId);
-    const from = inv.deriveLevel(movements, input.itemId, input.fromLocationId);
-    const sequence = await nextSequence(tx, ctx.actor.organizationId);
-    const occurredAt = new Date();
-
-    /**
-     * Both halves or neither, and core returns them as one array so there is
-     * no shape of the return value that lets this write one leg. One leg of a
-     * transfer is stock that left a van and arrived nowhere.
-     */
-    const decision = inv.planTransfer({
-      from,
-      toLocationId: input.toLocationId,
-      quantity: inv.quantity(input.quantity),
-      out: { id: crypto.randomUUID(), sequence, occurredAt },
-      in: { id: crypto.randomUUID(), sequence: sequence + 1, occurredAt },
-      transferId: crypto.randomUUID(),
-    });
-    if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
-
-    let planned = decision.movements;
-    const mode = await trackingOf(tx, input.itemId);
-    if (mode) {
-      const { picks } = await leavingUnits(tx, {
-        itemId: input.itemId, mode, quantity: inv.quantity(input.quantity), locationId: input.fromLocationId,
-        units: input.units ?? [], movements,
-      });
-      planned = inv.splitTransfer({
-        out: planned[0]!, in: planned[1]!, picks,
-        stamps: picks.map((_, i) => ({
-          out: { id: crypto.randomUUID(), sequence: sequence + i * 2, occurredAt },
-          in: { id: crypto.randomUUID(), sequence: sequence + i * 2 + 1, occurredAt },
-          transferId: crypto.randomUUID(),
-        })),
-      });
-    } else {
-      await refuseUnitsOnUntracked(tx, input.itemId, input.units);
-    }
-
-    const written = await writeMovements(tx, ctx, planned);
-    await audit(tx, ctx, "inventory.transferred", "price_book_item", input.itemId, null, {
-      from: input.fromLocationId, to: input.toLocationId, quantity: input.quantity,
-      ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
-    });
+    const written = await transferWithin(tx, ctx, input);
     await rememberMovements(tx, ctx, "inventory.transferred", written);
     return written;
   });
+}
+
+/**
+ * The move itself, inside a transaction somebody else opened and without the
+ * once-only memory, so a confirmed truck fill can make several of them in one
+ * transaction (all of a truck's lines or none) under the one idempotency key
+ * the confirmation carries.
+ */
+export async function transferWithin(
+  tx: Database,
+  ctx: ServiceContext,
+  input: {
+    itemId: string; fromLocationId: string; toLocationId: string; quantity: string;
+    units?: readonly UnitInput[] | undefined;
+  },
+) {
+  const movements = await history(tx, input.itemId);
+  const from = inv.deriveLevel(movements, input.itemId, input.fromLocationId);
+  const sequence = await nextSequence(tx, ctx.actor.organizationId);
+  const occurredAt = new Date();
+
+  /**
+   * Both halves or neither, and core returns them as one array so there is
+   * no shape of the return value that lets this write one leg. One leg of a
+   * transfer is stock that left a van and arrived nowhere.
+   */
+  const decision = inv.planTransfer({
+    from,
+    toLocationId: input.toLocationId,
+    quantity: inv.quantity(input.quantity),
+    out: { id: crypto.randomUUID(), sequence, occurredAt },
+    in: { id: crypto.randomUUID(), sequence: sequence + 1, occurredAt },
+    transferId: crypto.randomUUID(),
+  });
+  if (!decision.ok) throw new ConflictError(inv.explainRefusal(decision));
+
+  let planned = decision.movements;
+  const mode = await trackingOf(tx, input.itemId);
+  if (mode) {
+    const { picks } = await leavingUnits(tx, {
+      itemId: input.itemId, mode, quantity: inv.quantity(input.quantity), locationId: input.fromLocationId,
+      units: input.units ?? [], movements,
+    });
+    planned = inv.splitTransfer({
+      out: planned[0]!, in: planned[1]!, picks,
+      stamps: picks.map((_, i) => ({
+        out: { id: crypto.randomUUID(), sequence: sequence + i * 2, occurredAt },
+        in: { id: crypto.randomUUID(), sequence: sequence + i * 2 + 1, occurredAt },
+        transferId: crypto.randomUUID(),
+      })),
+    });
+  } else {
+    await refuseUnitsOnUntracked(tx, input.itemId, input.units);
+  }
+
+  const written = await writeMovements(tx, ctx, planned);
+  await audit(tx, ctx, "inventory.transferred", "price_book_item", input.itemId, null, {
+    from: input.fromLocationId, to: input.toLocationId, quantity: input.quantity,
+    ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
+  });
+  return written;
 }
 
 /** What a job has consumed, at cost, for job costing. */

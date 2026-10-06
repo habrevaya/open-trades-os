@@ -189,6 +189,7 @@ export * as journals from "./journals";
 export * as stockUnits from "./stock-units";
 export * as purchaseApprovals from "./purchase-approvals";
 export * as purchaseAcknowledgements from "./purchase-acknowledgements";
+export * as truckFills from "./truck-fills";
 export * as purchaseOrderEmail from "./purchase-order-email";
 export * as stockReturns from "./stock-returns";
 export * as landedCost from "./landed-cost";

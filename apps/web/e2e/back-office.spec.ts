@@ -265,3 +265,87 @@ test("an order nobody answered is listed to ring about, and writing down their p
   await settings.getByRole("button", { name: "Save" }).click();
   await expect(owner.getByRole("alert").filter({ hasText: "1 to 30" })).toBeVisible();
 });
+
+test("the night proposes a truck fill, nothing moves until somebody confirms it, and a dismissed one is just left", async ({ owner }) => {
+  const code = `FIL${run.slice(-6).toUpperCase()}`;
+  const part = `Filter ${run}`;
+  const van = `Van ${run}`;
+  await owner.goto("/pricebook/items/new");
+  await owner.getByLabel("Kind").selectOption("material");
+  await owner.getByLabel("Code").fill(code);
+  await owner.getByLabel("Name").fill(part);
+  await owner.getByLabel("Price").fill("12.00");
+  await owner.getByRole("button", { name: "Add to the price book" }).click();
+  await expect(owner).toHaveURL(/\/pricebook\/items\/[0-9a-f-]{36}$/);
+
+  // A truck is any place that is not a warehouse.
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      insert into public.location (organization_id, name, is_warehouse)
+      select id, ${van}, false from public.organization where slug = 'ridgeline'`);
+  } finally {
+    await db.$close();
+  }
+
+  await owner.goto("/inventory");
+  const receive = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Receive", exact: true }) });
+  await receive.getByLabel("Part").selectOption({ label: `${part} (${code})` });
+  await receive.getByLabel("Into").selectOption({ label: "Shop (warehouse)" });
+  await receive.getByLabel("Quantity").fill("10");
+  await receive.getByLabel("What it all cost").fill("50.00");
+  await receive.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(receive.getByRole("status")).toContainText("Received 10");
+
+  await owner.goto("/inventory/trucks");
+  const minimum = owner.locator("form").filter({ has: owner.getByLabel("Fill to") });
+  await minimum.getByLabel("Truck").selectOption({ label: van });
+  await minimum.getByLabel("Part").selectOption({ label: `${part} (${code})` });
+  await minimum.getByLabel("Minimum").fill("2");
+  await minimum.getByLabel("Fill to").fill("6");
+  await minimum.getByRole("button", { name: "Set" }).click();
+  await expect(owner.getByRole("table", { name: "Minimums" }).getByRole("row").filter({ hasText: van })).toBeVisible();
+
+  const overnight = owner.getByRole("region", { name: "Drafted overnight" });
+  await expect(overnight).not.toContainText(van);
+  await overnight.getByRole("button", { name: "Check the trucks now" }).click();
+  await expect(overnight.getByRole("status")).toContainText("Checked.");
+  await owner.reload();
+  const fill = owner.getByRole("table", { name: `Fill for ${van}` });
+  const line = fill.getByRole("row").filter({ hasText: part });
+  await expect(line).toContainText("6");
+  await expect(line).toContainText("Shop");
+
+  // Looking at it has moved nothing: the truck holds none of it yet.
+  await owner.goto("/inventory");
+  await expect(owner.getByRole("row").filter({ hasText: part }).filter({ hasText: van })).toHaveCount(0);
+
+  await owner.goto("/inventory/trucks");
+  await owner.getByRole("button", { name: `Move these onto ${van}` }).click();
+  await expect(owner.getByRole("table", { name: `Fill for ${van}` })).toHaveCount(0);
+  await owner.goto("/inventory");
+  await expect(owner.getByRole("row").filter({ hasText: part }).filter({ hasText: van })).toContainText("6");
+
+  // The truck is then asked for more than it holds; a person says not now, and the stock stays where it is.
+  await owner.goto("/inventory/trucks");
+  await minimum.getByLabel("Truck").selectOption({ label: van });
+  await minimum.getByLabel("Part").selectOption({ label: `${part} (${code})` });
+  await minimum.getByLabel("Minimum").fill("7");
+  await minimum.getByLabel("Fill to").fill("9");
+  await minimum.getByRole("button", { name: "Set" }).click();
+  await owner.reload();
+  await overnight.getByRole("button", { name: "Check the trucks now" }).click();
+  await expect(overnight.getByRole("status")).toContainText("Checked.");
+  await owner.reload();
+  await expect(owner.getByRole("table", { name: `Fill for ${van}` }).getByRole("row").filter({ hasText: part })).toContainText("3");
+  await owner.getByRole("button", { name: `Not now, ${van}` }).click();
+  await expect(owner.getByRole("table", { name: `Fill for ${van}` })).toHaveCount(0);
+  await owner.goto("/inventory");
+  await expect(owner.getByRole("row").filter({ hasText: part }).filter({ hasText: van })).toContainText("6");
+
+  // Put back, so a later spec does not find this truck asking for more.
+  await owner.goto("/inventory/trucks");
+  const minimums = owner.getByRole("table", { name: "Minimums" });
+  await minimums.getByRole("row").filter({ hasText: van }).getByRole("button", { name: "Stop keeping" }).click();
+  await expect(minimums.getByRole("row").filter({ hasText: van })).toHaveCount(0);
+});

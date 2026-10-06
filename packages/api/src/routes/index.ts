@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
-  me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements,
+  me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
 } from "../services/index";
 
 /**
@@ -1098,6 +1098,7 @@ export const handlers = {
 
   // Serials, lots and truck stock (M16)
   ...stockUnits.handlers,
+  ...truckFills.handlers,
   // Approval steps and emailing an order to its vendor (M16)
   ...purchaseApprovals.handlers,
   ...purchaseOrderEmail.handlers,

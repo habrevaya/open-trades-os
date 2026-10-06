@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory as inventoryService, stockUnits, stockReturns, ConflictError } from "@opentradesos/api/services";
+import { inventory as inventoryService, stockUnits, stockReturns, truckFills, ConflictError } from "@opentradesos/api/services";
 import {
   issueStock, receiveStock, transferStock, setStockTracking, writeOffStockUnits, setTruckMinimum, restockTruck,
-  numberStockUnits, returnStockFromJob,
+  numberStockUnits, returnStockFromJob, confirmTruckFill, dismissTruckFill,
 } from "@opentradesos/api/contracts";
 import { inventory as inv } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
@@ -159,6 +159,47 @@ export async function restockAction(_previous: FormState, form: FormData): Promi
       ...(units ? { units } : {}),
     }));
     return { message: `Moved ${result.moved} onto the truck.` };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+/** The same proposal the night makes, for somebody who has just set a minimum. */
+export async function checkTruckFillsAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const result = await truckFills.proposeNow(await ctx());
+    const changed = result.created + result.refreshed + result.withdrawn;
+    return { message: changed === 0 ? "Every truck is as it was. Nothing new to fill." : "Checked. The fills below are up to date." };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+/**
+ * Move what a draft says. A tracked part's numbers are in boxes named
+ * `units:` and the part's id, one box per part, typed by whoever is holding them.
+ */
+export async function confirmTruckFillAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const units = [...form.keys()].filter((key) => key.startsWith("units:")).flatMap((key) => {
+      const numbers = inv.parseSerialList(String(form.get(key) ?? ""));
+      return numbers.length === 0 ? [] : [{ itemId: key.slice("units:".length), units: numbers.map((number) => ({ number })) }];
+    });
+    const result = await truckFills.confirm(await ctx(), parsed(confirmTruckFill.input, {
+      id: field(form, "id"), ...(units.length > 0 ? { units } : {}),
+    }));
+    const moved = result.moved.map((m) => `${m.quantity} ${m.itemName}`).join(", ");
+    const left = result.left.map((l) => `${l.itemName}: ${l.reason}`).join(" ");
+    return { message: [moved ? `Moved ${moved}.` : "Nothing needed moving.", left].filter(Boolean).join(" ") };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+export async function dismissTruckFillAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    await truckFills.dismiss(await ctx(), parsed(dismissTruckFill.input, { id: field(form, "id") }));
+    return { message: "Left for now. Nothing was moved." };
   });
   if (state?.done) refresh();
   return state;

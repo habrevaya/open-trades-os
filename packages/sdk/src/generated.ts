@@ -1543,6 +1543,14 @@ export interface CheckOutAssetOutput {
   heldFrom: string;
 }
 
+export type CheckTruckFillsInput = Record<string, unknown>;
+
+export interface CheckTruckFillsOutput {
+  created: number;
+  refreshed: number;
+  withdrawn: number;
+}
+
 export interface ClaimAppCredentialInput {
   claimSecret: string;
 }
@@ -1855,6 +1863,32 @@ export interface ConfirmReviewMatchOutput {
   id: string;
   customerId: string | null;
   jobId: string | null;
+}
+
+export interface ConfirmTruckFillInput {
+  units?: Array<{
+    itemId: string;
+    units: Array<{
+      number: string;
+      quantity?: string;
+    }>;
+  }>;
+}
+
+export interface ConfirmTruckFillOutput {
+  id: string;
+  status: "confirmed" | "withdrawn";
+  moved: Array<{
+    itemId: string;
+    itemName: string;
+    quantity: string;
+    from: string;
+  }>;
+  left: Array<{
+    itemId: string;
+    itemName: string;
+    reason: string;
+  }>;
 }
 
 export type ConfirmUnsubscribeInput = Record<string, unknown>;
@@ -4881,6 +4915,13 @@ export interface DismissIntakeDraftOutput {
   decidedByUserId: string | null;
   decidedAt: string | null;
   createdAt: string;
+}
+
+export type DismissTruckFillInput = Record<string, unknown>;
+
+export interface DismissTruckFillOutput {
+  id: string;
+  status: "dismissed";
 }
 
 export interface DrillMarketingFunnelOutput {
@@ -14269,6 +14310,27 @@ export interface ListTradePacksOutput {
   }>;
 }
 
+export interface ListTruckFillsOutput {
+  fills: Array<{
+    id: string;
+    truckId: string;
+    truckName: string;
+    proposedOn: string;
+    refreshedAt: string;
+    lines: Array<{
+      id: string;
+      itemId: string;
+      itemName: string;
+      quantity: string;
+      onTruck: string;
+      fromLocationId: string;
+      fromLocationName: string;
+      tracking: "serial" | "lot" | null;
+      why: string;
+    }>;
+  }>;
+}
+
 export interface ListTruckMinimumsOutput {
   minimums: Array<{
     id: string;
@@ -23429,6 +23491,10 @@ export interface ConfirmReviewMatchParams {
   id: string;
 }
 
+export interface ConfirmTruckFillParams {
+  id: string;
+}
+
 export interface ConfirmUnsubscribeParams {
   token: string;
 }
@@ -23594,6 +23660,10 @@ export interface DismissEstimateDraftParams {
 }
 
 export interface DismissIntakeDraftParams {
+  id: string;
+}
+
+export interface DismissTruckFillParams {
   id: string;
 }
 
@@ -25133,6 +25203,8 @@ export type ListTrackingNumbersInput = Record<string, never>;
 
 export type ListTradePacksInput = Record<string, never>;
 
+export type ListTruckFillsInput = Record<string, never>;
+
 export type ListTruckMinimumsInput = Record<string, never>;
 
 export interface ListUndeliveredInvoicesInput {
@@ -26371,6 +26443,7 @@ export interface OperationTypes {
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
   checkInAsset: { input: CheckInAssetParams & CheckInAssetInput; output: CheckInAssetOutput };
   checkOutAsset: { input: CheckOutAssetParams & CheckOutAssetInput; output: CheckOutAssetOutput };
+  checkTruckFills: { input: CheckTruckFillsInput; output: CheckTruckFillsOutput };
   claimAppCredential: { input: ClaimAppCredentialParams & ClaimAppCredentialInput; output: ClaimAppCredentialOutput };
   claimTask: { input: ClaimTaskParams & ClaimTaskInput; output: ClaimTaskOutput };
   clearDiscountPolicy: { input: ClearDiscountPolicyInput; output: ClearDiscountPolicyOutput };
@@ -26387,6 +26460,7 @@ export interface OperationTypes {
   confirmBookingRequest: { input: ConfirmBookingRequestParams & ConfirmBookingRequestInput; output: ConfirmBookingRequestOutput };
   confirmPortalCardSetup: { input: ConfirmPortalCardSetupInput; output: ConfirmPortalCardSetupOutput };
   confirmReviewMatch: { input: ConfirmReviewMatchParams & ConfirmReviewMatchInput; output: ConfirmReviewMatchOutput };
+  confirmTruckFill: { input: ConfirmTruckFillParams & ConfirmTruckFillInput; output: ConfirmTruckFillOutput };
   confirmUnsubscribe: { input: ConfirmUnsubscribeParams & ConfirmUnsubscribeInput; output: ConfirmUnsubscribeOutput };
   connectAiProvider: { input: ConnectAiProviderInput; output: ConnectAiProviderOutput };
   connectCallTracking: { input: ConnectCallTrackingInput; output: ConnectCallTrackingOutput };
@@ -26497,6 +26571,7 @@ export interface OperationTypes {
   dismissDispatchPlan: { input: DismissDispatchPlanParams & DismissDispatchPlanInput; output: DismissDispatchPlanOutput };
   dismissEstimateDraft: { input: DismissEstimateDraftParams & DismissEstimateDraftInput; output: DismissEstimateDraftOutput };
   dismissIntakeDraft: { input: DismissIntakeDraftParams & DismissIntakeDraftInput; output: DismissIntakeDraftOutput };
+  dismissTruckFill: { input: DismissTruckFillParams & DismissTruckFillInput; output: DismissTruckFillOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
@@ -26882,6 +26957,7 @@ export interface OperationTypes {
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
+  listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
   listUndeliveredInvoices: { input: ListUndeliveredInvoicesInput; output: ListUndeliveredInvoicesOutput };
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
@@ -27367,6 +27443,7 @@ export const OPERATIONS = {
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkInAsset: { method: "POST", path: "/v1/assets/{assetId}/check-in", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkOutAsset: { method: "POST", path: "/v1/assets/{assetId}/check-out", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
+  checkTruckFills: { method: "POST", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   claimAppCredential: { method: "POST", path: "/v1/public/app-requests/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   claimTask: { method: "POST", path: "/v1/tasks/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   clearDiscountPolicy: { method: "POST", path: "/v1/estimate-discount-policy/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -27383,6 +27460,7 @@ export const OPERATIONS = {
   confirmBookingRequest: { method: "POST", path: "/v1/bookings/{id}/confirm", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide","job:write"] },
   confirmPortalCardSetup: { method: "POST", path: "/v1/portal/card-setup/confirm", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   confirmReviewMatch: { method: "POST", path: "/v1/reviews/{id}/match", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
+  confirmTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/confirmation", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   confirmUnsubscribe: { method: "POST", path: "/v1/public/unsubscribe/{token}", pathParams: ["token"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   connectAiProvider: { method: "POST", path: "/v1/ai/connections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   connectCallTracking: { method: "POST", path: "/v1/call-tracking/connect", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -27493,6 +27571,7 @@ export const OPERATIONS = {
   dismissDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   dismissEstimateDraft: { method: "POST", path: "/v1/ai/estimate-drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   dismissIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
+  dismissTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/dismissal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -27878,6 +27957,7 @@ export const OPERATIONS = {
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listUndeliveredInvoices: { method: "GET", path: "/v1/invoice-deliveries/undelivered", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -28928,6 +29008,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Check the trucks now.
+   *
+   * POST /v1/stock/truck-fills. Needs inventory:adjust.
+   */
+  checkTruckFills(input: CheckTruckFillsInput = {} as CheckTruckFillsInput, options?: CallOptions): Promise<CheckTruckFillsOutput> {
+    return this.call("checkTruckFills", input, options);
+  }
+
+  /**
    * Collect the credential an approved request earned.
    *
    * POST /v1/public/app-requests/{id}/claim.
@@ -29069,6 +29158,15 @@ export abstract class GeneratedOperations {
    */
   confirmReviewMatch(input: ConfirmReviewMatchParams & ConfirmReviewMatchInput, options?: CallOptions): Promise<ConfirmReviewMatchOutput> {
     return this.call("confirmReviewMatch", input, options);
+  }
+
+  /**
+   * Move what a truck fill proposes.
+   *
+   * POST /v1/stock/truck-fills/{id}/confirmation. Needs inventory:adjust.
+   */
+  confirmTruckFill(input: ConfirmTruckFillParams & ConfirmTruckFillInput, options?: CallOptions): Promise<ConfirmTruckFillOutput> {
+    return this.call("confirmTruckFill", input, options);
   }
 
   /**
@@ -30059,6 +30157,15 @@ export abstract class GeneratedOperations {
    */
   dismissIntakeDraft(input: DismissIntakeDraftParams & DismissIntakeDraftInput, options?: CallOptions): Promise<DismissIntakeDraftOutput> {
     return this.call("dismissIntakeDraft", input, options);
+  }
+
+  /**
+   * Leave a truck fill for now.
+   *
+   * POST /v1/stock/truck-fills/{id}/dismissal. Needs inventory:adjust.
+   */
+  dismissTruckFill(input: DismissTruckFillParams & DismissTruckFillInput, options?: CallOptions): Promise<DismissTruckFillOutput> {
+    return this.call("dismissTruckFill", input, options);
   }
 
   /**
@@ -33524,6 +33631,15 @@ export abstract class GeneratedOperations {
    */
   listTradePacks(input: ListTradePacksInput = {} as ListTradePacksInput, options?: CallOptions): Promise<ListTradePacksOutput> {
     return this.call("listTradePacks", input, options);
+  }
+
+  /**
+   * Truck fills the night proposed, waiting for a person.
+   *
+   * GET /v1/stock/truck-fills. Needs inventory:read.
+   */
+  listTruckFills(input: ListTruckFillsInput = {} as ListTruckFillsInput, options?: CallOptions): Promise<ListTruckFillsOutput> {
+    return this.call("listTruckFills", input, options);
   }
 
   /**

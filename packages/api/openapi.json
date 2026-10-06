@@ -109379,6 +109379,504 @@
         ]
       }
     },
+    "/v1/stock/truck-fills": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "checkTruckFills",
+        "summary": "Check the trucks now",
+        "description": "Writes the same proposal the night writes, for somebody who has just set a minimum and does not want to wait. An open draft is rewritten to what its truck needs now rather than doubled, and one the truck has outgrown is withdrawn. Moves nothing.\n\nRequires a session holding: inventory:adjust.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckTruckFillsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Check the trucks now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckTruckFillsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:adjust"
+        ]
+      },
+      "get": {
+        "operationId": "listTruckFills",
+        "summary": "Truck fills the night proposed, waiting for a person",
+        "description": "One open draft per truck at most: the move from a warehouse that would bring each part back up to its fill level, written by the worker each night after one in the morning in the company's calendar. A draft is a proposal. Nothing has moved until somebody confirms it.\n\nRequires a session holding: inventory:read.",
+        "tags": [
+          "M16"
+        ],
+        "responses": {
+          "200": {
+            "description": "Truck fills the night proposed, waiting for a person",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTruckFillsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:read"
+        ]
+      }
+    },
+    "/v1/stock/truck-fills/{id}/confirmation": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "confirmTruckFill",
+        "summary": "Move what a truck fill proposes",
+        "description": "Each line is checked against the shelf as it is now and moves the least of what was drafted and what the truck needs now, from the warehouse holding the most, through the one transfer path. All of the lines or none: a tracked part needs its numbers in `units`, and a warehouse that cannot cover a line refuses the whole confirmation and leaves the draft open. A line the truck no longer needs is left alone and listed in `left`; a draft with nothing left to move is withdrawn.\n\nRequires a session holding: inventory:adjust.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmTruckFillInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Move what a truck fill proposes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmTruckFillOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:adjust"
+        ]
+      }
+    },
+    "/v1/stock/truck-fills/{id}/dismissal": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "dismissTruckFill",
+        "summary": "Leave a truck fill for now",
+        "description": "Nothing moves. The next night proposes again while the truck is still under its minimum, because the minimum is what the truck should carry.\n\nRequires a session holding: inventory:adjust.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DismissTruckFillInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Leave a truck fill for now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DismissTruckFillOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "inventory:adjust"
+        ]
+      }
+    },
     "/v1/stock/units": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -130092,6 +130590,29 @@
           "heldFrom"
         ]
       },
+      "CheckTruckFillsInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "CheckTruckFillsOutput": {
+        "type": "object",
+        "properties": {
+          "created": {
+            "type": "integer"
+          },
+          "refreshed": {
+            "type": "integer"
+          },
+          "withdrawn": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "refreshed",
+          "withdrawn"
+        ]
+      },
       "ClaimAppCredentialInput": {
         "type": "object",
         "properties": {
@@ -131533,6 +132054,122 @@
           "id",
           "customerId",
           "jobId"
+        ]
+      },
+      "ConfirmTruckFillInput": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "units": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "number": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "number"
+                    ]
+                  },
+                  "maxItems": 500
+                }
+              },
+              "required": [
+                "itemId",
+                "units"
+              ]
+            },
+            "maxItems": 200
+          }
+        }
+      },
+      "ConfirmTruckFillOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "withdrawn"
+            ]
+          },
+          "moved": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "itemName": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "from": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "itemName",
+                "quantity",
+                "from"
+              ]
+            }
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "itemName": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "itemName",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "moved",
+          "left"
         ]
       },
       "ConfirmUnsubscribeInput": {
@@ -147178,6 +147815,29 @@
           "decidedByUserId",
           "decidedAt",
           "createdAt"
+        ]
+      },
+      "DismissTruckFillInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DismissTruckFillOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "dismissed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
         ]
       },
       "DrillMarketingFunnelOutput": {
@@ -196438,6 +197098,106 @@
         "required": [
           "primaryTrade",
           "packs"
+        ]
+      },
+      "ListTruckFillsOutput": {
+        "type": "object",
+        "properties": {
+          "fills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "truckId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "truckName": {
+                  "type": "string"
+                },
+                "proposedOn": {
+                  "type": "string"
+                },
+                "refreshedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "itemId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "itemName": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "onTruck": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "fromLocationId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "fromLocationName": {
+                        "type": "string"
+                      },
+                      "tracking": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "serial",
+                          "lot"
+                        ]
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "itemId",
+                      "itemName",
+                      "quantity",
+                      "onTruck",
+                      "fromLocationId",
+                      "fromLocationName",
+                      "tracking",
+                      "why"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "truckId",
+                "truckName",
+                "proposedOn",
+                "refreshedAt",
+                "lines"
+              ]
+            }
+          }
+        },
+        "required": [
+          "fills"
         ]
       },
       "ListTruckMinimumsOutput": {

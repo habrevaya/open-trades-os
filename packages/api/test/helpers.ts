@@ -149,6 +149,7 @@ const ORDER = [
   "purchase_order_approval_notice",
   "purchase_order_approval", "purchase_order_send", "purchase_order_acknowledgement",
   "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
+  "truck_fill_line", "truck_fill_draft",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.

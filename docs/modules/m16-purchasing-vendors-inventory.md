@@ -390,6 +390,30 @@ is when it cannot cover it. Buying is still the warehouse reorder point's
 decision. `POST /v1/stock/restocks` makes the move through the ordinary
 transfer. `/inventory/trucks` is the screen.
 
+#### Fills proposed overnight
+
+The worker looks at every truck under a minimum once a day of the company's own
+calendar, after one in the morning there, and writes the move down as a draft:
+`GET /v1/stock/truck-fills` lists them, one open draft per truck at most (an
+index holds it, so a second worker or a retry cannot stack them). The next night
+rewrites an open draft to what the truck needs then, and withdraws it when the
+truck needs nothing. A draft that somebody dismissed comes back the next night
+while the truck is still under its minimum, because the minimum is what the
+truck should carry. `POST /v1/stock/truck-fills` ("Check the trucks now", for
+somebody who has just set a minimum) writes the same proposal at once.
+
+NOTHING MOVES STOCK BY ITSELF. A person confirms a draft on `/inventory/trucks`
+(`POST /v1/stock/truck-fills/{id}/confirmation`, `inventory:adjust`) or leaves
+it (`POST /v1/stock/truck-fills/{id}/dismissal`). A confirmation reads the shelf
+again, because a draft is a night old: each line moves the least of what was
+drafted and what the truck needs now, from the warehouse holding the most now,
+through the one transfer a hand typed move is. A line the truck no longer needs
+is left alone and said so, and a draft with nothing left to move is withdrawn.
+All of a truck's lines move or none do. A tracked part's numbers are typed in the
+box on its line by whoever holds the parts, and a confirmation without them is
+refused in words and leaves the draft open. Who confirmed or dismissed it, when,
+and what it did are kept on the draft and in the audit log.
+
 ### Commodity delivery
 
 `POST /v1/deliveries` records a delivered quantity and
@@ -435,6 +459,10 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `PUT /v1/truck-minimums` | `inventory:adjust` |
 | `GET /v1/stock/restock-suggestions` | `inventory:read` |
 | `POST /v1/stock/restocks` | `inventory:adjust` |
+| `GET /v1/stock/truck-fills` | `inventory:read` |
+| `POST /v1/stock/truck-fills` | `inventory:adjust` |
+| `POST /v1/stock/truck-fills/{id}/confirmation` | `inventory:adjust` |
+| `POST /v1/stock/truck-fills/{id}/dismissal` | `inventory:adjust` |
 | `GET /v1/purchase-approval-rules` | `po:read` |
 | `POST /v1/purchase-approval-rules` | `settings:write` |
 | `POST /v1/purchase-orders/{id}/approvals` | `po:approve`, and the role the waiting step names |
@@ -499,5 +527,7 @@ the app, and only when the company's email is connected.
 
 A vendor's reply is written down by a person and never read out of an email, and
 the promise date is the vendor's word, not a delivery tracked by a carrier.
-Filling a truck is a move somebody makes from the suggestion; nothing fills
-trucks on a clock, and a tracked part's restock needs its numbers typed.
+Nothing fills a truck without a person: the night only proposes, and a tracked
+part's fill needs its numbers typed by whoever confirms it. The overnight
+proposal is for trucks under a minimum and never buys; a part no warehouse
+holds is left off it, and the suggestions list still says how short it is.
