@@ -28,15 +28,15 @@
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "expo-task-manager": "~57.0.21",
-    "react": "19.2.3",
-    "react-native": "0.86.3",
-    "react-native-safe-area-context": "~5.7.0",
+    "react": "19.3.0",
+    "react-native": "0.87.1",
+    "react-native-safe-area-context": "~5.10.1",
     "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@opentradesos/core": "workspace:*",
-    "@types/react": "~19.2.2",
-    "react-dom": "19.2.3",
+    "@types/react": "~19.3.0",
+    "react-dom": "19.3.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },

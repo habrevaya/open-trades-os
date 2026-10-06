@@ -44,8 +44,8 @@
     "@opentradesos/core": "workspace:*",
     "@opentradesos/db": "workspace:*",
     "@opentradesos/trade-packs": "workspace:*",
-    "drizzle-orm": "^0.36.4",
-    "nodemailer": "^10.0.13",
+    "drizzle-orm": "^0.45.3",
+    "nodemailer": "^10.0.14",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },
