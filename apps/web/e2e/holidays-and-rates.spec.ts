@@ -31,7 +31,7 @@ test("a closed holiday takes a day off the booking page", async ({ owner, strang
 
   await owner.goto("/settings/holidays");
   await owner.getByLabel("Name").fill(`Shop moving day ${run}`);
-  await owner.getByLabel("Date").fill(date!);
+  await owner.getByLabel("Date", { exact: true }).fill(date!);
   await owner.getByLabel("That day").selectOption("closed");
   await owner.getByRole("button", { name: "Add holiday" }).click();
   const row = owner.getByRole("row").filter({ hasText: `Shop moving day ${run}` });
