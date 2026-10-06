@@ -219,15 +219,20 @@ export const getJobExpenses = defineRoute({
   }),
 });
 
+const TipSplitRule = z.enum(["even", "hours", "lead"]);
+
 export const PayExtras = z.object({
   /** What a day away is worth, in dollars and cents. Null until somebody sets it, which pays none. */
   perDiemRate: MoneyString.nullable(),
+  /** How a tip is shared between the people on the job it was left for, from the next tip on. */
+  tipSplit: TipSplitRule,
+  rules: z.array(z.object({ rule: TipSplitRule, label: z.string() })),
 });
 
 export const getPayExtras = defineRoute({
   method: "get",
   path: "/v1/payroll/pay-extras",
-  summary: "The company's rate for a day away",
+  summary: "The company's rate for a day away, and how tips are shared",
   module: "M17",
   permissions: ["timesheet:read"],
   input: z.object({}),
@@ -237,19 +242,101 @@ export const getPayExtras = defineRoute({
 export const setPayExtras = defineRoute({
   method: "post",
   path: "/v1/payroll/pay-extras",
-  summary: "Set the rate for a day away",
+  summary: "Set the rate for a day away, or how tips are shared",
   description:
-    "`perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.",
+    "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job) or `lead` (all to the lead on the job's visits): it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.",
   module: "M17",
   permissions: ["payroll:configure"],
   idempotent: true,
   input: z.object({
     perDiemRate: z.string().max(20).nullable().optional(),
+    tipSplit: TipSplitRule.optional(),
   }),
   output: PayExtras,
+});
+
+/* ------------------------------------------------------------- cash tips */
+
+const CashTipView = z.object({
+  id: Uuid,
+  technicianId: Uuid,
+  technicianName: z.string(),
+  jobId: Uuid.nullable(),
+  jobNumber: z.number().int().nullable(),
+  amount: MoneyString,
+  receivedAt: DateTime,
+  /** The technician's own note, or for one the office recorded, why it did. */
+  note: z.string().nullable(),
+  /** Who put it on their pay: they did from the phone, or somebody in the office. */
+  recordedBy: z.enum(["technician", "office"]),
+  recordedByName: z.string().nullable(),
+  /** Every change since it was recorded, oldest first. */
+  corrections: z.array(z.object({
+    previousAmount: MoneyString,
+    newAmount: MoneyString,
+    reason: z.string(),
+    correctedByName: z.string().nullable(),
+    at: DateTime,
+  })),
+});
+
+export const recordCashTipFor = defineRoute({
+  method: "post",
+  path: "/v1/cash-tips",
+  summary: "Put a cash tip a customer handed a technician on their pay",
+  description:
+    "For a tip the technician kept and did not record from the phone, which the office knows about because the customer said so. A reason is required and is shown to the technician. It is reported as pay (`cash_tip` on the register and the export, already in their hand) and nothing is booked, because the company never held it. Refused when the technician already has a tip of the same amount that day (a likely duplicate), and when the pay period it falls in has been closed. Narrowed to the people the caller's timesheet scope reaches.",
+  module: "M17",
+  permissions: ["tip:record"],
+  idempotent: true,
+  input: z.object({
+    technicianId: Uuid,
+    amount: z.string().max(20),
+    /** The day it was handed over. Today when left out. */
+    receivedOn: IsoDate.optional(),
+    jobNumber: z.number().int().positive().optional(),
+    reason: z.string().min(1).max(500),
+  }),
+  output: CashTipView,
+});
+
+export const correctCashTip = defineRoute({
+  method: "post",
+  path: "/v1/cash-tips/{id}/correction",
+  summary: "Change what a cash tip was",
+  description:
+    "With a reason, which the technician reads beside the tip. The amounts before and after and who changed it are kept. An amount of 0 takes the tip off their pay. Refused when the pay period the tip falls in has been closed: reopen it first.",
+  module: "M17",
+  permissions: ["tip:record"],
+  idempotent: true,
+  input: z.object({ id: Uuid, amount: z.string().max(20), reason: z.string().min(1).max(500) }),
+  output: CashTipView,
+});
+
+export const listCashTips = defineRoute({
+  method: "get",
+  path: "/v1/cash-tips",
+  summary: "The cash tips on people's pay, with every change made to each",
+  description: "The last four months, newest first, for the people the caller's timesheet scope reaches.",
+  module: "M17",
+  permissions: ["tip:record"],
+  input: z.object({ technicianId: Uuid.optional() }),
+  output: z.object({ tips: z.array(CashTipView) }),
+});
+
+export const listMyCashTips = defineRoute({
+  method: "get",
+  path: "/v1/me/cash-tips",
+  summary: "Your own cash tips, whoever recorded them, and every change made to each",
+  description: "The last four months. Takes no person: it is the signed in person's own. `technician` is false for somebody with no place on the board.",
+  module: "M17",
+  permissions: ["payroll:own"],
+  input: z.object({}),
+  output: z.object({ technician: z.boolean(), tips: z.array(CashTipView) }),
 });
 
 export const expenseRoutes = {
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
+  recordCashTipFor, correctCashTip, listCashTips, listMyCashTips,
 } as const;

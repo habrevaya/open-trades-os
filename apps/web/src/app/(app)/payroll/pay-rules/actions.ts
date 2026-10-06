@@ -85,9 +85,13 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         return { message: "Retired. It stays on the record for the time already costed at it." };
 
       case "extras": {
+        const rule = field(form, "tipSplit");
         /** Left empty means pay none, which is a choice the box has to be able to make. */
-        await payExtras.set(ctx, { perDiemRate: field(form, "perDiemRate") ?? null });
-        return { message: "Saved. A day away is recorded at this rate from now on; days already recorded keep theirs." };
+        await payExtras.set(ctx, {
+          perDiemRate: field(form, "perDiemRate") ?? null,
+          ...(rule === "even" || rule === "hours" || rule === "lead" ? { tipSplit: rule } : {}),
+        });
+        return { message: "Saved. Tips are shared this way from the next one, and a day away is recorded at this rate from now on. What was already shared or recorded keeps what it was worked out at." };
       }
 
       case "classify":

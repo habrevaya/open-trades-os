@@ -250,8 +250,8 @@ the office is not counted, and the job's margin says so in words while there is 
 ### Tips
 
 A tip a customer adds when paying an invoice from the portal (M05, M13) is
-split evenly between the technicians on the job's visits and arrives owed to
-them. Each share is its own line on that technician's register and export,
+shared between the technicians on the job's visits by the company's rule and
+arrives owed to them. Each share is its own line on that technician's register and export,
 `tip` in the pay category column, in the period the payment arrived in, and a
 technician who was tipped and not on the clock that period is still on the
 register. A commission reversal is never taken out of a tip: it is measured
@@ -274,6 +274,37 @@ paying tips through payroll leaves it alone.
 period, everything owed up to its end; it debits Tips payable against cash and
 marks each share with the period that paid it, so running it twice pays nothing
 twice. **Record tips as paid** on `/payroll/{id}` is the same thing.
+
+**How a tip is shared.** The company chooses on `/payroll/pay-rules`, under "Tips
+and days away" (`POST /v1/payroll/pay-extras`, `payroll:configure`;
+`GET /v1/payroll/pay-extras` reads it, `timesheet:read`): evenly to the cent, as it
+always was and what a company that never chose gets; by the hours each person was
+clocked in on the job (closed, paid punches against that job, in proportion, to the
+cent, the odd cent to the largest share; somebody with no hours has no share); or all
+to the lead, the person marked lead on any of the job's visits that were not
+cancelled (several leads share it evenly). A rule with nothing to go on, no hours
+recorded or no lead marked, shares the tip evenly and says so in a sentence kept on
+the share and shown on the invoice's tips. **It applies to tips from then on:** a
+tip is shared the moment the money arrives with the rule in force then, the rule is
+kept on each share, and a change never re-splits one already shared. The arithmetic
+is core's (`payExtras.splitTipByRule`), with unit tests, and the portal and the
+phone's cash payment both go through it.
+
+**The office and a cash tip.** A tip the technician kept normally comes from their
+phone. When they did not record it, or got the amount wrong, whoever holds `tip:record`
+(the office manager, the branch manager for their own branch's people, the accountant
+and the owner) records it on `/timesheets/tips` (`POST /v1/cash-tips`) or corrects
+it (`POST /v1/cash-tips/{id}/correction`), each with a reason, audited, and
+`GET /v1/cash-tips` lists them with every change. A correction keeps the amount before
+and after, the reason and who made it, and a correction to 0 takes a tip that was never
+given off their pay. A second tip of the same amount for the same person on the same
+day is refused as a likely duplicate, because tax paid on a tip twice is the mistake
+this would otherwise make easy. A tip in a pay period that has been closed is not
+recorded or changed: the period is reopened first, as with a backdated commission, and
+the close's fingerprint covers every amount, so an edit that slips round it is refused
+at the export. **The technician sees it:** `GET /v1/me/cash-tips` (`payroll:own`) and
+"Cash tips on your pay" on `/me/pay` list their own, including the ones the office put
+there, why, and every change with the reason, before the period closes.
 
 ### Declare overtime and wage scales
 
@@ -315,12 +346,12 @@ writing a second row.
 | Role | Access |
 |---|---|
 | Owner | Everything |
-| Administrator | Nothing in payroll unless it is granted explicitly, which includes approving what people paid for the company |
-| Office manager | Reads timesheets, and approves what people paid for the company (`expense:approve`) |
+| Administrator | Nothing in payroll unless it is granted explicitly, which includes approving what people paid for the company and recording cash tips |
+| Office manager | Reads timesheets, approves what people paid for the company (`expense:approve`) and records or corrects a cash tip (`tip:record`) |
 | Dispatcher | Reads timesheets |
 | Technician | Clocks in and out. Their own time only, their own pay statements for closed periods, and what they paid for the company (`expense:own`, which every preset holds) |
 | Branch manager | Reads their branch's people's timesheets and time off; approving them is granted by name |
-| Accountant | Reads payroll, runs the export, reads commission, approves what people paid for the company |
+| Accountant | Reads payroll, runs the export, reads commission, approves what people paid for the company and records or corrects a cash tip |
 
 `payroll:read` and `commission:read` are both on the sensitive list, and the
 administrator preset deliberately excludes `payroll:read`, `payroll:export` and
@@ -362,6 +393,10 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `POST /v1/per-diem/{id}/removal` | `expense:approve` |
 | `GET /v1/payroll/pay-extras` | `timesheet:read` |
 | `POST /v1/payroll/pay-extras` | `payroll:configure` |
+| `POST /v1/cash-tips` | `tip:record` |
+| `POST /v1/cash-tips/{id}/correction` | `tip:record` |
+| `GET /v1/cash-tips` | `tip:record` |
+| `GET /v1/me/cash-tips` | `payroll:own` |
 
 ## Common questions
 
@@ -388,9 +423,11 @@ from the company's overtime rule only, and the ratio is not checked against crew
 A scale's agreement terms are set when it is loaded and cannot be changed on the
 screen afterwards; a scale cannot be corrected in place: a wrong one is retired and
 the right one loaded. Tips given through the portal or with a payment on site are paid through
-payroll; a cash tip a technician kept is recorded only by the technician, on
-the phone or on `/my-day`, and nobody in the office can record or change one
-for them. A tip is split evenly with no way to split it otherwise. Reimbursements and per diem
+payroll; a cash tip a technician kept is recorded on the phone and on `/my-day` by
+the technician, and by the office when they did not or got it wrong, on
+`/timesheets/tips`. A tip is shared evenly, by hours on the job or to the lead, one
+rule for the whole company: there is no rule per job or per technician, and "hours" is
+the hours clocked against the job, not against one visit of it. Reimbursements and per diem
 are recorded, decided and exported, but not posted to the ledger, only for people on
 the board, and a decision on a reimbursement cannot be taken back; there is no mileage
 rate, no per diem that varies by place or by meal, and nothing checks a per diem

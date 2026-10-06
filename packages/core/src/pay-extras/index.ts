@@ -130,6 +130,29 @@ export function daysAway(from: string, to: string): { ok: true; days: string[] }
   return { ok: true, days };
 }
 
+/* --------------------------------------------------------- a cash tip kept */
+
+/** More than this is not a tip, and is recorded as a payment. Said the same on the phone. */
+export const MAX_CASH_TIP = "10000.00";
+
+export type TipAmountCheck = { ok: true; amount: Money } | { ok: false; reason: string };
+
+/**
+ * What the office typed as a cash tip. Zero is allowed only when asked for,
+ * because the way a tip that was never given comes off somebody's pay is a
+ * correction to nothing, and a new tip of nothing is a slip.
+ */
+export function checkTipAmount(value: string, options: { allowZero?: boolean } = {}): TipAmountCheck {
+  const typed = value.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(typed)) return { ok: false, reason: "Say the tip in dollars and cents, like 20 or 20.50." };
+  const amount = round(money(typed), 2);
+  if (!isPositive(amount) && !(options.allowZero && isZero(amount))) {
+    return { ok: false, reason: "A tip has to be more than nothing." };
+  }
+  if (compare(amount, money(MAX_CASH_TIP)) > 0) return { ok: false, reason: "That is more than a tip. Record it as a payment instead." };
+  return { ok: true, amount };
+}
+
 /* ------------------------------------------------------------ tip shares */
 
 export interface TipPerson {

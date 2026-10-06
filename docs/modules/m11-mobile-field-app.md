@@ -267,9 +267,10 @@ conflict the office sees and the phone says in the office's words.
 **Taking the money, and a tip.** Cash or a check against the invoice raised
 there, through `payment.collect` as before, now with a tip on top when the
 company takes tips (the setting on `/settings/portal`, the same one the
-portal's pay button reads): the tip is held in Tips payable and split evenly
-between everybody on the job's visits, the way a tip on the portal is, with
-the same suggestions and the same refusals. A card goes through the
+portal's pay button reads): the tip is held in Tips payable and shared
+between everybody on the job's visits by the company's rule (evenly, by hours on
+the job or to the lead: M17), the way a tip on the portal is, with the same
+suggestions and the same refusals. A card goes through the
 invoice's own link, where the customer can add a tip. With a lender
 connected (M13), `POST /v1/visits/{id}/financing-link` opens the lender's
 application for what is owing and texts it or hands it over; like the card
@@ -278,7 +279,7 @@ link it needs a signal.
 **A cash tip kept.** A customer hands the technician a twenty for
 themselves. It never reaches the company, so nothing is booked; `tip.record`
 puts it on the technician's own pay statement as `cash_tip`, already in their
-hand (M17). Always the phone's own person.
+hand (M17). Always the phone's own person: the office records one for somebody who did not, or corrects one, on `/timesheets/tips` (M17), and the technician sees both on `/me/pay`.
 
 **Money I spent.** What the technician paid out of their own pocket for the
 company: the amount, the day, what it was for, the job from the day's visits if

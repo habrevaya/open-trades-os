@@ -140,3 +140,63 @@ test("a day away is paid at the company's rate once somebody says what it is wor
   await owner.getByRole("button", { name: "Save" }).click();
   await expect(owner.getByRole("status").filter({ hasText: /^Saved\./ })).toBeVisible();
 });
+
+test("the office puts a cash tip on a technician's pay and changes it, and the technician reads both with the reasons", async ({ owner, tech }) => {
+  const why = `Mrs Oyelaran rang to say she gave Ray twenty dollars ${run}`;
+  await owner.goto("/timesheets/tips");
+  await expect(owner.getByRole("heading", { level: 1, name: "Cash tips" })).toBeVisible();
+  await owner.getByLabel("Who was tipped").selectOption({ label: "Ray Ortiz" });
+  await owner.getByLabel("The tip (dollars)").fill("20");
+  await owner.getByLabel("Why you are recording it").fill(why);
+  await owner.getByRole("button", { name: "Put it on their pay" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Put on Ray Ortiz's pay." })).toBeVisible();
+
+  // A second of the same amount that day is refused as a likely duplicate.
+  await owner.getByLabel("Who was tipped").selectOption({ label: "Ray Ortiz" });
+  await owner.getByLabel("The tip (dollars)").fill("20");
+  await owner.getByLabel("Why you are recording it").fill("Again");
+  await owner.getByRole("button", { name: "Put it on their pay" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "already have a tip of that amount on that day" })).toBeVisible();
+
+  await owner.reload();
+  const row = owner.getByRole("table", { name: "Cash tips" }).getByRole("row").filter({ hasText: why });
+  await expect(row).toContainText("$20.00");
+  await row.getByLabel(/^New amount for Ray Ortiz's tip/).fill("25");
+  await row.getByLabel(/^Why Ray Ortiz's tip on .* is changed/).fill("She meant twenty five");
+  await row.getByRole("button", { name: /^Change Ray Ortiz's/ }).click();
+  await expect(owner.getByRole("status").filter({ hasText: /^Changed\./ })).toBeVisible();
+
+  await tech.goto("/me/pay");
+  const kept = tech.getByRole("region", { name: "Cash tips on your pay" });
+  const line = kept.getByRole("listitem").filter({ hasText: why });
+  await expect(line).toContainText("$25.00");
+  await expect(line).toContainText("Changed from $20.00 to $25.00");
+  await expect(line).toContainText("She meant twenty five");
+
+  // A tip that was never given comes off their pay by being corrected to nothing.
+  await owner.reload();
+  const again = owner.getByRole("table", { name: "Cash tips" }).getByRole("row").filter({ hasText: why });
+  await again.getByLabel(/^New amount for Ray Ortiz's tip/).fill("0");
+  await again.getByLabel(/^Why Ray Ortiz's tip on .* is changed/).fill("Never given after all");
+  await again.getByRole("button", { name: /^Change Ray Ortiz's/ }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Taken off their pay." })).toBeVisible();
+  await tech.reload();
+  await expect(tech.getByRole("region", { name: "Cash tips on your pay" }).getByRole("listitem").filter({ hasText: why })).toContainText("$0.00");
+});
+
+test("how a tip is shared is chosen on the pay rules, and kept", async ({ owner }) => {
+  await owner.goto("/payroll/pay-rules");
+  await owner.getByLabel("Share a tip").selectOption("hours");
+  await owner.getByRole("button", { name: "Save" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: /^Saved\. Tips are shared this way from the next one/ })).toBeVisible();
+  await owner.reload();
+  await expect(owner.getByText("By the hours each person worked on the job").first()).toBeVisible();
+  await expect(owner.getByLabel("Share a tip")).toHaveValue("hours");
+
+  // Put back, so the tips every later spec takes are shared as they always were.
+  await owner.getByLabel("Share a tip").selectOption("even");
+  await owner.getByRole("button", { name: "Save" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: /^Saved\./ })).toBeVisible();
+  await owner.reload();
+  await expect(owner.getByLabel("Share a tip")).toHaveValue("even");
+});

@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { payroll } from "@opentradesos/api/services";
+import { cashTips, payroll } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
@@ -33,6 +33,8 @@ export default async function MyPayPage() {
     );
   }
   const own = await payroll.ownStatements({ actor: user.actor, db: getDb() });
+  /** Cash tips on their pay, including ones the office put there or changed, which a closed period does not show yet. */
+  const kept = await cashTips.mine({ actor: user.actor, db: getDb() });
   /** The last day of a period, which ends at midnight starting the next. */
   const lastDay = (end: Date) => formatIn(new Date(end.getTime() - 1), zone, { month: "short", day: "numeric", year: "numeric" });
 
@@ -45,6 +47,35 @@ export default async function MyPayPage() {
         anything else taken out is on the statement from whoever runs your payroll. What you were paid back for
         something you bought for the company, or for a day away, is paid on top with no tax taken from it.
       </p>
+
+      {kept.tips.length > 0 ? (
+        <section className="mt-6 rounded border border-steel-200 p-4" aria-labelledby="kept-tips">
+          <h2 id="kept-tips" className="text-base font-semibold">Cash tips on your pay</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            Cash a customer handed you that you kept. It is reported with your pay and is already in your hand.
+            The ones the office put there or changed say why.
+          </p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {kept.tips.map((t) => (
+              <li key={t.id}>
+                <span className="font-medium"><Money value={t.amount} /></span>
+                <span className="text-ink-500">
+                  {", "}{formatIn(t.receivedAt, zone, { month: "short", day: "numeric", year: "numeric" })}
+                  {t.jobNumber ? `, job ${t.jobNumber}` : ""}
+                </span>
+                {t.recordedBy === "office" ? <Chip tone="neutral">Put there by {t.recordedByName ?? "the office"}</Chip> : null}
+                {t.recordedBy === "office" && t.note ? <span className="block text-ink-700">{t.note}</span> : null}
+                {t.corrections.map((c) => (
+                  <span key={String(c.at)} className="block text-ink-700">
+                    Changed from <Money value={c.previousAmount} /> to <Money value={c.newAmount} />
+                    {c.correctedByName ? ` by ${c.correctedByName}` : ""}: {c.reason}
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {!own.technician ? (
         <Empty title="No hours here">You are not set up on the board, so there are no hours, commission or tips to show.</Empty>

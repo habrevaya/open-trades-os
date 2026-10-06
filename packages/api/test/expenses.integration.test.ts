@@ -338,7 +338,7 @@ run("an approved expense goes to the payroll file as a non-taxable line", () => 
     const first = await payroll.exportPeriod(owner(), { periodId: period.id });
     const second = await payroll.exportPeriod(owner(), { periodId: period.id });
     expect(second.checksum).toBe(first.checksum);
-    expect(first.content).not.toMatch(/99|98/);
+    expect(first.content).not.toMatch(/99\.0000|98\.0000/);
     expect(first.reimbursementTotal).toBe("10.0000");
   });
 
@@ -373,8 +373,8 @@ run("a day away at the company's rate", () => {
   it("is set by whoever declares what people are owed, and refused when it is a slip", async () => {
     await expect(payExtras.set(office(), { perDiemRate: "75" })).rejects.toThrow(/payroll:configure/);
     await expect(payExtras.set(owner(), { perDiemRate: "5000" })).rejects.toThrow(/slip of the keys/);
-    expect(await payExtras.set(owner(), { perDiemRate: "75" })).toEqual({ perDiemRate: "75.00" });
-    expect(await payExtras.get(office())).toEqual({ perDiemRate: "75.00" });
+    expect((await payExtras.set(owner(), { perDiemRate: "75" })).perDiemRate).toBe("75.00");
+    expect((await payExtras.get(office())).perDiemRate).toBe("75.00");
   });
 
   it("records each day at the rate of that day, leaves days already recorded alone, and answers a retry with the first answer", async () => {

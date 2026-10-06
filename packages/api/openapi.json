@@ -19044,6 +19044,377 @@
         ]
       }
     },
+    "/v1/cash-tips": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listCashTips",
+        "summary": "The cash tips on people's pay, with every change made to each",
+        "description": "The last four months, newest first, for the people the caller's timesheet scope reaches.\n\nRequires a session holding: tip:record.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "technicianId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cash tips on people's pay, with every change made to each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCashTipsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "tip:record"
+        ]
+      },
+      "post": {
+        "operationId": "recordCashTipFor",
+        "summary": "Put a cash tip a customer handed a technician on their pay",
+        "description": "For a tip the technician kept and did not record from the phone, which the office knows about because the customer said so. A reason is required and is shown to the technician. It is reported as pay (`cash_tip` on the register and the export, already in their hand) and nothing is booked, because the company never held it. Refused when the technician already has a tip of the same amount that day (a likely duplicate), and when the pay period it falls in has been closed. Narrowed to the people the caller's timesheet scope reaches.\n\nRequires a session holding: tip:record.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordCashTipForInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a cash tip a customer handed a technician on their pay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordCashTipForOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "tip:record"
+        ]
+      }
+    },
+    "/v1/cash-tips/{id}/correction": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "correctCashTip",
+        "summary": "Change what a cash tip was",
+        "description": "With a reason, which the technician reads beside the tip. The amounts before and after and who changed it are kept. An amount of 0 takes the tip off their pay. Refused when the pay period the tip falls in has been closed: reopen it first.\n\nRequires a session holding: tip:record.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectCashTipInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Change what a cash tip was",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectCashTipOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "tip:record"
+        ]
+      }
+    },
     "/v1/certification-types": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -64803,6 +65174,104 @@
         ]
       }
     },
+    "/v1/me/cash-tips": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listMyCashTips",
+        "summary": "Your own cash tips, whoever recorded them, and every change made to each",
+        "description": "The last four months. Takes no person: it is the signed in person's own. `technician` is false for somebody with no place on the board.\n\nRequires a session holding: payroll:own.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Your own cash tips, whoever recorded them, and every change made to each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMyCashTipsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:own"
+        ]
+      }
+    },
     "/v1/me/documents/{requestId}/sign": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -72196,14 +72665,14 @@
       ],
       "get": {
         "operationId": "getPayExtras",
-        "summary": "The company's rate for a day away",
+        "summary": "The company's rate for a day away, and how tips are shared",
         "description": "Requires a session holding: timesheet:read.",
         "tags": [
           "M17"
         ],
         "responses": {
           "200": {
-            "description": "The company's rate for a day away",
+            "description": "The company's rate for a day away, and how tips are shared",
             "content": {
               "application/json": {
                 "schema": {
@@ -72288,8 +72757,8 @@
       },
       "post": {
         "operationId": "setPayExtras",
-        "summary": "Set the rate for a day away",
-        "description": "`perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
+        "summary": "Set the rate for a day away, or how tips are shared",
+        "description": "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job) or `lead` (all to the lead on the job's visits): it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
         ],
@@ -72316,7 +72785,7 @@
         },
         "responses": {
           "201": {
-            "description": "Set the rate for a day away",
+            "description": "Set the rate for a day away, or how tips are shared",
             "content": {
               "application/json": {
                 "schema": {
@@ -131501,6 +131970,129 @@
           "applied"
         ]
       },
+      "CorrectCashTipInput": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "amount",
+          "reason"
+        ]
+      },
+      "CorrectCashTipOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianName": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedBy": {
+            "type": "string",
+            "enum": [
+              "technician",
+              "office"
+            ]
+          },
+          "recordedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "corrections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "previousAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "newAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "correctedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "previousAmount",
+                "newAmount",
+                "reason",
+                "correctedByName",
+                "at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "technicianId",
+          "technicianName",
+          "jobId",
+          "jobNumber",
+          "amount",
+          "receivedAt",
+          "note",
+          "recordedBy",
+          "recordedByName",
+          "corrections"
+        ]
+      },
       "CountStockInput": {
         "type": "object",
         "properties": {
@@ -164019,10 +164611,43 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
           }
         },
         "required": [
-          "perDiemRate"
+          "perDiemRate",
+          "tipSplit",
+          "rules"
         ]
       },
       "GetPaymentsStatusOutput": {
@@ -177835,6 +178460,122 @@
           "data"
         ]
       },
+      "ListCashTipsOutput": {
+        "type": "object",
+        "properties": {
+          "tips": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "receivedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedBy": {
+                  "type": "string",
+                  "enum": [
+                    "technician",
+                    "office"
+                  ]
+                },
+                "recordedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "corrections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "previousAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "newAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "correctedByName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "previousAmount",
+                      "newAmount",
+                      "reason",
+                      "correctedByName",
+                      "at"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "amount",
+                "receivedAt",
+                "note",
+                "recordedBy",
+                "recordedByName",
+                "corrections"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tips"
+        ]
+      },
       "ListCertificationTypesOutput": {
         "type": "object",
         "properties": {
@@ -184194,6 +184935,12 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "splitRule": {
+                  "type": "string"
+                },
+                "splitNote": {
+                  "type": "string"
+                },
                 "shares": {
                   "type": "array",
                   "items": {
@@ -184231,6 +184978,8 @@
                 "paymentId",
                 "receivedAt",
                 "amount",
+                "splitRule",
+                "splitNote",
                 "shares"
               ]
             }
@@ -186538,6 +187287,126 @@
         },
         "required": [
           "brands"
+        ]
+      },
+      "ListMyCashTipsOutput": {
+        "type": "object",
+        "properties": {
+          "technician": {
+            "type": "boolean"
+          },
+          "tips": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "receivedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedBy": {
+                  "type": "string",
+                  "enum": [
+                    "technician",
+                    "office"
+                  ]
+                },
+                "recordedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "corrections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "previousAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "newAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "correctedByName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "previousAmount",
+                      "newAmount",
+                      "reason",
+                      "correctedByName",
+                      "at"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "amount",
+                "receivedAt",
+                "note",
+                "recordedBy",
+                "recordedByName",
+                "corrections"
+              ]
+            }
+          }
+        },
+        "required": [
+          "technician",
+          "tips"
         ]
       },
       "ListMyExpensesOutput": {
@@ -204642,6 +205511,142 @@
           "lastServicedOn"
         ]
       },
+      "RecordCashTipForInput": {
+        "type": "object",
+        "properties": {
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "receivedOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "jobNumber": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "technicianId",
+          "amount",
+          "reason"
+        ]
+      },
+      "RecordCashTipForOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianName": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedBy": {
+            "type": "string",
+            "enum": [
+              "technician",
+              "office"
+            ]
+          },
+          "recordedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "corrections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "previousAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "newAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "correctedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "previousAmount",
+                "newAmount",
+                "reason",
+                "correctedByName",
+                "at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "technicianId",
+          "technicianName",
+          "jobId",
+          "jobNumber",
+          "amount",
+          "receivedAt",
+          "note",
+          "recordedBy",
+          "recordedByName",
+          "corrections"
+        ]
+      },
       "RecordCertificationInput": {
         "type": "object",
         "properties": {
@@ -219916,6 +220921,14 @@
               "null"
             ],
             "maxLength": 20
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
           }
         }
       },
@@ -219928,10 +220941,43 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
           }
         },
         "required": [
-          "perDiemRate"
+          "perDiemRate",
+          "tipSplit",
+          "rules"
         ]
       },
       "SetPortalSettingsInput": {

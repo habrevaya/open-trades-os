@@ -30,7 +30,7 @@ const ORDER = [
    */
   "tip_share",
   /** A cash tip a technician kept points at the technician, the job and the visit. */
-  "cash_tip",
+  "cash_tip_correction", "cash_tip",
   /** What a person spent for the company and a day away both point at the technician and the job. */
   "expense", "per_diem",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",

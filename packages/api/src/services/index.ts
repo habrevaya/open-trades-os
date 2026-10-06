@@ -115,6 +115,7 @@ export * as commissions from "./commissions";
 export * as payroll from "./payroll";
 export * as expenses from "./expenses";
 export * as payExtras from "./pay-extras";
+export * as cashTips from "./cash-tips";
 export * as ai from "./ai";
 export * as agents from "./agents";
 export * as agentIntake from "./agent-intake";

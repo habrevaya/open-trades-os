@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
-  me, staffDocuments, expenses, payExtras,
+  me, staffDocuments, expenses, payExtras, cashTips,
 } from "../services/index";
 
 /**
@@ -1033,6 +1033,10 @@ export const handlers = {
   getJobExpenses: expenses.handlers.getJobExpenses,
   getPayExtras: payExtras.handlers.getPayExtras,
   setPayExtras: payExtras.handlers.setPayExtras,
+  recordCashTipFor: cashTips.handlers.recordCashTipFor,
+  correctCashTip: cashTips.handlers.correctCashTip,
+  listCashTips: cashTips.handlers.listCashTips,
+  listMyCashTips: cashTips.handlers.listMyCashTips,
 
   // Setup, the team and branches (M02, M01)
   getSetup: setup.handlers.getSetup,

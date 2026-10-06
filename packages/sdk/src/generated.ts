@@ -2023,6 +2023,31 @@ export interface CopyBackFromSandboxOutput {
   }>;
 }
 
+export interface CorrectCashTipInput {
+  amount: string;
+  reason: string;
+}
+
+export interface CorrectCashTipOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  receivedAt: string;
+  note: string | null;
+  recordedBy: "technician" | "office";
+  recordedByName: string | null;
+  corrections: Array<{
+    previousAmount: string;
+    newAmount: string;
+    reason: string;
+    correctedByName: string | null;
+    at: string;
+  }>;
+}
+
 export interface CountStockInput {
   itemId: string;
   locationId: string;
@@ -8271,6 +8296,11 @@ export interface GetOnCallNowOutput {
 
 export interface GetPayExtrasOutput {
   perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
 }
 
 export interface GetPaymentsStatusOutput {
@@ -10907,6 +10937,28 @@ export interface ListCampaignsOutput {
   }>;
 }
 
+export interface ListCashTipsOutput {
+  tips: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    receivedAt: string;
+    note: string | null;
+    recordedBy: "technician" | "office";
+    recordedByName: string | null;
+    corrections: Array<{
+      previousAmount: string;
+      newAmount: string;
+      reason: string;
+      correctedByName: string | null;
+      at: string;
+    }>;
+  }>;
+}
+
 export interface ListCertificationTypesOutput {
   types: Array<{
     id: string;
@@ -12102,6 +12154,8 @@ export interface ListInvoiceTipsOutput {
     paymentId: string;
     receivedAt: string;
     amount: string;
+    splitRule: string;
+    splitNote: string;
     shares: Array<{
       technicianId: string;
       technicianName: string;
@@ -12540,6 +12594,29 @@ export interface ListMessagingRegistrationsOutput {
       statusReason: string | null;
       submittedAt: string | null;
       approvedAt: string | null;
+    }>;
+  }>;
+}
+
+export interface ListMyCashTipsOutput {
+  technician: boolean;
+  tips: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    receivedAt: string;
+    note: string | null;
+    recordedBy: "technician" | "office";
+    recordedByName: string | null;
+    corrections: Array<{
+      previousAmount: string;
+      newAmount: string;
+      reason: string;
+      correctedByName: string | null;
+      at: string;
     }>;
   }>;
 }
@@ -16089,6 +16166,34 @@ export interface RecordAssetServiceOutput {
   lastServicedOn: string | null;
 }
 
+export interface RecordCashTipForInput {
+  technicianId: string;
+  amount: string;
+  receivedOn?: string;
+  jobNumber?: number;
+  reason: string;
+}
+
+export interface RecordCashTipForOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  receivedAt: string;
+  note: string | null;
+  recordedBy: "technician" | "office";
+  recordedByName: string | null;
+  corrections: Array<{
+    previousAmount: string;
+    newAmount: string;
+    reason: string;
+    correctedByName: string | null;
+    at: string;
+  }>;
+}
+
 export interface RecordCertificationInput {
   technicianId: string;
   certificationTypeId: string;
@@ -19301,10 +19406,16 @@ export interface SetOnboardingLineOutput {
 
 export interface SetPayExtrasInput {
   perDiemRate?: string | null;
+  tipSplit?: "even" | "hours" | "lead";
 }
 
 export interface SetPayExtrasOutput {
   perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
 }
 
 export interface SetPortalSettingsInput {
@@ -23280,6 +23391,10 @@ export interface ConvertEstimateParams {
   id: string;
 }
 
+export interface CorrectCashTipParams {
+  id: string;
+}
+
 export interface CreateProjectApplicationParams {
   projectId: string;
 }
@@ -24244,6 +24359,10 @@ export interface ListCampaignsInput {
   limit?: number;
 }
 
+export interface ListCashTipsInput {
+  technicianId?: string;
+}
+
 export type ListCertificationTypesInput = Record<string, never>;
 
 export interface ListCertificationsInput {
@@ -24641,6 +24760,8 @@ export interface ListMessageTemplatesInput {
 }
 
 export type ListMessagingRegistrationsInput = Record<string, never>;
+
+export type ListMyCashTipsInput = Record<string, never>;
 
 export type ListMyExpensesInput = Record<string, never>;
 
@@ -26217,6 +26338,7 @@ export interface OperationTypes {
   connectLeadMarketplace: { input: ConnectLeadMarketplaceInput; output: ConnectLeadMarketplaceOutput };
   convertEstimate: { input: ConvertEstimateParams & ConvertEstimateInput; output: ConvertEstimateOutput };
   copyBackFromSandbox: { input: CopyBackFromSandboxInput; output: CopyBackFromSandboxOutput };
+  correctCashTip: { input: CorrectCashTipParams & CorrectCashTipInput; output: CorrectCashTipOutput };
   countStock: { input: CountStockInput; output: CountStockOutput };
   createAgreementPlan: { input: CreateAgreementPlanInput; output: CreateAgreementPlanOutput };
   createBookableService: { input: CreateBookableServiceInput; output: CreateBookableServiceOutput };
@@ -26539,6 +26661,7 @@ export interface OperationTypes {
   listCallQueues: { input: ListCallQueuesInput; output: ListCallQueuesOutput };
   listCalls: { input: ListCallsInput; output: ListCallsOutput };
   listCampaigns: { input: ListCampaignsInput; output: ListCampaignsOutput };
+  listCashTips: { input: ListCashTipsInput; output: ListCashTipsOutput };
   listCertificationTypes: { input: ListCertificationTypesInput; output: ListCertificationTypesOutput };
   listCertifications: { input: ListCertificationsInput; output: ListCertificationsOutput };
   listChangeOrders: { input: ListChangeOrdersInput; output: ListChangeOrdersOutput };
@@ -26619,6 +26742,7 @@ export interface OperationTypes {
   listMarketingPlatforms: { input: ListMarketingPlatformsInput; output: ListMarketingPlatformsOutput };
   listMessageTemplates: { input: ListMessageTemplatesInput; output: ListMessageTemplatesOutput };
   listMessagingRegistrations: { input: ListMessagingRegistrationsInput; output: ListMessagingRegistrationsOutput };
+  listMyCashTips: { input: ListMyCashTipsInput; output: ListMyCashTipsOutput };
   listMyExpenses: { input: ListMyExpensesInput; output: ListMyExpensesOutput };
   listMySafetyMeetings: { input: ListMySafetyMeetingsInput; output: ListMySafetyMeetingsOutput };
   listNetworkMembers: { input: ListNetworkMembersInput; output: ListNetworkMembersOutput };
@@ -26791,6 +26915,7 @@ export interface OperationTypes {
   recordAssetCost: { input: RecordAssetCostParams & RecordAssetCostInput; output: RecordAssetCostOutput };
   recordAssetReading: { input: RecordAssetReadingParams & RecordAssetReadingInput; output: RecordAssetReadingOutput };
   recordAssetService: { input: RecordAssetServiceParams & RecordAssetServiceInput; output: RecordAssetServiceOutput };
+  recordCashTipFor: { input: RecordCashTipForInput; output: RecordCashTipForOutput };
   recordCertification: { input: RecordCertificationInput; output: RecordCertificationOutput };
   recordClaimPayment: { input: RecordClaimPaymentParams & RecordClaimPaymentInput; output: RecordClaimPaymentOutput };
   recordDelivery: { input: RecordDeliveryInput; output: RecordDeliveryOutput };
@@ -27206,6 +27331,7 @@ export const OPERATIONS = {
   connectLeadMarketplace: { method: "POST", path: "/v1/lead-marketplaces", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   convertEstimate: { method: "POST", path: "/v1/estimates/{id}/convert", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write","job:write"] },
   copyBackFromSandbox: { method: "POST", path: "/v1/sandbox/copy-back", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
+  correctCashTip: { method: "POST", path: "/v1/cash-tips/{id}/correction", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   countStock: { method: "POST", path: "/v1/stock/counts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   createAgreementPlan: { method: "POST", path: "/v1/agreement-plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   createBookableService: { method: "POST", path: "/v1/booking/services", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -27528,6 +27654,7 @@ export const OPERATIONS = {
   listCallQueues: { method: "GET", path: "/v1/call-queues", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCalls: { method: "GET", path: "/v1/calls", pathParams: [], queryParams: ["customerId","limit","q"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listCampaigns: { method: "GET", path: "/v1/campaigns", pathParams: [], queryParams: ["state","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
+  listCashTips: { method: "GET", path: "/v1/cash-tips", pathParams: [], queryParams: ["technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   listCertificationTypes: { method: "GET", path: "/v1/certification-types", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listCertifications: { method: "GET", path: "/v1/certifications", pathParams: [], queryParams: ["technicianId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listChangeOrders: { method: "GET", path: "/v1/projects/{projectId}/change-orders", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -27608,6 +27735,7 @@ export const OPERATIONS = {
   listMarketingPlatforms: { method: "GET", path: "/v1/marketing/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMessageTemplates: { method: "GET", path: "/v1/message-templates", pathParams: [], queryParams: ["channel"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listMessagingRegistrations: { method: "GET", path: "/v1/messaging/registrations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listMyCashTips: { method: "GET", path: "/v1/me/cash-tips", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
   listMyExpenses: { method: "GET", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   listMySafetyMeetings: { method: "GET", path: "/v1/safety/my-meetings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listNetworkMembers: { method: "GET", path: "/v1/network/members", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
@@ -27780,6 +27908,7 @@ export const OPERATIONS = {
   recordAssetCost: { method: "POST", path: "/v1/assets/{assetId}/costs", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordAssetReading: { method: "POST", path: "/v1/assets/{assetId}/readings", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordAssetService: { method: "POST", path: "/v1/asset-maintenance-plans/{planId}/serviced", pathParams: ["planId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  recordCashTipFor: { method: "POST", path: "/v1/cash-tips", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   recordCertification: { method: "POST", path: "/v1/certifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   recordClaimPayment: { method: "POST", path: "/v1/claims/{id}/payments", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect","invoice:read"] },
   recordDelivery: { method: "POST", path: "/v1/deliveries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
@@ -28941,6 +29070,15 @@ export abstract class GeneratedOperations {
    */
   copyBackFromSandbox(input: CopyBackFromSandboxInput, options?: CallOptions): Promise<CopyBackFromSandboxOutput> {
     return this.call("copyBackFromSandbox", input, options);
+  }
+
+  /**
+   * Change what a cash tip was.
+   *
+   * POST /v1/cash-tips/{id}/correction. Needs tip:record.
+   */
+  correctCashTip(input: CorrectCashTipParams & CorrectCashTipInput, options?: CallOptions): Promise<CorrectCashTipOutput> {
+    return this.call("correctCashTip", input, options);
   }
 
   /**
@@ -30852,7 +30990,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The company's rate for a day away.
+   * The company's rate for a day away, and how tips are shared.
    *
    * GET /v1/payroll/pay-extras. Needs timesheet:read.
    */
@@ -31842,6 +31980,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The cash tips on people's pay, with every change made to each.
+   *
+   * GET /v1/cash-tips. Needs tip:record.
+   */
+  listCashTips(input: ListCashTipsInput = {} as ListCashTipsInput, options?: CallOptions): Promise<ListCashTipsOutput> {
+    return this.call("listCashTips", input, options);
+  }
+
+  /**
    * What this company recognises.
    *
    * GET /v1/certification-types. Needs compliance:read.
@@ -32559,6 +32706,15 @@ export abstract class GeneratedOperations {
    */
   listMessagingRegistrations(input: ListMessagingRegistrationsInput = {} as ListMessagingRegistrationsInput, options?: CallOptions): Promise<ListMessagingRegistrationsOutput> {
     return this.call("listMessagingRegistrations", input, options);
+  }
+
+  /**
+   * Your own cash tips, whoever recorded them, and every change made to each.
+   *
+   * GET /v1/me/cash-tips. Needs payroll:own.
+   */
+  listMyCashTips(input: ListMyCashTipsInput = {} as ListMyCashTipsInput, options?: CallOptions): Promise<ListMyCashTipsOutput> {
+    return this.call("listMyCashTips", input, options);
   }
 
   /**
@@ -34110,6 +34266,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Put a cash tip a customer handed a technician on their pay.
+   *
+   * POST /v1/cash-tips. Needs tip:record.
+   */
+  recordCashTipFor(input: RecordCashTipForInput, options?: CallOptions): Promise<RecordCashTipForOutput> {
+    return this.call("recordCashTipFor", input, options);
+  }
+
+  /**
    * Record that somebody holds a certification.
    *
    * POST /v1/certifications. Needs compliance:write.
@@ -35658,7 +35823,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set the rate for a day away.
+   * Set the rate for a day away, or how tips are shared.
    *
    * POST /v1/payroll/pay-extras. Needs payroll:configure.
    */

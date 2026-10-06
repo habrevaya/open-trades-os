@@ -236,21 +236,28 @@ export default async function PayRulesPage() {
       </section>
 
       <section className="mt-10" aria-labelledby="extras-heading">
-        <h2 id="extras-heading" className="text-base font-semibold">A day away</h2>
+        <h2 id="extras-heading" className="text-base font-semibold">Tips and days away</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          What the company pays for a day somebody is away from home on a job. The office records the days
-          on Expenses, and each one keeps the rate it was recorded at, so a change here applies from now on.
+          How a tip a customer leaves is shared between the people on the job, and what a day away from
+          home is worth. A change applies from the next tip and the next day recorded: tips already shared
+          and days already recorded keep what they were worked out at. The office records the days away on
+          Expenses.
         </p>
         <Facts>
+          <Fact label="Tips are shared">{extras.rules.find((r) => r.rule === extras.tipSplit)?.label ?? null}</Fact>
           <Fact label="A day away is worth">{extras.perDiemRate ? <Money value={extras.perDiemRate} /> : "Not set, so none is paid"}</Fact>
         </Facts>
         {configures ? (
-          <ActionForm action={act} submit="Save" hidden={{ op: "extras" }} className="mt-4 grid max-w-xl gap-3">
+          <ActionForm action={act} submit="Save" hidden={{ op: "extras" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+            <Select label="Share a tip" name="tipSplit" defaultValue={extras.tipSplit}
+                    options={extras.rules.map((r) => ({ value: r.rule, label: r.label }))} />
             <TextField label="A day away is worth (dollars)" name="perDiemRate" inputMode="decimal"
                        defaultValue={extras.perDiemRate ?? ""} placeholder="75.00" />
-            <p className="text-sm text-ink-700">
-              Paid with no tax taken from it, which is only right while it is within what the tax authority
-              allows for the place and the day. That check is yours. Leave the box empty to pay none.
+            <p className="text-sm text-ink-700 sm:col-span-2">
+              By hours means the hours each person was clocked in on the job. If none are recorded, or no lead
+              is marked on the job, the tip is shared evenly and the tip says so. A day away is paid with no
+              tax taken from it, which is only right while it is within what the tax authority allows for the
+              place and the day. That check is yours. Leave the box empty to pay none.
             </p>
           </ActionForm>
         ) : null}

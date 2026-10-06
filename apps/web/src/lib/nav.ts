@@ -341,6 +341,12 @@ export const NAV: NavGroup[] = [
            * `timesheet:read` to be SHOWN and the page needs `expense:approve`.
            */
           { href: "/timesheets/expenses", label: "Expenses" },
+          /**
+           * Cash a customer handed a technician for themselves, put on their pay
+           * or changed with a reason. It inherits `timesheet:read` to be SHOWN and
+           * the page needs `tip:record`.
+           */
+          { href: "/timesheets/tips", label: "Cash tips" },
         ],
       },
       /**
