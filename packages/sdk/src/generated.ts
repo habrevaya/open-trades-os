@@ -347,6 +347,40 @@ export interface AddTaskChecklistItemOutput {
   doneBy: string | null;
 }
 
+export interface AddTaxRateVersionInput {
+  percent: string;
+  effectiveFrom: string;
+  note?: string;
+}
+
+export interface AddTaxRateVersionOutput {
+  today: string;
+  chargesTax: boolean;
+  answered: boolean;
+  defaultTaxRateId: string | null;
+  rates: Array<{
+    id: string;
+    name: string;
+    retired: boolean;
+    isDefault: boolean;
+    current: {
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+    } | null;
+    versions: Array<{
+      id: string;
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+      note: string | null;
+      state: "past" | "current" | "scheduled";
+    }>;
+    customers: number;
+    addresses: number;
+  }>;
+}
+
 export interface AdvanceRegulatorySubmissionInput {
   to: "prepared" | "submitted" | "acknowledged" | "rejected" | "waived";
   reference?: string;
@@ -902,6 +936,8 @@ export interface ApproveEstimateOutput {
       memberAgreementId?: string | null;
       taxable: boolean;
       taxRate: string;
+      taxRateId?: string | null;
+      taxSource?: string | null;
       taxAmount: string;
       lineTotal: string;
       isOptional: boolean;
@@ -1295,6 +1331,7 @@ export interface BackfillCallTrackingOutput {
 export interface BillJobInput {
   draft?: boolean;
   taxRate?: string;
+  lineRates?: string[];
 }
 
 export interface BillJobOutput {
@@ -1973,6 +2010,8 @@ export interface ConvertEstimateOutput {
         memberAgreementId?: string | null;
         taxable: boolean;
         taxRate: string;
+        taxRateId?: string | null;
+        taxSource?: string | null;
         taxAmount: string;
         lineTotal: string;
         isOptional: boolean;
@@ -2513,6 +2552,9 @@ export interface CreateCustomerInput {
   campaignId?: string;
   paymentTermsDays?: number;
   taxExempt?: boolean;
+  taxExemptCertificate?: string;
+  taxExemptExpiresOn?: string;
+  taxRateId?: string;
   tags?: string[];
   customFields?: Record<string, unknown>;
   property?: {
@@ -2554,6 +2596,9 @@ export interface CreateCustomerOutput {
   acquisitionCampaignId?: string | null;
   paymentTermsDays: number;
   taxExempt: boolean;
+  taxExemptCertificate?: string | null;
+  taxExemptExpiresOn?: string | null;
+  taxRateId?: string | null;
   doNotService: boolean;
   doNotServiceReason: string | null;
   tags: string[];
@@ -2635,6 +2680,7 @@ export interface CreateEstimateInput {
     reason?: string;
   };
   taxRate?: string;
+  taxRateId?: string | null;
   options: Array<{
     name: string;
     description?: string;
@@ -2696,6 +2742,8 @@ export interface CreateEstimateOutput {
       memberAgreementId?: string | null;
       taxable: boolean;
       taxRate: string;
+      taxRateId?: string | null;
+      taxSource?: string | null;
       taxAmount: string;
       lineTotal: string;
       isOptional: boolean;
@@ -2766,11 +2814,13 @@ export interface CreateInvoiceInput {
     taxable?: boolean;
     taxRate?: string;
     taxAmount?: string;
+    taxRateId?: string;
     priceAsGiven?: boolean;
     costCode?: string;
     coverageSource?: "customer" | "agreement" | "parts_warranty" | "labour_warranty" | "our_warranty" | "home_warranty" | "insurance" | "goodwill" | "no_charge_callback" | "contract";
     jobLineId?: string;
   }>;
+  taxRateId?: string | null;
   adjustment?: {
     name: string;
     amount: string;
@@ -2818,6 +2868,8 @@ export interface CreateInvoiceOutput {
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
     lineTotal: string;
     costCode: string | null;
     priceBookItemVersionId: string | null;
@@ -3423,6 +3475,7 @@ export interface CreatePropertyInput {
   accessNotes?: string;
   hazardNotes?: string;
   hasDog?: boolean;
+  taxRateId?: string;
   customFields?: Record<string, unknown>;
   customerId?: string;
   customerRole?: "owner" | "tenant" | "manager" | "billing";
@@ -3449,6 +3502,7 @@ export interface CreatePropertyOutput {
   locationSource: string | null;
   locatedAt: string | null;
   territoryId: string | null;
+  taxRateId?: string | null;
   squareFeet: string | null;
   yearBuilt: string | null;
   gateCode: string | null;
@@ -3815,6 +3869,41 @@ export interface CreateTaskTemplateOutput {
   lastRaisedOn: string | null;
   schedule: string;
   nextOn: string | null;
+}
+
+export interface CreateTaxRateInput {
+  name: string;
+  percent: string;
+  effectiveFrom?: string;
+  makeDefault?: boolean;
+}
+
+export interface CreateTaxRateOutput {
+  today: string;
+  chargesTax: boolean;
+  answered: boolean;
+  defaultTaxRateId: string | null;
+  rates: Array<{
+    id: string;
+    name: string;
+    retired: boolean;
+    isDefault: boolean;
+    current: {
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+    } | null;
+    versions: Array<{
+      id: string;
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+      note: string | null;
+      state: "past" | "current" | "scheduled";
+    }>;
+    customers: number;
+    addresses: number;
+  }>;
 }
 
 export interface CreateTerritoryInput {
@@ -4242,6 +4331,8 @@ export interface DeclineEstimateOutput {
       memberAgreementId?: string | null;
       taxable: boolean;
       taxRate: string;
+      taxRateId?: string | null;
+      taxSource?: string | null;
       taxAmount: string;
       lineTotal: string;
       isOptional: boolean;
@@ -6077,6 +6168,9 @@ export interface GetCustomerOutput {
   acquisitionCampaignId?: string | null;
   paymentTermsDays: number;
   taxExempt: boolean;
+  taxExemptCertificate?: string | null;
+  taxExemptExpiresOn?: string | null;
+  taxRateId?: string | null;
   doNotService: boolean;
   doNotServiceReason: string | null;
   tags: string[];
@@ -6520,6 +6614,8 @@ export interface GetEstimateOutput {
       memberAgreementId?: string | null;
       taxable: boolean;
       taxRate: string;
+      taxRateId?: string | null;
+      taxSource?: string | null;
       taxAmount: string;
       lineTotal: string;
       isOptional: boolean;
@@ -6780,6 +6876,13 @@ export interface GetFieldSnapshotOutput {
       waivesAfterHoursRate: boolean;
       excludedItemIds: string[];
     } | null;
+    tax: {
+      rate: string;
+      percent: string;
+      label: string | null;
+      source: string;
+      note: string;
+    };
     estimates: Array<{
       id: string;
       number: number;
@@ -7223,6 +7326,8 @@ export interface GetInvoiceOutput {
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
     lineTotal: string;
     costCode: string | null;
     priceBookItemVersionId: string | null;
@@ -8784,6 +8889,7 @@ export interface GetPropertyOutput {
   locationSource: string | null;
   locatedAt: string | null;
   territoryId: string | null;
+  taxRateId?: string | null;
   squareFeet: string | null;
   yearBuilt: string | null;
   gateCode: string | null;
@@ -9314,6 +9420,22 @@ export interface GetSafetyMeetingOutput {
     contentType: string | null;
     createdAt: string;
   }>;
+}
+
+export interface GetSalesTaxReportOutput {
+  from: string;
+  to: string;
+  rows: Array<{
+    taxRateId: string | null;
+    name: string;
+    rate: string | null;
+    percent: string | null;
+    taxableSales: string;
+    taxCollected: string;
+  }>;
+  totalCollected: string;
+  otherMovements: string;
+  accountMovement: string;
 }
 
 export interface GetSandboxCopyPlanOutput {
@@ -10132,6 +10254,8 @@ export interface IssueInvoiceOutput {
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
     lineTotal: string;
     costCode: string | null;
     priceBookItemVersionId: string | null;
@@ -11476,6 +11600,9 @@ export interface ListCustomersOutput {
     acquisitionCampaignId?: string | null;
     paymentTermsDays: number;
     taxExempt: boolean;
+    taxExemptCertificate?: string | null;
+    taxExemptExpiresOn?: string | null;
+    taxRateId?: string | null;
     doNotService: boolean;
     doNotServiceReason: string | null;
     tags: string[];
@@ -12027,6 +12154,8 @@ export interface ListItemTaxOutput {
     code: string;
     name: string;
     category: string | null;
+    categoryId: string | null;
+    categoryTaxable: boolean | null;
     taxable: boolean;
     taxClass: string | null;
   }>;
@@ -12949,6 +13078,7 @@ export interface ListPropertiesOutput {
     locationSource: string | null;
     locatedAt: string | null;
     territoryId: string | null;
+    taxRateId?: string | null;
     squareFeet: string | null;
     yearBuilt: string | null;
     gateCode: string | null;
@@ -13779,6 +13909,34 @@ export interface ListTasksOutput {
   }>;
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+export interface ListTaxRatesOutput {
+  today: string;
+  chargesTax: boolean;
+  answered: boolean;
+  defaultTaxRateId: string | null;
+  rates: Array<{
+    id: string;
+    name: string;
+    retired: boolean;
+    isDefault: boolean;
+    current: {
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+    } | null;
+    versions: Array<{
+      id: string;
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+      note: string | null;
+      state: "past" | "current" | "scheduled";
+    }>;
+    customers: number;
+    addresses: number;
+  }>;
 }
 
 export interface ListTeamOutput {
@@ -15174,6 +15332,9 @@ export interface PreviewJobBillingOutput {
     outOfScope: boolean;
     taxable: boolean;
     taxRate: string;
+    taxRateId: string | null;
+    taxSource: string | null;
+    taxLabel: string | null;
   }>;
   payers: Array<{
     customerId: string;
@@ -15208,6 +15369,14 @@ export interface PreviewJobBillingOutput {
   reconciles: boolean;
   taxTotal: string;
   outOfScope: number;
+  tax: {
+    worked: string;
+    source: string;
+    choices: Array<{
+      id: string;
+      label: string;
+    }>;
+  };
   problems: string[];
   existing: Array<{
     id: string;
@@ -17492,6 +17661,36 @@ export interface RetireStaffDocumentOutput {
   }>;
 }
 
+export type RetireTaxRateInput = Record<string, unknown>;
+
+export interface RetireTaxRateOutput {
+  today: string;
+  chargesTax: boolean;
+  answered: boolean;
+  defaultTaxRateId: string | null;
+  rates: Array<{
+    id: string;
+    name: string;
+    retired: boolean;
+    isDefault: boolean;
+    current: {
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+    } | null;
+    versions: Array<{
+      id: string;
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+      note: string | null;
+      state: "past" | "current" | "scheduled";
+    }>;
+    customers: number;
+    addresses: number;
+  }>;
+}
+
 export interface RetireWageScaleInput {
   effectiveTo: string;
 }
@@ -18320,6 +18519,8 @@ export interface SendEstimateOutput {
         memberAgreementId?: string | null;
         taxable: boolean;
         taxRate: string;
+        taxRateId?: string | null;
+        taxSource?: string | null;
         taxAmount: string;
         lineTotal: string;
         isOptional: boolean;
@@ -18780,6 +18981,7 @@ export interface SetItemTaxInput {
   itemIds: string[];
   taxable: boolean;
   taxClass: "labor" | "material" | "equipment" | "service" | "exempt" | null;
+  categoryId?: string;
 }
 
 export interface SetItemTaxOutput {
@@ -20886,6 +21088,9 @@ export interface UpdateCustomerInput {
   campaignId?: string | null;
   paymentTermsDays?: number;
   taxExempt?: boolean;
+  taxExemptCertificate?: string | null;
+  taxExemptExpiresOn?: string | null;
+  taxRateId?: string | null;
   tags?: string[];
   customFields?: Record<string, unknown>;
   doNotService?: boolean;
@@ -20913,6 +21118,9 @@ export interface UpdateCustomerOutput {
   acquisitionCampaignId?: string | null;
   paymentTermsDays: number;
   taxExempt: boolean;
+  taxExemptCertificate?: string | null;
+  taxExemptExpiresOn?: string | null;
+  taxRateId?: string | null;
   doNotService: boolean;
   doNotServiceReason: string | null;
   tags: string[];
@@ -20957,11 +21165,13 @@ export interface UpdateInvoiceInput {
     taxable?: boolean;
     taxRate?: string;
     taxAmount?: string;
+    taxRateId?: string;
     priceAsGiven?: boolean;
     costCode?: string;
     coverageSource?: "customer" | "agreement" | "parts_warranty" | "labour_warranty" | "our_warranty" | "home_warranty" | "insurance" | "goodwill" | "no_charge_callback" | "contract";
     jobLineId?: string;
   }>;
+  taxRateId?: string | null;
   adjustment?: {
     name: string;
     amount: string;
@@ -21012,6 +21222,8 @@ export interface UpdateInvoiceOutput {
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
     lineTotal: string;
     costCode: string | null;
     priceBookItemVersionId: string | null;
@@ -21536,6 +21748,7 @@ export interface UpdatePropertyInput {
   accessNotes?: string | null;
   hazardNotes?: string | null;
   hasDog?: boolean;
+  taxRateId?: string | null;
   customFields?: Record<string, unknown>;
 }
 
@@ -21556,6 +21769,7 @@ export interface UpdatePropertyOutput {
   locationSource: string | null;
   locatedAt: string | null;
   territoryId: string | null;
+  taxRateId?: string | null;
   squareFeet: string | null;
   yearBuilt: string | null;
   gateCode: string | null;
@@ -21853,6 +22067,39 @@ export interface UpdateTaskTemplateOutput {
   lastRaisedOn: string | null;
   schedule: string;
   nextOn: string | null;
+}
+
+export interface UpdateTaxSettingsInput {
+  chargesTax?: boolean;
+  defaultTaxRateId?: string | null;
+}
+
+export interface UpdateTaxSettingsOutput {
+  today: string;
+  chargesTax: boolean;
+  answered: boolean;
+  defaultTaxRateId: string | null;
+  rates: Array<{
+    id: string;
+    name: string;
+    retired: boolean;
+    isDefault: boolean;
+    current: {
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+    } | null;
+    versions: Array<{
+      id: string;
+      rate: string;
+      percent: string;
+      effectiveFrom: string;
+      note: string | null;
+      state: "past" | "current" | "scheduled";
+    }>;
+    customers: number;
+    addresses: number;
+  }>;
 }
 
 export interface UpdateTechnicianInput {
@@ -22577,6 +22824,8 @@ export interface VoidInvoiceOutput {
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
     lineTotal: string;
     costCode: string | null;
     priceBookItemVersionId: string | null;
@@ -22734,6 +22983,8 @@ export interface WriteOffInvoiceOutput {
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
     lineTotal: string;
     costCode: string | null;
     priceBookItemVersionId: string | null;
@@ -22827,6 +23078,10 @@ export interface AddServiceRouteStopParams {
 }
 
 export interface AddTaskChecklistItemParams {
+  id: string;
+}
+
+export interface AddTaxRateVersionParams {
   id: string;
 }
 
@@ -23739,6 +23994,11 @@ export interface GetSafetyMeetingInput {
   id: string;
 }
 
+export interface GetSalesTaxReportInput {
+  from: string;
+  to: string;
+}
+
 export type GetSandboxInput = Record<string, never>;
 
 export type GetSandboxCopyPlanInput = Record<string, never>;
@@ -24640,6 +24900,8 @@ export interface ListTasksInput {
   view?: "mine" | "unassigned" | "overdue" | "all";
 }
 
+export type ListTaxRatesInput = Record<string, never>;
+
 export type ListTeamInput = Record<string, never>;
 
 export interface ListTechnicianSkillsInput {
@@ -24871,6 +25133,7 @@ export interface PreviewContractEscalationInput {
 export interface PreviewJobBillingInput {
   id: string;
   taxRate?: string;
+  lineRates?: string[];
 }
 
 export interface PreviewMailCampaignInput {
@@ -25178,6 +25441,10 @@ export interface RetireRentableAssetParams {
 }
 
 export interface RetireStaffDocumentParams {
+  id: string;
+}
+
+export interface RetireTaxRateParams {
   id: string;
 }
 
@@ -25861,6 +26128,7 @@ export interface OperationTypes {
   addSafetyMeetingPhoto: { input: AddSafetyMeetingPhotoParams & AddSafetyMeetingPhotoInput; output: AddSafetyMeetingPhotoOutput };
   addServiceRouteStop: { input: AddServiceRouteStopParams & AddServiceRouteStopInput; output: AddServiceRouteStopOutput };
   addTaskChecklistItem: { input: AddTaskChecklistItemParams & AddTaskChecklistItemInput; output: AddTaskChecklistItemOutput };
+  addTaxRateVersion: { input: AddTaxRateVersionParams & AddTaxRateVersionInput; output: AddTaxRateVersionOutput };
   advanceRegulatorySubmission: { input: AdvanceRegulatorySubmissionParams & AdvanceRegulatorySubmissionInput; output: AdvanceRegulatorySubmissionOutput };
   annotateServiceReport: { input: AnnotateServiceReportParams & AnnotateServiceReportInput; output: AnnotateServiceReportOutput };
   answerNumberHere: { input: AnswerNumberHereParams & AnswerNumberHereInput; output: AnswerNumberHereOutput };
@@ -25977,6 +26245,7 @@ export interface OperationTypes {
   createTask: { input: CreateTaskInput; output: CreateTaskOutput };
   createTaskEscalationRule: { input: CreateTaskEscalationRuleInput; output: CreateTaskEscalationRuleOutput };
   createTaskTemplate: { input: CreateTaskTemplateInput; output: CreateTaskTemplateOutput };
+  createTaxRate: { input: CreateTaxRateInput; output: CreateTaxRateOutput };
   createTerritory: { input: CreateTerritoryInput; output: CreateTerritoryOutput };
   createTrackingCampaign: { input: CreateTrackingCampaignInput; output: CreateTrackingCampaignOutput };
   createVendor: { input: CreateVendorInput; output: CreateVendorOutput };
@@ -26179,6 +26448,7 @@ export interface OperationTypes {
   getReviewWorkList: { input: GetReviewWorkListInput; output: GetReviewWorkListOutput };
   getRouteProposal: { input: GetRouteProposalInput; output: GetRouteProposalOutput };
   getSafetyMeeting: { input: GetSafetyMeetingInput; output: GetSafetyMeetingOutput };
+  getSalesTaxReport: { input: GetSalesTaxReportInput; output: GetSalesTaxReportOutput };
   getSandbox: { input: GetSandboxInput; output: GetSandboxOutput };
   getSandboxCopyPlan: { input: GetSandboxCopyPlanInput; output: GetSandboxCopyPlanOutput };
   getServiceReport: { input: GetServiceReportInput; output: GetServiceReportOutput };
@@ -26399,6 +26669,7 @@ export interface OperationTypes {
   listTaskEscalations: { input: ListTaskEscalationsInput; output: ListTaskEscalationsOutput };
   listTaskTemplates: { input: ListTaskTemplatesInput; output: ListTaskTemplatesOutput };
   listTasks: { input: ListTasksInput; output: ListTasksOutput };
+  listTaxRates: { input: ListTaxRatesInput; output: ListTaxRatesOutput };
   listTeam: { input: ListTeamInput; output: ListTeamOutput };
   listTechnicianSkills: { input: ListTechnicianSkillsInput; output: ListTechnicianSkillsOutput };
   listTechnicians: { input: ListTechniciansInput; output: ListTechniciansOutput };
@@ -26585,6 +26856,7 @@ export interface OperationTypes {
   retireEquipment: { input: RetireEquipmentParams & RetireEquipmentInput; output: RetireEquipmentOutput };
   retireRentableAsset: { input: RetireRentableAssetParams & RetireRentableAssetInput; output: RetireRentableAssetOutput };
   retireStaffDocument: { input: RetireStaffDocumentParams & RetireStaffDocumentInput; output: RetireStaffDocumentOutput };
+  retireTaxRate: { input: RetireTaxRateParams & RetireTaxRateInput; output: RetireTaxRateOutput };
   retireWageScale: { input: RetireWageScaleParams & RetireWageScaleInput; output: RetireWageScaleOutput };
   retryAccountingDocument: { input: RetryAccountingDocumentParams & RetryAccountingDocumentInput; output: RetryAccountingDocumentOutput };
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
@@ -26787,6 +27059,7 @@ export interface OperationTypes {
   updateTask: { input: UpdateTaskParams & UpdateTaskInput; output: UpdateTaskOutput };
   updateTaskEscalationRule: { input: UpdateTaskEscalationRuleParams & UpdateTaskEscalationRuleInput; output: UpdateTaskEscalationRuleOutput };
   updateTaskTemplate: { input: UpdateTaskTemplateParams & UpdateTaskTemplateInput; output: UpdateTaskTemplateOutput };
+  updateTaxSettings: { input: UpdateTaxSettingsInput; output: UpdateTaxSettingsOutput };
   updateTechnician: { input: UpdateTechnicianParams & UpdateTechnicianInput; output: UpdateTechnicianOutput };
   updateTerritory: { input: UpdateTerritoryParams & UpdateTerritoryInput; output: UpdateTerritoryOutput };
   updateTrackingCampaign: { input: UpdateTrackingCampaignParams & UpdateTrackingCampaignInput; output: UpdateTrackingCampaignOutput };
@@ -26839,6 +27112,7 @@ export const OPERATIONS = {
   addSafetyMeetingPhoto: { method: "POST", path: "/v1/safety/meetings/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addServiceRouteStop: { method: "POST", path: "/v1/service-routes/{id}/stops", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   addTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
+  addTaxRateVersion: { method: "POST", path: "/v1/tax-rates/{id}/versions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   advanceRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/state", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   annotateServiceReport: { method: "PATCH", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   answerNumberHere: { method: "POST", path: "/v1/phone-numbers/{id}/answer-here", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -26955,6 +27229,7 @@ export const OPERATIONS = {
   createTask: { method: "POST", path: "/v1/tasks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   createTaskEscalationRule: { method: "POST", path: "/v1/task-escalation-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   createTaskTemplate: { method: "POST", path: "/v1/task-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
+  createTaxRate: { method: "POST", path: "/v1/tax-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTerritory: { method: "POST", path: "/v1/territories", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTrackingCampaign: { method: "POST", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   createVendor: { method: "POST", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
@@ -27157,6 +27432,7 @@ export const OPERATIONS = {
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getSafetyMeeting: { method: "GET", path: "/v1/safety/meetings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
+  getSalesTaxReport: { method: "GET", path: "/v1/reports/sales-tax", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getSandbox: { method: "GET", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSandboxCopyPlan: { method: "GET", path: "/v1/sandbox/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   getServiceReport: { method: "GET", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: ["customerFacing"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
@@ -27377,6 +27653,7 @@ export const OPERATIONS = {
   listTaskEscalations: { method: "GET", path: "/v1/tasks/{id}/escalations", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   listTaskTemplates: { method: "GET", path: "/v1/task-templates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   listTasks: { method: "GET", path: "/v1/tasks", pathParams: [], queryParams: ["cursor","limit","view"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["task:read"] },
+  listTaxRates: { method: "GET", path: "/v1/tax-rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTeam: { method: "GET", path: "/v1/team", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listTechnicianSkills: { method: "GET", path: "/v1/technicians/{technicianId}/skills", pathParams: ["technicianId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listTechnicians: { method: "GET", path: "/v1/technicians", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -27451,7 +27728,7 @@ export const OPERATIONS = {
   planVisitUnits: { method: "PUT", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   previewCampaign: { method: "POST", path: "/v1/campaigns/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewContractEscalation: { method: "GET", path: "/v1/contracts/{contractId}/escalation", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
-  previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: ["taxRate"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: ["taxRate","lineRates"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   previewMailCampaign: { method: "GET", path: "/v1/marketing/mail/{id}/preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending","effectiveOn"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -27563,6 +27840,7 @@ export const OPERATIONS = {
   retireEquipment: { method: "POST", path: "/v1/equipment/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   retireRentableAsset: { method: "DELETE", path: "/v1/rentable-assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  retireTaxRate: { method: "POST", path: "/v1/tax-rates/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   retireWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   retryAccountingDocument: { method: "POST", path: "/v1/accounting/problems/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -27765,6 +28043,7 @@ export const OPERATIONS = {
   updateTask: { method: "PATCH", path: "/v1/tasks/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   updateTaskEscalationRule: { method: "PATCH", path: "/v1/task-escalation-rules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   updateTaskTemplate: { method: "PATCH", path: "/v1/task-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
+  updateTaxSettings: { method: "PATCH", path: "/v1/tax-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateTechnician: { method: "PATCH", path: "/v1/technicians/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   updateTerritory: { method: "PATCH", path: "/v1/territories/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateTrackingCampaign: { method: "PATCH", path: "/v1/marketing/tracking-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -27987,6 +28266,15 @@ export abstract class GeneratedOperations {
    */
   addTaskChecklistItem(input: AddTaskChecklistItemParams & AddTaskChecklistItemInput, options?: CallOptions): Promise<AddTaskChecklistItemOutput> {
     return this.call("addTaskChecklistItem", input, options);
+  }
+
+  /**
+   * Change a rate's percentage from a day.
+   *
+   * POST /v1/tax-rates/{id}/versions. Needs settings:write.
+   */
+  addTaxRateVersion(input: AddTaxRateVersionParams & AddTaxRateVersionInput, options?: CallOptions): Promise<AddTaxRateVersionOutput> {
+    return this.call("addTaxRateVersion", input, options);
   }
 
   /**
@@ -29031,6 +29319,15 @@ export abstract class GeneratedOperations {
    */
   createTaskTemplate(input: CreateTaskTemplateInput, options?: CallOptions): Promise<CreateTaskTemplateOutput> {
     return this.call("createTaskTemplate", input, options);
+  }
+
+  /**
+   * Add a sales tax rate.
+   *
+   * POST /v1/tax-rates. Needs settings:write.
+   */
+  createTaxRate(input: CreateTaxRateInput, options?: CallOptions): Promise<CreateTaxRateOutput> {
+    return this.call("createTaxRate", input, options);
   }
 
   /**
@@ -30849,6 +31146,15 @@ export abstract class GeneratedOperations {
    */
   getSafetyMeeting(input: GetSafetyMeetingInput, options?: CallOptions): Promise<GetSafetyMeetingOutput> {
     return this.call("getSafetyMeeting", input, options);
+  }
+
+  /**
+   * Sales tax collected by rate, for filing.
+   *
+   * GET /v1/reports/sales-tax. Needs report.financial:read.
+   */
+  getSalesTaxReport(input: GetSalesTaxReportInput, options?: CallOptions): Promise<GetSalesTaxReportOutput> {
+    return this.call("getSalesTaxReport", input, options);
   }
 
   /**
@@ -32832,6 +33138,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The sales tax rates the company charges.
+   *
+   * GET /v1/tax-rates. Needs settings:read.
+   */
+  listTaxRates(input: ListTaxRatesInput = {} as ListTaxRatesInput, options?: CallOptions): Promise<ListTaxRatesOutput> {
+    return this.call("listTaxRates", input, options);
+  }
+
+  /**
    * Everybody in the company, with their role and branch.
    *
    * GET /v1/team. Needs user:read.
@@ -34503,6 +34818,15 @@ export abstract class GeneratedOperations {
    */
   retireStaffDocument(input: RetireStaffDocumentParams & RetireStaffDocumentInput, options?: CallOptions): Promise<RetireStaffDocumentOutput> {
     return this.call("retireStaffDocument", input, options);
+  }
+
+  /**
+   * Stop using a rate.
+   *
+   * POST /v1/tax-rates/{id}/retire. Needs settings:write.
+   */
+  retireTaxRate(input: RetireTaxRateParams & RetireTaxRateInput, options?: CallOptions): Promise<RetireTaxRateOutput> {
+    return this.call("retireTaxRate", input, options);
   }
 
   /**
@@ -36321,6 +36645,15 @@ export abstract class GeneratedOperations {
    */
   updateTaskTemplate(input: UpdateTaskTemplateParams & UpdateTaskTemplateInput, options?: CallOptions): Promise<UpdateTaskTemplateOutput> {
     return this.call("updateTaskTemplate", input, options);
+  }
+
+  /**
+   * Say whether the company charges sales tax, and its usual rate.
+   *
+   * PATCH /v1/tax-settings. Needs settings:write.
+   */
+  updateTaxSettings(input: UpdateTaxSettingsInput = {} as UpdateTaxSettingsInput, options?: CallOptions): Promise<UpdateTaxSettingsOutput> {
+    return this.call("updateTaxSettings", input, options);
   }
 
   /**
