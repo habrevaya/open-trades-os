@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { contracts, rateCards, payerDelivery, priceBook } from "@opentradesos/api/services";
 import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
 import { cardLinesFromText, cardTermsFromForm, fractionOf, slaTermsFromForm } from "@/lib/contract-forms";
-import { contractEscalation } from "@opentradesos/api/services";
+import { contractEscalation, contractBilling } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 const reader = (form: FormData) => (name: string) => {
@@ -156,6 +156,52 @@ export async function applyEscalation(_previous: FormState, form: FormData): Pro
       message: `${done.cards.length === 1 ? "One card" : `${done.cards.length} cards`} risen from ${done.anniversary}. `
         + "The earlier prices stay in force until the day before.",
     };
+  });
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
+}
+
+/* ------------------------------------------------- billed on a schedule */
+
+/**
+ * The contract's fixed fee: how much, how often, on which day, from when.
+ * The fee is typed in dollars, as every amount on these screens is.
+ */
+export async function setContractBilling(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const frequency = field(form, "frequency");
+  const result = await attempt(form, async () => contractBilling.set(await ctx(), {
+    contractId,
+    amount: field(form, "amount") ?? "",
+    frequency: (frequency === "quarterly" || frequency === "yearly" ? frequency : "monthly"),
+    billingDay: Number(field(form, "billingDay") ?? "0"),
+    startsOn: field(form, "startsOn"),
+    prorate: form.get("prorate") === "1",
+    taxable: form.get("taxable") === "1",
+    description: field(form, "description") ?? "",
+  }));
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
+}
+
+/** Pause, resume, end or raise what is due: one button each, the contract named. */
+export async function changeContractBilling(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const step = field(form, "step");
+  const result = await attempt(form, async () => {
+    const context = await ctx();
+    if (step === "pause") await contractBilling.pause(context, { contractId });
+    else if (step === "resume") await contractBilling.resume(context, { contractId });
+    else if (step === "end") await contractBilling.end(context, { contractId, lastDay: field(form, "lastDay") });
+    else if (step === "raise") {
+      const done = await contractBilling.raiseDue(context, { contractId });
+      return {
+        message: done.raised.length === 0
+          ? "Nothing is owed yet."
+          : `${done.raised.length === 1 ? "One invoice" : `${done.raised.length} invoices`} raised.`,
+      };
+    }
+    return undefined;
   });
   revalidatePath(`/contracts/${contractId}`);
   return result;

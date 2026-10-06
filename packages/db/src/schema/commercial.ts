@@ -276,6 +276,84 @@ export const contractSite = pgTable("contract_site", {
 }, (t) => ({ contractIdx: index("contract_site_contract_idx").on(t.contractId) }));
 
 /**
+ * A CONTRACT BILLED ON A SCHEDULE: a fixed fee every month, quarter or year,
+ * whether or not anybody visited.
+ *
+ * One per contract, read first and changed in place, so the unique index is
+ * a guard rather than something a person can collide with. The arithmetic is
+ * `core/contract-billing`; the worker raises each period as an invoice to the
+ * contract's customer on the period's billing day, in the company's calendar.
+ */
+export const contractBillingFrequency = pgEnum("contract_billing_frequency", ["monthly", "quarterly", "yearly"]);
+export const contractBillingState = pgEnum("contract_billing_state", ["active", "paused", "ended"]);
+
+export const contractBillingSchedule = pgTable("contract_billing_schedule", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  /** The fee for one whole period, before tax. */
+  amount: money("amount").notNull(),
+  frequency: contractBillingFrequency("frequency").notNull().default("monthly"),
+  /** 1 to 28, so every month has one. */
+  billingDay: integer("billing_day").notNull(),
+  /**
+   * The first day billed for, and the day the pattern of billing days is
+   * counted from. Changing how often or on which day it bills moves this to
+   * the day after the last period billed, so the new pattern never overlaps
+   * a period already invoiced.
+   */
+  startsOn: date("starts_on").notNull(),
+  /** Prorate a part period at either end by day. Off, a part period is billed whole. */
+  prorate: boolean("prorate").notNull().default(false),
+  /** Whether sales tax is charged on the fee, at the company's rate for the customer. */
+  taxable: boolean("taxable").notNull().default(false),
+  /** What the invoice line says: "Planned maintenance, both sites". */
+  description: text("description").notNull(),
+  state: contractBillingState("state").notNull().default("active"),
+  /** The day it was paused, while it is. A period whose billing day falls while paused is skipped. */
+  pausedOn: date("paused_on"),
+  /** The last day billed for, once it has been ended. */
+  endedOn: date("ended_on"),
+  ...timestamps,
+}, (t) => ({
+  contractIdx: uniqueIndex("contract_billing_schedule_contract_idx").on(t.contractId),
+}));
+
+export const contractBillingPeriodStatus = pgEnum("contract_billing_period_status", ["invoiced", "skipped"]);
+
+/**
+ * ONE PERIOD OF A SCHEDULE, AND THE INVOICE IT BECAME.
+ *
+ * The unique index is the idempotency: a period is claimed by inserting its
+ * row, in the same transaction as its invoice, so two workers, a restart or
+ * somebody pressing the button while the worker runs cannot bill it twice.
+ * A period whose billing day fell while the schedule was paused is written as
+ * skipped, with no invoice, so it is never billed afterwards either.
+ */
+export const contractBillingPeriod = pgTable("contract_billing_period", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  scheduleId: uuid("schedule_id").notNull().references(() => contractBillingSchedule.id, { onDelete: "cascade" }),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  billOn: date("bill_on").notNull(),
+  /** What the period was billed, before tax, as worked out on the day. */
+  amount: money("amount").notNull(),
+  prorated: boolean("prorated").notNull().default(false),
+  days: integer("days").notNull(),
+  fullDays: integer("full_days").notNull(),
+  status: contractBillingPeriodStatus("status").notNull(),
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
+  /** Why it was skipped, in words. */
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  periodIdx: uniqueIndex("contract_billing_period_idx").on(t.contractId, t.periodStart),
+  scheduleIdx: index("contract_billing_period_schedule_idx").on(t.scheduleId, t.periodStart),
+}));
+
+/**
  * Our price book is not the price authority in five segments. A rate card is a
  * price authority that is not ours: a client contract, a warranty network
  * schedule, a manufacturer labour allowance, an insurance price list.

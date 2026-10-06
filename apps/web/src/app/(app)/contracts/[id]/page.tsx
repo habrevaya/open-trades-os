@@ -1,17 +1,26 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { contracts, contractEscalation, rateCards, jobs, properties, billing } from "@opentradesos/api/services";
-import { can, rates, deadlines } from "@opentradesos/core";
+import { contracts, contractEscalation, contractBilling, rateCards, jobs, properties, billing } from "@opentradesos/api/services";
+import { can, rates, deadlines, contractBilling as cb } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import { LABOUR_ROWS, MARKUP_ROWS, clockOf, percentOf } from "@/lib/contract-forms";
 import { ContractTermFields } from "../ContractTerms";
-import { addSite, applyEscalation, createCard, issuePayerLink, setCardLines, setCardTerms, updateContractTerms } from "../actions";
+import {
+  addSite, applyEscalation, changeContractBilling, createCard, issuePayerLink, setCardLines, setCardTerms, setContractBilling,
+  updateContractTerms,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
+
+/** The contract's own first day as the billing day, so there is no part month to start with, when it can be. */
+const billingDayFor = (startsOn: string | null) => {
+  const day = startsOn ? Number(startsOn.slice(8, 10)) : 1;
+  return day >= 1 && day <= 28 ? day : 1;
+};
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const AUTHORITY_OPTIONS = [
@@ -59,6 +68,8 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
     ? (await properties.list(ctx, { limit: 100, customerId: contract.customerId })).data
     : [];
   const rise = reads ? await contractEscalation.preview(ctx, { contractId: id }) : null;
+  const fee = await contractBilling.view(ctx, { contractId: id });
+  const raises = can(user.actor, "invoice:write");
   const open = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 100, customerId: contract.customerId, status: ["open", "partially_paid"] })).data
     : [];
@@ -90,6 +101,105 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
               {full.slaTerms.map((t) => `${deadlines.deadlineLabel(`sla.${t.kind}`)} ${t.minutes / 60} h${t.priority ? ` (${t.priority})` : ""}`).join(", ")}
             </p>
           )
+        )}
+      </section>
+
+      <section aria-label="Billed on a schedule" className="mt-10">
+        <h2 className="text-base font-semibold">Billed on a schedule</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A fixed fee every month, three months or year, whether or not anybody
+          visited. On each billing day an invoice for the period starting that
+          day goes to {contract.customerName}, on their payment terms, with the
+          PO number above. Work done on jobs is still billed as usual.
+        </p>
+        {fee.schedule ? (
+          <div className="mt-3 space-y-1 text-sm">
+            <p>
+              <Money value={fee.schedule.amount} /> {cb.FREQUENCY_LABEL[fee.schedule.frequency].toLowerCase()},
+              billed on day {fee.schedule.billingDay}, from {fee.schedule.startsOn}
+              {fee.schedule.lastDay ? `, until ${fee.schedule.lastDay}` : ""}.
+              {fee.schedule.prorate ? " A part period is charged by the day." : " A part period is charged as a whole one."}
+              {fee.schedule.taxable ? " Sales tax is added." : " No sales tax."}
+            </p>
+            {fee.standing ? <p className="text-ink-700">{fee.standing}</p> : null}
+            {fee.next ? (
+              <p className="text-ink-700">
+                Next: <Money value={fee.next.amount} /> on {fee.next.billOn}, for {cb.periodWords(fee.next.start, fee.next.end)}
+                {fee.next.prorated ? ` (${fee.next.days} of ${fee.next.fullDays} days)` : ""}.
+              </p>
+            ) : null}
+            {fee.due > 0 ? (
+              <p className="text-ink-700">
+                {fee.due === 1 ? "One period is" : `${fee.due} periods are`} owed now. They go out on the next pass, or now:
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-ink-500">Not billed on a schedule.</p>
+        )}
+        <div className="mt-3 flex flex-wrap items-start gap-3">
+          {raises && fee.due > 0 && (
+            <ActionForm action={changeContractBilling} submit="Raise what is owed now" hidden={{ contractId: id, step: "raise" }}
+                        className="space-y-2" />
+          )}
+          {writes && fee.schedule?.state === "active" && (
+            <ActionForm action={changeContractBilling} submit="Pause billing" tone="quiet" hidden={{ contractId: id, step: "pause" }}
+                        className="space-y-2" />
+          )}
+          {writes && fee.schedule?.state === "paused" && (
+            <ActionForm action={changeContractBilling} submit="Start billing again" tone="quiet" hidden={{ contractId: id, step: "resume" }}
+                        className="space-y-2" />
+          )}
+          {writes && fee.schedule && fee.schedule.state !== "ended" && (
+            <ActionForm action={changeContractBilling} submit="End billing" tone="danger" hidden={{ contractId: id, step: "end" }}
+                        className="flex flex-wrap items-end gap-3">
+              <TextField label="Last day billed for" name="lastDay" type="date" />
+            </ActionForm>
+          )}
+        </div>
+        {writes && (
+          <details className="mt-3" open={!fee.schedule}>
+            <summary className="cursor-pointer text-sm font-medium">{fee.schedule ? "Change the fee" : "Bill a fixed fee"}</summary>
+            <ActionForm action={setContractBilling} submit="Save the fee" hidden={{ contractId: id }} done="Saved."
+                        className="mt-3 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <TextField label="Fee each time" name="amount" inputMode="decimal" required placeholder="1200.00"
+                           defaultValue={fee.schedule ? Number(fee.schedule.amount).toFixed(2) : ""} />
+                <Select label="How often" name="frequency" defaultValue={fee.schedule?.frequency ?? "monthly"}
+                        options={cb.FREQUENCIES.map((f) => ({ value: f, label: cb.FREQUENCY_LABEL[f] }))} />
+                <TextField label="Billing day of the month (1 to 28)" name="billingDay" inputMode="numeric" required
+                           defaultValue={String(fee.schedule?.billingDay ?? billingDayFor(contract.startsOn))} />
+                <TextField label="First day billed for" name="startsOn" type="date"
+                           defaultValue={fee.schedule?.startsOn ?? contract.startsOn ?? ""} />
+                <TextField label="What the invoice says" name="description" required placeholder="Planned maintenance, all sites"
+                           defaultValue={fee.schedule?.description ?? ""} />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="prorate" value="1" className="h-4 w-4" defaultChecked={fee.schedule?.prorate ?? false} />
+                Charge a part month by the day. Without this, a part month at the start or end is charged in full.
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="taxable" value="1" className="h-4 w-4" defaultChecked={fee.schedule?.taxable ?? false} />
+                Add sales tax
+              </label>
+            </ActionForm>
+          </details>
+        )}
+        {fee.periods.length > 0 && (
+          <Table label="Periods billed" head={<><Th>Period</Th><Th>Billed on</Th><Th className="text-right">Amount</Th><Th>Invoice</Th></>}>
+            {fee.periods.map((period) => (
+              <tr key={period.id}>
+                <Td>{cb.periodWords(period.start, period.end)}{period.prorated ? `, ${period.days} of ${period.fullDays} days` : ""}</Td>
+                <Td>{period.billOn}</Td>
+                <Td className="text-right"><Money value={period.amount} /></Td>
+                <Td>
+                  {period.invoiceId
+                    ? <a href={`/invoices/${period.invoiceId}`} className="hover:underline">Invoice {period.invoiceNumber}</a>
+                    : <span className="text-ink-500">{period.status === "skipped" ? "Skipped while paused" : "Not billed"}</span>}
+                </Td>
+              </tr>
+            ))}
+          </Table>
         )}
       </section>
 

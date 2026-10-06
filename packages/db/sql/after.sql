@@ -1750,6 +1750,39 @@ returns table (organization_id uuid)
 revoke all on function app.contract_clock_organizations(int) from public;
 grant execute on function app.contract_clock_organizations(int) to background;
 
+-- ---- Companies with a contract billed on a schedule -----------------------
+-- A commercial contract can bill a fixed fee every month, quarter or year,
+-- raised by the worker on each period's billing day in the company's own
+-- calendar. The worker has no tenant until it picks one, so it asks here which
+-- companies have a running schedule on a live contract (or one ended from a day
+-- that has not long passed), as ids and nothing
+-- else. Which periods are due, and whether each is already billed, is the
+-- service's to decide, under the unique index on the period.
+create or replace function app.contract_billing_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct s.organization_id
+        from public.contract_billing_schedule s
+        join public.service_contract c on c.id = s.contract_id
+       where c.active and c.deleted_at is null
+         and s.starts_on <= current_date + 1
+         and (s.state = 'active'
+           -- An end put in ahead still bills the periods up to it, and a week
+           -- after it is enough for a worker that was down to catch up.
+           or (s.state = 'ended' and s.ended_on >= current_date - 7))
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.contract_billing_organizations(int) from public;
+grant execute on function app.contract_billing_organizations(int) to background;
+
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
 -- sessions, which is right: a policy letting any authenticated role read the

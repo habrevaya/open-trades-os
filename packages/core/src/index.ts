@@ -57,6 +57,7 @@ export * as directMail from "./direct-mail/index.js";
 export * as agents from "./agents/index.js";
 export * as project from "./project/index.js";
 export * as rates from "./rates/index.js";
+export * as contractBilling from "./contract-billing/index.js";
 export * as splits from "./splits/index.js";
 export * as deadlines from "./deadlines/index.js";
 export * as claims from "./claims/index.js";
