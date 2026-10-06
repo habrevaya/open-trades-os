@@ -7504,6 +7504,7 @@ export interface GetKpiRecordsOutput {
   count: number;
   total: string;
   truncated: boolean;
+  money: boolean;
 }
 
 export interface GetKpiScorecardOutput {
@@ -7522,6 +7523,8 @@ export interface GetKpiScorecardOutput {
     denominator: string | null;
     numeratorLabel: string | null;
     denominatorLabel: string | null;
+    numeratorMoney: boolean;
+    denominatorMoney: boolean;
     needs: string | null;
     endpoint: string | null;
   }>;
@@ -7537,6 +7540,8 @@ export interface GetKpiScorecardOutput {
     denominator: string | null;
     numeratorLabel: string | null;
     denominatorLabel: string | null;
+    numeratorMoney: boolean;
+    denominatorMoney: boolean;
     needs: string | null;
     endpoint: string | null;
   }>;
@@ -7552,6 +7557,8 @@ export interface GetKpiScorecardOutput {
     denominator: string | null;
     numeratorLabel: string | null;
     denominatorLabel: string | null;
+    numeratorMoney: boolean;
+    denominatorMoney: boolean;
     needs: string | null;
     endpoint: string | null;
   }>;

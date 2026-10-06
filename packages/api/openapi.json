@@ -53937,7 +53937,7 @@
       "get": {
         "operationId": "getKpiRecords",
         "summary": "The records behind one half of one KPI",
-        "description": "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money numerator without report.financial:read.\n\nRequires a session holding: report:read.",
+        "description": "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -54077,7 +54077,7 @@
       "get": {
         "operationId": "getKpiScorecard",
         "summary": "Your trade's own numbers, and what the rest need",
-        "description": "EVERY NUMBER COMES BACK WITH ITS TWO HALVES. '$620' is an assertion; '$186,000 over 300 jobs' is an arithmetic a contractor can argue with, and arguing with it is how they come to trust it. A zero denominator is null rather than zero, because nought per cent close rate says every estimate lost and no estimates presented says there is nothing to measure. THE UNAVAILABLE LIST IS THE OTHER HALF OF THE ANSWER: most of these definitions name an exclusion, a KPI computed without its exclusions is worse than an absent one because it looks like the definition, and each unavailable entry names the single datum that is missing rather than saying 'not built'. A dashboard showing six real numbers and naming the two it cannot compute is worth more than one showing eight where two are guesses, because the guesses are the ones somebody makes a hiring decision on.\n\nRequires a session holding: report:read.",
+        "description": "EVERY NUMBER COMES BACK WITH ITS TWO HALVES. '$620' is an assertion; '$186,000 over 300 jobs' is an arithmetic a contractor can argue with, and arguing with it is how they come to trust it. A zero denominator is null rather than zero, because nought per cent close rate says every estimate lost and no estimates presented says there is nothing to measure. THE UNAVAILABLE LIST IS THE OTHER HALF OF THE ANSWER: most of these definitions name an exclusion, a KPI computed without its exclusions is worse than an absent one because it looks like the definition, and each unavailable entry names the single datum that is missing rather than saying 'not built'. A dashboard showing six real numbers and naming the two it cannot compute is worth more than one showing eight where two are guesses, because the guesses are the ones somebody makes a hiring decision on. A figure built from what jobs cost (install gross margin) comes back unavailable, saying which permissions it takes, to a reader without job.cost:read and report.financial:read.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -158736,6 +158736,9 @@
           },
           "truncated": {
             "type": "boolean"
+          },
+          "money": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -158750,7 +158753,8 @@
           "records",
           "count",
           "total",
-          "truncated"
+          "truncated",
+          "money"
         ]
       },
       "GetKpiScorecardOutput": {
@@ -158835,6 +158839,12 @@
                     "null"
                   ]
                 },
+                "numeratorMoney": {
+                  "type": "boolean"
+                },
+                "denominatorMoney": {
+                  "type": "boolean"
+                },
                 "needs": {
                   "type": [
                     "string",
@@ -158860,6 +158870,8 @@
                 "denominator",
                 "numeratorLabel",
                 "denominatorLabel",
+                "numeratorMoney",
+                "denominatorMoney",
                 "needs",
                 "endpoint"
               ]
@@ -158932,6 +158944,12 @@
                     "null"
                   ]
                 },
+                "numeratorMoney": {
+                  "type": "boolean"
+                },
+                "denominatorMoney": {
+                  "type": "boolean"
+                },
                 "needs": {
                   "type": [
                     "string",
@@ -158957,6 +158975,8 @@
                 "denominator",
                 "numeratorLabel",
                 "denominatorLabel",
+                "numeratorMoney",
+                "denominatorMoney",
                 "needs",
                 "endpoint"
               ]
@@ -159029,6 +159049,12 @@
                     "null"
                   ]
                 },
+                "numeratorMoney": {
+                  "type": "boolean"
+                },
+                "denominatorMoney": {
+                  "type": "boolean"
+                },
                 "needs": {
                   "type": [
                     "string",
@@ -159054,6 +159080,8 @@
                 "denominator",
                 "numeratorLabel",
                 "denominatorLabel",
+                "numeratorMoney",
+                "denominatorMoney",
                 "needs",
                 "endpoint"
               ]

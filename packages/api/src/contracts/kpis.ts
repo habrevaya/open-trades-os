@@ -27,6 +27,9 @@ const KpiResult = z.object({
   denominator: z.string().nullable(),
   numeratorLabel: z.string().nullable(),
   denominatorLabel: z.string().nullable(),
+  /** Each half is dollars, so a screen shows it as money rather than as a count. */
+  numeratorMoney: z.boolean(),
+  denominatorMoney: z.boolean(),
   needs: z.string().nullable(),
   endpoint: z.string().nullable(),
 });
@@ -36,7 +39,7 @@ export const getKpiScorecard = defineRoute({
   path: "/v1/kpis",
   summary: "Your trade's own numbers, and what the rest need",
   description:
-    "EVERY NUMBER COMES BACK WITH ITS TWO HALVES. '$620' is an assertion; '$186,000 over 300 jobs' is an arithmetic a contractor can argue with, and arguing with it is how they come to trust it. A zero denominator is null rather than zero, because nought per cent close rate says every estimate lost and no estimates presented says there is nothing to measure. THE UNAVAILABLE LIST IS THE OTHER HALF OF THE ANSWER: most of these definitions name an exclusion, a KPI computed without its exclusions is worse than an absent one because it looks like the definition, and each unavailable entry names the single datum that is missing rather than saying 'not built'. A dashboard showing six real numbers and naming the two it cannot compute is worth more than one showing eight where two are guesses, because the guesses are the ones somebody makes a hiring decision on.",
+    "EVERY NUMBER COMES BACK WITH ITS TWO HALVES. '$620' is an assertion; '$186,000 over 300 jobs' is an arithmetic a contractor can argue with, and arguing with it is how they come to trust it. A zero denominator is null rather than zero, because nought per cent close rate says every estimate lost and no estimates presented says there is nothing to measure. THE UNAVAILABLE LIST IS THE OTHER HALF OF THE ANSWER: most of these definitions name an exclusion, a KPI computed without its exclusions is worse than an absent one because it looks like the definition, and each unavailable entry names the single datum that is missing rather than saying 'not built'. A dashboard showing six real numbers and naming the two it cannot compute is worth more than one showing eight where two are guesses, because the guesses are the ones somebody makes a hiring decision on. A figure built from what jobs cost (install gross margin) comes back unavailable, saying which permissions it takes, to a reader without job.cost:read and report.financial:read.",
   module: "M21",
   permissions: ["report:read"],
   idempotent: true,
@@ -88,7 +91,7 @@ export const getKpiRecords = defineRoute({
   path: "/v1/kpi-records",
   summary: "The records behind one half of one KPI",
   description:
-    "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money numerator without report.financial:read.",
+    "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
   module: "M21",
   permissions: ["report:read"],
   input: z.object({
@@ -117,6 +120,8 @@ export const getKpiRecords = defineRoute({
     count: z.number().int(),
     total: z.string(),
     truncated: z.boolean(),
+    /** Every record's value is dollars, so the list and its total are shown as money. */
+    money: z.boolean(),
   }),
 });
 

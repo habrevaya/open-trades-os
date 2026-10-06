@@ -6,6 +6,7 @@ import { NAV } from "../src/lib/nav";
 const base = {
   key: "avg_ticket", label: "Average ticket", definition: "Revenue over completed jobs.",
   target: "$620", state: "computed" as const, needs: null, endpoint: null,
+  numeratorMoney: false, denominatorMoney: false,
 };
 
 /** M21's SCORECARD ON A SCREEN: EVERY NUMBER AS AN ARITHMETIC */
@@ -18,7 +19,7 @@ describe("the trade scorecard", () => {
      * trust it.
      */
     const html = renderToStaticMarkup(<Figure kpi={{
-      ...base, format: "money", value: "620.0000",
+      ...base, format: "money", value: "620.0000", numeratorMoney: true,
       numerator: "186000.0000", denominator: "300",
       numeratorLabel: "revenue posted to the ledger", denominatorLabel: "completed jobs",
     }} />);
@@ -67,6 +68,20 @@ describe("the trade scorecard", () => {
     expect(duration).toContain("1.75 hrs");
   });
 
+  it("shows both halves as money when both are dollars, as install margin's are", () => {
+    /** A percentage of two dollar figures: a bare "62000" over a bare "186000" would read as a count of something. */
+    const html = renderToStaticMarkup(<Figure kpi={{
+      ...base, key: "install_gross_margin", label: "Install gross margin", format: "percent", value: "33.3",
+      numerator: "62000.0000", denominator: "186000.0000", numeratorMoney: true, denominatorMoney: true,
+      numeratorLabel: "dollars earned on installs whose costs are all in", denominatorLabel: "install revenue on those jobs",
+      target: "45",
+    }} />);
+    expect(html).toContain("33.3%");
+    expect(html).toContain("$62,000.00");
+    expect(html).toContain("$186,000.00");
+    expect(html).not.toContain(">186000.0000");
+  });
+
   it("opens each half onto the records behind it", () => {
     /**
      * Every number on a report is a link, and the scorecard's two halves are
@@ -75,7 +90,7 @@ describe("the trade scorecard", () => {
      */
     const html = renderToStaticMarkup(<Figure
       kpi={{
-        ...base, format: "money", value: "620.0000",
+        ...base, format: "money", value: "620.0000", numeratorMoney: true,
         numerator: "186000.0000", denominator: "300",
         numeratorLabel: "revenue on completed jobs", denominatorLabel: "completed jobs",
       }}

@@ -45,9 +45,9 @@ export function Figure({ kpi, records }: {
       */}
       {kpi.value === null ? null : (
         <p className="mt-1 text-xs text-ink-500">
-          {open("numerator", <>{half(kpi.format, kpi.numerator)} {kpi.numeratorLabel}</>)}
+          {open("numerator", <>{half(kpi.numeratorMoney, kpi.numerator)} {kpi.numeratorLabel}</>)}
           {" over "}
-          {open("denominator", <>{kpi.denominator} {kpi.denominatorLabel}</>)}
+          {open("denominator", <>{half(kpi.denominatorMoney, kpi.denominator)} {kpi.denominatorLabel}</>)}
         </p>
       )}
 
@@ -92,8 +92,11 @@ function show(format: Kpi["format"], value: string): React.ReactNode {
   }
 }
 
-/** The numerator of a money ratio is money too; of anything else it is a count. */
-function half(format: Kpi["format"], value: string | null): React.ReactNode {
+/**
+ * A half is money when the service says it is: the numerator of a money ratio,
+ * and both halves of a percentage of two dollar figures. Anything else is a count.
+ */
+function half(money: boolean, value: string | null): React.ReactNode {
   if (value === null) return null;
-  return format === "money" ? <Money value={value} /> : value;
+  return money ? <Money value={value} /> : value;
 }
