@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
-  me, staffDocuments,
+  me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
 } from "../services/index";
 
 /**
@@ -1035,6 +1035,29 @@ export const handlers = {
   payTips: payroll.handlers.payTips,
   getMyPayStatements: payroll.handlers.getMyPayStatements,
 
+  // What people paid for the company, a day away, and how tips are shared (M17)
+  recordExpense: expenses.handlers.recordExpense,
+  addExpenseReceipt: expenses.handlers.addExpenseReceipt,
+  listMyExpenses: expenses.handlers.listMyExpenses,
+  listExpenses: expenses.handlers.listExpenses,
+  decideExpense: expenses.handlers.decideExpense,
+  recordPerDiem: expenses.handlers.recordPerDiem,
+  listPerDiem: async (ctx: ServiceContext, input: { technicianId?: string | undefined; jobId?: string | undefined; from?: string | undefined; to?: string | undefined }) =>
+    ({ perDiems: await expenses.listPerDiem(ctx, input) }),
+  removePerDiem: expenses.handlers.removePerDiem,
+  getJobExpenses: expenses.handlers.getJobExpenses,
+  getPayExtras: payExtras.handlers.getPayExtras,
+  setPayExtras: payExtras.handlers.setPayExtras,
+  recordCashTipFor: cashTips.handlers.recordCashTipFor,
+  correctCashTip: cashTips.handlers.correctCashTip,
+  listCashTips: cashTips.handlers.listCashTips,
+  listMyCashTips: cashTips.handlers.listMyCashTips,
+
+  // What the vendor said back, written down by hand (M16)
+  recordPurchaseOrderAcknowledgement: purchaseAcknowledgements.handlers.recordPurchaseOrderAcknowledgement,
+  getPurchasingSettings: purchaseAcknowledgements.handlers.getPurchasingSettings,
+  setPurchasingSettings: purchaseAcknowledgements.handlers.setPurchasingSettings,
+
   // Setup, the team and branches (M02, M01)
   getSetup: setup.handlers.getSetup,
   markSetupStep: setup.handlers.markSetupStep,
@@ -1090,6 +1113,7 @@ export const handlers = {
 
   // Serials, lots and truck stock (M16)
   ...stockUnits.handlers,
+  ...truckFills.handlers,
   // Approval steps and emailing an order to its vendor (M16)
   ...purchaseApprovals.handlers,
   ...purchaseOrderEmail.handlers,

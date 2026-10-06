@@ -4,7 +4,7 @@ import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { inventory, purchaseAcknowledgements, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -111,5 +111,12 @@ export async function orderParts(_previous: unknown, form: FormData): Promise<Re
     vendorId: String(form.get("vendorId") ?? ""),
     defaultLocationId: locationId,
     lines: lines.map((line) => ({ ...line, locationId })),
+  }));
+}
+
+/** How many days a vendor may sit on an order before the list says to ring them. */
+export async function chaseAfter(_previous: unknown, form: FormData): Promise<Result> {
+  return caught(form, (context) => purchaseAcknowledgements.setSettings(context, {
+    acknowledgeAfterDays: Number(String(form.get("acknowledgeAfterDays") ?? "").trim()),
   }));
 }

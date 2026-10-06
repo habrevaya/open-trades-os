@@ -150,9 +150,16 @@ function OnSiteTools({ nav }: { nav: Navigate }) {
   const field = useField();
   const abilities = field.view?.abilities;
   const open = (field.view?.day.tasks ?? []).filter((t) => !t.done);
-  if (!abilities?.tasks && !abilities?.assistant) return null;
+  const refused = (field.view?.day.expenses ?? []).filter((e) => e.status === "refused").length;
+  if (!abilities?.tasks && !abilities?.assistant && !abilities?.expenses) return null;
   return (
     <View style={styles.tools}>
+      {abilities.expenses ? (
+        <View style={{ flex: 1 }}>
+          <Button label={refused > 0 ? `Money I spent (${refused} not approved)` : "Money I spent"} kind="secondary"
+                  onPress={() => nav.push({ name: "expenses" })} />
+        </View>
+      ) : null}
       {abilities.tasks ? (
         <View style={{ flex: 1 }}>
           <Button label={open.length > 0 ? `Tasks (${open.length})` : "Tasks"} kind="secondary" onPress={() => nav.push({ name: "tasks" })} />

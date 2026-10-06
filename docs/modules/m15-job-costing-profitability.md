@@ -57,14 +57,24 @@ rating uses: the caveat is part of the answer rather than a footnote somebody
 can drop.
 
 **Two margins, never one instead of the other.** The direct (gross) margin is
-revenue less materials, hours at the loaded wage frozen on each punch, and card
-and financing fees. Beside it, the fully loaded margin takes off labour burden
+revenue less materials, hours at the loaded wage frozen on each punch, card
+and financing fees, and what people spent for the job that the company agreed to
+pay back (below). Beside it, the fully loaded margin takes off labour burden
 and overhead at rates the company sets itself. No rate is a default somebody did
 not choose: with none set the two margins are equal. An allocation is a choice
 and not a measurement, and the statement says what each basis does to it: by
 revenue every job keeps its margin percentage, by the hour a job that ran long
 is charged twice for the overrun, per job a quick call carries as much as an
 install.
+
+**What people spent for a job is a cost of it.** A receipt a person paid for the
+job that the office approved, and the company's rate for each day somebody was away
+on it, are `expenseCost` on the job's statement and the "Expenses and per diem"
+measure on the profitability dataset, subtracted in the gross margin and in the
+project roll up (M17: `GET /v1/jobs/{jobId}/expenses` lists them, `job.cost:read`).
+Read from the two tables rather than the ledger, because neither is posted to it.
+A receipt still waiting for the office is not counted, and the statement says so
+in words while there is one; a receipt for the shop, with no job, is on no job.
 
 **Rates are dated.** Payroll taxes, benefits, workers' compensation and overhead
 are each a history: the rate in effect on a day is the latest one on or before

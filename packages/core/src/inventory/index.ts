@@ -1924,6 +1924,75 @@ export function onOrderFrom(purchaseOrders: readonly PurchaseOrder[]): OnOrderLi
   return lines;
 }
 
+/**
+ * WHICH ORDERS NEED A PHONE CALL.
+ *
+ * Two, and each is a call a buyer would otherwise remember to make or not:
+ *
+ *   NOT ANSWERED. Sent to the vendor, and nobody has recorded a reply, more
+ *   than N days after it went. Quiet vendors exist (the parts simply turn up),
+ *   which is why N is the company's own and a late answer is a prompt rather
+ *   than a fault.
+ *
+ *   PAST ITS PROMISE. The vendor named a day, the day has passed, and
+ *   something on the order is still owed. A promise kept by delivering
+ *   everything stops being a reason to call.
+ *
+ * Dates are the company's calendar days, handed in, so "five days ago" does
+ * not move with the server's clock or the time of day the screen was opened.
+ */
+export interface FollowUp {
+  readonly kind: "not_acknowledged" | "past_promise";
+  /** How many days: since it was sent, or since the day they promised. */
+  readonly days: number;
+  readonly sentence: string;
+}
+
+const dayNumber = (date: string): number => Math.floor(Date.parse(`${date}T00:00:00Z`) / 86_400_000);
+const daysPlural = (n: number): string => `${n} ${n === 1 ? "day" : "days"}`;
+
+export function followUpFor(input: {
+  status: PurchaseOrderStatus;
+  vendorName: string;
+  /** The company's day the order was sent, or null for one never sent. */
+  submittedOn: string | null;
+  /** The company's day the vendor promised it by, or null when they have not said. */
+  promisedOn: string | null;
+  /** Whether anything on the order is still owed. */
+  outstanding: boolean;
+  /** The company's date today. */
+  today: string;
+  /** Chase an order nobody has answered after this many days. */
+  acknowledgeAfterDays: number;
+}): FollowUp | null {
+  if (input.status === "draft" || input.status === "received" || input.status === "cancelled") return null;
+
+  if (input.promisedOn !== null && input.outstanding && input.promisedOn < input.today) {
+    const days = dayNumber(input.today) - dayNumber(input.promisedOn);
+    return {
+      kind: "past_promise", days,
+      sentence: `${input.vendorName} promised it by ${input.promisedOn}, ${daysPlural(days)} ago, and it has not all arrived.`,
+    };
+  }
+
+  if (input.status === "submitted" && input.submittedOn !== null) {
+    const days = dayNumber(input.today) - dayNumber(input.submittedOn);
+    if (days >= input.acknowledgeAfterDays) {
+      return {
+        kind: "not_acknowledged", days,
+        sentence: `${input.vendorName} has not answered. It was sent on ${input.submittedOn}, ${daysPlural(days)} ago.`,
+      };
+    }
+  }
+  return null;
+}
+
+/** How long a vendor may sit on an order before the list says to ring them, until the company says otherwise. */
+export const DEFAULT_ACKNOWLEDGE_AFTER_DAYS = 3;
+
+/** The longest worth saying: a month of silence is not a setting, it is a different vendor. */
+export const MAX_ACKNOWLEDGE_AFTER_DAYS = 30;
+
 export type PurchaseOrderDecision = { ok: true; purchaseOrder: PurchaseOrder } | InventoryRefusal;
 
 export function transitionPurchaseOrder(

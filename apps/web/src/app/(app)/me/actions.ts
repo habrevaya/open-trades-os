@@ -5,9 +5,10 @@ import { headers } from "next/headers";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { attempt, field, parsed, refusalOf, type FormState } from "@/lib/actions";
-import { me, timeOff, ConflictError } from "@opentradesos/api/services";
+import { me, timeOff, expenses, ConflictError } from "@opentradesos/api/services";
 import { addMyEmergencyContact, setMyOnboardingLine } from "@opentradesos/api/contracts";
 import { time } from "@opentradesos/core";
+import { fileAsBase64 } from "@/lib/local-time";
 
 /**
  * WHAT A PERSON DOES TO THEIR OWN RECORD
@@ -145,5 +146,40 @@ export async function withdrawTimeOff(_previous: FormState, form: FormData): Pro
     return { message: "Taken back." };
   });
   if (state?.done) refresh();
+  return state;
+}
+
+/**
+ * Putting in what you paid for the company, with a photograph of the receipt.
+ * The service decides every rule (the amount in dollars and cents, a day that
+ * has happened, what it was for, a job that exists) and records it as the
+ * signed in person's own, waiting for the office.
+ */
+export async function recordExpense(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const jobNumber = field(form, "jobNumber");
+    const receipt = await fileAsBase64(form.get("receipt"));
+    await expenses.record(await ctx(), {
+      amount: field(form, "amount") ?? "",
+      spentOn: field(form, "spentOn") ?? "",
+      description: field(form, "description") ?? "",
+      ...(jobNumber ? { jobNumber: Number(jobNumber) } : {}),
+      ...(receipt ? { receipt } : {}),
+    });
+    return { message: "Saved. The office will say yes or no, and you will see it here." };
+  });
+  if (state?.done) revalidatePath("/me/expenses");
+  return state;
+}
+
+/** A photograph added to one of your own that the office has not answered yet. */
+export async function addReceipt(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const receipt = await fileAsBase64(form.get("receipt"));
+    if (!receipt) throw new ConflictError("Choose the photograph first.");
+    await expenses.addReceipt(await ctx(), { id: String(form.get("id") ?? ""), receipt });
+    return { message: "Added." };
+  });
+  if (state?.done) revalidatePath("/me/expenses");
   return state;
 }

@@ -16,6 +16,7 @@ export const OperationKind = z.enum([
   "task.claim", "task.close",
   "tip.record",
   "safety.sign",
+  "expense.record",
 ]);
 
 export const OperationStatus = z.enum([
@@ -482,7 +483,24 @@ export const getFieldSnapshot = defineRoute({
       tipping: z.object({ enabled: z.boolean(), presets: z.array(z.number().int()) }),
       financing: z.boolean(),
       assistant: z.boolean(),
+      /** Whether this person may record what they paid for the company. */
+      expenses: z.boolean(),
     }),
+    /**
+     * This person's own expenses from the last sixty days and what the office
+     * said about each, so an answer, and the reason for a refusal, reaches the
+     * phone they recorded it from. Empty on an unchanged poll.
+     */
+    expenses: z.array(z.object({
+      id: Uuid,
+      amount: MoneyString,
+      spentOn: z.string(),
+      description: z.string(),
+      jobNumber: z.number().int().nullable(),
+      status: z.enum(["pending", "approved", "refused"]),
+      decisionReason: z.string().nullable(),
+      receipts: z.number().int(),
+    })),
   }),
 });
 

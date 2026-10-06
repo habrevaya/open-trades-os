@@ -1446,7 +1446,20 @@ export function checkPeriod(period: PayPeriod, policy: OvertimePolicy): PolicyVe
 
 export type StatementLineKind =
   | "regular" | "overtime" | "double_time" | "on_call"
-  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward" | "tip" | "cash_tip";
+  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward" | "tip" | "cash_tip"
+  /** Paid back what the person spent for the company, or a day away. Neither is wages. */
+  | "reimbursement" | "per_diem";
+
+/**
+ * THE LINES THAT ARE NOT WAGES.
+ *
+ * A reimbursement pays a person back for something they bought for the
+ * company, and a per diem is the company's flat allowance for a day away. The
+ * bureau must not withhold tax on either, so a statement keeps them OUT of
+ * `gross` and totals them in `nonTaxable`, and the export names each by its
+ * own pay category so the bureau can tell them from a wage.
+ */
+export const NON_TAXABLE_KINDS: readonly StatementLineKind[] = ["reimbursement", "per_diem"];
 
 export interface StatementLine {
   kind: StatementLineKind;
@@ -1471,8 +1484,14 @@ export interface PayStatement {
   periodStart: Date;
   periodEnd: Date;
   lines: StatementLine[];
-  /** The sum of the lines as printed, to the cent. */
+  /**
+   * The sum of the lines that are pay, to the cent. A reimbursement or a per
+   * diem is NOT in it: it is paid back or allowed, not earned, so no tax is
+   * taken from it. The lines add to `gross` plus `nonTaxable`.
+   */
   gross: Money;
+  /** Reimbursements and per diem, paid in full beside the gross. */
+  nonTaxable: Money;
   /**
    * A clawback the period could not absorb without taking gross below zero.
    * Carried rather than applied, and surfaced rather than hidden.
@@ -1523,6 +1542,14 @@ export interface StatementInput {
    * `cash_tip` category without paying it out again.
    */
   cashTips?: readonly { tipId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
+  /**
+   * What the person spent for the company and the office approved, dated by
+   * the approval (the day the company agreed to pay it back), so a receipt
+   * from last month approved this week is paid this period.
+   */
+  reimbursements?: readonly { expenseId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
+  /** The company's rate for a day away, as recorded for each day, dated by the day. */
+  perDiems?: readonly { perDiemId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
   currency?: string | undefined;
   now: Date;
 }
@@ -1823,6 +1850,51 @@ export function buildStatement(input: StatementInput): StatementVerdict {
     gross = add(gross, round(tip.amount, 2));
   }
 
+  /**
+   * REIMBURSEMENTS AND PER DIEM GO ON LAST AND ARE NOT IN THE GROSS.
+   *
+   * Paying somebody back for diesel they bought for the company is not
+   * wages, and a bureau that withheld tax from it would take money the person
+   * is owed whole. They are lines so the person sees them and the file
+   * carries them, each under its own pay category, and they are totalled
+   * beside the gross rather than in it. Nothing here can be netted against
+   * a clawback: what a person spent is theirs to get back in full.
+   */
+  let nonTaxable = zero(currency);
+  const nonTaxableLines: [
+    readonly { personId: string; amount: Money; label: string; occurredAt: Date; id: string }[],
+    StatementLineKind, string, (amount: string, day: string) => string,
+  ][] = [
+    [(input.reimbursements ?? []).map((r) => ({ ...r, id: r.expenseId })), "reimbursement", "Reimbursement",
+      (amount, day) => `${amount} you spent for the company, approved on ${day}. It is paid back in full and no tax is taken from it.`],
+    [(input.perDiems ?? []).map((r) => ({ ...r, id: r.perDiemId })), "per_diem", "Per diem",
+      (amount, day) => `${amount}, the company's allowance for a day away from home, ${day}. It is paid in full and no tax is taken from it.`],
+  ];
+  for (const [items, kind, noun, explain] of nonTaxableLines) {
+    for (const item of items) {
+      if (item.personId !== personId) continue;
+      if (!inPeriod(item.occurredAt)) continue;
+      if (isZero(item.amount)) continue;
+      if (item.amount.currency !== currency) {
+        return {
+          ok: false,
+          refusals: [{
+            code: "currency_mismatch",
+            message: `${noun} ${item.id} is in ${item.amount.currency} and this statement is in ${currency}. Converting it here would bake a rate nobody chose into what somebody is owed.`,
+          }],
+        };
+      }
+      const amount = round(item.amount, 2);
+      lines.push({
+        kind,
+        label: item.label,
+        explanation: explain(moneyToString(amount), dateIn(item.occurredAt, policy.timeZone)),
+        amount,
+      });
+      nonTaxable = add(nonTaxable, amount);
+    }
+  }
+
   return {
     ok: true,
     statement: {
@@ -1832,6 +1904,7 @@ export function buildStatement(input: StatementInput): StatementVerdict {
       periodEnd: bounds.end,
       lines,
       gross,
+      nonTaxable,
       carriedForward,
       weeks,
       warnings,

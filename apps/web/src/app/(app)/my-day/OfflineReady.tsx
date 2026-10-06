@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { canKeepOffline, claimCache, DAY_CACHE, STATIC_CACHE } from "@/lib/my-day-offline";
+import { CACHE_FILL_HEADER, canKeepOffline, claimCache, DAY_CACHE, STATIC_CACHE } from "@/lib/my-day-offline";
 
 /**
  * Keeps this day on the phone for when there is no signal, and says so.
@@ -29,7 +29,9 @@ export function OfflineReady({ person }: { person: string }) {
       await navigator.serviceWorker.ready;
       await claimCache(person);
       const day = await caches.open(DAY_CACHE);
-      await day.add(window.location.pathname + window.location.search);
+      await day.add(new Request(window.location.pathname + window.location.search, {
+        headers: { [CACHE_FILL_HEADER]: "1" },
+      }));
       const files = performance.getEntriesByType("resource")
         .map((entry) => entry.name)
         .filter((name) => name.startsWith(`${window.location.origin}/_next/static/`));

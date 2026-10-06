@@ -68,6 +68,8 @@ export const OPERATION_KINDS = [
   "tip.record",
   // A toolbox talk signed on the phone, with a drawn signature sent as an upload.
   "safety.sign",
+  // What the technician paid for the company, for the office to approve and payroll to pay back.
+  "expense.record",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -185,6 +187,13 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * service refuses.
    */
   "safety.sign": "transition",
+  /**
+   * Money a person spent for the company. It happened, it adds a row nothing
+   * can contradict (its id was made on the phone, so a retry records it once),
+   * and the office decides whether to pay it back after it lands. Waiting for
+   * the office is the state it starts in, not a conflict.
+   */
+  "expense.record": "append",
 };
 
 export interface FieldOperation {

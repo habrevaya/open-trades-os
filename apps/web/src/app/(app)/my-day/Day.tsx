@@ -3,15 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
-  projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordInvoice, recordPayment, tipChoices,
-  type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptSignature, type PriceBookEntry, type QueuedOperation,
-  type UploadTransport,
+  projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordInvoice, recordPayment, tipChoices,
+  type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
+  type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
 import type { dispatch } from "@opentradesos/api/services";
 import { sync, onMyWay, paymentLink, financingLink, askAssistant } from "./actions";
 import { punchNotice } from "@/lib/punch-notice";
 import { preparePhoto, prepareSignature } from "@/lib/photo";
 import { Ask, CashTip, InvoicePanel, SellPanel, TasksPanel, type SellHandlers } from "./Sell";
+import { ExpensesPanel } from "./Expenses";
 import { InspectionRun, type VisitInspection } from "./InspectionRun";
 import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
 
@@ -34,7 +35,7 @@ type Visit = Snapshot["visits"][number];
  */
 export function Day({
   date, deviceId, lastSequence, visits, openTimeEntry, technicianName, timezone, inspectionPrograms = [],
-  priceBook = [], abilities, tasks = [],
+  priceBook = [], abilities, tasks = [], expenses = [], today,
 }: {
   date: string;
   deviceId: string;
@@ -52,6 +53,10 @@ export function Day({
   abilities?: FieldAbilities;
   /** The office's queue: this person's tasks and the ones nobody has taken. */
   tasks?: Snapshot["tasks"];
+  /** What this person paid for the company in the last sixty days, and what the office said. */
+  expenses?: Snapshot["expenses"];
+  /** The company's date today, which a receipt defaults to. */
+  today: string;
 }) {
   const queueRef = useRef<FieldQueue | null>(null);
   /**
@@ -337,14 +342,14 @@ export function Day({
   );
 
   const projected = useMemo(() => projectDay({
-    snapshot: { revision: 0, unchanged: false, visits, priceBook, openTimeEntry, tasks } as FieldSnapshot,
+    snapshot: { revision: 0, unchanged: false, visits, priceBook, openTimeEntry, tasks, expenses } as FieldSnapshot,
     operations: pendingOps,
     applied: landed && landed.basis === visits ? landed.operations : [],
-  }), [visits, priceBook, openTimeEntry, tasks, pendingOps, landed]);
+  }), [visits, priceBook, openTimeEntry, tasks, expenses, pendingOps, landed]);
   const projectedVisit = (id: string) => projected.visits.find((v) => v.id === id);
   const can: FieldAbilities = abilities ?? {
     writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
-    tipping: { enabled: false, presets: [] }, financing: false, assistant: false,
+    tipping: { enabled: false, presets: [] }, financing: false, assistant: false, expenses: false,
   };
 
   /** A step of the sale into the queue, then the page redrawn from it and a send tried. */
@@ -358,6 +363,20 @@ export function Day({
     await refresh(queue);
     void flush();
     return null;
+  }
+
+  /** A receipt photograph, kept in this browser and hashed, ready to be recorded with its expense. */
+  async function keepReceipt(file: File): Promise<KeptReceipt | { problem: string }> {
+    const files = filesRef.current;
+    if (!files) return { problem: "This browser cannot keep a photo while there is no signal. Use the phone app, or turn off private browsing." };
+    const uploadId = crypto.randomUUID();
+    try {
+      const photo = await preparePhoto(file);
+      const localUri = await files.keep(uploadId, photo.base64);
+      return { uploadId, localUri, contentType: photo.contentType, byteSize: photo.byteSize, contentHash: photo.contentHash };
+    } catch {
+      return { problem: "The photo could not be kept on this page. Try again, or use the phone app." };
+    }
   }
 
   /** The customer's drawn signature, kept in this browser and hashed, ready for the queue. */
@@ -458,6 +477,32 @@ export function Day({
                       onDone={(taskId, outcome) => void perform((phone) => phone.queue.enqueue({
                         kind: "task.close", subjectId: taskId, payload: outcome.trim() ? { outcome: outcome.trim() } : {},
                       }))} />
+        </div>
+      )}
+
+      {can.expenses && (
+        <div className="px-4 pb-4">
+          <ExpensesPanel
+            expenses={projected.expenses}
+            today={today}
+            jobs={[...new Map(ordered.map((v) => [v.jobId, v])).values()]
+              .map((v) => ({ jobId: v.jobId, jobNumber: v.jobNumber, customerName: v.customer.name }))}
+            onSave={async (input) => {
+              const checked = checkExpenseDraft(
+                { amount: input.amount, spentOn: input.spentOn, description: input.description, jobId: input.jobId }, today,
+              );
+              if (!checked.ok) return checked.reason;
+              let receipt: KeptReceipt | undefined;
+              if (input.receipt) {
+                const kept = await keepReceipt(input.receipt);
+                if ("problem" in kept) return kept.problem;
+                receipt = kept;
+              }
+              return perform((phone) => recordExpense(phone, {
+                expenseId: crypto.randomUUID(), expense: checked, jobNumber: input.jobNumber, ...(receipt ? { receipt } : {}),
+              }));
+            }}
+          />
         </div>
       )}
 

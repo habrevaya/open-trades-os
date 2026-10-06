@@ -58,6 +58,7 @@ const DID: Record<string, string> = {
   "task.close": "Finishing a task",
   "tip.record": "A cash tip at",
   "safety.sign": "Signing a toolbox talk",
+  "expense.record": "Money you paid for the company",
 };
 
 /**
@@ -84,7 +85,9 @@ function whatYouDid(op: QueuedOperation, name: string | undefined): string {
   if (op.kind === "signature.capture" && op.payload["for"] === "safety_meeting") return "Your signature on a toolbox talk";
   const lead = DID[op.kind] ?? "Something you recorded";
   if (op.kind === "timeclock.punch_in" || op.kind === "timeclock.punch_out"
-    || op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign") return lead;
+    || op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign"
+    || op.kind === "expense.record") return lead;
+  if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return "A receipt photo";
   return `${lead} ${name ? `${name}'s job` : "a job"}`;
 }
 
@@ -178,6 +181,15 @@ export function describeUpload(
   nameOf: (visitId: string) => string | undefined = () => undefined,
 ): Problem | null {
   if (upload.status !== "failed") return null;
+  if (upload.kind === "receipt") {
+    return {
+      id: upload.uploadId,
+      source: "upload",
+      title: "Receipt photo not sent",
+      detail: `A receipt photo could not be sent. ${upload.lastError ?? ""}`.trim(),
+      action: "acknowledge",
+    };
+  }
   const name = nameOf(upload.visitId);
   const what = upload.kind === "signature" ? "A signature" : "A photo";
   return {

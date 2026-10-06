@@ -304,6 +304,17 @@ export const purchaseOrder = pgTable("purchase_order", {
    */
   expectedAt: timestamp("expected_at", { withTimezone: true }),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  /**
+   * What the vendor said back, put in by hand from their reply (never read
+   * out of an email). The first time they confirmed, and the day they
+   * promised it by as it stands now. `expected_at` stays what the buyer asked
+   * for; the reorder engine and the purchasing list both read the promise
+   * when there is one, so "late" and "past its promise" are one fact. Every
+   * reply, with the promise before it, is in `purchase_order_acknowledgement`.
+   */
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  promisedOn: date("promised_on"),
+  /** The vendor's own number for the order, from their confirmation. */
   vendorReference: text("vendor_reference"),
   notes: text("notes"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -609,6 +620,29 @@ export const purchaseOrderSend = pgTable("purchase_order_send", {
     .where(sql`${t.linkTokenHash} is not null`),
 }));
 
+/**
+ * EVERY TIME THE VENDOR ANSWERED, as the buyer wrote it down.
+ *
+ * A promise date moves: "Friday" becomes "the 20th". Keeping each reply, with
+ * the promise it replaced, is how "they have pushed it twice" is something a
+ * buyer can say, and how the order's current promise has a record behind it.
+ */
+export const purchaseOrderAcknowledgement = pgTable("purchase_order_acknowledgement", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  promisedOn: date("promised_on"),
+  previousPromisedOn: date("previous_promised_on"),
+  reference: text("reference"),
+  note: text("note"),
+  recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Their name as it was then, because a person's own row is all row level security lets anybody read. */
+  recordedByName: text("recorded_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orderIdx: index("purchase_order_acknowledgement_order_idx").on(t.organizationId, t.purchaseOrderId, t.createdAt),
+}));
+
 /* ===================================================================== */
 /* Truck stock minimums                                                   */
 /* ===================================================================== */
@@ -637,6 +671,59 @@ export const truckStockMinimum = pgTable("truck_stock_minimum", {
   itemLocationIdx: uniqueIndex("truck_stock_minimum_item_location_idx")
     .on(t.organizationId, t.itemId, t.locationId)
     .where(sql`${t.deletedAt} is null`),
+}));
+
+export const truckFillStatus = pgEnum("truck_fill_status", ["open", "confirmed", "dismissed", "withdrawn"]);
+
+/**
+ * A TRUCK FILL PROPOSED OVERNIGHT, WAITING FOR A PERSON.
+ *
+ * Each night the worker looks at every truck under a minimum and writes the
+ * move it would make, from the warehouse holding the most. It is only a
+ * proposal: NOTHING MOVES UNTIL SOMEBODY CONFIRMS IT on the truck stock screen,
+ * and a confirmed one moves through the same transfer a hand typed move does.
+ *
+ * ONE OPEN DRAFT PER TRUCK, held by an index so a second worker, a retry and
+ * the "check now" button cannot pile up a stack of the same ask. The next
+ * night's pass rewrites an open draft to what the truck needs then, and
+ * withdraws it when the truck no longer needs anything.
+ */
+export const truckFillDraft = pgTable("truck_fill_draft", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  truckId: uuid("truck_id").notNull().references(() => location.id, { onDelete: "cascade" }),
+  status: truckFillStatus("status").notNull().default("open"),
+  /** The company's calendar day it was first proposed. */
+  proposedOn: date("proposed_on").notNull(),
+  /** The last time the overnight pass looked and wrote it as it stands. */
+  refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Who confirmed or dismissed it, as the name they had then; the overnight pass for a withdrawal. */
+  decidedByName: text("decided_by_name"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** What a confirmation did, in words, when it left a line alone. */
+  outcome: text("outcome"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  oneOpenPerTruck: uniqueIndex("truck_fill_draft_open_idx").on(t.organizationId, t.truckId)
+    .where(sql`${t.status} = 'open'`),
+  truckIdx: index("truck_fill_draft_truck_idx").on(t.organizationId, t.truckId, t.createdAt),
+}));
+
+export const truckFillLine = pgTable("truck_fill_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").notNull().references(() => truckFillDraft.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  fromLocationId: uuid("from_location_id").notNull().references(() => location.id, { onDelete: "cascade" }),
+  /** What was on the truck when it was proposed, and what to move. */
+  onTruck: quantity("on_truck").notNull(),
+  quantity: quantity("quantity").notNull(),
+  /** The same sentence the live suggestion gives. */
+  why: text("why").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  draftIdx: index("truck_fill_line_draft_idx").on(t.organizationId, t.draftId),
 }));
 
 /* ===================================================================== */

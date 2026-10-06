@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { field } from "@opentradesos/core";
 import {
   OfflineError, SignedOutError, estimateFromPayload,
-  type FieldSnapshot, type FieldVisit, type StoreUploadResult, type SyncResponse, type Transport,
+  type FieldExpense, type FieldSnapshot, type FieldVisit, type StoreUploadResult, type SyncResponse, type Transport,
   type UploadTransport,
 } from "../src/index";
 
@@ -24,6 +24,8 @@ export class FakeServer {
   readonly stored = new Map<string, string>();
   openSince: string | null = null;
   revision = 1;
+  /** What this person has recorded, as the server last said, for `expenses` in the day. */
+  readonly expenses: FieldExpense[] = [];
 
   /** Flip to simulate a basement. */
   offline = false;
@@ -142,6 +144,22 @@ export class FakeServer {
       onVisit.amountDue = total;
       this.revision += 1;
     }
+    if (op.kind === "expense.record") {
+      this.expenses.unshift({
+        id: op.subjectId,
+        amount: String(op.payload["amount"]),
+        spentOn: String(op.payload["spentOn"]),
+        description: String(op.payload["description"]),
+        jobNumber: typeof op.payload["jobNumber"] === "number" ? op.payload["jobNumber"] : null,
+        status: "pending", decisionReason: null, receipts: 0,
+      });
+      this.revision += 1;
+    }
+    if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") {
+      const expense = this.expenses.find((e) => e.id === op.subjectId);
+      if (expense) expense.receipts += 1;
+      this.revision += 1;
+    }
     if (op.kind === "timeclock.punch_in") this.openSince = op.occurredAt.toISOString();
     if (op.kind === "timeclock.punch_out") this.openSince = null;
     if (op.kind === "attachment.attach" || op.kind === "signature.capture") {
@@ -200,8 +218,17 @@ export class FakeServer {
       visits: [...this.visits.values()].map((v) => structuredClone(v)),
       priceBook: [],
       openTimeEntry: this.openSince ? { id: "t1", kind: "on_site", startedAt: this.openSince } : null,
+      expenses: this.expenses.map((e) => ({ ...e })),
     };
   };
+
+  /** The office answering one, as the server would say it on the next day. */
+  decide(id: string, status: "approved" | "refused", reason: string | null = null): void {
+    const expense = this.expenses.find((e) => e.id === id)!;
+    expense.status = status;
+    expense.decisionReason = reason;
+    this.revision += 1;
+  }
 }
 
 export const sha256Base64 = (base64: string) =>

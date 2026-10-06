@@ -325,7 +325,10 @@ export const reopenPayPeriod = defineRoute({
 });
 
 export const RegisterLine = z.object({
-  /** regular, overtime, double_time, on_call, salary, commission, commission_clawback. */
+  /**
+   * regular, overtime, double_time, on_call, salary, commission, commission_clawback, tip, cash_tip,
+   * and the two that are not wages: reimbursement and per_diem.
+   */
   kind: z.string(),
   label: z.string(),
   explanation: z.string(),
@@ -355,6 +358,11 @@ export const getPayrollRegister = defineRoute({
       classification: z.string().nullable(),
       lines: z.array(RegisterLine),
       gross: MoneyString,
+      /**
+       * Reimbursements and per diem, paid in full beside the gross: not wages,
+       * so no tax is taken from them, and not in `gross` for that reason.
+       */
+      nonTaxable: MoneyString,
       /** What a reversal could not take out of this period without the statement going negative. */
       carriedForward: MoneyString,
       warnings: z.array(z.string()),
@@ -365,6 +373,8 @@ export const getPayrollRegister = defineRoute({
       messages: z.array(z.string()),
     })),
     grossTotal: MoneyString,
+    /** Reimbursements and per diem across everybody, paid beside the gross. */
+    reimbursementTotal: MoneyString,
   }),
 });
 
@@ -373,7 +383,7 @@ export const exportPayPeriod = defineRoute({
   path: "/v1/payroll/exports",
   summary: "Produce the payroll file for a closed period",
   description:
-    "CSV, and only CSV: every bureau takes one, no vendor has to approve it, and a self hoster can open it. One row per employee per pay category, because regular, overtime and double time are taxed and reported differently in enough places that collapsing them makes the file useless for what it is for. Reproducible by construction: the clock handed to the statement builder is the instant of the close, so running it twice produces the same bytes and the same checksum.",
+    "CSV, and only CSV: every bureau takes one, no vendor has to approve it, and a self hoster can open it. One row per employee per pay category, because regular, overtime and double time are taxed and reported differently in enough places that collapsing them makes the file useless for what it is for. What a person spent for the company and the office approved is a `reimbursement` row, and a day away at the company's rate is a `per_diem` row: both are paid in full with no tax taken, so they are not in `grossTotal` and are totalled in `reimbursementTotal`. Reproducible by construction: the clock handed to the statement builder is the instant of the close, so running it twice produces the same bytes and the same checksum.",
   module: "M17",
   permissions: ["payroll:export"],
   idempotent: true,
@@ -391,6 +401,8 @@ export const exportPayPeriod = defineRoute({
     checksum: z.string(),
     rowCount: z.number().int(),
     grossTotal: MoneyString,
+    /** What the file pays beside the gross with no tax taken: approved reimbursements and per diem. */
+    reimbursementTotal: MoneyString,
     generatedAt: z.string().datetime(),
     /** True when this period has been exported before, so a duplicate file is visible as one. */
     previouslyExported: z.boolean(),
@@ -413,6 +425,7 @@ export const listPayrollExports = defineRoute({
       format: z.string(),
       rowCount: z.number().int(),
       grossTotal: MoneyString,
+      reimbursementTotal: MoneyString,
       checksum: z.string(),
       generatedAt: z.string().datetime(),
     })),

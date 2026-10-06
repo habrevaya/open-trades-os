@@ -15,6 +15,7 @@ import { InvoiceScreen } from "../screens/InvoiceScreen";
 import { TasksScreen } from "../screens/TasksScreen";
 import { TalksScreen } from "../screens/TalksScreen";
 import { AssistantScreen } from "../screens/AssistantScreen";
+import { ExpensesScreen } from "../screens/ExpensesScreen";
 import { color } from "../components/theme";
 import { onNoticeTapped } from "../platform/notifications";
 
@@ -22,7 +23,8 @@ import { onNoticeTapped } from "../platform/notifications";
  * Twelve screens and a stack, held in state rather than in a navigation
  * library. The app is a list, a detail, a signature pad, an inspection, a
  * list of problems, the estimate builder, the customer's screen, the
- * invoice, the office's tasks, the toolbox talks to sign and the assistant; a router would be the
+ * invoice, the office's tasks, the toolbox talks to sign, what the person paid for the
+ * company and the assistant; a router would be the
  * largest dependency in it and do nothing the back button below does not.
  */
 export type Route =
@@ -37,6 +39,7 @@ export type Route =
   | { name: "invoice"; visitId: string }
   | { name: "tasks" }
   | { name: "talks" }
+  | { name: "expenses" }
   | { name: "assistant"; visitId: string | null };
 
 export interface Navigate {
@@ -92,6 +95,7 @@ function Screens() {
     case "invoice": return <InvoiceScreen visitId={route.visitId} nav={nav} />;
     case "tasks": return <TasksScreen nav={nav} />;
     case "talks": return <TalksScreen nav={nav} />;
+    case "expenses": return <ExpensesScreen nav={nav} />;
     case "assistant": return <AssistantScreen visitId={route.visitId} nav={nav} />;
     default: return <DayScreen nav={nav} />;
   }

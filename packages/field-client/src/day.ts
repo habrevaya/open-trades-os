@@ -164,6 +164,24 @@ export interface DayCashTip {
   waiting: boolean;
 }
 
+/**
+ * What the technician paid for the company, with the office's answer when it
+ * has one. `waiting` is true until the server has the record itself.
+ */
+export interface DayExpense {
+  id: string;
+  amount: string;
+  spentOn: string;
+  description: string;
+  jobNumber: number | null;
+  /** What the server last said, or pending for one still on this phone. */
+  status: "pending" | "approved" | "refused";
+  decisionReason: string | null;
+  /** Photographs kept with it on the server plus any still waiting to be sent from this phone. */
+  receipts: number;
+  waiting: boolean;
+}
+
 /** A task from the office queue, with what this phone did to it laid over. */
 export interface DayTask extends FieldTask {
   /** Finished on this phone; it leaves the list once the server has it. */
@@ -226,6 +244,8 @@ export interface DayView {
   tasks: DayTask[];
   /** Toolbox talks on this person's sheet. */
   talks: DayTalk[];
+  /** What this person paid for the company, newest first: the server's, with this phone's laid over. */
+  expenses: DayExpense[];
 }
 
 /**
@@ -282,6 +302,7 @@ export function projectDay(input: {
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
   const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
   const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
+  const expenses: DayExpense[] = (input.snapshot?.expenses ?? []).map((e) => ({ ...e, waiting: false }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -300,6 +321,23 @@ export function projectDay(input: {
       clock.open = false;
       clock.since = null;
       clock.waiting = waiting;
+      continue;
+    }
+    if (op.kind === "expense.record") {
+      /** The server's copy wins once it has one: it carries the answer. */
+      if (!op.subjectId || expenses.some((e) => e.id === op.subjectId)) continue;
+      const jobNumber = typeof op.payload["jobNumber"] === "number" ? op.payload["jobNumber"] : null;
+      expenses.unshift({
+        id: op.subjectId,
+        amount: typeof op.payload["amount"] === "string" ? op.payload["amount"] : "0",
+        spentOn: typeof op.payload["spentOn"] === "string" ? op.payload["spentOn"] : "",
+        description: typeof op.payload["description"] === "string" ? op.payload["description"] : "",
+        jobNumber,
+        status: "pending",
+        decisionReason: null,
+        receipts: 0,
+        waiting,
+      });
       continue;
     }
     if (op.kind === "task.claim" || op.kind === "task.close") {
@@ -339,6 +377,11 @@ export function projectDay(input: {
   }
 
   for (const upload of input.uploads ?? []) {
+    if (upload.kind === "receipt") {
+      const expense = expenses.find((e) => e.id === upload.visitId);
+      if (expense && upload.status === "waiting") expense.receipts += 1;
+      continue;
+    }
     const visit = visits.get(upload.visitId);
     if (!visit) continue;
     if (upload.kind === "signature") {
@@ -353,6 +396,7 @@ export function projectDay(input: {
     clock,
     tasks,
     talks,
+    expenses,
   };
 }
 
@@ -368,8 +412,10 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
-  /** A task is the office's, not a visit's, and a toolbox talk is nobody's visit. */
-  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign") return undefined;
+  /** A task is the office's, not a visit's, a toolbox talk is nobody's visit, and an expense is the person's. */
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
+  /** A receipt photograph is kept with its expense. */
+  if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return undefined;
   return op.subjectId;
 }
 

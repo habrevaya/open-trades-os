@@ -131,6 +131,8 @@ export interface JobProfitability {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  /** What people spent for the job that the company agreed to pay back, and the per diem for days away on it (M17). */
+  expenseCost: string;
   grossMargin: string;
   /** Null, never zero, when there is no revenue to be a percentage of. */
   grossMarginPercent: number | null;
@@ -203,6 +205,7 @@ type StatementRow = {
   material_cost: string;
   labour_cost: string;
   processing_fees: string;
+  expense_cost: string;
   gross_margin: string;
   labour_burden: string;
   overhead: string;
@@ -253,6 +256,7 @@ export async function statement(
         ${money(JOB_COSTING_SQL.materialCost, "material_cost")},
         ${money(JOB_COSTING_SQL.labourCost, "labour_cost")},
         ${money(JOB_COSTING_SQL.processingFees, "processing_fees")},
+        ${money(JOB_COSTING_SQL.expenseCost, "expense_cost")},
         ${money(GROSS_MARGIN_SQL, "gross_margin")},
         ${money(JOB_COSTING_SQL.labourBurden, "labour_burden")},
         ${money(JOB_COSTING_SQL.overhead, "overhead")},
@@ -438,6 +442,16 @@ export async function statement(
         `${uncosted} ${uncosted === 1 ? "line has" : "lines have"} no cost recorded, which is unknown rather than zero.`,
       );
     }
+    const [waiting] = await tx.execute<{ n: string }>(sql`
+      select count(*)::text as n from public.expense
+      where job_id = ${input.jobId}::uuid and status = 'pending'
+    `);
+    if (Number(waiting?.n ?? 0) > 0) {
+      provisional.push(
+        `${waiting!.n} ${waiting!.n === "1" ? "receipt is" : "receipts are"} waiting for the office to approve, `
+        + "so what they cost is not in this margin yet.",
+      );
+    }
     if (!labourRecorded) {
       provisional.push(
         "No hours were ever recorded against this job, so its labour cost is zero because nobody measured it, "
@@ -471,6 +485,7 @@ export async function statement(
       materialCost: row.material_cost,
       labourCost: row.labour_cost,
       processingFees: row.processing_fees,
+      expenseCost: row.expense_cost,
       grossMargin: row.gross_margin,
       /**
        * Null rather than zero when there is no revenue. A warranty job has a

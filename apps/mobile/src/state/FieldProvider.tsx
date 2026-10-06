@@ -8,7 +8,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
 import {
   formatAmount, inspectionPayload, type AssistantAnswer, type BuiltInspection, type FieldInspectionProgram,
-  type Problem, type SyncEngine, type SyncReport,
+  type KeptReceipt, type Problem, type SyncEngine, type SyncReport,
 } from "@opentradesos/field-client";
 import type { KeptSignature } from "../lib/sell";
 import type { Session } from "../lib/session";
@@ -84,6 +84,12 @@ interface FieldState {
   keepDrawnSignature(dataUrl: string): Promise<KeptSignature | { problem: string }>;
   /** The lender's application link for the visit's job, texted or handed to the share sheet. */
   financingLink(visitId: string, how: "text" | "share"): Promise<string>;
+  /**
+   * A photograph of a receipt, taken with the camera and kept on the phone's
+   * disk, hashed, ready to be recorded with the expense it is for. Null when
+   * the camera was cancelled.
+   */
+  takeReceipt(): Promise<KeptReceipt | { problem: string } | null>;
   /** A question for the field assistant. Needs a signal. */
   ask(question: string, visitId: string | null): Promise<AssistantAnswer | { problem: string }>;
 }
@@ -460,6 +466,23 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const takeReceipt = useCallback<FieldState["takeReceipt"]>(async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      return { problem: "The camera is turned off for this app. Turn it on in the phone's settings to photograph a receipt." };
+    }
+    const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.6, exif: false });
+    const asset = shot.canceled ? null : shot.assets[0];
+    if (!asset) return null;
+    const uploadId = Crypto.randomUUID();
+    const { extension, contentType } = extensionFor(asset.mimeType);
+    try {
+      return { uploadId, contentType, ...(await keepPhoto(asset.uri, uploadId, extension)) };
+    } catch {
+      return { problem: "The photograph could not be kept on this phone. Try again." };
+    }
+  }, []);
+
   /** The lender's link, asked for now or not at all, like the card link. */
   const financingLink = useCallback<FieldState["financingLink"]>(async (visitId, how) => {
     const c = clientRef.current;
@@ -498,10 +521,10 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const value = useMemo<FieldState>(() => ({
     status, session, view, syncing, report, signInEnded, push, locationPermission: permission,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
-    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask,
+    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask, takeReceipt,
   }), [status, session, view, syncing, report, signInEnded, push, permission, signIn, requestCode, signInWithCode, signOut,
     sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
-    perform, keepDrawnSignature, financingLink, ask]);
+    perform, keepDrawnSignature, financingLink, ask, takeReceipt]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

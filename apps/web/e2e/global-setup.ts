@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { sql } from "drizzle-orm";
+import { createClient } from "@opentradesos/db";
 import { parseSeed } from "./seed";
 
 /**
@@ -15,7 +17,7 @@ import { parseSeed } from "./seed";
  * the same company rather than adding another, and everything the specs
  * create carries a run-unique name.
  */
-export default function globalSetup(): void {
+export default async function globalSetup(): Promise<void> {
   const root = resolve(__dirname, "../../..");
   const run = (args: string[]) =>
     execFileSync("pnpm", args, { cwd: root, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
@@ -25,6 +27,20 @@ export default function globalSetup(): void {
   // The public demo, as a second company. Idempotent and deletes nothing, so
   // a rerun finds it in place; demo.spec.ts asserts nothing it does is kept.
   run(["--filter", "@opentradesos/api", "demo:seed"]);
+
+  /**
+   * The public routes count their callers per address and per hour (codes to
+   * sign in, form posts, the website snippet), and every request in this suite
+   * comes from 127.0.0.1. A run counts against the ceilings meant for one
+   * stranger, so a second run inside the hour would be refused a sign in code
+   * for the first run's sake. Each run starts with nobody counted.
+   */
+  const db = createClient();
+  try {
+    await db.execute(sql`delete from public.public_rate_limit`);
+  } finally {
+    await db.$close();
+  }
 
   const seed = parseSeed(output);
   const dir = join(__dirname, ".state");

@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Twenty four operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, and the last seven are selling and closing on site, below): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty five operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, and the last, `expense.record`, is what the technician paid for the company): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -267,9 +267,10 @@ conflict the office sees and the phone says in the office's words.
 **Taking the money, and a tip.** Cash or a check against the invoice raised
 there, through `payment.collect` as before, now with a tip on top when the
 company takes tips (the setting on `/settings/portal`, the same one the
-portal's pay button reads): the tip is held in Tips payable and split evenly
-between everybody on the job's visits, the way a tip on the portal is, with
-the same suggestions and the same refusals. A card goes through the
+portal's pay button reads): the tip is held in Tips payable and shared
+between everybody on the job's visits by the company's rule (evenly, by hours on
+the job or to the lead: M17), the way a tip on the portal is, with the same
+suggestions and the same refusals. A card goes through the
 invoice's own link, where the customer can add a tip. With a lender
 connected (M13), `POST /v1/visits/{id}/financing-link` opens the lender's
 application for what is owing and texts it or hands it over; like the card
@@ -278,7 +279,19 @@ link it needs a signal.
 **A cash tip kept.** A customer hands the technician a twenty for
 themselves. It never reaches the company, so nothing is booked; `tip.record`
 puts it on the technician's own pay statement as `cash_tip`, already in their
-hand (M17). Always the phone's own person.
+hand (M17). Always the phone's own person: the office records one for somebody who did not, or corrects one, on `/timesheets/tips` (M17), and the technician sees both on `/me/pay`.
+
+**Money I spent.** What the technician paid out of their own pocket for the
+company: the amount, the day, what it was for, the job from the day's visits if
+there was one and a photograph of the receipt, on the phone ("Money I spent") and on
+`/my-day`. `expense.record` (an append, the twenty fifth kind) carries it with an id the phone made, so a retry records
+it once, and the receipt is an `attachment.attach` whose payload says
+`entityType: "expense"`, kept beside the expense by the same hash checked upload path
+as any photograph and only for the phone's own person's expense. The office decides
+on `/timesheets/expenses` and the answer, with the reason for a refusal in the
+office's own words, comes back in the day's `expenses` (the last sixty days) and
+moves the revision, so the next poll fetches it. Always the phone's own person
+(`expense:own`); an approved one is paid back through payroll (M17).
 
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes
@@ -631,6 +644,17 @@ the job link, the treatment the logo already has (a token that already grants
 sight of the record), and only the ones somebody chose with **Show the
 customer** or all of them when the company says so (M05). There is still no
 unauthenticated way to read one.
+
+Revoking a browser is weaker than revoking a phone. A phone's revocation ends its
+token, and only signing in again on it lifts it. A browser has no token of its
+own: `/my-day` registers it on the person's ordinary sign in each time the day is
+opened, and registering lifts a revocation, so a revoked browser syncs again the
+next time its technician opens their day. The page fetching itself to keep its
+copy for no signal only looks the device up, so that fetch does not lift it.
+Holding a browser's revocation until the person signs in again needs the session's
+start to be known where the day is drawn, and is not built; to stop a browser,
+the office deactivates the person, which ends every sign in they have, or takes
+`field:sync` from their role.
 
 `/my-day` opens with no signal only once it has been opened on that phone
 with one, only in a browser that keeps service workers (any current one, on

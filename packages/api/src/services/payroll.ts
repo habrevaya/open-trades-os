@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, eq, gte, isNull, lt, desc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { labor, ledger, money as m, SYSTEM_USER_ID } from "@opentradesos/core";
+import { labor, ledger, money as m, time, SYSTEM_USER_ID } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError,
   type ServiceContext,
@@ -299,6 +299,11 @@ export interface RegisterRow {
   classification: string | null;
   lines: RegisterLine[];
   gross: string;
+  /**
+   * Reimbursements and per diem, paid in full beside the gross: not wages, so
+   * no tax is taken from them, and not in `gross` for that reason.
+   */
+  nonTaxable: string;
   /** What a clawback could not be taken out of this period without going negative. */
   carriedForward: string;
   warnings: string[];
@@ -337,6 +342,7 @@ export async function register(ctx: ServiceContext, input: { periodId: string })
       rows: assembled.rows,
       problems: assembled.problems,
       grossTotal: m.toString(m.sum(assembled.rows.map((row) => usd(row.gross)), "USD")),
+      reimbursementTotal: m.toString(m.sum(assembled.rows.map((row) => usd(row.nonTaxable)), "USD")),
     };
   });
 }
@@ -352,6 +358,8 @@ export interface ExportResult {
   checksum: string;
   rowCount: number;
   grossTotal: string;
+  /** Reimbursements and per diem the file pays beside the gross, with no tax taken. */
+  reimbursementTotal: string;
   generatedAt: Date;
   /** True when this period has been exported before, so a duplicate file is visible. */
   previouslyExported: boolean;
@@ -423,6 +431,7 @@ export async function exportPeriod(
     const content = toCsv(period.label, bounds, assembled.rows);
     const checksum = createHash("sha256").update(content, "utf8").digest("hex");
     const grossTotal = m.sum(assembled.rows.map((row) => usd(row.gross)), "USD");
+    const reimbursementTotal = m.sum(assembled.rows.map((row) => usd(row.nonTaxable)), "USD");
     const rowCount = assembled.rows.reduce((total, row) => total + row.lines.length, 0);
 
     const previous = await tx.select({ id: schema.payrollExport.id })
@@ -437,6 +446,7 @@ export async function exportPeriod(
       format,
       rowCount,
       grossTotal: m.toString(grossTotal),
+      reimbursementTotal: m.toString(reimbursementTotal),
       checksum,
       generatedAt,
       generatedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
@@ -445,6 +455,7 @@ export async function exportPeriod(
     await audit(tx, ctx, "payroll.exported", "pay_period", period.id, null, {
       exportId: row!.id, closeId: close.id, checksum, rowCount,
       grossTotal: m.toString(grossTotal),
+      reimbursementTotal: m.toString(reimbursementTotal),
     });
 
     return {
@@ -455,6 +466,7 @@ export async function exportPeriod(
       checksum,
       rowCount,
       grossTotal: m.toString(grossTotal),
+      reimbursementTotal: m.toString(reimbursementTotal),
       generatedAt,
       previouslyExported: previous.length > 0,
     };
@@ -476,6 +488,7 @@ export async function exportsFor(ctx: ServiceContext, input: { periodId: string 
       format: row.format,
       rowCount: row.rowCount,
       grossTotal: row.grossTotal,
+      reimbursementTotal: row.reimbursementTotal,
       checksum: row.checksum,
       generatedAt: row.generatedAt,
     }));
@@ -631,7 +644,7 @@ export interface OwnStatement {
   periodEnd: Date;
   closedAt: Date;
   /** Their lines on the register, exactly as the export carried them. Null when they had nothing that period. */
-  statement: Pick<RegisterRow, "classification" | "lines" | "gross" | "carriedForward" | "warnings"> | null;
+  statement: Pick<RegisterRow, "classification" | "lines" | "gross" | "nonTaxable" | "carriedForward" | "warnings"> | null;
   /** Why their statement could not be worked out, when it could not, for them to ask the office about. */
   problems: string[];
   /** The commission behind the commission lines: which invoice, how it was worked out, and whether it is paid. */
@@ -705,7 +718,7 @@ export async function ownStatements(ctx: ServiceContext): Promise<{ technician: 
         statement: mine
           ? {
             classification: mine.classification, lines: mine.lines, gross: mine.gross,
-            carriedForward: mine.carriedForward, warnings: mine.warnings,
+            nonTaxable: mine.nonTaxable, carriedForward: mine.carriedForward, warnings: mine.warnings,
           }
           : null,
         problems: assembled.problems.filter((p) => p.technicianId === own.id).flatMap((p) => p.messages),
@@ -751,22 +764,18 @@ async function liveClose(
 }
 
 /**
- * The closed pay period covering an instant, if any.
- *
- * Exported because anything that dates money into the past has to ask it
- * first. A commission backdated into a fortnight that has already been
- * exported and paid changes a number the bureau has, the technician has been
- * paid on, and the tax authority has been told about, and nothing anywhere
- * says it moved.
+ * Which pay period covers an instant, closed or not, read once for as many
+ * instants as are asked about.
  *
  * Walks the periods rather than querying a range, because the bounds are
  * derived with the policy's zone by `periodBounds` and a date comparison in
  * SQL would quietly use UTC. Companies have tens of pay periods a year, not
- * millions.
+ * millions, so loading them all once and answering a list of instants from
+ * memory is cheaper than a query per row.
  */
-export async function closedPeriodCovering(
-  tx: Database, organizationId: string, instant: Date,
-): Promise<{ id: string; label: string; closedAt: Date } | null> {
+export async function periodFinder(
+  tx: Database, organizationId: string,
+): Promise<(instant: Date) => { id: string; label: string; closedAt: Date | null } | null> {
   const rows = await tx.select().from(schema.payPeriod)
     .where(eq(schema.payPeriod.organizationId, organizationId));
 
@@ -779,18 +788,39 @@ export async function closedPeriodCovering(
    * exist without a policy, because declaring one is checked against it, so
    * there is nothing to resolve when there are no periods.
    */
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return () => null;
   const policy = await policyFor(tx, organizationId);
-
+  const known: { id: string; label: string; bounds: { start: Date; end: Date }; closedAt: Date | null }[] = [];
   for (const row of rows) {
-    const bounds = labor.periodBounds(
-      { id: row.id, label: row.label, startDate: row.startDate, weeks: row.weeks }, policy,
-    );
-    if (instant < bounds.start || instant >= bounds.end) continue;
-    const close = await liveClose(tx, row.id);
-    if (close) return { id: row.id, label: row.label, closedAt: close.closedAt };
+    known.push({
+      id: row.id,
+      label: row.label,
+      bounds: labor.periodBounds(
+        { id: row.id, label: row.label, startDate: row.startDate, weeks: row.weeks }, policy,
+      ),
+      closedAt: (await liveClose(tx, row.id))?.closedAt ?? null,
+    });
   }
-  return null;
+  return (instant) => {
+    const hit = known.find((p) => instant >= p.bounds.start && instant < p.bounds.end);
+    return hit ? { id: hit.id, label: hit.label, closedAt: hit.closedAt } : null;
+  };
+}
+
+/**
+ * The closed pay period covering an instant, if any.
+ *
+ * Exported because anything that dates money into the past has to ask it
+ * first. A commission backdated into a fortnight that has already been
+ * exported and paid changes a number the bureau has, the technician has been
+ * paid on, and the tax authority has been told about, and nothing anywhere
+ * says it moved.
+ */
+export async function closedPeriodCovering(
+  tx: Database, organizationId: string, instant: Date,
+): Promise<{ id: string; label: string; closedAt: Date } | null> {
+  const found = (await periodFinder(tx, organizationId))(instant);
+  return found?.closedAt ? { id: found.id, label: found.label, closedAt: found.closedAt } : null;
 }
 
 /**
@@ -851,8 +881,33 @@ async function fingerprintOf(
       lt(schema.cashTip.receivedAt, bounds.end),
     ));
 
+  /**
+   * Approved reimbursements and per diem days, which are on the file as their
+   * own lines. A day away recorded into a period after it closed is refused
+   * when it is recorded, but the file still names what it counted, so one
+   * written some other way changes the fingerprint instead of the bytes.
+   */
+  const repaid = await tx.select({ id: schema.expense.id, amount: schema.expense.amount })
+    .from(schema.expense)
+    .where(and(
+      eq(schema.expense.organizationId, organizationId),
+      eq(schema.expense.status, "approved"),
+      gte(schema.expense.decidedAt, bounds.start),
+      lt(schema.expense.decidedAt, bounds.end),
+    ));
+  const zone = (await policyFor(tx, organizationId)).timeZone;
+  const awayDays = await tx.select({ id: schema.perDiem.id, amount: schema.perDiem.amount })
+    .from(schema.perDiem)
+    .where(and(
+      eq(schema.perDiem.organizationId, organizationId),
+      gte(schema.perDiem.day, time.dateIn(bounds.start, zone)),
+      lt(schema.perDiem.day, time.dateIn(bounds.end, zone)),
+    ));
+
   const lines = [
     ...punches.map((row) => `t:${row.id}:${row.updatedAt.toISOString()}`),
+    ...repaid.map((row) => `x:${row.id}:${row.amount}`),
+    ...awayDays.map((row) => `d:${row.id}:${row.amount}`),
     ...commissions.map((row) => `c:${row.id}:${row.amount}`),
     ...tipped.map((row) => `p:${row.id}:${row.amount}`),
     ...kept.map((row) => `k:${row.id}:${row.amount}`),
@@ -999,12 +1054,58 @@ async function assemble(
     ))
     .orderBy(asc(schema.cashTip.receivedAt), asc(schema.cashTip.id));
 
+  /**
+   * What people spent for the company that the office approved inside this
+   * period, dated by the approval. Approved only: a pending one is not owed,
+   * and a refused one never will be.
+   */
+  const expenseRows = await tx.select({
+    expense: schema.expense,
+    technicianName: schema.technician.displayName,
+    jobNumber: schema.job.number,
+  }).from(schema.expense)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.expense.technicianId))
+    .leftJoin(schema.job, eq(schema.job.id, schema.expense.jobId))
+    .where(and(
+      eq(schema.expense.organizationId, ctx.actor.organizationId),
+      eq(schema.expense.status, "approved"),
+      gte(schema.expense.decidedAt, bounds.start),
+      lt(schema.expense.decidedAt, bounds.end),
+      ...(only ? [eq(schema.expense.technicianId, only)] : []),
+    ))
+    .orderBy(asc(schema.expense.decidedAt), asc(schema.expense.id));
+
+  /**
+   * Days away inside the period, by the day itself in the company's calendar:
+   * the period's first and last days, so a per diem for a day in a fortnight
+   * lands in that fortnight whatever time it was typed.
+   */
+  const firstDay = time.dateIn(bounds.start, policy.timeZone);
+  const endDay = time.dateIn(bounds.end, policy.timeZone);
+  const perDiemRows = await tx.select({
+    perDiem: schema.perDiem,
+    technicianName: schema.technician.displayName,
+    jobNumber: schema.job.number,
+  }).from(schema.perDiem)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.perDiem.technicianId))
+    .innerJoin(schema.job, eq(schema.job.id, schema.perDiem.jobId))
+    .where(and(
+      eq(schema.perDiem.organizationId, ctx.actor.organizationId),
+      gte(schema.perDiem.day, firstDay),
+      lt(schema.perDiem.day, endDay),
+      ...(only ? [eq(schema.perDiem.technicianId, only)] : []),
+    ))
+    .orderBy(asc(schema.perDiem.day), asc(schema.perDiem.id));
+
   const names = new Map<string, string>();
   for (const row of punches) names.set(row.entry.technicianId, row.technicianName);
   for (const row of commissionRows) names.set(row.entry.technicianId, row.technicianName);
   /** Somebody tipped and not on the clock this period is still somebody to pay. */
   for (const row of tipRows) names.set(row.share.technicianId, row.technicianName);
   for (const row of cashRows) names.set(row.tip.technicianId, row.technicianName);
+  /** Somebody paid back for a receipt, or a day away, and not on the clock, is still somebody to pay. */
+  for (const row of expenseRows) names.set(row.expense.technicianId, row.technicianName);
+  for (const row of perDiemRows) names.set(row.perDiem.technicianId, row.technicianName);
 
   const rows: RegisterRow[] = [];
   const problems: Assembled["problems"] = [];
@@ -1105,6 +1206,24 @@ async function assemble(
           label: row.jobNumber ? `Cash tip kept, job ${row.jobNumber}` : "Cash tip kept",
           occurredAt: row.tip.receivedAt,
         })),
+      reimbursements: expenseRows
+        .filter((row) => row.expense.technicianId === technicianId)
+        .map((row) => ({
+          expenseId: row.expense.id,
+          personId: technicianId,
+          amount: usd(row.expense.amount),
+          label: `Reimbursement: ${row.expense.description.slice(0, 80)}${row.jobNumber ? `, job ${row.jobNumber}` : ""}`,
+          occurredAt: row.expense.decidedAt ?? row.expense.createdAt,
+        })),
+      perDiems: perDiemRows
+        .filter((row) => row.perDiem.technicianId === technicianId)
+        .map((row) => ({
+          perDiemId: row.perDiem.id,
+          personId: technicianId,
+          amount: usd(row.perDiem.amount),
+          label: `Per diem, ${row.perDiem.day}, job ${row.jobNumber}`,
+          occurredAt: labor.startOfPolicyDay(row.perDiem.day, policy),
+        })),
       currency: "USD",
       now,
     });
@@ -1130,6 +1249,7 @@ async function assemble(
         amount: m.toString(line.amount),
       })),
       gross: m.toString(verdict.statement.gross),
+      nonTaxable: m.toString(verdict.statement.nonTaxable),
       carriedForward: m.toString(verdict.statement.carriedForward),
       warnings: verdict.statement.warnings,
     });
@@ -1154,6 +1274,13 @@ async function assemble(
  * The amounts add to the gross exactly, including the carried-forward line,
  * which core prints at zero so that the lines still add up while the carried
  * amount stays visible.
+ *
+ * TWO CATEGORIES ARE NOT WAGES. `reimbursement` is what a person spent for the
+ * company and the office approved, and `per_diem` is the company's flat rate
+ * for a day away. Both are paid in full with no tax taken from them, so the
+ * rows of those two categories are NOT in the gross: the file's amounts add to
+ * the gross plus the reimbursement total, which is why the export keeps the two
+ * apart. The bureau reads the category, exactly as it reads `cash_tip`.
  */
 function toCsv(
   label: string, bounds: { start: Date; end: Date }, rows: RegisterRow[],
@@ -1229,7 +1356,7 @@ export const handlers = {
   listPayrollExports: async (ctx: ServiceContext, input: { periodId: string }): Promise<{
     exports: {
       id: string; closeId: string; format: string; rowCount: number;
-      grossTotal: string; checksum: string; generatedAt: Date;
+      grossTotal: string; reimbursementTotal: string; checksum: string; generatedAt: Date;
     }[];
   }> => ({ exports: await exportsFor(ctx, input) }),
 

@@ -32,6 +32,25 @@ import type {
  * which half and will either redo work or not redo it, and both are wrong.
  */
 
+/**
+ * The device already registered under an installation id, read and nothing
+ * else: no `last_seen_at`, no token bound, no revocation lifted. For a read
+ * that is not the person opening their day, such as the page fetching itself
+ * to keep a copy for no signal, which must not undo the office revoking it.
+ * Null when it has never been registered.
+ */
+export async function registered(ctx: ServiceContext, installationId: string) {
+  return guardedRead(ctx, "field:sync", async (tx) => {
+    const [existing] = await tx.select({ id: schema.device.id, lastSequence: schema.device.lastSequence })
+      .from(schema.device)
+      .where(and(
+        eq(schema.device.organizationId, ctx.actor.organizationId),
+        eq(schema.device.installationId, installationId),
+      )).limit(1);
+    return existing ? { deviceId: existing.id, lastSequence: existing.lastSequence } : null;
+  });
+}
+
 export async function register(ctx: ServiceContext, input: z.infer<typeof registerDevice.input>) {
   return guardedWrite(ctx, "field:sync", async (tx) => {
     const technicianId = await technicianFor(tx, ctx);
@@ -897,6 +916,14 @@ async function effect(
        * following behind, rather than appearing to have none until the last
        * upload finishes over a cellular connection in a van.
        */
+      /**
+       * A receipt names its expense, and only the person who recorded the
+       * expense may add a photograph to it. Every other attachment is a visit's.
+       */
+      const forExpense = op.kind === "attachment.attach" && op.payload["entityType"] === "expense";
+      if (forExpense && !(await fieldSales.ownsExpense(tx, op))) {
+        return "That receipt is for an expense that is not yours, or that has not arrived. It was not kept.";
+      }
       await tx.insert(schema.fieldUpload).values({
         organizationId: org,
         deviceId: op.deviceId,
@@ -910,7 +937,7 @@ async function effect(
          */
         subjectType: op.kind === "signature.capture"
           ? (op.payload["for"] === "safety_meeting" ? "talk_signature" : "signature")
-          : "visit",
+          : forExpense ? "expense" : "visit",
         subjectId: op.subjectId || null,
         contentType: String(op.payload["contentType"] ?? "image/jpeg"),
         byteSize: (op.payload["byteSize"] as number) ?? null,
@@ -1123,6 +1150,8 @@ async function effect(
 
     case "safety.sign":
       return safetyTalks.signOperation(tx, ctx, op);
+    case "expense.record":
+      return fieldSales.recordExpense(tx, ctx, op);
 
     default:
       /**

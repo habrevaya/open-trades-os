@@ -354,15 +354,19 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           <h2 className="mt-10 text-base font-semibold">Tips</h2>
           <p className="mt-1 text-sm text-ink-700">
             Added by the customer when they paid. Not part of the invoice: held for the technicians and
-            paid out through payroll.
+            paid out through payroll. Shared by the company's rule when it arrived (on Pay rules).
           </p>
+          {tipped.filter((t) => t.splitNote !== "").map((t) => (
+            <p key={t.paymentId} className="mt-1 text-sm text-amber-700">{t.splitNote}</p>
+          ))}
           <Table label="Tips on this invoice" head={
-            <><Th>Paid</Th><Th>For</Th><Th>Passed on</Th><Th className="text-right">Tip</Th></>
+            <><Th>Paid</Th><Th>For</Th><Th>Shared</Th><Th>Passed on</Th><Th className="text-right">Tip</Th></>
           }>
             {tipped.flatMap((t) => t.shares.map((share) => (
               <tr key={`${t.paymentId}-${share.technicianId}`}>
                 <Td>{formatIn(t.receivedAt, tz, { dateStyle: "medium" })}</Td>
                 <Td>{share.technicianName}</Td>
+                <Td className="text-ink-700">{t.splitRule === "hours" ? "By hours" : t.splitRule === "lead" ? "To the lead" : "Evenly"}</Td>
                 <Td className="text-ink-700">{share.paidAt ? formatIn(share.paidAt, tz, { dateStyle: "medium" }) : "Not yet"}</Td>
                 <Td className="text-right"><Money value={share.amount} /></Td>
               </tr>

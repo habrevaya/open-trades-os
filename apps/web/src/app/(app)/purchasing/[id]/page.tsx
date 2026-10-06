@@ -8,8 +8,8 @@ import { Crumb, Fact, Facts } from "@/components/Detail";
 import { PrintButton } from "@/components/PrintButton";
 import { Table, Td, Th } from "@/components/Table";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
-import { formatIn } from "@/lib/dates";
-import { decideAction, editAction, emailAction, lateBillAction, receiveAction } from "./actions";
+import { formatDay, formatIn } from "@/lib/dates";
+import { decideAction, editAction, emailAction, lateBillAction, receiveAction, replyAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -63,8 +63,15 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
         <Fact label="Status">{order.status.replace(/_/g, " ")}</Fact>
         <Fact label="Our account">{order.vendorAccount}</Fact>
         <Fact label="Sent">{order.submittedAt ? formatIn(order.submittedAt, user.organizationTimezone) : null}</Fact>
-        <Fact label="Expected">{order.expectedAt ? formatIn(order.expectedAt, user.organizationTimezone) : null}</Fact>
+        <Fact label="Wanted by">{order.expectedAt ? formatIn(order.expectedAt, user.organizationTimezone) : null}</Fact>
+        <Fact label="They promised it by">{order.promisedOn ? formatDay(order.promisedOn, user.organizationTimezone) : null}</Fact>
+        <Fact label="Their reference">{order.vendorReference}</Fact>
       </Facts>
+      {order.followUp ? (
+        <p role="status" className="mt-3 rounded border border-amber-700 bg-amber-tint px-3 py-2 text-sm text-amber-700 print:hidden">
+          Ring them: {order.followUp.sentence}
+        </p>
+      ) : null}
       <Table label="Lines" head={
         <>
           <Th>Their part number</Th><Th>Our item</Th><Th>Deliver to</Th>
@@ -106,6 +113,43 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
       </Table>
       <p className="mt-3 text-right text-sm font-medium">Total <Money value={order.total} /></p>
       {order.notes ? <p className="mt-4 whitespace-pre-line text-sm text-ink-700">{order.notes}</p> : null}
+
+      {order.status !== "draft" ? (
+        <section className="mt-8 print:hidden" aria-labelledby="reply">
+          <h2 id="reply" className="text-base font-semibold">What the vendor said back</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            Written down by hand from their email or call: nothing here is read out of an email. The day they
+            promised it by is what the purchasing list holds them to.
+          </p>
+          {order.replies.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-700">Nobody has written down an answer from them yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm">
+              {order.replies.map((reply) => (
+                <li key={reply.id}>
+                  {formatIn(reply.recordedAt, user.organizationTimezone, { dateStyle: "medium" })}
+                  {reply.recordedByName ? `, ${reply.recordedByName}` : ""}:{" "}
+                  {reply.promisedOn
+                    ? <>promised it by {formatDay(reply.promisedOn, user.organizationTimezone)}
+                      {reply.previousPromisedOn && reply.previousPromisedOn !== reply.promisedOn
+                        ? <span className="text-amber-700"> (it was {formatDay(reply.previousPromisedOn, user.organizationTimezone)})</span> : null}</>
+                    : "confirmed, with no date"}
+                  {reply.reference ? `, their reference ${reply.reference}` : ""}
+                  {reply.note ? `. ${reply.note}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {writes && open ? (
+            <ActionForm action={replyAction} submit="Write down their reply" className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2"
+                        hidden={{ id: order.id }}>
+              <TextField label="The day they promised it by" name="promisedOn" type="date" />
+              <TextField label="Their reference for the order" name="reference" maxLength={100} />
+              <TextArea label="What else they said" name="note" rows={2} />
+            </ActionForm>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="mt-8 print:hidden" aria-labelledby="approval">
         <h2 id="approval" className="text-base font-semibold">Approval</h2>

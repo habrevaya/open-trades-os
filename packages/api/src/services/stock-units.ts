@@ -656,33 +656,36 @@ export interface RestockView {
 
 /** Which trucks are under their minimums, and where to fill them from. */
 export function restockSuggestions(ctx: ServiceContext) {
-  return guardedRead(ctx, "inventory:read", async (tx): Promise<RestockView[]> => {
-    const rows = await minimumsWithin(tx);
-    if (rows.length === 0) return [];
-    const places = await tx.select({ id: schema.location.id, name: schema.location.name, isWarehouse: schema.location.isWarehouse })
-      .from(schema.location).where(eq(schema.location.active, true));
-    const suggestions = inv.suggestRestock({
-      minimums: rows.map((r) => ({
-        itemId: r.itemId, locationId: r.locationId, minimum: inv.quantity(r.minimum), target: inv.quantity(r.target),
-      })),
-      levels: inv.deriveLevels(await history(tx)),
-      warehouses: places.filter((p) => p.isWarehouse).map((p) => p.id),
-    });
-    const names = await namesFor(tx, suggestions.map((s) => s.itemId));
-    const placeOf = new Map(places.map((p) => [p.id, p.name]));
-    const tracked = await tx.select({ itemId: schema.stockTracking.itemId, mode: schema.stockTracking.mode }).from(schema.stockTracking);
-    const modeOf = new Map(tracked.map((t) => [t.itemId, t.mode]));
-    return suggestions.map((s) => ({
-      itemId: s.itemId, itemName: names.get(s.itemId) ?? "",
-      truckId: s.truckId, truckName: placeOf.get(s.truckId) ?? "",
-      onTruck: inv.quantityLabel(s.onTruck), minimum: inv.quantityLabel(s.minimum), target: inv.quantityLabel(s.target),
-      wanted: inv.quantityLabel(s.wanted),
-      fromLocationId: s.fromLocationId, fromLocationName: s.fromLocationId ? placeOf.get(s.fromLocationId) ?? null : null,
-      take: inv.quantityLabel(s.take), short: inv.quantityLabel(s.short),
-      tracking: modeOf.get(s.itemId) ?? null,
-      why: s.why,
-    }));
+  return guardedRead(ctx, "inventory:read", (tx) => restockWithin(tx));
+}
+
+/** The same, inside a transaction somebody else opened (the overnight fills read it as the worker). */
+export async function restockWithin(tx: Database): Promise<RestockView[]> {
+  const rows = await minimumsWithin(tx);
+  if (rows.length === 0) return [];
+  const places = await tx.select({ id: schema.location.id, name: schema.location.name, isWarehouse: schema.location.isWarehouse })
+    .from(schema.location).where(eq(schema.location.active, true));
+  const suggestions = inv.suggestRestock({
+    minimums: rows.map((r) => ({
+      itemId: r.itemId, locationId: r.locationId, minimum: inv.quantity(r.minimum), target: inv.quantity(r.target),
+    })),
+    levels: inv.deriveLevels(await history(tx)),
+    warehouses: places.filter((p) => p.isWarehouse).map((p) => p.id),
   });
+  const names = await namesFor(tx, suggestions.map((s) => s.itemId));
+  const placeOf = new Map(places.map((p) => [p.id, p.name]));
+  const tracked = await tx.select({ itemId: schema.stockTracking.itemId, mode: schema.stockTracking.mode }).from(schema.stockTracking);
+  const modeOf = new Map(tracked.map((t) => [t.itemId, t.mode]));
+  return suggestions.map((s) => ({
+    itemId: s.itemId, itemName: names.get(s.itemId) ?? "",
+    truckId: s.truckId, truckName: placeOf.get(s.truckId) ?? "",
+    onTruck: inv.quantityLabel(s.onTruck), minimum: inv.quantityLabel(s.minimum), target: inv.quantityLabel(s.target),
+    wanted: inv.quantityLabel(s.wanted),
+    fromLocationId: s.fromLocationId, fromLocationName: s.fromLocationId ? placeOf.get(s.fromLocationId) ?? null : null,
+    take: inv.quantityLabel(s.take), short: inv.quantityLabel(s.short),
+    tracking: modeOf.get(s.itemId) ?? null,
+    why: s.why,
+  }));
 }
 
 /**

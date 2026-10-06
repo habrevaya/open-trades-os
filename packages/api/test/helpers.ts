@@ -30,7 +30,9 @@ const ORDER = [
    */
   "tip_share",
   /** A cash tip a technician kept points at the technician, the job and the visit. */
-  "cash_tip",
+  "cash_tip_correction", "cash_tip",
+  /** What a person spent for the company and a day away both point at the technician and the job. */
+  "expense", "per_diem",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
   "commission_event", "commission_plan", "pay_period",
   /**
@@ -154,8 +156,9 @@ const ORDER = [
   "landed_cost_bill_charge", "landed_cost_bill", "vendor_return",
   "purchase_order_receipt_charge", "purchase_order_receipt",
   "purchase_order_approval_notice",
-  "purchase_order_approval", "purchase_order_send",
+  "purchase_order_approval", "purchase_order_send", "purchase_order_acknowledgement",
   "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
+  "truck_fill_line", "truck_fill_draft",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
