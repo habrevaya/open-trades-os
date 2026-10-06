@@ -241,6 +241,13 @@ export const employmentRecord = pgTable("employment_record", {
 /* ---------------------------------------------------- continuing education */
 
 /**
+ * Whether hours count toward a renewal. The office's own entries are approved
+ * as they are logged. A person's own wait as `pending` until the office has
+ * looked at the certificate, and only `approved` hours are counted.
+ */
+export const ceStatus = pgEnum("continuing_education_status", ["pending", "approved", "declined"]);
+
+/**
  * HOURS OF CONTINUING EDUCATION, toward a certification's renewal.
  *
  * Logged against the certification TYPE rather than one holding, because a
@@ -261,6 +268,13 @@ export const continuingEducation = pgTable("continuing_education", {
   /** The certificate number or where the certificate is filed. */
   evidence: text("evidence"),
   recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Approved unless a person logged it themselves and the office has not answered. */
+  status: ceStatus("status").notNull().default("approved"),
+  /** The person logged these hours from their own record, with the certificate photographed. */
+  selfLogged: boolean("self_logged").notNull().default(false),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  declineReason: text("decline_reason"),
   ...timestamps,
 }, (t) => ({
   personIdx: index("continuing_education_person_idx").on(t.organizationId, t.technicianId, t.certificationTypeId),
@@ -288,6 +302,16 @@ export const technicianSkill = pgTable("technician_skill", {
   recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
   endedOn: date("ended_on"),
   endedReason: text("ended_reason"),
+  /**
+   * The last day this record stands, for a skill that has to be shown again
+   * (a course certificate good for two years, a sign off to be repeated).
+   * Null does not expire. Read as a certification's is: still good on the day,
+   * expired from the next, and from then the skill stays on the person's list
+   * and no longer clears the assignment check.
+   */
+  expiresOn: date("expires_on"),
+  /** How many days before it expires the skill is put on the list to renew. */
+  renewalLeadDays: integer("renewal_lead_days").notNull().default(30),
   ...timestamps,
 }, (t) => ({
   /** One open record per skill per person; an ended one stays as history. */

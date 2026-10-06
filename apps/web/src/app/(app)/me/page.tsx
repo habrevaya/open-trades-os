@@ -1,13 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { me } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, time } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { Fact, Facts } from "@/components/Detail";
 import { Empty, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
-import { addContact, removeContact, setLine } from "./actions";
+import { addContact, logCeHours, removeContact, setLine, withdrawCeHours } from "./actions";
 import { SignDocument } from "./SignDocument";
 
 export const dynamic = "force-dynamic";
@@ -176,6 +176,22 @@ export default async function MyRecordPage() {
               ))}
             </Table>
           )}
+          {record.skills.length > 0 ? (
+            <>
+              <h3 className="mt-6 text-sm font-semibold">Skills with a last day</h3>
+              <ul className="mt-2 space-y-1 text-sm" aria-label="Skills with a last day">
+                {record.skills.map((s) => (
+                  <li key={s.id} className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono">{s.skill}</span>
+                    {s.expiry.state === "expired" ? <Chip tone="danger">Ran out</Chip>
+                      : s.expiry.state === "expiring" ? <Chip tone="warning">Runs out soon</Chip>
+                        : <Chip tone="success">Current</Chip>}
+                    <span className="text-ink-700">{s.expiry.sentence}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
           {record.continuingEducation && record.continuingEducation.progress.length > 0 ? (
             <>
               <h3 className="mt-6 text-sm font-semibold">Continuing education</h3>
@@ -183,10 +199,60 @@ export default async function MyRecordPage() {
                 {record.continuingEducation.progress.map((p) => (
                   <li key={p.certificationTypeId}>
                     <span className="font-medium">{p.name}:</span> <span className="text-ink-700">{p.progress.sentence}</span>
+                    {p.pendingHours !== "0" ? <span className="text-ink-500"> {p.pendingHours} more hours wait for the office.</span> : null}
                   </li>
                 ))}
               </ul>
             </>
+          ) : null}
+          {record.continuingEducation && record.continuingEducation.entries.some((e) => e.selfLogged) ? (
+            <ul className="mt-3 space-y-2 text-sm" aria-label="Hours you logged">
+              {record.continuingEducation.entries.filter((e) => e.selfLogged).map((e) => (
+                <li key={e.id} className="flex flex-wrap items-center gap-2">
+                  {e.status === "approved" ? <Chip tone="success">Counted</Chip>
+                    : e.status === "declined" ? <Chip tone="danger">Not counted</Chip>
+                      : <Chip tone="warning">Waiting for the office</Chip>}
+                  <span>{e.hours} hours of {e.course}, finished {formatDay(e.completedOn, zone)}.</span>
+                  {e.status === "declined" && e.declineReason ? <span className="text-ink-700">{e.declineReason}</span> : null}
+                  {e.certificates > 0 ? (
+                    <a href={`/me/continuing-education/${e.id}/certificate`} target="_blank" rel="noreferrer"
+                       className="text-blue-600 underline underline-offset-4">Certificate</a>
+                  ) : null}
+                  {e.status === "pending" ? (
+                    <ActionForm action={withdrawCeHours} submit="Take it back" tone="quiet" className="inline-flex" hidden={{ id: e.id }} />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {record.continuingEducationKinds.length > 0 ? (
+            <div role="group" aria-label="Log hours of a course" className="mt-4 max-w-xl">
+              <h3 className="text-sm font-semibold">Log hours of a course</h3>
+              <p className="mt-1 text-xs text-ink-500">
+                Took a course toward a renewal? Put the hours in with a photo of the certificate. The office looks at it
+                and the hours count once they say yes.
+              </p>
+              <ActionForm action={logCeHours} submit="Send the hours" className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-medium text-ink-700">Toward</span>
+                  <select name="certificationTypeId" required className="mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm">
+                    {record.continuingEducationKinds.map((k) => (
+                      <option key={k.id} value={k.id}>{k.name}{k.hoursRequired ? ` (${Number(k.hoursRequired)} hours to renew)` : ""}</option>
+                    ))}
+                  </select>
+                </label>
+                <TextField label="Course" name="course" required maxLength={300} className="block sm:col-span-2" />
+                <TextField label="Hours" name="hours" inputMode="decimal" required placeholder="4" />
+                <TextField label="Day you finished" name="completedOn" type="date" required defaultValue={time.dateIn(new Date(), zone)} max={time.dateIn(new Date(), zone)} />
+                <TextField label="Who ran it" name="provider" maxLength={200} />
+                <TextField label="Certificate number" name="evidence" maxLength={500} />
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-medium text-ink-700">Photo of the certificate</span>
+                  <input type="file" name="certificate" accept="image/*,application/pdf" capture="environment"
+                         aria-label="Photo of the certificate" className="mt-2 block text-sm" />
+                </label>
+              </ActionForm>
+            </div>
           ) : null}
         </section>
       ) : null}

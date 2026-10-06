@@ -59,6 +59,14 @@ const Employment = z.object({
 const SkillRecord = z.object({
   id: Uuid, skill: z.string(), since: z.string(), evidence: z.string(), recordedBy: z.string().nullable(),
   endedOn: z.string().nullable(), endedReason: z.string().nullable(),
+  /** The last day the record stands. Null does not expire. */
+  expiresOn: z.string().nullable(),
+  renewalLeadDays: z.number().int(),
+  expiry: z.object({
+    state: z.enum(["none", "current", "expiring", "expired"]),
+    daysRemaining: z.number().int().nullable(),
+    sentence: z.string(),
+  }),
 });
 const Skills = z.object({
   current: z.array(z.object({ skill: z.string(), record: SkillRecord.nullable() })),
@@ -70,17 +78,27 @@ const CeProgress = z.object({
   required: z.string().nullable(), logged: z.string(), remaining: z.string().nullable(),
   met: z.boolean().nullable(), since: z.string().nullable(), sentence: z.string(),
 });
-const Ce = z.object({
+export const CeSchema = z.object({
   entries: z.array(z.object({
     id: Uuid, certificationTypeId: Uuid, completedOn: z.string(), hours: z.string(),
     course: z.string(), provider: z.string().nullable(), evidence: z.string().nullable(),
+    /** Only approved hours count toward a renewal. A person's own wait as pending for the office. */
+    status: z.enum(["pending", "approved", "declined"]),
+    selfLogged: z.boolean(),
+    declineReason: z.string().nullable(),
+    /** Photographs of the certificate kept with it. */
+    certificates: z.number().int(),
   })),
   progress: z.array(z.object({
     certificationTypeId: Uuid, name: z.string(),
     holding: z.object({ issuedOn: z.string().nullable(), expiresOn: z.string().nullable() }).nullable(),
+    /** Counts approved hours only. */
     progress: CeProgress,
+    /** Hours a person logged that wait for the office and are not counted yet. */
+    pendingHours: z.string(),
   })),
 });
+const Ce = CeSchema;
 
 export const listPeopleRoster = defineRoute({
   method: "get",
@@ -243,8 +261,40 @@ export const recordTechnicianSkill = defineRoute({
   module: "M24",
   permissions: ["user:write"],
   idempotent: true,
-  input: z.object({ technicianId: Uuid, skill: z.string().min(1).max(100), since: DateString, evidence: z.string().min(1).max(1000) }),
+  input: z.object({
+    technicianId: Uuid, skill: z.string().min(1).max(100), since: DateString, evidence: z.string().min(1).max(1000),
+    expiresOn: DateString.nullable().optional(), renewalLeadDays: z.number().int().min(0).max(730).optional(),
+  }),
   output: Skills,
+});
+
+export const setTechnicianSkillExpiry = defineRoute({
+  method: "post",
+  path: "/v1/technician-skills/{id}/expiry",
+  summary: "Give a skill record its own expiry, move it, or take it off",
+  description: "The last day the record stands: good on that day and expired from the next, as a certification's is. From then the skill stays on the person's list and no longer clears the assignment check, and it is warned from `renewalLeadDays` before (30 when not given) on the list of skills to renew. `expiresOn: null` makes it not expire. Moving it is renewing it; the earlier day stays in the audit log. A day that has already passed is refused.",
+  module: "M24",
+  permissions: ["user:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, expiresOn: DateString.nullable(), renewalLeadDays: z.number().int().min(0).max(730).optional() }),
+  output: Skills,
+});
+
+export const listExpiringTechnicianSkills = defineRoute({
+  method: "get",
+  path: "/v1/technician-skills/expiring",
+  summary: "Skills about to run out, and the ones that have",
+  description: "Open skill records with an expiry, each put on by its own notice period, or by `within` days ahead when given. Already expired ones are included and flagged, because a list that drops a skill the day it lapses is empty exactly when somebody needed it.",
+  module: "M24",
+  permissions: ["user:read"],
+  input: z.object({ within: z.number().int().min(0).max(3650).optional() }),
+  output: z.object({
+    expiring: z.array(z.object({
+      id: Uuid, technicianId: Uuid, technicianName: z.string(), skill: z.string(),
+      expiresOn: DateString, daysRemaining: z.number().int(), renewalLeadDays: z.number().int(),
+      current: z.boolean(), sentence: z.string(),
+    })),
+  }),
 });
 
 export const endTechnicianSkill = defineRoute({
@@ -285,6 +335,49 @@ export const logContinuingEducation = defineRoute({
   output: Ce,
 });
 
+export const listPendingContinuingEducation = defineRoute({
+  method: "get",
+  path: "/v1/continuing-education/pending",
+  summary: "Hours people logged themselves that wait for the office",
+  description: "Every self-logged entry nobody has answered, oldest first, with how many photographs of the certificate came with it. The photograph is read at `/certifications/continuing-education/{id}/certificate` by whoever reads the register.",
+  module: "M24",
+  permissions: ["compliance:read"],
+  input: z.object({}),
+  output: z.object({
+    pending: z.array(z.object({
+      id: Uuid, technicianId: Uuid, technicianName: z.string(),
+      certificationTypeId: Uuid, certificationName: z.string(),
+      completedOn: z.string(), hours: z.string(), course: z.string(),
+      provider: z.string().nullable(), evidence: z.string().nullable(),
+      certificates: z.number().int(), loggedAt: z.string().datetime(),
+    })),
+  }),
+});
+
+export const approveContinuingEducation = defineRoute({
+  method: "post",
+  path: "/v1/continuing-education/{id}/approve",
+  summary: "Count a person's own hours toward their renewal",
+  description: "The office has looked at the certificate. Only approved hours are counted. Approving hours already approved answers with the same list; a declined entry is not approved afterwards, the person logs it again.",
+  module: "M24",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: Ce,
+});
+
+export const declineContinuingEducation = defineRoute({
+  method: "post",
+  path: "/v1/continuing-education/{id}/decline",
+  summary: "Turn a person's own hours down, with the reason they will read",
+  description: "The hours stay on the person's record as declined with the reason and are never counted. Hours already approved cannot be declined; remove them instead.",
+  module: "M24",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, reason: z.string().trim().min(1).max(500) }),
+  output: Ce,
+});
+
 export const removeContinuingEducation = defineRoute({
   method: "post",
   path: "/v1/continuing-education/{id}/remove",
@@ -296,7 +389,19 @@ export const removeContinuingEducation = defineRoute({
   output: Ce,
 });
 
-const JobSkills = z.object({ id: Uuid, skills: z.array(z.string()), typeSkills: z.array(z.string()) });
+const JobSkills = z.object({
+  id: Uuid,
+  /** What the job asks for beyond its type. */
+  skills: z.array(z.string()),
+  /** What its type asks for, dropped or not. */
+  typeSkills: z.array(z.string()),
+  /** The type's skills this job dropped, each with why, who and when. */
+  dropped: z.array(z.object({
+    skill: z.string(), reason: z.string(), droppedAt: z.string().datetime(), droppedBy: z.string().nullable(),
+  })),
+  /** What is checked for whoever is sent: the type's less the dropped, plus the job's own. */
+  checked: z.array(z.string()),
+});
 
 export const getJobSkills = defineRoute({
   method: "get",
@@ -320,10 +425,35 @@ export const setJobSkills = defineRoute({
   output: JobSkills,
 });
 
+export const dropJobSkill = defineRoute({
+  method: "post",
+  path: "/v1/jobs/{id}/dropped-skills",
+  summary: "Drop one of the job type's skills for this one job, with a reason",
+  description: "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. Dropping a skill already dropped changes nothing.",
+  module: "M10",
+  permissions: ["job:write", "visit:assign_unqualified"],
+  idempotent: true,
+  input: z.object({ id: Uuid, skill: z.string().trim().min(1).max(100), reason: z.string().trim().min(5).max(500) }),
+  output: JobSkills,
+});
+
+export const restoreJobSkill = defineRoute({
+  method: "post",
+  path: "/v1/jobs/{id}/dropped-skills/restore",
+  summary: "Ask for a dropped skill on this job again",
+  description: "Takes the skill off the job's dropped list so it is checked again. Tightens the check, so it needs only job:write. Restoring a skill that is not dropped changes nothing.",
+  module: "M10",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, skill: z.string().trim().min(1).max(100) }),
+  output: JobSkills,
+});
+
 export const peopleRecordRoutes = {
   listPeopleRoster, getPersonRecord, listOnboardingTemplate, addOnboardingTemplateItem, removeOnboardingTemplateItem,
   startOnboarding, setOnboardingLine, addEmergencyContact, removeEmergencyContact, setEmploymentRecord,
-  listTechnicianSkills, recordTechnicianSkill, endTechnicianSkill,
-  listContinuingEducation, logContinuingEducation, removeContinuingEducation,
-  getJobSkills, setJobSkills,
+  listTechnicianSkills, recordTechnicianSkill, setTechnicianSkillExpiry, listExpiringTechnicianSkills, endTechnicianSkill,
+  listContinuingEducation, logContinuingEducation, listPendingContinuingEducation, approveContinuingEducation,
+  declineContinuingEducation, removeContinuingEducation,
+  getJobSkills, setJobSkills, dropJobSkill, restoreJobSkill,
 } as const;

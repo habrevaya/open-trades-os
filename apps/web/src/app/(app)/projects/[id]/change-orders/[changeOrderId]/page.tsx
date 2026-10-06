@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { priceBook, projectChangeOrders, NotFoundError } from "@opentradesos/api/services";
+import { priceBook, projectChangeOrders, projectSchedule, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
@@ -23,10 +23,18 @@ const PRICE_SOURCE: Record<string, string> = {
  * covers the page as sent. Recording a yes given in person is here for the
  * person who may approve on the customer's behalf; the customer's own yes
  * comes through their link.
+ *
+ * Once it is agreed, the days it adds are a proposal here: what would move,
+ * and the finish before and after. A person presses Apply, and what moves is
+ * exactly what they were shown. Nothing moves on its own.
  */
-export default async function ChangeOrderPage({ params }: { params: Promise<{ id: string; changeOrderId: string }> }) {
+export default async function ChangeOrderPage({ params, searchParams }: {
+  params: Promise<{ id: string; changeOrderId: string }>;
+  searchParams: Promise<{ phase?: string }>;
+}) {
   const user = await requireSetupUser();
   const { id, changeOrderId } = await params;
+  const { phase: chosenPhase } = await searchParams;
   const ctx = { actor: user.actor, db: getDb() };
   const order = await projectChangeOrders.get(ctx, { id: changeOrderId }).catch((error: unknown) => {
     if (error instanceof NotFoundError) notFound();
@@ -40,6 +48,12 @@ export default async function ChangeOrderPage({ params }: { params: Promise<{ id
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
     : [];
   const hidden = { projectId: id, changeOrderId };
+  const days = order.status === "approved" && order.scheduleDays
+    ? await projectSchedule.proposeChangeOrderDays(ctx, { id: order.id, ...(chosenPhase ? { phaseId: chosenPhase } : {}) })
+    : null;
+  const phases = days && !days.applied && !order.projectPhaseId
+    ? (await projectSchedule.schedule(ctx, { projectId: id })).phases
+    : [];
   const field = "mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm";
 
   return (
@@ -76,6 +90,52 @@ export default async function ChangeOrderPage({ params }: { params: Promise<{ id
       )}
       {order.status === "void" && (
         <p className="mt-4 rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-900">Withdrawn: {order.voidReason}</p>
+      )}
+
+
+      {days && (
+        <section className="mt-8 max-w-3xl" aria-label="The schedule">
+          <h2 className="text-base font-semibold">The schedule</h2>
+          {days.applied ? (
+            <>
+              <p className="mt-1 text-sm text-ink-700">
+                These {days.applied.days >= 0 ? days.applied.days : -days.applied.days} days were put on the schedule on {days.applied.at.toISOString().slice(0, 10)}.
+                They are not applied twice.
+              </p>
+              <DayChanges changes={days.applied.changes} />
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-ink-500">
+                This change order {order.scheduleDays! >= 0 ? "adds" : "saves"} {Math.abs(order.scheduleDays!)} days.
+                Nothing moves until you apply them.
+              </p>
+              {phases.length > 0 && (
+                <form method="get" className="mt-3 flex flex-wrap items-end gap-2">
+                  <label className="text-sm text-ink-700">Which phase do the days land on?
+                    <select name="phase" defaultValue={chosenPhase ?? ""} className="ml-2 h-9 rounded border border-steel-300 bg-canvas px-2 text-sm">
+                      <option value="" disabled>Choose a phase</option>
+                      {phases.filter((p) => p.status !== "complete").map((p) => <option key={p.id} value={p.id}>{p.sequence}. {p.name}</option>)}
+                    </select>
+                  </label>
+                  <button type="submit" className="h-9 rounded border border-steel-300 px-3 text-sm font-medium">Show what would move</button>
+                </form>
+              )}
+              {days.proposal ? (
+                <div className="mt-3 rounded-md border border-steel-200 bg-canvas p-4">
+                  <p className="text-sm font-medium">{days.proposal.statement}</p>
+                  <DayChanges changes={days.proposal.changes} />
+                  <p className="mt-2 text-xs text-ink-500">Visits already booked stay where they are. The schedule marks anyone left booked twice.</p>
+                  {can(user.actor, "job:write") && (
+                    <ChangeOrderForm submit="Apply to the schedule" hidden={{ ...hidden, op: "apply-days", phaseId: days.phaseId ?? "", proposalKey: days.proposal.key }} />
+                  )}
+                </div>
+              ) : (
+                days.reason && !(phases.length > 0 && !chosenPhase) && <p className="mt-3 text-sm text-ink-700">{days.reason}</p>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       <h2 className="mt-8 text-base font-semibold">Lines</h2>
@@ -186,6 +246,32 @@ export default async function ChangeOrderPage({ params }: { params: Promise<{ id
           </ChangeOrderForm>
         </section>
       )}
+    </div>
+  );
+}
+
+/** The phases a proposal would move, or did move, with their dates before and after. */
+function DayChanges({ changes }: { changes: { id: string; name: string; wasStartsOn: string; wasEndsOn: string; startsOn: string; endsOn: string }[] }) {
+  return (
+    <div className="mt-2 overflow-x-auto rounded-md border border-steel-200">
+      <table className="w-full text-sm">
+        <thead className="bg-steel-100 text-left text-ink-700">
+          <tr>
+            <th className="px-3 py-2 font-medium">Phase</th>
+            <th className="px-3 py-2 font-medium">Now</th>
+            <th className="px-3 py-2 font-medium">After</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-steel-200 bg-canvas">
+          {changes.map((change) => (
+            <tr key={change.id}>
+              <td className="px-3 py-2">{change.name}</td>
+              <td className="px-3 py-2 tabular-nums">{change.wasStartsOn} to {change.wasEndsOn}</td>
+              <td className="px-3 py-2 tabular-nums">{change.startsOn} to {change.endsOn}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

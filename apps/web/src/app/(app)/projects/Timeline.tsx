@@ -16,6 +16,18 @@ export interface TimelinePhase {
   critical: boolean;
   overlapsPredecessor: boolean;
   people: string;
+  /** Who is booked twice on this phase and another that runs at once. */
+  clashNames: string[];
+}
+
+export interface TimelineClash {
+  /** Stable per person and pair of phases. */
+  key: string;
+  name: string;
+  phaseIds: [string, string];
+  from: string;
+  to: string;
+  statement: string;
 }
 
 const DAY = 86_400_000;
@@ -38,9 +50,14 @@ const LABEL = 208;
  * back with the sentence under the chart. The keyboard does the same with
  * the arrow keys on a focused bar, a day at a time, because a schedule only
  * a mouse can change is one some people cannot change.
+ *
+ * A PERSON BOOKED ON TWO PHASES AT ONCE is marked, not moved: an amber strip
+ * under both bars across the days they overlap, the words "Booked twice" and
+ * the name on each bar, and the sentence (who, which phases, which days) in a
+ * list under the chart. Colour is never the only signal.
  */
-export function Timeline({ projectId, phases, today, editable }: {
-  projectId: string; phases: TimelinePhase[]; today: string; editable: boolean;
+export function Timeline({ projectId, phases, today, editable, clashes = [] }: {
+  projectId: string; phases: TimelinePhase[]; today: string; editable: boolean; clashes?: TimelineClash[];
 }) {
   const router = useRouter();
   const [drag, setDrag] = useState<{ id: string; startX: number; shift: number } | null>(null);
@@ -141,7 +158,7 @@ export function Timeline({ projectId, phases, today, editable }: {
                   key={phase.id}
                   role="slider"
                   tabIndex={editable ? 0 : -1}
-                  aria-label={`${phase.name}, ${phase.startsOn} to ${phase.endsOn}${phase.critical ? ", critical" : ""}`}
+                  aria-label={`${phase.name}, ${phase.startsOn} to ${phase.endsOn}${phase.critical ? ", critical" : ""}${phase.clashNames.length > 0 ? `, ${phase.clashNames.join(" and ")} booked twice` : ""}`}
                   aria-valuetext={dateOf(start)}
                   aria-valuenow={start}
                   onPointerDown={(e) => onPointerDown(e, phase.id)}
@@ -153,10 +170,30 @@ export function Timeline({ projectId, phases, today, editable }: {
                   className={`absolute flex h-7 select-none items-center overflow-hidden rounded border px-2 text-xs font-medium ${tone} ${editable ? "cursor-grab touch-none" : ""} ${pending === phase.id ? "opacity-60" : ""}`}
                   style={{ left: `${pct(start)}%`, width: `${Math.max(pct(end) - pct(start), 1.5)}%`, top: 28 + row * ROW + (ROW - 28) / 2 }}
                 >
-                  <span className="truncate">{phase.critical ? "Critical: " : ""}{shift !== 0 ? dateOf(start) : phase.people}</span>
+                  <span className="truncate">
+                    {phase.critical ? "Critical: " : ""}
+                    {phase.clashNames.length > 0 ? `Booked twice: ${phase.clashNames.join(", ")}` : shift !== 0 ? dateOf(start) : phase.people}
+                  </span>
                 </div>
               );
             })}
+            {clashes.flatMap((clash) => clash.phaseIds.map((phaseId) => {
+              const row = rowOf.get(phaseId);
+              if (row === undefined) return null;
+              return (
+                <div
+                  key={`${clash.key}-${phaseId}`}
+                  data-clash={clash.name}
+                  title={clash.statement}
+                  className="pointer-events-none absolute h-1.5 rounded-sm bg-amber-700"
+                  style={{
+                    left: `${pct(dayOf(clash.from))}%`,
+                    width: `${Math.max(pct(dayOf(clash.to) + 1) - pct(dayOf(clash.from)), 0.8)}%`,
+                    top: 28 + row * ROW + ROW - 9,
+                  }}
+                />
+              );
+            }))}
           </div>
           {phases.map((phase, row) => (
             <div key={phase.id} className="absolute left-0 flex flex-col justify-center px-3 text-sm" style={{ top: 28 + row * ROW, height: ROW, width: LABEL }}>
@@ -169,6 +206,15 @@ export function Timeline({ projectId, phases, today, editable }: {
           ))}
         </div>
       </div>
+      {clashes.length > 0 && (
+        <div className="mt-3 rounded-md border border-amber-700 bg-amber-tint p-3 text-sm text-ink-900" aria-label="Booked twice">
+          <p className="font-medium">Booked twice</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {clashes.map((clash) => <li key={clash.key}>{clash.statement}</li>)}
+          </ul>
+          <p className="mt-2 text-xs text-ink-700">Nobody has been moved. Change who is booked on the dispatch board.</p>
+        </div>
+      )}
       {message && <p role="alert" className="mt-2 text-sm text-red-600">{message}</p>}
       {editable && <p className="mt-2 text-xs text-ink-500">Drag a bar, or focus it and use the arrow keys, to move a phase. Everything waiting for it moves with it.</p>}
     </div>

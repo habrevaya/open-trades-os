@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { people } from "@opentradesos/api/services";
+import { people, peopleRecords } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
@@ -18,6 +18,11 @@ const input = "h-9 rounded border border-steel-300 px-2 text-sm";
  * has seen the card, and what is about to run out. A certification type can
  * name the skills it unlocks, which is what lets dispatch refuse to send an
  * unlicensed technician to work that needs one.
+ *
+ * Hours of continuing education a person logged themselves wait here for the
+ * office, with the photograph of the certificate, and count toward a renewal
+ * only once approved. Skills with their own expiry are listed beside the
+ * certifications that are about to run out.
  */
 export default async function CertificationsPage() {
   const user = await requireSetupUser();
@@ -33,10 +38,13 @@ export default async function CertificationsPage() {
   }
 
   const writes = can(user.actor, "compliance:write");
-  const [{ types }, { certifications }, { expiring }] = await Promise.all([
+  const [{ types }, { certifications }, { expiring }, waiting, skillsDue] = await Promise.all([
     people.handlers.listCertificationTypes(ctx),
     people.handlers.listCertifications(ctx, {}),
     people.handlers.listExpiringCertifications(ctx, {}),
+    peopleRecords.pendingContinuingEducation(ctx),
+    /** Skills are the roster's records (`user:read`), so somebody who reads only certifications sees none. */
+    can(user.actor, "user:read") ? peopleRecords.expiringSkills(ctx, {}) : Promise.resolve([]),
   ]);
   const technicians = writes && can(user.actor, "user:read")
     ? (await people.handlers.listPeople(ctx, {})).people.filter((p) => p.technicianId && p.active)
@@ -48,6 +56,58 @@ export default async function CertificationsPage() {
 
       <h2 className="mt-6 text-base font-semibold">Due for renewal</h2>
       <ExpiringList rows={expiring} />
+
+      {skillsDue.length > 0 && (
+        <section className="mt-8" aria-label="Skills due for renewal">
+          <h2 className="text-base font-semibold">Skills due for renewal</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            A skill with its own last day stops counting for the board from the day after it. Set a new last day on the
+            person&apos;s page when it has been shown again.
+          </p>
+          <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {skillsDue.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center gap-3 bg-canvas p-3 text-sm">
+                <span className="flex-1"><span className="font-medium">{s.technicianName}</span> · <span className="font-mono">{s.skill}</span></span>
+                <span className="text-ink-700">{s.expiresOn}</span>
+                {s.current
+                  ? <Chip tone="warning">{s.daysRemaining} {s.daysRemaining === 1 ? "day" : "days"} left</Chip>
+                  : <Chip tone="danger">Ran out {-s.daysRemaining} {s.daysRemaining === -1 ? "day" : "days"} ago</Chip>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {waiting.length > 0 && (
+        <section className="mt-8" aria-label="Hours waiting for the office">
+          <h2 className="text-base font-semibold">Hours waiting for you</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            People logged these themselves. Look at the certificate, then approve them. Only approved hours count toward a renewal.
+          </p>
+          <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {waiting.map((w) => (
+              <li key={w.id} className="bg-canvas p-3 text-sm">
+                <p>
+                  <span className="font-medium">{w.technicianName}</span>: {w.hours} hours of {w.course}
+                  {w.provider ? `, ${w.provider}` : ""}, finished {w.completedOn}, toward {w.certificationName}.
+                  {w.evidence ? ` Certificate number ${w.evidence}.` : ""}{" "}
+                  {w.certificates > 0
+                    ? <a href={`/certifications/continuing-education/${w.id}/certificate`} target="_blank" rel="noreferrer" className="text-blue-600 underline underline-offset-4">Look at the certificate</a>
+                    : <span className="text-amber-700">No certificate was attached.</span>}
+                </p>
+                {writes && (
+                  <div className="mt-2 flex flex-wrap items-end gap-3">
+                    <ActionForm op="ce-approve" label="Approve" hidden={{ id: w.id }} />
+                    <ActionForm op="ce-decline" label="Decline" quiet hidden={{ id: w.id }} className="flex items-center gap-2">
+                      <input name="reason" required aria-label={`Why ${w.technicianName}'s hours are declined`} placeholder="Why, so they can fix it" className={`${input} w-64`} />
+                    </ActionForm>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <h2 className="mt-8 text-base font-semibold">Who holds what</h2>
       <HoldingsByPerson

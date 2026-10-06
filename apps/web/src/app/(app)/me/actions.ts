@@ -100,9 +100,12 @@ function minutesOf(value: string | undefined): number | undefined {
 /**
  * Asking for days off, as whole days in the company's own zone: from the
  * start of the first day to the end of the last. Or, when both times are
- * filled in, part of ONE day, from the first time to the second in the same
- * zone: the route takes any two instants, and a screen that took a range of
- * days with hours on the ends would be asking for something nobody means.
+ * filled in, from the first time on the first day to the second time on the
+ * last day: part of one day when they are the same day, and part of the first
+ * and part of the last of a run otherwise ("from 1 PM Monday to noon
+ * Wednesday", which is all of Tuesday in between). The route takes any two
+ * instants, so this is only how the form says them. One time without the other
+ * is refused, because half of a pair is a guess.
  */
 export async function requestTimeOff(_previous: FormState, form: FormData): Promise<FormState> {
   const user = await requireSetupUser();
@@ -122,12 +125,10 @@ export async function requestTimeOff(_previous: FormState, form: FormData): Prom
       if (begins === undefined || ends === undefined) {
         throw new ConflictError("For part of a day, say when it starts and when it ends.");
       }
-      if (to !== from) {
-        throw new ConflictError("Part of a day is for one day. Ask for each day on its own, or ask for whole days.");
-      }
-      if (ends <= begins) throw new ConflictError("It has to end after it starts.");
+      /** On one day the end has to come after the start; across days any two times do. */
+      if (to === from && ends <= begins) throw new ConflictError("It has to end after it starts.");
       startsAt = time.instantOfLocal(from, begins, zone);
-      endsAt = time.instantOfLocal(from, ends, zone);
+      endsAt = time.instantOfLocal(to, ends, zone);
     }
     await timeOff.request({ actor: user.actor, db: getDb() }, {
       startsAt: startsAt.toISOString(),
@@ -181,5 +182,33 @@ export async function addReceipt(_previous: FormState, form: FormData): Promise<
     return { message: "Added." };
   });
   if (state?.done) revalidatePath("/me/expenses");
+  return state;
+}
+
+/**
+ * Hours of a course they took, with a photograph of the certificate. They wait
+ * for the office and are not counted toward a renewal until approved.
+ */
+export async function logCeHours(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const certificate = await fileAsBase64(form.get("certificate"));
+    await me.logOwnContinuingEducation(await ctx(), {
+      certificationTypeId: field(form, "certificationTypeId") ?? "",
+      completedOn: field(form, "completedOn") ?? "",
+      hours: field(form, "hours") ?? "",
+      course: field(form, "course") ?? "",
+      provider: field(form, "provider") ?? null,
+      evidence: field(form, "evidence") ?? null,
+      ...(certificate ? { certificate } : {}),
+    });
+    return { message: "Sent to the office. The hours count once they have looked at the certificate." };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+export async function withdrawCeHours(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => me.withdrawOwnContinuingEducation(await ctx(), { id: String(form.get("id") ?? "") }));
+  if (state?.done) refresh();
   return state;
 }

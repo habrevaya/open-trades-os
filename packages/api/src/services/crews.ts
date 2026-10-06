@@ -968,6 +968,7 @@ async function loadJob(tx: Database, organizationId: string, id: string, ctx?: S
     requiredAssetIds: schema.jobType.requiredAssetIds,
     requiredSkills: schema.jobType.requiredSkills,
     jobSkills: schema.job.requiredSkills,
+    droppedSkills: schema.job.droppedSkills,
   }).from(schema.job)
     .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
     .where(and(
@@ -985,7 +986,7 @@ async function loadJob(tx: Database, organizationId: string, id: string, ctx?: S
     jobTypeId: row.jobTypeId,
     requiredAssetIds: row.requiredAssetIds ?? [],
     /** The type's skills and the job's own, checked together like everywhere else. */
-    requiredSkills: workSkills(row.requiredSkills, row.jobSkills),
+    requiredSkills: workSkills(row.requiredSkills, row.jobSkills, row.droppedSkills),
   };
 }
 

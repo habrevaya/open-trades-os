@@ -1,6 +1,6 @@
-import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, money, rate } from "./_shared";
-import { organization, businessUnit } from "./tenancy";
+import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
 import { invoice } from "./billing";
@@ -309,8 +309,27 @@ export const projectChangeOrder = pgTable("project_change_order", {
    * to the contract. Null for work that is its own line on the schedule.
    */
   projectPhaseId: uuid("project_phase_id").references(() => projectPhase.id, { onDelete: "set null" }),
-  /** Days the change adds to the programme, or takes off when negative. Printed, not applied. */
+  /**
+   * Days the change adds to the programme, or takes off when negative. They
+   * are printed on the change order, and moved onto the schedule only when a
+   * person looks at the proposal and applies it (`scheduleAppliedAt`).
+   */
   scheduleDays: integer("schedule_days"),
+  /**
+   * WHEN A PERSON APPLIED THOSE DAYS TO THE SCHEDULE, and what that moved.
+   * Null until then. Once set the days are never applied again, because
+   * applying them twice would push every later phase out twice; a retry of the
+   * same call reads this and answers with what was done. The phase and the
+   * moves are kept as they were applied, so the change order says what it did
+   * to the programme even after somebody drags the phases again.
+   */
+  scheduleAppliedAt: timestamp("schedule_applied_at", { withTimezone: true }),
+  scheduleAppliedBy: uuid("schedule_applied_by").references(() => user.id, { onDelete: "set null" }),
+  scheduleApplied: jsonb("schedule_applied").$type<{
+    phaseId: string;
+    days: number;
+    moves: { id: string; startsOn: string; endsOn: string; wasStartsOn: string; wasEndsOn: string }[];
+  }>(),
   /** The lines added up, rounded line by line. Negative for a credit. */
   amount: money("amount").notNull().default("0"),
   /** Our cost of the lines. Null when a line has no cost, which is unknown rather than zero. */

@@ -23,12 +23,13 @@ export async function assignVisit(input: {
   /** Send them although the qualification check refused, with the reason the audit log keeps. */
   overrideReason?: string;
 }): Promise<
-  | { ok: true; unknownSkills: string[] }
+  | { ok: true; unknownSkills: string[]; droppedSkills: { skill: string; reason: string }[] }
   | { ok: false; message: string; qualification?: { mayOverride: boolean } }
 > {
   const user = await requireSetupUser();
 
   let unknownSkills: string[] = [];
+  let droppedSkills: { skill: string; reason: string }[] = [];
   try {
     const result = await dispatch.assign(
       { actor: user.actor, db: getDb() },
@@ -39,6 +40,7 @@ export async function assignVisit(input: {
       },
     );
     unknownSkills = result.unknownSkills;
+    droppedSkills = result.droppedSkills;
   } catch (error) {
     /**
      * A qualification refusal comes back with whether this person may send
@@ -56,7 +58,7 @@ export async function assignVisit(input: {
   }
 
   revalidatePath("/schedule");
-  return { ok: true, unknownSkills };
+  return { ok: true, unknownSkills, droppedSkills };
 }
 
 /**

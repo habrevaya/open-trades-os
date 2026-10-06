@@ -151,15 +151,26 @@ in.
 
 A technician asks for days off on `/me/time-off` (`POST /v1/time-off`, with
 `timeclock:own`), and sees each request's answer there. The form takes a first
-and last day, which is whole days; or one day with "Only part of the day: from"
-and "until", which is those hours in the company's own clock (a lunch hour to the
-end of the afternoon, say). Half of the two times is refused in words, as is a
-range of days with times, and an end before the start. The request and the
-approval queue say the hours ("Tue, Oct 6, 1:00 PM to 5:00 PM"). What part of a
-day off does elsewhere: the booking page keeps customers off exactly those hours,
-and the dispatch board and the crew check count a technician with any approved
-leave on a day as off for the whole of it, which is the conservative reading for
-the people planning the day. Whoever approves the
+and last day, which is whole days; or, with "Only part of the day: from" and
+"until" as well, those times in the company's own clock: on one day, a lunch hour
+to the end of the afternoon, and across several days, from a time on the first
+day to a time on the last ("from 1 PM Monday to noon Wednesday", which is all of
+Tuesday in between). Half of the two times is refused in words, as is an end
+before the start on one day. A request is any two instants, so a run that begins
+and ends part way through is one request and one approval. The request and the
+approval queue say the hours ("Tue, Oct 6, 1:00 PM to 5:00 PM", "Mon, Oct 5,
+1:00 PM to Wed, Oct 7, 12:00 PM"). What part of a day off does elsewhere: the
+booking page keeps customers off exactly those hours, booking a visit is refused
+only inside them, and the dispatch board reads it the same way (`GET
+/v1/dispatch/board`): each technician has `timeOff` (some approved leave on the
+day, which is how clients written before the hours existed read it), `timeOffWholeDay`
+and `timeOffHours`, the part hours of the day joined and clipped to it. The column
+says "Off 1:00 PM to the end of the day." and warns of the jobs that run into those
+hours only, and the rest of the day is theirs to be given work; a whole day says
+"Off today.", and a leave that only touches the day (it begins the instant today ends)
+is not on it. The crew check, the map's suggestions and the multi day rebalance still
+count a technician with any approved leave on a day as off for the whole of it, which
+is the conservative reading for the people planning the day. Whoever approves the
 hours answers on `/timesheets/time-off` (`GET /v1/time-off/pending`,
 `POST /v1/time-off/{id}/approve`, `POST /v1/time-off/{id}/decline`, all
 `timesheet:approve`), which also lists the leave already granted that is still
@@ -435,7 +446,10 @@ against the tax authority's allowance. Certified payroll reporting is not built.
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.
-Part of a day off is one day with two times: there is no leave that is part of
-the first day and part of the last of a run of days (ask for the whole days and a
-part day separately), and the dispatch board shows a technician with part of a day
-off as off for that whole day.
+Part of a day off is read by the hour on the booking page, in booking a visit and
+on the dispatch board; the crew check, the dispatch map's suggestions and the multi
+day rebalance still treat any leave on a day as the whole day, so they will not put
+somebody on a day they have a few hours off, which is careful and not exact. There is
+no leave of part of the first day and a different part of the last other than the one
+pair of times (from a time on the first day to a time on the last), and no recurring
+part day off.

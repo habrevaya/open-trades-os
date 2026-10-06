@@ -206,6 +206,21 @@ export const job = pgTable("job", {
    * checked for the work, never instead of it.
    */
   requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
+  /**
+   * SKILLS OF ITS TYPE THIS ONE JOB DOES NOT NEED, each with why.
+   *
+   * The other direction from `required_skills`: a job type says what its work
+   * ordinarily needs, and an unusual job (the unit is already isolated, the
+   * licensed part was done last week) does not need one of those. Dropping it
+   * is a decision with a reason somebody can read later, and it is made with
+   * the same permission as sending somebody unqualified, because it lets
+   * people be sent without that skill with no override. Only skills the
+   * job's TYPE asks for can be dropped; an entry for a skill the type no
+   * longer asks for is inert.
+   */
+  droppedSkills: jsonb("dropped_skills")
+    .$type<Array<{ skill: string; reason: string; droppedAt: string; droppedByUserId: string | null }>>()
+    .notNull().default([]),
   total: money("total"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),

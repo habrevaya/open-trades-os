@@ -1,4 +1,6 @@
-import { test, expect, run, companyToday } from "./fixtures";
+import { sql } from "drizzle-orm";
+import { createClient } from "@opentradesos/db";
+import { test, expect, run, companyToday, newCustomer } from "./fixtures";
 
 /**
  * A NEW TECHNICIAN'S FIRST WEEK, FROM BOTH SIDES OF THE COUNTER
@@ -156,4 +158,193 @@ test("a technician completes onboarding and asks for a day off that the office a
   await owner.goto("/timesheets/time-off");
   await expect(owner.getByRole("region", { name: "Waiting for an answer" }).getByRole("row").filter({ hasText: "Dentist" }))
     .toContainText("1:00 PM to 5:00 PM");
+});
+
+test("a job drops one of its type's skills with a reason that stays on the job, and can ask for it again", async ({ owner }) => {
+  const typeName = `Furnace swap ${run}`;
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      insert into public.job_type (organization_id, name, code, required_skills)
+      select id, ${typeName}, ${`FS${run.slice(-6).toUpperCase()}`}, '["epa_608", "gas_fitter"]'::jsonb
+        from public.organization where slug = 'ridgeline'`);
+  } finally {
+    await db.$close();
+  }
+  const customerId = await newCustomer(owner, {
+    name: `Pat Gray ${run}`, address: { street: "3 Ash Ct", city: "Austin", state: "TX", zip: "78704" },
+  });
+  await owner.goto(`/jobs/new?customer=${customerId}`);
+  await owner.getByLabel("Summary").fill(`Swap a furnace, gas already off ${run}`);
+  await owner.getByLabel("Job type").selectOption({ label: typeName });
+  await owner.getByRole("button", { name: "Book job" }).click();
+  await expect(owner).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+
+  const skills = owner.getByRole("region", { name: "Skills this work needs" });
+  await expect(skills).toContainText("From its job type: epa_608, gas_fitter.");
+  const drop = skills.getByRole("group", { name: "This job does not need one of them" });
+  await drop.getByLabel("Skill").selectOption("epa_608");
+
+  await drop.getByLabel("Why this job does not need it").fill("The refrigerant side was done last week");
+  await drop.getByRole("button", { name: "Drop it for this job" }).click();
+  const dropped = skills.getByRole("list", { name: "Skills this job does not need" });
+  await expect(dropped).toContainText("Not needed on this job: epa_608.");
+  await expect(dropped).toContainText("The refrigerant side was done last week");
+
+  /** It survives a reload, and the type's other skill is still asked. */
+  await owner.reload();
+  await expect(owner.getByRole("list", { name: "Skills this job does not need" })).toContainText("The refrigerant side was done last week");
+  await expect(owner.getByRole("group", { name: "This job does not need one of them" }).getByLabel("Skill"))
+    .not.toContainText("epa_608");
+
+  await owner.getByRole("button", { name: "Ask for it again" }).click();
+  await expect(owner.getByRole("list", { name: "Skills this job does not need" })).toHaveCount(0);
+});
+
+/** A technician with a login of their own record, made for one test and taken away after it. */
+async function oneTechnician(db: ReturnType<typeof createClient>, name: string): Promise<{ membershipId: string; cleanup: () => Promise<void> }> {
+  const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}@e2e.test`;
+  const [user] = await db.execute<{ id: string }>(sql`insert into public."user" (email, name) values (${email}, ${name}) returning id`);
+  const [member] = await db.execute<{ id: string; organization_id: string }>(sql`
+    insert into public.membership (organization_id, user_id, role)
+    select id, ${user!.id}, 'technician' from public.organization where slug = 'ridgeline' returning id, organization_id`);
+  await db.execute(sql`insert into public.technician (organization_id, membership_id, display_name)
+    values (${member!.organization_id}, ${member!.id}, ${name})`);
+  return {
+    membershipId: member!.id,
+    cleanup: async () => {
+      await db.execute(sql`delete from public.technician where membership_id = ${member!.id}`);
+      await db.execute(sql`delete from public.membership where id = ${member!.id}`);
+      await db.execute(sql`delete from public."user" where id = ${user!.id}`);
+    },
+  };
+}
+
+test("a skill with its own last day is warned like a certification, and moving the day clears the warning", async ({ owner }) => {
+  const name = `Sky Stone ${run}`;
+  const db = createClient();
+  const person = await oneTechnician(db, name);
+  try {
+    await owner.goto(`/people/${person.membershipId}`);
+    const skills = owner.getByRole("region", { name: "Skills the board checks" });
+    await skills.getByLabel("Skill", { exact: true }).fill("forklift");
+    await skills.getByLabel("Since").fill(companyDay(-60));
+    await skills.getByLabel("What showed it").fill("Operator course, card 77");
+    await skills.getByLabel("Last day it stands, if it runs out").fill(companyDay(12));
+    await skills.getByRole("button", { name: "Record skill" }).click();
+    await expect(skills).toContainText(`Runs out ${companyDay(12)}`);
+
+    await owner.goto("/certifications");
+    const due = owner.getByRole("region", { name: "Skills due for renewal" });
+    await expect(due).toContainText(name);
+    await expect(due).toContainText("forklift");
+    await expect(due).toContainText("12 days left");
+
+    /** Shown again: the new last day is well beyond its notice period, so the warning goes. */
+    await owner.goto(`/people/${person.membershipId}`);
+    await owner.getByLabel("Last day forklift stands").fill(companyDay(400));
+    await owner.getByRole("button", { name: "Set last day" }).click();
+    await expect(owner.getByRole("region", { name: "Skills the board checks" })).toContainText(`good until ${companyDay(400)}`);
+    await owner.goto("/certifications");
+    await expect(owner.getByRole("region", { name: "Skills due for renewal" }).filter({ hasText: name })).toHaveCount(0);
+  } finally {
+    await person.cleanup();
+    await db.$close();
+  }
+});
+
+test("a technician logs course hours with a photograph of the certificate, the office approves them, and only then do they count", async ({ owner, tech }) => {
+  const kind = `State licence ${run}`;
+  const course = `Refrigerant safety ${run}`;
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      insert into public.certification_type (organization_id, code, name, ce_hours_required, default_valid_months)
+      select id, ${`CE${run.slice(-8).toUpperCase()}`}, ${kind}, 8, 12 from public.organization where slug = 'ridgeline'`);
+  } finally {
+    await db.$close();
+  }
+
+  await tech.goto("/me");
+  const form = tech.getByRole("group", { name: "Log hours of a course" });
+  await form.getByLabel("Toward").selectOption({ label: `${kind} (8 hours to renew)` });
+  await form.getByLabel("Course", { exact: true }).fill(course);
+  await form.getByLabel("Hours", { exact: true }).fill("4");
+  await form.getByLabel("Photo of the certificate").setInputFiles({
+    name: "certificate.png", mimeType: "image/png",
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 7]),
+  });
+  await form.getByRole("button", { name: "Send the hours" }).click();
+  const mine = tech.getByRole("list", { name: "Hours you logged" });
+  await expect(mine).toContainText(course);
+  await expect(mine).toContainText("Waiting for the office");
+
+  /** Waiting hours are shown beside the progress and not counted in it. */
+  await expect(tech.getByText(/4 more hours wait for the office/)).toBeVisible();
+
+  await owner.goto("/certifications");
+  const waiting = owner.getByRole("region", { name: "Hours waiting for the office" });
+  const line = waiting.getByRole("listitem").filter({ hasText: course });
+  await expect(line).toContainText(`4 hours of ${course}`);
+  const link = line.getByRole("link", { name: "Look at the certificate" });
+  const photo = await owner.request.get((await link.getAttribute("href"))!);
+  expect(photo.status()).toBe(200);
+  expect(photo.headers()["content-type"]).toBe("image/png");
+
+  await line.getByRole("button", { name: "Approve" }).click();
+  await expect(waiting.getByRole("listitem").filter({ hasText: course })).toHaveCount(0);
+
+  await tech.reload();
+  await expect(tech.getByRole("list", { name: "Hours you logged" })).toContainText("Counted");
+  await expect(tech.getByText(/4 of 8 hours/)).toBeVisible();
+});
+
+test("a run of days off that begins after lunch and ends before noon, and the board shows only those hours", async ({ owner, tech }) => {
+  const first = companyDay(40);
+  const last = companyDay(42);
+  const why = `Family trip ${run}`;
+  await tech.goto("/me/time-off");
+  await tech.getByLabel("First day off").fill(first);
+  await tech.getByLabel("Last day off").fill(last);
+  /** Half of a pair is still refused in words. */
+  await tech.getByLabel("Only part of the day: from").fill("13:00");
+  await tech.getByLabel("Why (optional)").fill(why);
+  await tech.getByRole("button", { name: "Ask for these days" }).click();
+  await expect(tech.getByRole("alert").filter({ hasText: "say when it starts and when it ends" })).toBeVisible();
+  await tech.getByLabel("Only part of the day: until").fill("12:00");
+  await tech.getByRole("button", { name: "Ask for these days" }).click();
+  const asked = tech.getByRole("listitem").filter({ hasText: why });
+  await expect(asked).toContainText("1:00 PM to");
+  await expect(asked).toContainText("12:00 PM");
+  await expect(asked).toContainText("Waiting for an answer");
+
+  await owner.goto("/timesheets/time-off");
+  const queue = owner.getByRole("region", { name: "Waiting for an answer" }).getByRole("row").filter({ hasText: why });
+  await expect(queue).toContainText("1:00 PM");
+  await queue.getByRole("button", { name: /^Approve/ }).click();
+  await expect(owner.getByRole("region", { name: "Approved, still to come" }).getByRole("row").filter({ hasText: why })).toBeVisible();
+
+  try {
+    /** The first day: off from one o'clock, and only from then. */
+    await owner.goto(`/schedule?date=${first}`);
+    await expect(owner.getByText("Off 1:00 PM to the end of the day.")).toBeVisible();
+    await expect(owner.getByText("Off today.")).toHaveCount(0);
+    /** The day in between is all of it. */
+    await owner.goto(`/schedule?date=${companyDay(41)}`);
+    await expect(owner.getByText("Off today.")).toBeVisible();
+    /** The last day: off until noon, then back. */
+    await owner.goto(`/schedule?date=${last}`);
+    await expect(owner.getByText("Off the start of the day to 12:00 PM.")).toBeVisible();
+    await expect(owner.getByText("Off today.")).toHaveCount(0);
+    /** The day after is not off at all. */
+    await owner.goto(`/schedule?date=${companyDay(43)}`);
+    await expect(owner.getByText(/^Off /)).toHaveCount(0);
+  } finally {
+    const db = createClient();
+    try {
+      await db.execute(sql`delete from public.time_off where reason = ${why}`);
+    } finally {
+      await db.$close();
+    }
+  }
 });

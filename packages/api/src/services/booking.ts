@@ -18,7 +18,7 @@ import type {
   createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
 import { portalBase } from "../lib/portal-base";
-import { qualifyDays } from "./qualification";
+import { qualifyDays, workSkills } from "./qualification";
 import { loadHolidays } from "./holidays";
 
 
@@ -480,6 +480,15 @@ export async function capacityReader(db: Database, input: {
   }).from(schema.jobType)
     .where(and(eq(schema.jobType.id, input.service.jobTypeId), eq(schema.jobType.organizationId, org))).limit(1) : [];
   const duration = input.durationMinutes ?? type?.minutes ?? 60;
+  /**
+   * When the question is about one job's own booking, that job's skills count:
+   * what it asks for beyond its type and what it dropped from it, so room is
+   * counted for the people who may actually be sent.
+   */
+  const [own] = input.exceptJobId ? await db.select({
+    skills: schema.job.requiredSkills, dropped: schema.job.droppedSkills,
+  }).from(schema.job)
+    .where(and(eq(schema.job.id, input.exceptJobId), eq(schema.job.organizationId, org))).limit(1) : [];
 
   const people = await db.select({ id: schema.technician.id }).from(schema.technician)
     .where(and(
@@ -490,7 +499,8 @@ export async function capacityReader(db: Database, input: {
   if (people.length === 0) return null;
   /** Asked for each day shown, because a certification can lapse in the middle of the calendar. */
   const verdictsOn = await qualifyDays(db, org, {
-    technicianIds: people.map((p) => p.id), skills: type?.skills ?? [], from: input.from, until: input.until,
+    technicianIds: people.map((p) => p.id), skills: workSkills(type?.skills, own?.skills, own?.dropped),
+    from: input.from, until: input.until,
   });
 
   /** A day either side, because a company's day is not a UTC day. */

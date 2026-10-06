@@ -273,7 +273,8 @@ run("a tip left with a payment is shared by the company's rule", () => {
     expect(result.results[0]!.status).toBe("applied");
     const shares = await raw<{ technician_id: string; amount: string; split_rule: string; split_note: string | null }[]>`
       select s.technician_id, s.amount::text, s.split_rule, s.split_note from public.tip_share s
-        join public.payment p on p.id = s.payment_id where p.tip_amount = ${tip}::numeric order by s.created_at desc, s.technician_id`;
+        join public.payment p on p.id = s.payment_id
+        where p.organization_id = ${ORG} and p.tip_amount = ${tip}::numeric order by s.created_at desc, s.technician_id`;
     return shares;
   }
 
@@ -324,7 +325,7 @@ run("a tip left with a payment is shared by the company's rule", () => {
     const after = await tipped(visitId, "22.00");
     expect(byPerson(after)).toEqual({ ray: "22.0000" });
     const [stillThere] = await raw`select count(*)::int as n from public.tip_share s join public.payment p on p.id = s.payment_id
-      where p.tip_amount = 20 and s.split_rule = 'even'`;
+      where p.organization_id = ${ORG} and p.tip_amount = 20 and s.split_rule = 'even'`;
     expect((stillThere as { n: number }).n).toBe(before.length);
   });
 

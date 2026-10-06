@@ -6,7 +6,8 @@ import { getDb } from "@/lib/db";
 import { peopleRecords, staffDocuments } from "@opentradesos/api/services";
 import {
   addEmergencyContact, addOnboardingTemplateItem, askToSignStaffDocument, createStaffDocument,
-  logContinuingEducation, recordTechnicianSkill, setEmploymentRecord, setOnboardingLine,
+  declineContinuingEducation, logContinuingEducation, recordTechnicianSkill, setEmploymentRecord, setOnboardingLine,
+  setTechnicianSkillExpiry,
 } from "@opentradesos/api/contracts";
 import { attempt, field, fields, parsed, type FormState } from "@/lib/actions";
 
@@ -120,9 +121,42 @@ export async function recordSkillAction(_previous: FormState, form: FormData): P
       skill: field(form, "skill") ?? "",
       since: field(form, "since"),
       evidence: field(form, "evidence") ?? "",
+      expiresOn: field(form, "expiresOn") ?? null,
     }));
   });
   if (state?.done) refresh(membershipId);
+  return state;
+}
+
+/** Give a skill record its own last day, move it when the skill is shown again, or clear it (blank). */
+export async function setSkillExpiryAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const membershipId = String(form.get("membershipId") ?? "");
+  const state = await attempt(form, async () => {
+    await peopleRecords.setSkillExpiry(await ctx(), parsed(setTechnicianSkillExpiry.input, {
+      id: String(form.get("id") ?? ""),
+      expiresOn: field(form, "expiresOn") ?? null,
+    }));
+  });
+  if (state?.done) refresh(membershipId);
+  return state;
+}
+
+/** The office has looked at a person's own hours and the certificate with them. */
+export async function approveCeAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    await peopleRecords.approveContinuingEducation(await ctx(), { id: String(form.get("id") ?? "") });
+  });
+  if (state?.done) { revalidatePath("/certifications"); revalidatePath("/people"); }
+  return state;
+}
+
+export async function declineCeAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    await peopleRecords.declineContinuingEducation(await ctx(), parsed(declineContinuingEducation.input, {
+      id: String(form.get("id") ?? ""), reason: field(form, "reason") ?? "",
+    }));
+  });
+  if (state?.done) { revalidatePath("/certifications"); revalidatePath("/people"); }
   return state;
 }
 

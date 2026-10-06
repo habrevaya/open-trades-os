@@ -40,6 +40,12 @@ export interface SkillEvidence {
   typed: boolean;
   /** Whether ANY active technician in the company has it on their typed list. */
   typedAnywhere: boolean;
+  /**
+   * The day the record behind a typed skill ran out, when it has an expiry and
+   * that day is before the work. A skill on the list whose record has lapsed
+   * does not clear the check, the way a lapsed certification does not.
+   */
+  expiredOn?: string | null | undefined;
 }
 
 export type SkillOutcome = "qualified" | "refused" | "unknown";
@@ -71,6 +77,12 @@ export function judgeSkill(name: string, evidence: SkillEvidence): SkillVerdict 
     case "absent":
       return { skill, outcome: "refused", basis: "certification", explanation: evidence.certifiedExplanation };
     case "uncertified":
+      if (evidence.typed && evidence.expiredOn) {
+        return {
+          skill, outcome: "refused", basis: "profile",
+          explanation: `${name}'s record of ${skill} ran out on ${evidence.expiredOn}. Renew it on their page to send them.`,
+        };
+      }
       if (evidence.typed) {
         return { skill, outcome: "qualified", basis: "profile", explanation: `${name} is recorded as doing ${skill}.` };
       }

@@ -57,8 +57,10 @@ export default async function MyTimeOffPage() {
           <TextField label="Only part of the day: until" name="toTime" type="time" />
           <p className="text-sm text-ink-700 sm:col-span-2">
             Need just a few hours? Put the day in &ldquo;First day off&rdquo;, leave &ldquo;Last day
-            off&rdquo; empty, and fill in both times. The booking page keeps customers off those
-            hours, and the dispatch board shows you as off for that whole day.
+            off&rdquo; empty, and fill in both times. Going for several days but starting after lunch on
+            the first or back in the afternoon on the last? Fill in both days and both times: your time off
+            starts at the first time on the first day and ends at the second time on the last day.
+            The booking page and the dispatch board keep you off exactly those hours and no others.
           </p>
           <TextField label="Why (optional)" name="reason" maxLength={500} className="block sm:col-span-2" />
         </ActionForm>

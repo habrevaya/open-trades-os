@@ -8,7 +8,7 @@ import {
   ConflictError, projectApplications, projectChangeOrders, projectLiens, projectSchedule,
 } from "@opentradesos/api/services";
 import {
-  addChangeOrderLine, createProjectApplication, decideChangeOrder, recordProjectLienRecord,
+  addChangeOrderLine, applyChangeOrderScheduleDays, createProjectApplication, decideChangeOrder, recordProjectLienRecord,
   requestChangeOrder, sendChangeOrder, updateChangeOrder, updateProjectApplication, withdrawChangeOrder,
 } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, refusalOf, type FormState } from "@/lib/actions";
@@ -108,6 +108,15 @@ export async function actOnChangeOrder(_previous: FormState, form: FormData): Pr
         await projectChangeOrders.withdraw(c, parsed(withdrawChangeOrder.input, {
           id: changeOrderId, reason: field(form, "reason") ?? "",
         }));
+        return;
+      case "apply-days":
+        /** The key is what the person was shown; the service refuses it if the schedule moved since. */
+        await projectSchedule.applyChangeOrderDays(c, parsed(applyChangeOrderScheduleDays.input, {
+          id: changeOrderId,
+          phaseId: field(form, "phaseId"),
+          proposalKey: field(form, "proposalKey"),
+        }));
+        revalidatePath(`/projects/${projectId}/schedule`);
         return;
       default:
         throw new ConflictError("Nothing to do.");

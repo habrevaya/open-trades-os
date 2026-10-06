@@ -233,6 +233,32 @@ function scheduleStatement(
   return parts.join(" ");
 }
 
+/**
+ * Every phase that waits for this one, directly or through others, nearest
+ * first. Walks the chain with a seen set, so a ring written by hand in the
+ * database cannot hang it.
+ */
+function downstreamOf(phases: readonly PlannedPhase[], phaseId: string): PlannedPhase[] {
+  const children = new Map<string, PlannedPhase[]>();
+  for (const p of phases) {
+    if (!p.dependsOnPhaseId) continue;
+    const list = children.get(p.dependsOnPhaseId) ?? [];
+    list.push(p);
+    children.set(p.dependsOnPhaseId, list);
+  }
+  const out: PlannedPhase[] = [];
+  const seen = new Set<string>([phaseId]);
+  const queue = [...(children.get(phaseId) ?? [])];
+  while (queue.length > 0) {
+    const next = queue.shift()!;
+    if (seen.has(next.id)) continue;
+    seen.add(next.id);
+    out.push(next);
+    queue.push(...(children.get(next.id) ?? []));
+  }
+  return out;
+}
+
 export interface PhaseMove {
   id: string;
   startsOn: string;
@@ -301,24 +327,7 @@ export function movePhase(
   const shift = daysBetween(phase.startsOn, newStartsOn);
   if (shift === 0) return { ok: true, shiftDays: 0, moves: [] };
 
-  const children = new Map<string, PlannedPhase[]>();
-  for (const p of phases) {
-    if (!p.dependsOnPhaseId) continue;
-    const list = children.get(p.dependsOnPhaseId) ?? [];
-    list.push(p);
-    children.set(p.dependsOnPhaseId, list);
-  }
-
-  const downstream: PlannedPhase[] = [];
-  const seen = new Set<string>([phase.id]);
-  const queue = [...(children.get(phase.id) ?? [])];
-  while (queue.length > 0) {
-    const next = queue.shift()!;
-    if (seen.has(next.id)) continue;
-    seen.add(next.id);
-    downstream.push(next);
-    queue.push(...(children.get(next.id) ?? []));
-  }
+  const downstream = downstreamOf(phases, phase.id);
 
   const finished = downstream.find((p) => p.status === "complete");
   if (finished) {
@@ -334,6 +343,187 @@ export function movePhase(
     endsOn: shiftDate(p.endsOn!, shift),
   }));
   return { ok: true, shiftDays: shift, moves };
+}
+
+/* ------------------------------------------- the days a change order adds */
+
+/** A phase's dates before and after the days are applied. */
+export interface DayChange extends PhaseMove {
+  name: string;
+  wasStartsOn: string;
+  wasEndsOn: string;
+}
+
+export type DaysProposal =
+  | {
+      ok: true;
+      /** The days applied: positive adds, negative takes off. */
+      days: number;
+      phaseId: string;
+      /** The phase itself first, then everything that waits for it, nearest first. */
+      changes: DayChange[];
+      finishBefore: string | null;
+      finishAfter: string | null;
+      /** One sentence for the person deciding, in the words they will read. */
+      statement: string;
+    }
+  | { ok: false; reason: string };
+
+/**
+ * WHAT THE DAYS A CHANGE ORDER ADDS WOULD DO TO THE SCHEDULE, AS A PROPOSAL.
+ *
+ * Pure: it moves nothing, it says what would move. A person reads it and
+ * applies it, and the service applies exactly what was proposed.
+ *
+ * The phase the work lands on gets longer by the days (it keeps its start and
+ * ends later), and everything that waits for it, however far down, moves by
+ * the same days and keeps its length. That is the whole rule, and it is the
+ * rule a person dragging the phase's end would have followed by hand. Days
+ * taken off work the other way, and a phase that would be left with no days
+ * at all is refused rather than being quietly clamped to one.
+ *
+ * Refused, with the sentence, when the phase has no dates (there is nothing to
+ * lengthen), when it is complete (its dates are what happened), and when
+ * something waiting for it is complete (the same rewrite reached sideways).
+ * Phases that do not wait for it do not move, even when they would now clash
+ * with it: the schedule flags clashes and never settles them.
+ */
+export function proposeChangeOrderDays(
+  phases: readonly PlannedPhase[], phaseId: string, days: number,
+): DaysProposal {
+  if (!Number.isInteger(days) || days === 0) {
+    return { ok: false, reason: "This change order has no days to add to the schedule." };
+  }
+  const phase = phases.find((p) => p.id === phaseId);
+  if (!phase) return { ok: false, reason: "That phase is not part of this project." };
+  if (!isScheduled(phase)) {
+    return { ok: false, reason: `${phase.name} has no dates, so there is nothing to lengthen. Give it a start and an end first.` };
+  }
+  if (phase.status === "complete") {
+    return { ok: false, reason: `${phase.name} is complete, so its dates are what happened.` };
+  }
+  const length = durationDays(phase.startsOn, phase.endsOn);
+  if (days < 0 && length + days < 1) {
+    return {
+      ok: false,
+      reason: `${phase.name} runs ${length} ${length === 1 ? "day" : "days"}, `
+        + `so it cannot give up ${-days}. Shorten it by hand if the plan really changed.`,
+    };
+  }
+  const downstream = downstreamOf(phases, phase.id);
+  const finished = downstream.find((p) => p.status === "complete");
+  if (finished) {
+    return {
+      ok: false,
+      reason: `${finished.name} waits for ${phase.name} and is already complete, so moving it would rewrite when it happened.`,
+    };
+  }
+
+  const changes: DayChange[] = [{
+    id: phase.id, name: phase.name,
+    wasStartsOn: phase.startsOn, wasEndsOn: phase.endsOn,
+    startsOn: phase.startsOn, endsOn: shiftDate(phase.endsOn, days),
+  }];
+  for (const next of downstream) {
+    if (!isScheduled(next)) continue;
+    changes.push({
+      id: next.id, name: next.name,
+      wasStartsOn: next.startsOn, wasEndsOn: next.endsOn,
+      startsOn: shiftDate(next.startsOn, days), endsOn: shiftDate(next.endsOn, days),
+    });
+  }
+
+  const after = new Map(changes.map((c) => [c.id, c.endsOn]));
+  const dated = phases.filter(isScheduled);
+  const finishBefore = dated.reduce((max, p) => (p.endsOn > max ? p.endsOn : max), dated[0]!.endsOn);
+  const finishAfter = dated.map((p) => after.get(p.id) ?? p.endsOn).reduce((max, d) => (d > max ? d : max));
+  const word = `${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"}`;
+  const later = changes.length - 1;
+  const statement = `${days > 0 ? "Adds" : "Takes off"} ${word} ${days > 0 ? "to" : "from"} ${phase.name}`
+    + `${later === 0 ? "." : ` and moves ${later} later ${later === 1 ? "phase" : "phases"} ${days > 0 ? "out" : "in"} by the same.`}`
+    + ` ${finishAfter === finishBefore ? `The finish stays ${finishBefore}.` : `The finish moves from ${finishBefore} to ${finishAfter}.`}`;
+  return { ok: true, days, phaseId: phase.id, changes, finishBefore, finishAfter, statement };
+}
+
+/* ------------------------------------------------- one person, two phases */
+
+/**
+ * Somebody (or a crew) booked on a phase on a day, as read from a visit on one
+ * of that phase's jobs that has not happened and has not been cancelled.
+ */
+export interface PhaseBooking {
+  kind: "technician" | "crew";
+  id: string;
+  name: string;
+  phaseId: string;
+  /** The company's calendar day of the visit. */
+  date: string;
+}
+
+export interface PhaseClash {
+  kind: "technician" | "crew";
+  id: string;
+  name: string;
+  /** The two phases, the earlier in the list first. */
+  phaseIds: [string, string];
+  /** The days both phases are planned to run at once. */
+  from: string;
+  to: string;
+  /** How many of the person's booked visits on each phase fall inside those days. */
+  visits: [number, number];
+  /** One sentence naming who, which phases and when. */
+  statement: string;
+}
+
+/**
+ * WHO IS BOOKED ON TWO PHASES AT ONCE.
+ *
+ * Two phases that are planned to run on the same days, and one person with a
+ * visit still to come on each of them inside those days. Flagged and nothing
+ * more: the days are said, and moving anybody is a decision for the person who
+ * knows whether Ray can do both mornings.
+ *
+ * A complete phase is left out (its dates are what happened), and so is a
+ * phase with no dates (nothing is planned to run). Only days that both phases
+ * cover count. One flag per person per pair of phases, in the order the phases
+ * were given.
+ */
+export function findPhaseClashes(
+  phases: readonly PlannedPhase[], bookings: readonly PhaseBooking[],
+): PhaseClash[] {
+  const running = phases.filter(isScheduled).filter((p) => p.status !== "complete");
+  const byWho = new Map<string, PhaseBooking[]>();
+  for (const booking of bookings) {
+    const key = `${booking.kind}:${booking.id}`;
+    const list = byWho.get(key) ?? [];
+    list.push(booking);
+    byWho.set(key, list);
+  }
+
+  const clashes: PhaseClash[] = [];
+  for (const rows of byWho.values()) {
+    const who = rows[0]!;
+    for (let i = 0; i < running.length; i += 1) {
+      for (let j = i + 1; j < running.length; j += 1) {
+        const a = running[i]!;
+        const b = running[j]!;
+        const from = a.startsOn > b.startsOn ? a.startsOn : b.startsOn;
+        const to = a.endsOn < b.endsOn ? a.endsOn : b.endsOn;
+        if (to < from) continue;
+        const within = (phaseId: string) =>
+          rows.filter((r) => r.phaseId === phaseId && r.date >= from && r.date <= to).length;
+        const onA = within(a.id);
+        const onB = within(b.id);
+        if (onA === 0 || onB === 0) continue;
+        clashes.push({
+          kind: who.kind, id: who.id, name: who.name,
+          phaseIds: [a.id, b.id], from, to, visits: [onA, onB],
+          statement: `${who.name} is booked on ${a.name} and ${b.name}, which both run ${from === to ? `on ${from}` : `from ${from} to ${to}`}.`,
+        });
+      }
+    }
+  }
+  return clashes;
 }
 
 /* ------------------------------------------------------------ change orders */

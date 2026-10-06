@@ -1,15 +1,16 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { ROLE_PRESETS, time, type RoleId } from "@opentradesos/core";
+import { ROLE_PRESETS, people as peopleCore, time, type RoleId } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as once from "./once";
 import { held, type HeldCertification } from "./people";
 import {
-  ceWithin, contactsWithin, employmentWithin, onboardingWithin,
-  type CeView, type EmergencyContactView, type EmploymentView, type OnboardingView,
+  ceWithin, contactsWithin, employmentWithin, onboardingWithin, ownSkills,
+  type CeView, type EmergencyContactView, type EmploymentView, type OnboardingView, type SkillRecordView,
 } from "./people-records";
+import { attach, decode, put } from "./files";
 import { ownWithin, signWithin, signedPdfWithin, type OwnDocument, type SignInput } from "./staff-documents";
 import type { PdfFile } from "./documents";
 
@@ -90,6 +91,10 @@ export interface MyRecord extends Self {
   /** Theirs only, lapsed and revoked included: a renewal list that drops what has run out is empty when it matters. */
   certifications: HeldCertification[];
   continuingEducation: CeView | null;
+  /** Their own skill records that have an expiry, with where each stands. Empty for somebody who does not go out to jobs. */
+  skills: SkillRecordView[];
+  /** The certifications they can log continuing education hours toward. */
+  continuingEducationKinds: { id: string; name: string; hoursRequired: string | null }[];
 }
 
 export function record(ctx: ServiceContext): Promise<MyRecord> {
@@ -106,7 +111,122 @@ export function record(ctx: ServiceContext): Promise<MyRecord> {
         ? await held(tx, ctx.actor.organizationId, { technicianIds: [self.technicianId], on: time.dateIn(new Date(), zone) })
         : [],
       continuingEducation: self.technicianId ? await ceWithin(tx, self.technicianId) : null,
+      skills: self.technicianId ? await ownSkills(tx, self.technicianId) : [],
+      continuingEducationKinds: self.technicianId ? await ceKinds(tx, ctx.actor.organizationId) : [],
     };
+  });
+}
+
+/** The certification kinds worth logging hours toward: the active ones that ask for hours. */
+async function ceKinds(tx: Database, organizationId: string) {
+  const types = await tx.select({
+    id: schema.certificationType.id, name: schema.certificationType.name, hours: schema.certificationType.ceHoursRequired,
+  }).from(schema.certificationType)
+    .where(and(
+      eq(schema.certificationType.organizationId, organizationId),
+      eq(schema.certificationType.active, true),
+      sql`${schema.certificationType.ceHoursRequired} is not null`,
+    ))
+    .orderBy(schema.certificationType.name);
+  return types.map((t) => ({ id: t.id, name: t.name, hoursRequired: t.hours }));
+}
+
+/* -------------------------------------------- continuing education, theirs */
+
+export interface OwnCeInput {
+  certificationTypeId: string; completedOn: string; hours: string; course: string;
+  provider?: string | null | undefined; evidence?: string | null | undefined;
+  /** A photograph or scan of the certificate. The type is decided from the bytes. */
+  certificate?: { fileName: string; contentType?: string | undefined; bytes: string } | undefined;
+}
+
+/**
+ * LOG HOURS OF A COURSE THEY TOOK, with a photograph of the certificate.
+ *
+ * Always the signed in person's own, and it WAITS: the hours are listed on their
+ * record as waiting for the office and are not counted toward a renewal until
+ * the office has looked at the certificate and approved them
+ * (`approveContinuingEducation`). The certificate goes through the ordinary
+ * attachment path, as an expense's receipt does, so there is no second place
+ * for a file to live. The same call under the same key is the first answer.
+ */
+export function logOwnContinuingEducation(ctx: ServiceContext, input: OwnCeInput): Promise<CeView> {
+  return guardedWrite(ctx, "profile:own", async (tx) => {
+    const seen = await once.replayed<CeView>(tx, ctx, "own_continuing_education");
+    if (seen) return seen;
+    const self = await selfWithin(tx, ctx);
+    if (!self.technicianId) {
+      throw new ConflictError("You are not on the board, so there are no certifications of yours to log hours toward. Ask the office.");
+    }
+    const [type] = await tx.select({ id: schema.certificationType.id, active: schema.certificationType.active })
+      .from(schema.certificationType)
+      .where(and(eq(schema.certificationType.id, input.certificationTypeId), eq(schema.certificationType.organizationId, ctx.actor.organizationId)))
+      .limit(1);
+    if (!type || !type.active) throw new NotFoundError("Certification");
+    const course = input.course.trim();
+    if (course === "") throw new ConflictError("Name the course, as the certificate does.");
+    let hundredths: bigint;
+    try { hundredths = peopleCore.hundredths(input.hours); } catch {
+      throw new ConflictError(`"${input.hours}" is not a number of hours.`);
+    }
+    if (hundredths <= 0n) throw new ConflictError("A course is more than no hours.");
+    if (hundredths > 100_000n) throw new ConflictError("That is more than a thousand hours. Check the number on the certificate.");
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    if (input.completedOn > time.dateIn(new Date(), zone)) {
+      throw new ConflictError("That course finishes in the future. Log the hours once they are done.");
+    }
+    const [row] = await tx.insert(schema.continuingEducation).values({
+      organizationId: ctx.actor.organizationId,
+      technicianId: self.technicianId,
+      certificationTypeId: input.certificationTypeId,
+      completedOn: input.completedOn,
+      hours: peopleCore.hoursLabel(hundredths),
+      course,
+      provider: input.provider?.trim() || null,
+      evidence: input.evidence?.trim() || null,
+      recordedByUserId: ctx.actor.userId,
+      status: "pending",
+      selfLogged: true,
+    }).returning({ id: schema.continuingEducation.id });
+    if (input.certificate) {
+      const { file } = await put(tx, ctx.actor.organizationId, {
+        bytes: decode(input.certificate.bytes), claimedType: input.certificate.contentType, uploadedByUserId: ctx.actor.userId,
+      });
+      await attach(tx, ctx.actor.organizationId, {
+        entityType: "continuing_education", entityId: row!.id, storageKey: file.storageKey,
+        kind: file.contentType.startsWith("image/") ? "photo" : "document",
+        fileName: input.certificate.fileName, contentType: file.contentType, sizeBytes: file.sizeBytes,
+        uploadedByUserId: ctx.actor.userId,
+      });
+    }
+    await audit(tx, ctx, "continuing_education.logged", "technician", self.technicianId, null, {
+      entryId: row!.id, course, hours: input.hours, by: "themselves", waiting: true,
+      certificate: input.certificate !== undefined,
+    });
+    const view = await ceWithin(tx, self.technicianId);
+    await once.remember(tx, ctx, "own_continuing_education", row!.id, view);
+    return view;
+  });
+}
+
+/** Take back hours they logged that nobody has answered. Answered ones are the office's record now. */
+export function withdrawOwnContinuingEducation(ctx: ServiceContext, input: { id: string }): Promise<CeView> {
+  return guardedWrite(ctx, "profile:own", async (tx) => {
+    const self = await selfWithin(tx, ctx);
+    const [row] = self.technicianId ? await tx.select().from(schema.continuingEducation)
+      .where(and(
+        eq(schema.continuingEducation.id, input.id),
+        eq(schema.continuingEducation.technicianId, self.technicianId),
+        isNull(schema.continuingEducation.deletedAt),
+      )).limit(1) : [];
+    if (!row) throw new NotFoundError("Course");
+    if (row.status !== "pending") {
+      throw new ConflictError("The office has already answered this one. Ask them if it needs to change.");
+    }
+    await tx.update(schema.continuingEducation).set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.continuingEducation.id, row.id));
+    await audit(tx, ctx, "continuing_education.withdrawn", "technician", row.technicianId, row, { by: "themselves" });
+    return ceWithin(tx, row.technicianId);
   });
 }
 
@@ -247,6 +367,8 @@ export const handlers = {
     ({ contacts: await removeContact(ctx, input) }),
   setMyOnboardingLine: (ctx: ServiceContext, input: { id: string; done: boolean; note?: string | null | undefined }) =>
     setOnboardingLine(ctx, input),
+  logMyContinuingEducation: (ctx: ServiceContext, input: OwnCeInput) => logOwnContinuingEducation(ctx, input),
+  withdrawMyContinuingEducation: (ctx: ServiceContext, input: { id: string }) => withdrawOwnContinuingEducation(ctx, input),
   signMyDocument: (ctx: ServiceContext, input: { requestId: string; typedName?: string | null | undefined; drawing?: string | null | undefined }) =>
     sign(ctx, input),
 } as const;
