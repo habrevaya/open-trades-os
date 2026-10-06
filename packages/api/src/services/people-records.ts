@@ -1,10 +1,11 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { ROLE_PRESETS, people as peopleCore, qualification as q, time, type RoleId } from "@opentradesos/core";
+import { ROLE_PRESETS, assertCan, isSystem, people as peopleCore, qualification as q, time, type RoleId } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as once from "./once";
+import { liveDrops, workSkills } from "./qualification";
 import * as staffDocuments from "./staff-documents";
 
 /**
@@ -712,6 +713,50 @@ export function roster(ctx: ServiceContext) {
 
 /* --------------------------------------------------------- a job's skills */
 
+export interface JobSkillsView {
+  id: string;
+  /** What this job asks for beyond its type. */
+  skills: string[];
+  /** Everything its type asks for, dropped or not. */
+  typeSkills: string[];
+  /** The type's skills this job dropped, each with why, who and when. Only ones its type still asks for. */
+  dropped: { skill: string; reason: string; droppedAt: string; droppedBy: string | null }[];
+  /** What is actually checked for whoever is sent: the type's less the dropped, and the job's own. */
+  checked: string[];
+}
+
+type JobSkillRow = {
+  id: string; requiredSkills: string[]; droppedSkills: typeof schema.job.$inferSelect["droppedSkills"]; jobTypeId: string | null;
+};
+
+async function loadJobSkillRow(tx: Database, ctx: ServiceContext, id: string): Promise<JobSkillRow & { typeSkills: string[] }> {
+  const [job] = await tx.select({
+    id: schema.job.id, requiredSkills: schema.job.requiredSkills,
+    droppedSkills: schema.job.droppedSkills, jobTypeId: schema.job.jobTypeId,
+  }).from(schema.job)
+    .where(and(eq(schema.job.id, id), eq(schema.job.organizationId, ctx.actor.organizationId), isNull(schema.job.deletedAt)))
+    .limit(1);
+  if (!job) throw new NotFoundError("Job");
+  const [type] = job.jobTypeId ? await tx.select({ skills: schema.jobType.requiredSkills }).from(schema.jobType)
+    .where(eq(schema.jobType.id, job.jobTypeId)).limit(1) : [];
+  return { ...job, typeSkills: q.normaliseSkills(type?.skills ?? []) };
+}
+
+async function jobSkillsView(tx: Database, row: JobSkillRow & { typeSkills: string[] }): Promise<JobSkillsView> {
+  const names = await peopleNames(tx);
+  const live = liveDrops(row.typeSkills, row.droppedSkills);
+  return {
+    id: row.id,
+    skills: q.normaliseSkills(row.requiredSkills ?? []),
+    typeSkills: row.typeSkills,
+    dropped: live.map((d) => ({
+      skill: d.skill, reason: d.reason, droppedAt: d.droppedAt,
+      droppedBy: d.droppedByUserId ? names.get(d.droppedByUserId) ?? null : null,
+    })),
+    checked: workSkills(row.typeSkills, row.requiredSkills, row.droppedSkills),
+  };
+}
+
 /**
  * The skills this one job needs beyond its type. Replaces the job's own list;
  * the type's are untouched and still apply. Checked from then on wherever
@@ -719,31 +764,74 @@ export function roster(ctx: ServiceContext) {
  * suggestions.
  */
 export function setJobSkills(ctx: ServiceContext, input: { id: string; skills: string[] }) {
-  return guardedWrite(ctx, "job:write", async (tx) => {
-    const [job] = await tx.select({ id: schema.job.id, requiredSkills: schema.job.requiredSkills, jobTypeId: schema.job.jobTypeId })
-      .from(schema.job)
-      .where(and(eq(schema.job.id, input.id), eq(schema.job.organizationId, ctx.actor.organizationId), isNull(schema.job.deletedAt)))
-      .limit(1);
-    if (!job) throw new NotFoundError("Job");
-    const [type] = job.jobTypeId ? await tx.select({ skills: schema.jobType.requiredSkills }).from(schema.jobType)
-      .where(eq(schema.jobType.id, job.jobTypeId)).limit(1) : [];
-    const typeSkills = q.normaliseSkills(type?.skills ?? []);
+  return guardedWrite(ctx, "job:write", async (tx): Promise<JobSkillsView> => {
+    const job = await loadJobSkillRow(tx, ctx, input.id);
     /** Only what the type does not already ask: the rest is said once, on the type. */
-    const extra = q.normaliseSkills(input.skills).filter((s) => !typeSkills.includes(s));
+    const extra = q.normaliseSkills(input.skills).filter((s) => !job.typeSkills.includes(s));
     await tx.update(schema.job).set({ requiredSkills: extra, updatedAt: new Date() }).where(eq(schema.job.id, job.id));
     await audit(tx, ctx, "job.skills_set", "job", job.id, { requiredSkills: job.requiredSkills }, { requiredSkills: extra });
-    return { id: job.id, skills: extra, typeSkills };
+    return jobSkillsView(tx, { ...job, requiredSkills: extra });
   });
 }
 
 export function jobSkills(ctx: ServiceContext, input: { id: string }) {
-  return guardedRead(ctx, "job:read", async (tx) => {
-    const [job] = await tx.select({ id: schema.job.id, requiredSkills: schema.job.requiredSkills, jobTypeId: schema.job.jobTypeId })
-      .from(schema.job).where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
-    if (!job) throw new NotFoundError("Job");
-    const [type] = job.jobTypeId ? await tx.select({ skills: schema.jobType.requiredSkills }).from(schema.jobType)
-      .where(eq(schema.jobType.id, job.jobTypeId)).limit(1) : [];
-    return { id: job.id, skills: q.normaliseSkills(job.requiredSkills ?? []), typeSkills: q.normaliseSkills(type?.skills ?? []) };
+  return guardedRead(ctx, "job:read", async (tx): Promise<JobSkillsView> =>
+    jobSkillsView(tx, await loadJobSkillRow(tx, ctx, input.id)));
+}
+
+/**
+ * DROP ONE OF THE JOB TYPE'S SKILLS FOR THIS ONE JOB, with the reason.
+ *
+ * From then on it is not asked of whoever is sent on this job, on the board, at
+ * booking, for a crew and in the suggestions: every path reads the job's skills
+ * through `workSkills`. The reason is kept and shown on the job, beside the
+ * skills, and in the audit entry of every assignment made while it stands.
+ *
+ * `visit:assign_unqualified`, not `job:write`. Dropping a skill lets people be
+ * sent without it and nothing is overridden at the moment they are sent, so it
+ * is the same power as the override and sits with the same people. Putting it
+ * back (`restoreSkill`) only tightens, so `job:write` is enough.
+ *
+ * Only a skill the job's type asks for can be dropped: the job's own extra
+ * skills are removed from the list they were added to, not "dropped".
+ */
+export function dropSkill(ctx: ServiceContext, input: { id: string; skill: string; reason: string }) {
+  return guardedWrite(ctx, "job:write", async (tx): Promise<JobSkillsView> => {
+    assertCan(ctx.actor, "visit:assign_unqualified");
+    const job = await loadJobSkillRow(tx, ctx, input.id);
+    const skill = input.skill.trim();
+    const reason = input.reason.trim();
+    if (!job.typeSkills.includes(skill)) {
+      throw new ConflictError(
+        `${skill === "" ? "That" : skill} is not one of this job type's skills, so there is nothing to drop. `
+        + "Skills this job added for itself are taken off the list of what it also needs.",
+      );
+    }
+    if (reason.length < 5) throw new ConflictError("Say why this job does not need it, in a sentence somebody reading the job later would accept.");
+    /** Dropping it twice is the first drop: the reason on the job stays the one first given. */
+    if (job.droppedSkills.some((d) => d.skill === skill)) return jobSkillsView(tx, job);
+    const dropped = [
+      ...job.droppedSkills,
+      { skill, reason, droppedAt: new Date().toISOString(), droppedByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId },
+    ];
+    await tx.update(schema.job).set({ droppedSkills: dropped, updatedAt: new Date() }).where(eq(schema.job.id, job.id));
+    await audit(tx, ctx, "job.skill_dropped", "job", job.id,
+      { droppedSkills: job.droppedSkills }, { droppedSkills: dropped, skill, reason });
+    return jobSkillsView(tx, { ...job, droppedSkills: dropped });
+  });
+}
+
+/** Ask for the skill again on this job. Tightens the check, so it needs only `job:write`. */
+export function restoreSkill(ctx: ServiceContext, input: { id: string; skill: string }) {
+  return guardedWrite(ctx, "job:write", async (tx): Promise<JobSkillsView> => {
+    const job = await loadJobSkillRow(tx, ctx, input.id);
+    const skill = input.skill.trim();
+    const kept = job.droppedSkills.filter((d) => d.skill !== skill);
+    if (kept.length === job.droppedSkills.length) return jobSkillsView(tx, job);
+    await tx.update(schema.job).set({ droppedSkills: kept, updatedAt: new Date() }).where(eq(schema.job.id, job.id));
+    await audit(tx, ctx, "job.skill_restored", "job", job.id,
+      { droppedSkills: job.droppedSkills }, { droppedSkills: kept, skill });
+    return jobSkillsView(tx, { ...job, droppedSkills: kept });
   });
 }
 
@@ -789,8 +877,11 @@ export const handlers = {
     course: string; provider?: string | null | undefined; evidence?: string | null | undefined;
   }): Promise<CeView> => logContinuingEducation(ctx, input),
   removeContinuingEducation: (ctx: ServiceContext, input: { id: string }): Promise<CeView> => removeContinuingEducation(ctx, input),
-  getJobSkills: (ctx: ServiceContext, input: { id: string }): Promise<{ id: string; skills: string[]; typeSkills: string[] }> =>
-    jobSkills(ctx, input),
-  setJobSkills: (ctx: ServiceContext, input: { id: string; skills: string[] }): Promise<{ id: string; skills: string[]; typeSkills: string[] }> =>
+  getJobSkills: (ctx: ServiceContext, input: { id: string }): Promise<JobSkillsView> => jobSkills(ctx, input),
+  setJobSkills: (ctx: ServiceContext, input: { id: string; skills: string[] }): Promise<JobSkillsView> =>
     setJobSkills(ctx, input),
+  dropJobSkill: (ctx: ServiceContext, input: { id: string; skill: string; reason: string }): Promise<JobSkillsView> =>
+    dropSkill(ctx, input),
+  restoreJobSkill: (ctx: ServiceContext, input: { id: string; skill: string }): Promise<JobSkillsView> =>
+    restoreSkill(ctx, input),
 } as const;

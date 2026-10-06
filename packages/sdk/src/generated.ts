@@ -1285,6 +1285,10 @@ export interface AssignVisitOutput {
   status: string;
   overridden: boolean;
   unknownSkills: string[];
+  droppedSkills: Array<{
+    skill: string;
+    reason: string;
+  }>;
 }
 
 export interface AttachJobToProjectInput {
@@ -5312,6 +5316,24 @@ export interface DrillReportOutput {
   truncated: boolean;
 }
 
+export interface DropJobSkillInput {
+  skill: string;
+  reason: string;
+}
+
+export interface DropJobSkillOutput {
+  id: string;
+  skills: string[];
+  typeSkills: string[];
+  dropped: Array<{
+    skill: string;
+    reason: string;
+    droppedAt: string;
+    droppedBy: string | null;
+  }>;
+  checked: string[];
+}
+
 export interface EditPurchaseOrderInput {
   defaultLocationId?: string;
   expectedAt?: string | null;
@@ -7972,6 +7994,13 @@ export interface GetJobSkillsOutput {
   id: string;
   skills: string[];
   typeSkills: string[];
+  dropped: Array<{
+    skill: string;
+    reason: string;
+    droppedAt: string;
+    droppedBy: string | null;
+  }>;
+  checked: string[];
 }
 
 export interface GetJournalEntryOutput {
@@ -18453,6 +18482,23 @@ export interface RestoreCustomerDuplicateOutput {
   wasMarked: boolean;
 }
 
+export interface RestoreJobSkillInput {
+  skill: string;
+}
+
+export interface RestoreJobSkillOutput {
+  id: string;
+  skills: string[];
+  typeSkills: string[];
+  dropped: Array<{
+    skill: string;
+    reason: string;
+    droppedAt: string;
+    droppedBy: string | null;
+  }>;
+  checked: string[];
+}
+
 export interface ResubmitRegulatorySubmissionInput {
   dueOn?: string;
 }
@@ -19981,6 +20027,13 @@ export interface SetJobSkillsOutput {
   id: string;
   skills: string[];
   typeSkills: string[];
+  dropped: Array<{
+    skill: string;
+    reason: string;
+    droppedAt: string;
+    droppedBy: string | null;
+  }>;
+  checked: string[];
 }
 
 export interface SetLocationSharingInput {
@@ -24534,6 +24587,10 @@ export interface DrillMarketingFunnelInput {
   measure: "spend" | "calls" | "answered" | "missed" | "firstTime" | "leads" | "booked" | "completed" | "revenue";
 }
 
+export interface DropJobSkillParams {
+  id: string;
+}
+
 export interface EditPurchaseOrderParams {
   id: string;
 }
@@ -26592,6 +26649,10 @@ export interface RespondToReviewParams {
   id: string;
 }
 
+export interface RestoreJobSkillParams {
+  id: string;
+}
+
 export interface ResubmitRegulatorySubmissionParams {
   id: string;
 }
@@ -27509,6 +27570,7 @@ export interface OperationTypes {
   dismissTruckFill: { input: DismissTruckFillParams & DismissTruckFillInput; output: DismissTruckFillOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
+  dropJobSkill: { input: DropJobSkillParams & DropJobSkillInput; output: DropJobSkillOutput };
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
   emailPurchaseOrder: { input: EmailPurchaseOrderParams & EmailPurchaseOrderInput; output: EmailPurchaseOrderOutput };
@@ -28079,6 +28141,7 @@ export interface OperationTypes {
   restockTruck: { input: RestockTruckInput; output: RestockTruckOutput };
   restoreCopy: { input: RestoreCopyInput; output: RestoreCopyOutput };
   restoreCustomerDuplicate: { input: RestoreCustomerDuplicateInput; output: RestoreCustomerDuplicateOutput };
+  restoreJobSkill: { input: RestoreJobSkillParams & RestoreJobSkillInput; output: RestoreJobSkillOutput };
   resubmitRegulatorySubmission: { input: ResubmitRegulatorySubmissionParams & ResubmitRegulatorySubmissionInput; output: ResubmitRegulatorySubmissionOutput };
   retireAgreementPlan: { input: RetireAgreementPlanParams & RetireAgreementPlanInput; output: RetireAgreementPlanOutput };
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
@@ -28539,6 +28602,7 @@ export const OPERATIONS = {
   dismissTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/dismissal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  dropJobSkill: { method: "POST", path: "/v1/jobs/{id}/dropped-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","visit:assign_unqualified"] },
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   emailPurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -29109,6 +29173,7 @@ export const OPERATIONS = {
   restockTruck: { method: "POST", path: "/v1/stock/restocks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   restoreCopy: { method: "POST", path: "/v1/restores", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   restoreCustomerDuplicate: { method: "POST", path: "/v1/customer-duplicates/restore", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
+  restoreJobSkill: { method: "POST", path: "/v1/jobs/{id}/dropped-skills/restore", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   resubmitRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/resubmit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   retireAgreementPlan: { method: "POST", path: "/v1/agreement-plans/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -31251,6 +31316,15 @@ export abstract class GeneratedOperations {
    */
   drillReport(input: DrillReportInput, options?: CallOptions): Promise<DrillReportOutput> {
     return this.call("drillReport", input, options);
+  }
+
+  /**
+   * Drop one of the job type's skills for this one job, with a reason.
+   *
+   * POST /v1/jobs/{id}/dropped-skills. Needs job:write, visit:assign_unqualified.
+   */
+  dropJobSkill(input: DropJobSkillParams & DropJobSkillInput, options?: CallOptions): Promise<DropJobSkillOutput> {
+    return this.call("dropJobSkill", input, options);
   }
 
   /**
@@ -36381,6 +36455,15 @@ export abstract class GeneratedOperations {
    */
   restoreCustomerDuplicate(input: RestoreCustomerDuplicateInput, options?: CallOptions): Promise<RestoreCustomerDuplicateOutput> {
     return this.call("restoreCustomerDuplicate", input, options);
+  }
+
+  /**
+   * Ask for a dropped skill on this job again.
+   *
+   * POST /v1/jobs/{id}/dropped-skills/restore. Needs job:write.
+   */
+  restoreJobSkill(input: RestoreJobSkillParams & RestoreJobSkillInput, options?: CallOptions): Promise<RestoreJobSkillOutput> {
+    return this.call("restoreJobSkill", input, options);
   }
 
   /**

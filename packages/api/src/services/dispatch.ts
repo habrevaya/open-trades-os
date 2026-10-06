@@ -373,7 +373,12 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
     }).where(eq(schema.visit.id, input.id));
 
     await audit(tx, ctx, "visit.assigned", "visit", input.id,
-      { status: visit.status, crewId: visit.crewId }, { status, technicianIds: input.technicianIds });
+      { status: visit.status, crewId: visit.crewId },
+      {
+        status, technicianIds: input.technicianIds,
+        /** What the job dropped, so the record says which skills were not asked of these people and why. */
+        ...(work.dropped.length > 0 ? { droppedSkills: work.dropped } : {}),
+      });
     await announce(tx, ctx, input.id, before);
 
     if (qualified.overridden) {
@@ -382,7 +387,10 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
         { technicianIds: input.technicianIds, reason: input.overrideQualification!.reason });
     }
 
-    return { ok: true as const, status, overridden: qualified.overridden, unknownSkills: qualified.unknown };
+    return {
+      ok: true as const, status, overridden: qualified.overridden, unknownSkills: qualified.unknown,
+      droppedSkills: work.dropped,
+    };
   });
 }
 

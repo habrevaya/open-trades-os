@@ -54223,6 +54223,283 @@
         ]
       }
     },
+    "/v1/jobs/{id}/dropped-skills": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "dropJobSkill",
+        "summary": "Drop one of the job type's skills for this one job, with a reason",
+        "description": "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. Dropping a skill already dropped changes nothing.\n\nRequires a session holding: job:write, visit:assign_unqualified.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DropJobSkillInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Drop one of the job type's skills for this one job, with a reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DropJobSkillOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write",
+          "visit:assign_unqualified"
+        ]
+      }
+    },
+    "/v1/jobs/{id}/dropped-skills/restore": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "restoreJobSkill",
+        "summary": "Ask for a dropped skill on this job again",
+        "description": "Takes the skill off the job's dropped list so it is checked again. Tightens the check, so it needs only job:write. Restoring a skill that is not dropped changes nothing.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreJobSkillInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask for a dropped skill on this job again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreJobSkillOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      }
+    },
     "/v1/jobs/{id}/lines": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -132866,13 +133143,32 @@
             "items": {
               "type": "string"
             }
+          },
+          "droppedSkills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "skill",
+                "reason"
+              ]
+            }
           }
         },
         "required": [
           "ok",
           "status",
           "overridden",
-          "unknownSkills"
+          "unknownSkills",
+          "droppedSkills"
         ]
       },
       "AttachJobToProjectInput": {
@@ -153373,6 +153669,89 @@
           "truncated"
         ]
       },
+      "DropJobSkillInput": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "skill",
+          "reason"
+        ]
+      },
+      "DropJobSkillOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "typeSkills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dropped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "droppedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "droppedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "skill",
+                "reason",
+                "droppedAt",
+                "droppedBy"
+              ]
+            }
+          },
+          "checked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "skills",
+          "typeSkills",
+          "dropped",
+          "checked"
+        ]
+      },
       "EditPurchaseOrderInput": {
         "type": "object",
         "properties": {
@@ -167201,12 +167580,50 @@
             "items": {
               "type": "string"
             }
+          },
+          "dropped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "droppedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "droppedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "skill",
+                "reason",
+                "droppedAt",
+                "droppedBy"
+              ]
+            }
+          },
+          "checked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "id",
           "skills",
-          "typeSkills"
+          "typeSkills",
+          "dropped",
+          "checked"
         ]
       },
       "GetJournalEntryOutput": {
@@ -221070,6 +221487,83 @@
           "wasMarked"
         ]
       },
+      "RestoreJobSkillInput": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "skill"
+        ]
+      },
+      "RestoreJobSkillOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "typeSkills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dropped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "droppedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "droppedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "skill",
+                "reason",
+                "droppedAt",
+                "droppedBy"
+              ]
+            }
+          },
+          "checked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "skills",
+          "typeSkills",
+          "dropped",
+          "checked"
+        ]
+      },
       "ResubmitRegulatorySubmissionInput": {
         "type": "object",
         "properties": {
@@ -228338,12 +228832,50 @@
             "items": {
               "type": "string"
             }
+          },
+          "dropped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "droppedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "droppedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "skill",
+                "reason",
+                "droppedAt",
+                "droppedBy"
+              ]
+            }
+          },
+          "checked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "id",
           "skills",
-          "typeSkills"
+          "typeSkills",
+          "dropped",
+          "checked"
         ]
       },
       "SetLocationSharingInput": {

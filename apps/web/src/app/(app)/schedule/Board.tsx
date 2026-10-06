@@ -113,11 +113,15 @@ export function Board({
       else setError(result.message);
       return false;
     }
+    const notes: string[] = [];
     if (result.unknownSkills.length > 0) {
-      setNotice(
-        `Assigned. Nothing records who does ${result.unknownSkills.join(" or ")}, so that was not checked.`,
-      );
+      notes.push(`Nothing records who does ${result.unknownSkills.join(" or ")}, so that was not checked.`);
     }
+    /** The job said it does not need these, and why: said where the person was sent, not only on the job. */
+    for (const dropped of result.droppedSkills) {
+      notes.push(`This job does not need ${dropped.skill}: ${dropped.reason}.`);
+    }
+    if (notes.length > 0) setNotice(`Assigned. ${notes.join(" ")}`);
     return true;
   }
 

@@ -123,16 +123,19 @@ export async function qualifyDays(
 }
 
 /**
- * The skills a visit's work needs: its job type's, and whatever this one job
- * asks for beyond them (`job.required_skills`). Empty when neither says
- * anything.
+ * The skills a visit's work needs: its job type's less any this one job
+ * dropped (`job.dropped_skills`), and whatever it asks for beyond them
+ * (`job.required_skills`). Empty when neither says anything.
  */
 export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
   skills: string[]; windowStart: Date | null; windowEnd: Date | null;
+  /** What the job dropped from its type's skills, with why, so the answer can say it was not checked. */
+  dropped: { skill: string; reason: string }[];
 }> {
   const [row] = await tx.select({
     skills: schema.jobType.requiredSkills,
     jobSkills: schema.job.requiredSkills,
+    droppedSkills: schema.job.droppedSkills,
     windowStart: schema.visit.windowStart,
     windowEnd: schema.visit.windowEnd,
   }).from(schema.visit)
@@ -140,9 +143,10 @@ export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
     .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
     .where(eq(schema.visit.id, visitId)).limit(1);
   return {
-    skills: workSkills(row?.skills, row?.jobSkills),
+    skills: workSkills(row?.skills, row?.jobSkills, row?.droppedSkills),
     windowStart: row?.windowStart ?? null,
     windowEnd: row?.windowEnd ?? null,
+    dropped: liveDrops(row?.skills, row?.droppedSkills).map((d) => ({ skill: d.skill, reason: d.reason })),
   };
 }
 
@@ -155,8 +159,26 @@ export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
  */
 export function workSkills(
   typeSkills: readonly string[] | null | undefined, jobSkills: readonly string[] | null | undefined,
+  /**
+   * What this job dropped from its type's skills. Required, so a caller that
+   * reads a job's skills cannot forget the drops and check a skill the office
+   * said this job does not need.
+   */
+  dropped: readonly { skill: string }[] | null | undefined,
 ): string[] {
-  return q.normaliseSkills([...(typeSkills ?? []), ...(jobSkills ?? [])]);
+  const gone = new Set(q.normaliseSkills((dropped ?? []).map((d) => d.skill)));
+  return q.normaliseSkills([
+    ...q.normaliseSkills(typeSkills ?? []).filter((s) => !gone.has(s)),
+    ...(jobSkills ?? []),
+  ]);
+}
+
+/** The drops that still apply: only for a skill the job's type still asks for. */
+export function liveDrops<T extends { skill: string }>(
+  typeSkills: readonly string[] | null | undefined, dropped: readonly T[] | null | undefined,
+): T[] {
+  const type = new Set(q.normaliseSkills(typeSkills ?? []));
+  return (dropped ?? []).filter((d) => type.has(d.skill.trim()));
 }
 
 /**

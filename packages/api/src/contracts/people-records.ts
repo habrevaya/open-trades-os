@@ -296,7 +296,19 @@ export const removeContinuingEducation = defineRoute({
   output: Ce,
 });
 
-const JobSkills = z.object({ id: Uuid, skills: z.array(z.string()), typeSkills: z.array(z.string()) });
+const JobSkills = z.object({
+  id: Uuid,
+  /** What the job asks for beyond its type. */
+  skills: z.array(z.string()),
+  /** What its type asks for, dropped or not. */
+  typeSkills: z.array(z.string()),
+  /** The type's skills this job dropped, each with why, who and when. */
+  dropped: z.array(z.object({
+    skill: z.string(), reason: z.string(), droppedAt: z.string().datetime(), droppedBy: z.string().nullable(),
+  })),
+  /** What is checked for whoever is sent: the type's less the dropped, plus the job's own. */
+  checked: z.array(z.string()),
+});
 
 export const getJobSkills = defineRoute({
   method: "get",
@@ -320,10 +332,34 @@ export const setJobSkills = defineRoute({
   output: JobSkills,
 });
 
+export const dropJobSkill = defineRoute({
+  method: "post",
+  path: "/v1/jobs/{id}/dropped-skills",
+  summary: "Drop one of the job type's skills for this one job, with a reason",
+  description: "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. Dropping a skill already dropped changes nothing.",
+  module: "M10",
+  permissions: ["job:write", "visit:assign_unqualified"],
+  idempotent: true,
+  input: z.object({ id: Uuid, skill: z.string().trim().min(1).max(100), reason: z.string().trim().min(5).max(500) }),
+  output: JobSkills,
+});
+
+export const restoreJobSkill = defineRoute({
+  method: "post",
+  path: "/v1/jobs/{id}/dropped-skills/restore",
+  summary: "Ask for a dropped skill on this job again",
+  description: "Takes the skill off the job's dropped list so it is checked again. Tightens the check, so it needs only job:write. Restoring a skill that is not dropped changes nothing.",
+  module: "M10",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, skill: z.string().trim().min(1).max(100) }),
+  output: JobSkills,
+});
+
 export const peopleRecordRoutes = {
   listPeopleRoster, getPersonRecord, listOnboardingTemplate, addOnboardingTemplateItem, removeOnboardingTemplateItem,
   startOnboarding, setOnboardingLine, addEmergencyContact, removeEmergencyContact, setEmploymentRecord,
   listTechnicianSkills, recordTechnicianSkill, endTechnicianSkill,
   listContinuingEducation, logContinuingEducation, removeContinuingEducation,
-  getJobSkills, setJobSkills,
+  getJobSkills, setJobSkills, dropJobSkill, restoreJobSkill,
 } as const;

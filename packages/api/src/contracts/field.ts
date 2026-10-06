@@ -643,6 +643,8 @@ export const assignVisit = defineRoute({
     overridden: z.boolean(),
     /** Required skills nothing could check for the people sent, said rather than hidden. */
     unknownSkills: z.array(z.string()),
+    /** Skills of the job's type this job dropped, with the reason on the job: not checked for the people sent. */
+    droppedSkills: z.array(z.object({ skill: z.string(), reason: z.string() })),
   }),
 });
 

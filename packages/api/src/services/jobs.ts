@@ -319,6 +319,8 @@ async function assertQualified(
   technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
   /** What this one job asks for beyond its type, checked with the type's. */
   jobSkills: readonly string[] = [],
+  /** What this one job dropped from its type's skills: not checked, with the reason on the job. */
+  dropped: readonly { skill: string }[] = [],
 ): Promise<void> {
   if ((!jobTypeId && jobSkills.length === 0) || technicianIds.length === 0) return;
   const [type] = jobTypeId
@@ -326,7 +328,7 @@ async function assertQualified(
       .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1)
     : [];
   await qualificationGate(ctx, tx, {
-    technicianIds, skills: workSkills(type?.skills, jobSkills), windowStart, windowEnd,
+    technicianIds, skills: workSkills(type?.skills, jobSkills, dropped), windowStart, windowEnd,
   });
 }
 
@@ -970,7 +972,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       );
       await assertQualified(
         ctx, tx, job.jobTypeId, input.technicianIds,
-        new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills,
+        new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills, job.droppedSkills,
       );
     }
     const held = input.windowStart && input.status !== "cancelled" && input.externalRef === undefined

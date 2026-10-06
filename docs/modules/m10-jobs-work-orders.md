@@ -70,6 +70,26 @@ assignment says so. Like time off, it is checked for work still to come only.
 Booking has no override; assigning does, with `visit:assign_unqualified` and a
 reason the audit log keeps.
 
+**A job can drop one of its type's skills, and the reason stays on the job.** An
+unusual job (the gas is already capped, the licensed part was done last week)
+does not need a skill its type ordinarily asks for. `POST /v1/jobs/{id}/dropped-skills`
+drops one with a reason of a sentence or more, and `POST /v1/jobs/{id}/dropped-skills/restore`
+asks for it again. Only a skill the job's type asks for can be dropped. From then on it is
+not asked of whoever is sent on that job, on the board when somebody is assigned, at booking
+with somebody named, for a crew, in the suggestions, and in the room counted for a member's
+booking of that job, because every one of those reads the job's skills through one function
+that takes the drops away. The reason is shown wherever the job's skills are read: on the
+job's page under "Skills this work needs" with who dropped it and when, in
+`GET /v1/jobs/{id}/required-skills` (`dropped`, and `checked` for what is actually asked), in
+the board's notice when somebody is sent ("This job does not need epa_608: the refrigerant
+side was done last week."), in `droppedSkills` on the answer to `POST /v1/visits/{id}/assign`,
+and in the audit entry of every assignment made while it stands. Dropping needs
+`visit:assign_unqualified` as well as `job:write`, because it lets people be sent without the
+skill with no override at the moment they are sent: it is the same decision, so it sits with
+the same people (the office manager, not the dispatcher). Putting a skill back only tightens
+the check and needs `job:write`. Dropping a skill twice keeps the first reason. A drop for a
+skill the type has since stopped asking for does nothing.
+
 **A callback has to point at real work for the same customer.** A parent from
 another company is a cross tenant read; a parent belonging to a different
 customer is the one that slips through, and it is how a callback rate stops
@@ -170,6 +190,8 @@ because a technician may finish work and may not re-describe it.
 | `GET /v1/jobs/{id}/lines` | `job:read` |
 | `POST /v1/jobs/{id}/visits` | `visit:write` |
 | `POST /v1/visits/{id}/assign` | `visit:dispatch` |
+| `POST /v1/jobs/{id}/dropped-skills` | `job:write`, `visit:assign_unqualified` |
+| `POST /v1/jobs/{id}/dropped-skills/restore` | `job:write` |
 | `POST /v1/visits/{id}/complete` | `job:complete` |
 | `GET /v1/visits/{id}` | `visit:read` |
 | `GET /v1/job-types` | `job:read` |
@@ -197,7 +219,10 @@ button on a visit.
 rather than deleted, which keeps the visits, the labour and the obligations that
 reference it explicable. Route optimisation is a proposal per technician that a
 person applies (M09), not an automatic reorder. A job can add skills of its own
-to its type's but cannot drop one of its type's. Booking with a technician who
+to its type's and drop one of its type's with a reason, one skill at a time: there is no
+"drop for every job of this type" (that is editing the type), and no expiry on a drop. The
+public booking page's count of free slots reads the job type's skills only, because there is no
+job yet to drop anything from. Booking with a technician who
 is refused has no override; book the visit unassigned and send them from the
 board. Cancelling a job does not cancel its visits unless the office ticks
 it; an API caller has to ask with `cancelVisits`, so an integration that

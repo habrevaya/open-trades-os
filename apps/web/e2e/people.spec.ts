@@ -1,4 +1,6 @@
-import { test, expect, run, companyToday } from "./fixtures";
+import { sql } from "drizzle-orm";
+import { createClient } from "@opentradesos/db";
+import { test, expect, run, companyToday, newCustomer } from "./fixtures";
 
 /**
  * A NEW TECHNICIAN'S FIRST WEEK, FROM BOTH SIDES OF THE COUNTER
@@ -156,4 +158,45 @@ test("a technician completes onboarding and asks for a day off that the office a
   await owner.goto("/timesheets/time-off");
   await expect(owner.getByRole("region", { name: "Waiting for an answer" }).getByRole("row").filter({ hasText: "Dentist" }))
     .toContainText("1:00 PM to 5:00 PM");
+});
+
+test("a job drops one of its type's skills with a reason that stays on the job, and can ask for it again", async ({ owner }) => {
+  const typeName = `Furnace swap ${run}`;
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      insert into public.job_type (organization_id, name, code, required_skills)
+      select id, ${typeName}, ${`FS${run.slice(-6).toUpperCase()}`}, '["epa_608", "gas_fitter"]'::jsonb
+        from public.organization where slug = 'ridgeline'`);
+  } finally {
+    await db.$close();
+  }
+  const customerId = await newCustomer(owner, {
+    name: `Pat Gray ${run}`, address: { street: "3 Ash Ct", city: "Austin", state: "TX", zip: "78704" },
+  });
+  await owner.goto(`/jobs/new?customer=${customerId}`);
+  await owner.getByLabel("Summary").fill(`Swap a furnace, gas already off ${run}`);
+  await owner.getByLabel("Job type").selectOption({ label: typeName });
+  await owner.getByRole("button", { name: "Book job" }).click();
+  await expect(owner).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+
+  const skills = owner.getByRole("region", { name: "Skills this work needs" });
+  await expect(skills).toContainText("From its job type: epa_608, gas_fitter.");
+  const drop = skills.getByRole("group", { name: "This job does not need one of them" });
+  await drop.getByLabel("Skill").selectOption("epa_608");
+
+  await drop.getByLabel("Why this job does not need it").fill("The refrigerant side was done last week");
+  await drop.getByRole("button", { name: "Drop it for this job" }).click();
+  const dropped = skills.getByRole("list", { name: "Skills this job does not need" });
+  await expect(dropped).toContainText("Not needed on this job: epa_608.");
+  await expect(dropped).toContainText("The refrigerant side was done last week");
+
+  /** It survives a reload, and the type's other skill is still asked. */
+  await owner.reload();
+  await expect(owner.getByRole("list", { name: "Skills this job does not need" })).toContainText("The refrigerant side was done last week");
+  await expect(owner.getByRole("group", { name: "This job does not need one of them" }).getByLabel("Skill"))
+    .not.toContainText("epa_608");
+
+  await owner.getByRole("button", { name: "Ask for it again" }).click();
+  await expect(owner.getByRole("list", { name: "Skills this job does not need" })).toHaveCount(0);
 });
