@@ -6725,6 +6725,11 @@ export interface GetDispatchBoardOutput {
     displayName: string;
     color: string | null;
     timeOff: boolean;
+    timeOffWholeDay: boolean;
+    timeOffHours: Array<{
+      startsAt: string;
+      endsAt: string;
+    }>;
     visits: Array<{
       id: string;
       jobNumber: number;

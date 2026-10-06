@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, inArray, asc, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, gte, lt, lte, inArray, asc, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
@@ -105,15 +105,30 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
      * shows a blank day for somebody on holiday invites a dispatcher to fill
      * it, and they will.
      */
-    const off = await tx.select({ technicianId: schema.timeOff.technicianId })
-      .from(schema.timeOff)
+    /**
+     * READ BY THE HOUR, as booking reads it. A person with part of the day off
+     * is off for those hours and nothing else: `timeOff` stays true for any
+     * leave on the day (clients written before the hours existed read it as
+     * "has some", the careful way round), `timeOffWholeDay` says whether it is
+     * all of it, and `timeOffHours` is what is left for a part day, so the
+     * column can say "off 1:00 PM to 5:00 PM" and the dispatcher can still use
+     * the rest of their day. A leave that only touches the day (it begins the
+     * instant today ends) is not on it.
+     */
+    const off = await tx.select({
+      technicianId: schema.timeOff.technicianId, startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt,
+    }).from(schema.timeOff)
       .where(and(
         eq(schema.timeOff.organizationId, ctx.actor.organizationId),
         eq(schema.timeOff.approved, true),
-        lte(schema.timeOff.startsAt, dayEnd),
-        gte(schema.timeOff.endsAt, dayStart),
+        isNull(schema.timeOff.deletedAt),
+        lt(schema.timeOff.startsAt, dayEnd),
+        gt(schema.timeOff.endsAt, dayStart),
       ));
-    const offToday = new Set(off.map((o) => o.technicianId));
+    const leaveToday = new Map<string, ReturnType<typeof time.leaveOnDay>>();
+    for (const technicianId of new Set(off.map((o) => o.technicianId))) {
+      leaveToday.set(technicianId, time.leaveOnDay(off.filter((o) => o.technicianId === technicianId), { start: dayStart, end: dayEnd }));
+    }
 
     /**
      * Late is computed once here rather than by every client that renders a
@@ -267,7 +282,12 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         id: t.id,
         displayName: t.displayName,
         color: t.color,
-        timeOff: offToday.has(t.id),
+        timeOff: leaveToday.has(t.id),
+        timeOffWholeDay: leaveToday.get(t.id)?.whole ?? false,
+        /** The hours of a part day off, joined and clipped to this day. Empty for a whole day or none. */
+        timeOffHours: (leaveToday.get(t.id)?.spans ?? []).map((s) => ({
+          startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString(),
+        })),
         visits: assigned.get(t.id) ?? [],
       })),
       unassigned: ranked.map(({ v: { isLate: _late, ...rest }, plan }) => ({ ...rest, priorityPlan: plan })),

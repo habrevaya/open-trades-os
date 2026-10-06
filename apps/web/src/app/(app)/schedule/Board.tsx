@@ -441,6 +441,20 @@ function TechnicianColumn({
 }) {
   const [over, setOver] = useState(false);
   const minutes = technician.visits.reduce((n, v) => n + v.estimatedDurationMinutes, 0);
+  /**
+   * PART OF THE DAY OFF IS OFF FOR THOSE HOURS. The column says which hours and
+   * warns only of the jobs that run into them; the rest of the day is theirs to
+   * be given work, which is how booking reads the same leave.
+   */
+  /** Written before the hours existed, a column with `timeOff` and no `timeOffWholeDay` is all of the day. */
+  const wholeDayOff = technician.timeOffWholeDay ?? (technician.timeOff && (technician.timeOffHours ?? []).length === 0);
+  const away = (technician.timeOffHours ?? []).map((s) => ({
+    ...s,
+    from: time(s.startsAt) === "12:00 AM" ? "the start of the day" : time(s.startsAt),
+    until: time(s.endsAt) === "12:00 AM" ? "the end of the day" : time(s.endsAt),
+    inTheWay: technician.visits.filter((v) =>
+      v.windowStart && v.windowEnd && v.windowStart < s.endsAt && v.windowEnd > s.startsAt).length,
+  }));
 
   return (
     <section
@@ -464,7 +478,8 @@ function TechnicianColumn({
             remaining invites filling it, and the number nobody can compute
             from a board is drive time between these addresses.
           */}
-          {technician.timeOff ? "Off" : `${Math.round(minutes / 6) / 10}h`}
+          {wholeDayOff ? "Off" : `${Math.round(minutes / 6) / 10}h`}
+          {away.length > 0 ? " · part off" : ""}
         </span>
       </header>
       {onOptimise && technician.visits.length >= 2 && (
@@ -486,7 +501,7 @@ function TechnicianColumn({
         person: somebody is off and has work on their day. The banner is a
         warning, not a replacement for the column.
       */}
-      {technician.timeOff && (
+      {wholeDayOff && (
         <p className={`px-3 py-2 text-sm ${
           technician.visits.length > 0
             ? "bg-red-tint text-red-600"
@@ -500,7 +515,16 @@ function TechnicianColumn({
         </p>
       )}
 
-      {technician.visits.length === 0 && !technician.timeOff ? (
+      {away.map((s) => (
+        <p key={s.startsAt} className={`px-3 py-2 text-sm ${s.inTheWay > 0 ? "bg-red-tint text-red-600" : "text-ink-500"}`}>
+          {`Off ${s.from} to ${s.until}`}
+          {s.inTheWay > 0
+            ? `, and ${s.inTheWay} ${s.inTheWay === 1 ? "job runs" : "jobs run"} into those hours.`
+            : "."}
+        </p>
+      ))}
+
+      {technician.visits.length === 0 && !wholeDayOff ? (
         <p className="p-4 text-sm text-ink-500">Nothing scheduled.</p>
       ) : (
         <ol className="flex-1 space-y-2 overflow-y-auto p-2">

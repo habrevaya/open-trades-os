@@ -15,5 +15,5 @@ import type { TechnicianChoice } from "@/components/VisitFields";
 export async function technicianChoices(ctx: ServiceContext, timezone: string): Promise<TechnicianChoice[]> {
   if (!can(ctx.actor, "visit:read")) return [];
   const board = await dispatch.board(ctx, { date: todayIn(timezone) });
-  return board.technicians.map((t) => ({ id: t.id, displayName: t.displayName, away: t.timeOff }));
+  return board.technicians.map((t) => ({ id: t.id, displayName: t.displayName, away: t.timeOffWholeDay }));
 }

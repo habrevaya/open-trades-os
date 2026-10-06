@@ -161593,6 +161593,29 @@
                 "timeOff": {
                   "type": "boolean"
                 },
+                "timeOffWholeDay": {
+                  "type": "boolean"
+                },
+                "timeOffHours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "endsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "startsAt",
+                      "endsAt"
+                    ]
+                  }
+                },
                 "visits": {
                   "type": "array",
                   "items": {
@@ -161676,6 +161699,8 @@
                 "displayName",
                 "color",
                 "timeOff",
+                "timeOffWholeDay",
+                "timeOffHours",
                 "visits"
               ]
             }

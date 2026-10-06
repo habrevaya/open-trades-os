@@ -268,8 +268,8 @@ test("a technician logs course hours with a photograph of the certificate, the o
   await tech.goto("/me");
   const form = tech.getByRole("group", { name: "Log hours of a course" });
   await form.getByLabel("Toward").selectOption({ label: `${kind} (8 hours to renew)` });
-  await form.getByLabel("Course").fill(course);
-  await form.getByLabel("Hours").fill("4");
+  await form.getByLabel("Course", { exact: true }).fill(course);
+  await form.getByLabel("Hours", { exact: true }).fill("4");
   await form.getByLabel("Photo of the certificate").setInputFiles({
     name: "certificate.png", mimeType: "image/png",
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 7]),
@@ -283,7 +283,7 @@ test("a technician logs course hours with a photograph of the certificate, the o
   await expect(tech.getByText(/4 more hours wait for the office/)).toBeVisible();
 
   await owner.goto("/certifications");
-  const waiting = owner.getByRole("region", { name: "Hours waiting for you" });
+  const waiting = owner.getByRole("region", { name: "Hours waiting for the office" });
   const line = waiting.getByRole("listitem").filter({ hasText: course });
   await expect(line).toContainText(`4 hours of ${course}`);
   const link = line.getByRole("link", { name: "Look at the certificate" });
@@ -297,4 +297,54 @@ test("a technician logs course hours with a photograph of the certificate, the o
   await tech.reload();
   await expect(tech.getByRole("list", { name: "Hours you logged" })).toContainText("Counted");
   await expect(tech.getByText(/4 of 8 hours/)).toBeVisible();
+});
+
+test("a run of days off that begins after lunch and ends before noon, and the board shows only those hours", async ({ owner, tech }) => {
+  const first = companyDay(40);
+  const last = companyDay(42);
+  const why = `Family trip ${run}`;
+  await tech.goto("/me/time-off");
+  await tech.getByLabel("First day off").fill(first);
+  await tech.getByLabel("Last day off").fill(last);
+  /** Half of a pair is still refused in words. */
+  await tech.getByLabel("Only part of the day: from").fill("13:00");
+  await tech.getByLabel("Why (optional)").fill(why);
+  await tech.getByRole("button", { name: "Ask for these days" }).click();
+  await expect(tech.getByRole("alert").filter({ hasText: "say when it starts and when it ends" })).toBeVisible();
+  await tech.getByLabel("Only part of the day: until").fill("12:00");
+  await tech.getByRole("button", { name: "Ask for these days" }).click();
+  const asked = tech.getByRole("listitem").filter({ hasText: why });
+  await expect(asked).toContainText("1:00 PM to");
+  await expect(asked).toContainText("12:00 PM");
+  await expect(asked).toContainText("Waiting for an answer");
+
+  await owner.goto("/timesheets/time-off");
+  const queue = owner.getByRole("region", { name: "Waiting for an answer" }).getByRole("row").filter({ hasText: why });
+  await expect(queue).toContainText("1:00 PM");
+  await queue.getByRole("button", { name: /^Approve/ }).click();
+  await expect(owner.getByRole("region", { name: "Approved, still to come" }).getByRole("row").filter({ hasText: why })).toBeVisible();
+
+  try {
+    /** The first day: off from one o'clock, and only from then. */
+    await owner.goto(`/schedule?date=${first}`);
+    await expect(owner.getByText("Off 1:00 PM to the end of the day.")).toBeVisible();
+    await expect(owner.getByText("Off today.")).toHaveCount(0);
+    /** The day in between is all of it. */
+    await owner.goto(`/schedule?date=${companyDay(41)}`);
+    await expect(owner.getByText("Off today.")).toBeVisible();
+    /** The last day: off until noon, then back. */
+    await owner.goto(`/schedule?date=${last}`);
+    await expect(owner.getByText("Off the start of the day to 12:00 PM.")).toBeVisible();
+    await expect(owner.getByText("Off today.")).toHaveCount(0);
+    /** The day after is not off at all. */
+    await owner.goto(`/schedule?date=${companyDay(43)}`);
+    await expect(owner.getByText(/^Off /)).toHaveCount(0);
+  } finally {
+    const db = createClient();
+    try {
+      await db.execute(sql`delete from public.time_off where reason = ${why}`);
+    } finally {
+      await db.$close();
+    }
+  }
 });

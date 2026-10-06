@@ -237,7 +237,7 @@ export default async function MyRecordPage() {
                   <span className="text-sm font-medium text-ink-700">Toward</span>
                   <select name="certificationTypeId" required className="mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm">
                     {record.continuingEducationKinds.map((k) => (
-                      <option key={k.id} value={k.id}>{k.name}{k.hoursRequired ? ` (${k.hoursRequired} hours to renew)` : ""}</option>
+                      <option key={k.id} value={k.id}>{k.name}{k.hoursRequired ? ` (${Number(k.hoursRequired)} hours to renew)` : ""}</option>
                     ))}
                   </select>
                 </label>

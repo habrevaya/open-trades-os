@@ -237,3 +237,44 @@ export function dateIn(instant: Date, timeZone: string): string {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
   }).format(instant);
 }
+
+/**
+ * WHAT A DAY'S LEAVE COVERS: ALL OF IT, OR THESE HOURS.
+ *
+ * Time off is any two instants, so one row may cover a whole day, a lunch hour
+ * to the end of the afternoon, or the end of one day and the start of the
+ * next. Read against the half-open day `[start, end)`: every row is clipped to
+ * the day, rows that run into each other or overlap are joined, and the day is
+ * `whole` only when what is left covers it from the first moment to the last.
+ * A row that merely touches the day (starts at the moment it ends, or ends at
+ * the moment it begins) is not on it.
+ *
+ * `spans` is what is left for a part day, so a screen can say "off 1:00 PM to
+ * 5:00 PM" and a check can ask whether a visit's window meets those hours;
+ * it is empty for a whole day (nothing is left to say) and for a day with none.
+ */
+export function leaveOnDay(
+  leave: ReadonlyArray<{ startsAt: Date; endsAt: Date }>,
+  day: { start: Date; end: Date },
+): { whole: boolean; spans: { startsAt: Date; endsAt: Date }[] } {
+  const clipped = leave
+    .map((l) => ({
+      startsAt: l.startsAt.getTime() < day.start.getTime() ? day.start : l.startsAt,
+      endsAt: l.endsAt.getTime() > day.end.getTime() ? day.end : l.endsAt,
+    }))
+    .filter((l) => l.startsAt.getTime() < l.endsAt.getTime())
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+  const merged: { startsAt: Date; endsAt: Date }[] = [];
+  for (const row of clipped) {
+    const last = merged[merged.length - 1];
+    if (last && row.startsAt.getTime() <= last.endsAt.getTime()) {
+      if (row.endsAt.getTime() > last.endsAt.getTime()) last.endsAt = row.endsAt;
+    } else {
+      merged.push({ startsAt: row.startsAt, endsAt: row.endsAt });
+    }
+  }
+  const whole = merged.length === 1
+    && merged[0]!.startsAt.getTime() === day.start.getTime()
+    && merged[0]!.endsAt.getTime() === day.end.getTime();
+  return { whole, spans: whole ? [] : merged };
+}

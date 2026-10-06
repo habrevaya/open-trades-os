@@ -528,9 +528,17 @@ export const getDispatchBoard = defineRoute({
       id: Uuid,
       displayName: z.string(),
       color: z.string().nullable(),
-      /** Off today, so the board shows why the column is empty rather than
-       *  inviting a dispatcher to fill it. */
+      /** Has some approved time off today, so the board shows why the column is empty rather than
+       *  inviting a dispatcher to fill it. Whether it is all of the day is `timeOffWholeDay`. */
       timeOff: z.boolean(),
+      /** Off for the whole of the day, not only part of it. */
+      timeOffWholeDay: z.boolean(),
+      /**
+       * The hours off on a day that is only partly off: a lunch hour to the end
+       * of the afternoon, the end of a run that began yesterday. Read by the
+       * hour the way booking reads it. Empty for a whole day off and for none.
+       */
+      timeOffHours: z.array(z.object({ startsAt: z.string().datetime(), endsAt: z.string().datetime() })),
       visits: z.array(z.object({
         id: Uuid,
         jobNumber: z.number().int(),
