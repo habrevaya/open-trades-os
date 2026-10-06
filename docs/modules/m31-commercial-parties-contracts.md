@@ -272,8 +272,9 @@ instead of the contract's limit.
 ### Screens
 
 `Contracts` lists every contract. `/contracts/new` sets one up. Each
-contract's page carries its terms and clocks, its sites, every card with its
-price list and its rules, and what the payer owes.
+contract's page carries its terms and clocks, its fixed fee when it bills one
+(below), its sites, every card with its price list and its rules, and what the
+payer owes.
 
 ## Contract clocks
 
@@ -393,6 +394,24 @@ the agreement), the invoice line carries it as its member discount naming
 the agreement, and the check after the invoices are written counts it: the
 invoices, the member discount and anything absorbed come to the priced work.
 
+**Labour beyond a manufacturer's allowance is offered, never added.** An
+allowance pays a card's listed price for a repair and allows a number of
+minutes for it, however long it took. When the plan bills an allowance and
+the minutes on site on the job's visits (punched `on_site` on its visits) come
+to more than every allowance on the job allows, billed already or now, the
+preview says so in minutes: "150 min on site, 90 min allowed, so 60 min nobody
+is charged for". Time already on a labour line, billed, waiting or excused, is
+taken off first, because somebody has already decided about it. Under the
+priced work on the job's billing preview the office picks whose part it goes
+on (any payer the plan names, the customer by default) and an hourly rate, and
+presses **Add it to their part** (`beyondPayer` and `beyondRate` on both
+calls). It is then a line of its own, "Labour beyond the allowance", on that
+payer's part alone, priced at their card's hourly rate when they have one and
+at the office's rate otherwise, with the minutes on the line; it does not move
+what the allowance or a share pays, and the invoices still add up to the work.
+Left alone, nothing is added. Once the allowance is billed it is not offered
+again.
+
 Billing is refused while the preview lists a problem, with the problem as the
 reason: covered work with nobody named to pay it, a payer with no customer
 record, shares that do not add up, a limit that holds.
@@ -411,6 +430,63 @@ A commercial payer rarely wants an email per invoice.
   in the format their contract names. Each invoice in it is recorded as
   delivered, so it leaves the undelivered list.
 
+## A contract billed on a schedule
+
+A commercial maintenance contract often bills a fixed fee every month, three
+months or year whether or not anybody visited: "1,200.00 a month for planned
+maintenance at both sites". On the contract's page, under **Billed on a
+schedule**, the office sets the fee, how often, the billing day (1 to 28, so
+every month has one), the first day billed for, what the invoice line says,
+whether a part month is charged by the day, and whether sales tax is added
+(`PUT /v1/contracts/{contractId}/billing`, `contract:write`, because how a
+contract bills is one of its terms).
+
+**Each period is billed on its first day, in advance.** On the billing day, in
+the company's calendar, the worker raises an invoice for the period that starts
+that day: to the contract's customer, due after that customer's payment terms,
+with the contract's PO number, and the period in words on the line ("1 Mar 2027
+to 31 Mar 2027"). The line records the contract as its price authority and "the
+contract's fee for a period" as how it was priced. It goes through the same path
+as every invoice, so it is numbered, taxed at the company's rate for the customer
+when the fee is taxed, and posted the way an invoice is: revenue on the day it is
+raised, with the receivable. Nothing is deferred. A quarterly or yearly fee is
+billed every third or twelfth month, counted from the first billing day on or
+after the first day billed.
+
+**A part period at either end.** A contract that starts or ends between two
+billing days has a part period: from the first day to the day before the next
+billing day, and from the last billing day to the last day. It is charged by
+the day, as the fee's share of the whole period it is part of, rounded once to
+the cent, only when the contract says so. Otherwise it is charged as a whole
+period, which is what a fixed fee that says nothing about part months means.
+The form starts the billing day on the contract's own first day when it can,
+so there is no part month to begin with.
+
+**Once per period.** Each period is a row (`contract_billing_period`), claimed
+by inserting it under a unique index on the contract and the period's first
+day, in the same transaction as its invoice. The worker on every pass, a second
+worker, a restart and **Raise what is owed now** on the page
+(`POST /v1/contracts/{contractId}/billing/raise`, `invoice:write`) all meet the
+same index, and only one of them writes an invoice. A schedule set up with a
+first day months back is caught up twelve periods at a time.
+
+**Paused and ended.** **Pause billing**
+(`POST /v1/contracts/{contractId}/billing/pause`) stops it: nothing is billed,
+and when it is started again (`POST /v1/contracts/{contractId}/billing/resume`)
+each period whose billing day fell in the pause is written down as skipped, so
+the customer is not sent the paused months the morning it resumes. **End
+billing** (`POST /v1/contracts/{contractId}/billing/end`) names the last day
+billed for: periods up to it are still billed, one cut short by it as a part
+period, and none after. The contract's own end date does the same, and a
+contract switched off bills nothing. Changing how often or on which day it
+bills, once anything is billed, starts the new pattern the day after the last
+period billed, and the first day cannot be moved to before then, so no day is
+billed twice. Saving an ended schedule starts it again.
+
+The page lists every period with its invoice, or "Skipped while paused", and the
+next period with what it will be billed. `GET /v1/contracts/{contractId}/billing`
+is the same, under `contract:read`.
+
 ## Permissions
 
 The cast and the ceiling are decisions about the job, so both need
@@ -419,7 +495,10 @@ contract, and reading its deadlines.
 
 A card's prices and rules are the price book's business: `pricebook:write`
 to set, `pricebook:read` to see. A contract's terms and clocks need
-`contract:write`. Previewing how a job would be billed needs `invoice:read`,
+`contract:write`, and so do its fixed fee, pausing it and ending it; seeing
+them needs `contract:read`. Raising what a fixed fee owes now needs
+`invoice:write`, because it raises invoices; the worker raises them as the
+system with only that. Previewing how a job would be billed needs `invoice:read`,
 and billing it `invoice:write`. Exporting a payer's invoices needs
 `invoice:send`, and a payer link `portal:grant`. The deadline queue needs
 `task:read`, like the task queue it feeds.
@@ -493,9 +572,22 @@ share of a line a third party's schedule priced, so a member's deductible is
 never discounted. Whether a plan should reduce a deductible is the warranty
 company's terms and the company's decision, and nobody has made it.
 
-**Labour beyond an allowance.** A manufacturer's allowance pays the card's
-listed price for the repair; the minutes it allows are shown, and time worked
-beyond them is not charged to anybody automatically.
+**Labour beyond an allowance is offered once, from punches.** It is worked out
+only from time punched on site on the job's visits: a job whose technician did
+not clock on the visit has nothing to compare, and nothing is offered. Travel to
+the job is not counted against the allowance. It is offered while the allowance
+is being billed; billed without it, it is not offered again, and adding it later
+is an ordinary invoice. Nothing claims it back from the manufacturer: an
+allowance is the manufacturer's figure, and asking them for more is their
+supplement process, not a line here.
 
-**Service contracts on a schedule.** A contract billed monthly whether or not
-anybody visited is not built.
+**A fixed fee is billed in advance, and never credited back by itself.** Each
+period is billed on its first day. A contract that bills in arrears, at the end
+of the month for the month just gone, is not offered. An invoice already raised
+for a period that a pause or an end cuts short is left as it is: crediting the
+rest is a decision made on the invoice with a credit note, and nobody has
+decided that the schedule should make it for the office. A paused period is
+skipped, never billed late. The fee is one amount: it does not rise with the
+contract's annual escalation, which applies to the rate cards, so a fee that
+rises is changed on the schedule by a person. The invoice is raised and not sent;
+it goes out the way any invoice does.

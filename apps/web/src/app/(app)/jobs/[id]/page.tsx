@@ -39,7 +39,7 @@ export const dynamic = "force-dynamic";
 
 export default async function JobPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ taxRate?: string; lineRate?: string | string[] }>;
+  searchParams: Promise<{ taxRate?: string; lineRate?: string | string[]; beyondPayer?: string; beyondRate?: string }>;
 }) {
   const user = await requireSetupUser();
   const { id } = await params;
@@ -58,6 +58,18 @@ export default async function JobPage({ params, searchParams }: {
    */
   const askedRates = [(await searchParams).lineRate ?? []].flat()
     .filter((pair) => /^[a-z]+(:[0-9a-f-]{36})?=([0-9a-f-]{36}|none)$/.test(pair));
+  /**
+   * The labour beyond a manufacturer's allowance, added to one payer's part
+   * when the office asked on the preview: who, and at what an hour. A rate not
+   * shaped like an amount is left off, and the plan says it needs one.
+   */
+  const askedBeyond = await searchParams;
+  const beyond = askedBeyond.beyondPayer && /^[0-9a-f-]{36}$/.test(askedBeyond.beyondPayer)
+    ? {
+        beyondPayer: askedBeyond.beyondPayer,
+        ...(/^\d{1,6}(\.\d{1,2})?$/.test((askedBeyond.beyondRate ?? "").trim()) ? { beyondRate: askedBeyond.beyondRate!.trim() } : {}),
+      }
+    : {};
 
   const ctx = { actor: user.actor, db: getDb() };
 
@@ -107,7 +119,7 @@ export default async function JobPage({ params, searchParams }: {
   const contractOptions = allContracts.filter((c) => involved.has(c.customerId))
     .map((c) => ({ id: c.id, label: `${c.name}, ${c.customerName}` }));
   const clocks = await jobBilling.clocks(ctx, { jobId: id });
-  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id, taxRate, lineRates: askedRates }) : null;
+  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id, taxRate, lineRates: askedRates, ...beyond }) : null;
 
   /** The evidence behind the source, for whoever reads the marketing figures. */
   const attribution = can(user.actor, "adspend:read")
@@ -504,7 +516,7 @@ export default async function JobPage({ params, searchParams }: {
       <EstimateDrafts ctx={ctx} jobId={id} />
       {plan && (plan.lines.length > 0 || plan.existing.length === 0) && job.status !== "cancelled" && (
         <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} typedTax={typedTax} lineRates={askedRates}
-                         taxRate={taxRate ?? null} />
+                         taxRate={taxRate ?? null} beyond={beyond} />
       )}
 
       {(invoices.length > 0 || canInvoice) && (

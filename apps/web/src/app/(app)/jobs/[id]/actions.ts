@@ -276,8 +276,11 @@ export async function billThisJob(_previous: FormState, form: FormData): Promise
   const result = await attempt(form, async () => {
     const taxRate = field(form, "taxRate");
     const lineRates = (field(form, "lineRates") ?? "").split(",").filter(Boolean);
+    const beyondPayer = field(form, "beyondPayer");
+    const beyondRate = field(form, "beyondRate");
     const billed = await jobBilling.bill(await ctx(), {
       jobId, ...(taxRate ? { taxRate } : {}), ...(lineRates.length > 0 ? { lineRates } : {}),
+      ...(beyondPayer ? { beyondPayer, ...(beyondRate ? { beyondRate } : {}) } : {}),
     });
     return {
       message: billed.invoices.length === 1

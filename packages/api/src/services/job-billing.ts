@@ -68,6 +68,8 @@ export interface PlanLine {
   note: string | null;
   rateCardId: string | null;
   rateCardLineId: string | null;
+  /** The minutes a manufacturer's allowance allows for this line, when it is one. */
+  allowedMinutes: number | null;
   outOfScope: boolean;
   taxable: boolean;
   /** The rate the line is taxed at, as applied: its own rate when it is taxable, nought when not. */
@@ -95,6 +97,37 @@ export interface TaxChoices {
   taxRate?: string | undefined;
   /** Per line key, the company's rate it is charged, or "none" for no tax on that line. */
   lineRates?: readonly string[] | undefined;
+  /**
+   * Charge the labour worked beyond a manufacturer's allowance to this payer,
+   * at their card's hourly rate or this one. Only when the plan offers it, and
+   * only ever because somebody asked: it is never added by itself.
+   */
+  beyondPayer?: string | undefined;
+  beyondRate?: string | undefined;
+}
+
+/**
+ * LABOUR BEYOND A MANUFACTURER'S ALLOWANCE, OFFERED.
+ *
+ * An allowance pays the listed price for a repair and allows a number of
+ * minutes for it. Time on site beyond them used to be charged to nobody. The
+ * plan says how much there is, with the minutes, and which payers it could go
+ * to; the office adds it to one of them by asking (`beyondPayer`), and only
+ * then is it a line.
+ */
+export interface Beyond {
+  /** Minutes on site on the job's visits. */
+  workedMinutes: number;
+  /** Minutes every allowance line on the job allows, billed already or in this plan. */
+  allowedMinutes: number;
+  /** Minutes already on a labour line, which somebody is already charged for. */
+  onLinesMinutes: number;
+  /** What is left over, and offered. */
+  beyondMinutes: number;
+  /** Whether it is on the plan as a line, and on whose part. */
+  addedTo: string | null;
+  /** Who it may go to: the payers on this plan. */
+  payers: Array<{ customerId: string; name: string }>;
 }
 
 /** "line:<id>=<rate id>" or "trip=none", as the preview's form and the API send them. */
@@ -154,6 +187,8 @@ export interface BillingPlan {
   problems: string[];
   /** The live invoices already on the job, so a second run is not a surprise. */
   existing: Array<{ id: string; number: number; customerName: string; total: string; status: string }>;
+  /** Labour worked beyond a manufacturer's allowance, offered, when there is any. */
+  beyond: Beyond | null;
 }
 
 /* ------------------------------------------------------------- the plan */
@@ -334,8 +369,45 @@ export async function planIn(
     pricedBy.push(pricerFor("trip"));
   }
 
+  /**
+   * How much labour was worked beyond a manufacturer's allowance, when this
+   * plan bills an allowance at all. Counted against every allowance on the
+   * job, billed already or now, so a job billed in two goes is not offered
+   * the first allowance's minutes again.
+   */
+  const allowedHere = lines.reduce((sum, l) => sum + (l.allowedMinutes ?? 0) * Number(l.quantity), 0);
+  let offer: Omit<Beyond, "payers" | "addedTo"> | null = null;
+  if (allowedHere > 0) {
+    const [billedAllowance] = await tx.select({
+      minutes: sql<string>`coalesce(sum(${schema.rateCardLine.allowedMinutes} * ${schema.jobLine.quantity}), 0)::text`,
+    }).from(schema.jobLine)
+      .innerJoin(schema.invoiceLine, eq(schema.invoiceLine.id, schema.jobLine.invoiceLineId))
+      .innerJoin(schema.rateCardLine, eq(schema.rateCardLine.id, schema.invoiceLine.rateCardLineId))
+      .where(and(eq(schema.jobLine.jobId, jobId), sql`${schema.rateCardLine.allowedMinutes} is not null`));
+    const [worked] = await tx.select({
+      minutes: sql<string>`coalesce(sum(${schema.timeclockEntry.minutes}), 0)::text`,
+    }).from(schema.timeclockEntry)
+      .innerJoin(schema.visit, eq(schema.visit.id, schema.timeclockEntry.visitId))
+      .where(and(
+        eq(schema.visit.jobId, jobId),
+        eq(schema.timeclockEntry.kind, "on_site"),
+      ));
+    /** Every labour line on the job, billed, waiting or excused: somebody has decided about that time. */
+    const everyLine = await tx.select({ id: schema.jobLine.id }).from(schema.jobLine).where(eq(schema.jobLine.jobId, jobId));
+    const kinds = await rateCards.jobLinesFor(tx, everyLine.map((l) => l.id));
+    const onLines = [...kinds.values()]
+      .filter((k) => k.kind === "labor")
+      .reduce((sum, k) => sum + Number(k.line.quantity) * 60, 0);
+    const counted = rates.labourBeyondAllowance({
+      workedMinutes: Number(worked?.minutes ?? "0"),
+      allowedMinutes: allowedHere + Number(billedAllowance?.minutes ?? "0"),
+      onLinesMinutes: onLines,
+    });
+    if (counted.beyondMinutes > 0) offer = counted;
+  }
+
   const amounts = lines.map((l) => usd(l.amount));
-  const pricedTotal = m.sum(amounts, "USD");
+  let pricedTotal = m.sum(amounts, "USD");
   if (lines.length === 0) problems.push("Nothing on this job is still to bill. Record what was used on it first.");
 
   /** The targets, by shape. */
@@ -382,6 +454,50 @@ export async function planIn(
       parts = splits.allocateAcross(amounts, targets, eligible);
     } catch (error) {
       problems.push((error as Error).message);
+    }
+  }
+
+  /**
+   * The labour beyond the allowance, when the office asked for it on one
+   * payer's part: priced for that payer (their card's hourly rate, or the
+   * rate the office named) and theirs alone, after the split, so it never
+   * moves what the allowance or a share pays.
+   */
+  let addedTo: string | null = null;
+  if (options.beyondPayer !== undefined) {
+    const to = payers.findIndex((p) => p.customerId !== null && p.customerId === options.beyondPayer);
+    let rate: m.Money | null = null;
+    try {
+      rate = options.beyondRate ? usd(options.beyondRate) : null;
+    } catch {
+      rate = null;
+    }
+    if (!offer) {
+      problems.push("There is no labour beyond an allowance on this job to add.");
+    } else if (to < 0) {
+      problems.push("The labour beyond the allowance can go only to somebody this job is billed to. Choose one of them.");
+    } else if (!rate || !m.isPositive(rate)) {
+      problems.push("Say the hourly rate to charge the labour beyond the allowance at.");
+    } else {
+      const payerId = payers[to]!.customerId!;
+      const [first] = await tx.select({ at: schema.visit.arrivedAt }).from(schema.visit)
+        .where(eq(schema.visit.jobId, jobId)).orderBy(schema.visit.sequence).limit(1);
+      const priced = rates.priceBeyondAllowance(await cardsFor(payerId), {
+        minutes: offer.beyondMinutes, hourlyRate: rate, at: first?.at ?? new Date(), jobTypeId: job.jobTypeId,
+      });
+      const line = lineOf("beyond", null, null, "Labour beyond the allowance", "labor", "labour", {
+        ...priced,
+        note: `${offer.beyondMinutes} min on site beyond the ${offer.allowedMinutes} min the allowance allows`
+          + (offer.onLinesMinutes > 0 ? ` and the ${offer.onLinesMinutes} min already on a labour line` : "")
+          + `. ${priced.note ?? ""}`.trimEnd(),
+      }, false, rateOf("beyond", false));
+      const amount = usd(line.amount);
+      lines.push(line);
+      amounts.push(amount);
+      pricedBy.push(payerId);
+      parts = parts.map((row, p) => [...row, p === to ? amount : ZERO]);
+      pricedTotal = m.add(pricedTotal, amount);
+      addedTo = payerId;
     }
   }
 
@@ -548,6 +664,11 @@ export async function planIn(
     },
     problems,
     existing,
+    beyond: offer ? {
+      ...offer,
+      addedTo,
+      payers: result.map((r) => ({ customerId: r.customerId, name: r.name })),
+    } : null,
   };
 }
 
@@ -572,6 +693,7 @@ function lineOf(
     note: priced.note,
     rateCardId: priced.rateCardId,
     rateCardLineId: priced.rateCardLineId,
+    allowedMinutes: priced.allowedMinutes ?? null,
     outOfScope: priced.outOfScope,
     taxable,
     ...rate,
@@ -614,7 +736,9 @@ export async function preview(
   ctx: ServiceContext, input: { jobId: string } & TaxChoices,
 ): Promise<BillingPlan> {
   return guardedRead(ctx, "invoice:read", (tx) =>
-    planIn(tx, ctx.actor.organizationId, input.jobId, { taxRate: input.taxRate, lineRates: input.lineRates }));
+    planIn(tx, ctx.actor.organizationId, input.jobId, {
+      taxRate: input.taxRate, lineRates: input.lineRates, beyondPayer: input.beyondPayer, beyondRate: input.beyondRate,
+    }));
 }
 
 /* ------------------------------------------------------------- billing */
@@ -644,7 +768,9 @@ export async function bill(
     const seen = await replayed<BillResult>(tx, ctx, "job_billing");
     if (seen) return seen;
 
-    const plan = await planIn(tx, ctx.actor.organizationId, input.jobId, { taxRate: input.taxRate, lineRates: input.lineRates });
+    const plan = await planIn(tx, ctx.actor.organizationId, input.jobId, {
+      taxRate: input.taxRate, lineRates: input.lineRates, beyondPayer: input.beyondPayer, beyondRate: input.beyondRate,
+    });
     if (plan.problems.length > 0) throw new ConflictError(plan.problems.join(" "));
 
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1);
@@ -935,11 +1061,21 @@ export async function coverageFromEquipment(
 type PartyRole = Parameters<typeof commercial.setParties>[1]["parties"][number]["role"];
 
 export const handlers = {
-  previewJobBilling: (ctx: ServiceContext, input: { id: string; taxRate?: string | undefined; lineRates?: string[] | undefined }) =>
-    preview(ctx, { jobId: input.id, taxRate: input.taxRate, lineRates: input.lineRates }),
+  previewJobBilling: (ctx: ServiceContext, input: {
+    id: string; taxRate?: string | undefined; lineRates?: string[] | undefined;
+    beyondPayer?: string | undefined; beyondRate?: string | undefined;
+  }) =>
+    preview(ctx, {
+      jobId: input.id, taxRate: input.taxRate, lineRates: input.lineRates,
+      beyondPayer: input.beyondPayer, beyondRate: input.beyondRate,
+    }),
   billJob: (ctx: ServiceContext, input: {
     id: string; draft?: boolean | undefined; taxRate?: string | undefined; lineRates?: string[] | undefined;
-  }) => bill(ctx, { jobId: input.id, draft: input.draft, taxRate: input.taxRate, lineRates: input.lineRates }),
+    beyondPayer?: string | undefined; beyondRate?: string | undefined;
+  }) => bill(ctx, {
+    jobId: input.id, draft: input.draft, taxRate: input.taxRate, lineRates: input.lineRates,
+    beyondPayer: input.beyondPayer, beyondRate: input.beyondRate,
+  }),
   setJobContract: (ctx: ServiceContext, input: { id: string; contractId: string | null }) =>
     setContract(ctx, { jobId: input.id, contractId: input.contractId }),
   listJobClocks: (ctx: ServiceContext, input: { id: string }) => clocks(ctx, { jobId: input.id }),

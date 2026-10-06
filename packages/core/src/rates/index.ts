@@ -47,7 +47,7 @@ export type PriceAuthority = CardAuthority | "price_book" | "entered";
 /** How the authority priced it. */
 export type PriceBasis =
   | "card_line" | "labour_rate" | "material_markup" | "trip_charge"
-  | "price_book" | "entered" | "history" | "share";
+  | "price_book" | "entered" | "history" | "share" | "contract_fee";
 
 export const AUTHORITY_LABEL: Record<PriceAuthority, string> = {
   contract: "Client contract",
@@ -68,6 +68,7 @@ export const BASIS_LABEL: Record<PriceBasis, string> = {
   entered: "typed in",
   history: "as recorded",
   share: "share of a split line",
+  contract_fee: "the contract's fee for a period",
 };
 
 /** A label for any stored authority, including one written by a later version. */
@@ -338,6 +339,12 @@ export interface PricedLine {
   /** A card applies and nothing on it prices this line. */
   outOfScope: boolean;
   band: LabourBand | null;
+  /**
+   * The minutes a listed price allows, when the card says: a manufacturer's
+   * allowance pays the listed price for the repair however long it took.
+   * Null on every other basis.
+   */
+  allowedMinutes?: number | null;
 }
 
 const fallback = (line: WorkLine, cards: readonly CardTerms[]): PricedLine => ({
@@ -379,6 +386,7 @@ export function priceWork(cards: readonly CardTerms[], line: WorkLine): PricedLi
         basis: "card_line",
         rateCardId: card.id,
         rateCardLineId: listed.id,
+        allowedMinutes: listed.allowedMinutes,
         note: listed.allowedMinutes !== null
           ? `${card.name}: ${listed.description}, allowing ${listed.allowedMinutes} minutes.`
           : `${card.name}: ${listed.description}.`,
@@ -593,4 +601,60 @@ export function escalationRateProblem(rate: string | null | undefined): string |
   if (!Number.isFinite(n) || n <= 0) return "An escalation of nothing raises nothing. Set the contract's rate first.";
   if (n >= 1) return `An escalation of ${rate} would more than double every price. Write 0.03 for three per cent.`;
   return null;
+}
+
+/* ------------------------------------------------ labour beyond an allowance */
+
+/**
+ * TIME WORKED BEYOND WHAT A MANUFACTURER'S ALLOWANCE PAYS FOR.
+ *
+ * An allowance pays a listed price for a repair and allows a number of
+ * minutes for it, however long it took. Time on site beyond the minutes it
+ * allows is charged to nobody unless somebody decides to charge it: the
+ * customer, or another payer. This works out how much there is to offer, and
+ * never adds it to anything itself.
+ *
+ * Worked is the minutes on site on the job's visits. Allowed is the minutes
+ * every allowance line on the job allows, times how many. Time already on a
+ * labour line is charged to somebody, so it is taken off what is worked
+ * before the comparison: offering it again would bill those minutes twice.
+ */
+export function labourBeyondAllowance(input: {
+  workedMinutes: number; allowedMinutes: number; onLinesMinutes: number;
+}): { workedMinutes: number; allowedMinutes: number; onLinesMinutes: number; beyondMinutes: number } {
+  const worked = Math.max(0, Math.round(input.workedMinutes));
+  const allowed = Math.max(0, Math.round(input.allowedMinutes));
+  const onLines = Math.max(0, Math.round(input.onLinesMinutes));
+  return { workedMinutes: worked, allowedMinutes: allowed, onLinesMinutes: onLines, beyondMinutes: Math.max(0, worked - onLines - allowed) };
+}
+
+/**
+ * Price the minutes beyond an allowance as labour, for whoever is to pay
+ * them: their card's hourly rate when they have one, otherwise the rate the
+ * office named. Exact hours on the line when the minutes make them, and the
+ * amount as one line otherwise, as a card's own labour is.
+ */
+export function priceBeyondAllowance(cards: readonly CardTerms[], input: {
+  minutes: number; hourlyRate: Money; at: Date; jobTypeId: string | null;
+}): PricedLine {
+  const hours = exactHours(input.minutes);
+  const quantity = hours ?? moneyToString(divide(money(String(input.minutes)), "60"));
+  const priced = priceWork(cards, {
+    kind: "labor", name: "Labour beyond the allowance", priceBookItemId: null,
+    quantity, ourPrice: input.hourlyRate, ourPriceIsBook: false, unitCost: null, at: input.at, jobTypeId: input.jobTypeId,
+  });
+  if (priced.basis === "labour_rate") return priced;
+  /** At the office's rate: whole hours where they are exact, else one line of the amount. */
+  const amount = round(divide(multiply(input.hourlyRate, String(input.minutes)), "60"), 2);
+  return {
+    ...priced,
+    quantity: hours ?? "1",
+    unitPrice: hours ? input.hourlyRate : amount,
+    authority: "entered",
+    basis: "entered",
+    /** A card applies to this payer and has no hourly rate: agreed with them before it goes, like any line off the card. */
+    outOfScope: priced.outOfScope,
+    note: `${input.minutes} min at ${cents(input.hourlyRate)} an hour, the rate the office named.`
+      + (priced.outOfScope ? " Their card has no hourly rate, so agree it with them before this goes out." : ""),
+  };
 }

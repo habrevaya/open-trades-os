@@ -1360,6 +1360,8 @@ export interface BillJobInput {
   draft?: boolean;
   taxRate?: string;
   lineRates?: string[];
+  beyondPayer?: string;
+  beyondRate?: string;
 }
 
 export interface BillJobOutput {
@@ -1476,8 +1478,10 @@ export interface CampaignResultsOutput {
 }
 
 export interface CancelAgreementInput {
-  reason: string;
+  reasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other";
+  reason?: string;
   keepThePrepayment?: boolean;
+  endPropertyLink?: boolean;
 }
 
 export interface CancelAgreementOutput {
@@ -1499,9 +1503,11 @@ export interface CancelAgreementOutput {
   renewalCount: number;
   cancelledOn: string | null;
   cancellationReason: string | null;
+  cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
   visitsIncludedThisTerm: number;
   visitsDeliveredThisTerm: number;
   released: string;
+  endedLinks: number;
 }
 
 export interface CancelCampaignInput {
@@ -5319,6 +5325,53 @@ export interface EmailPurchaseOrderOutput {
   link: string;
 }
 
+export interface EndContractBillingInput {
+  lastDay?: string;
+}
+
+export interface EndContractBillingOutput {
+  contractId: string;
+  schedule: {
+    id: string;
+    amount: string;
+    frequency: "monthly" | "quarterly" | "yearly";
+    billingDay: number;
+    startsOn: string;
+    prorate: boolean;
+    taxable: boolean;
+    description: string;
+    state: "active" | "paused" | "ended";
+    pausedOn: string | null;
+    endedOn: string | null;
+    lastDay: string | null;
+  } | null;
+  next: {
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+  } | null;
+  due: number;
+  periods: Array<{
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+    id: string;
+    status: "invoiced" | "skipped";
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    note: string | null;
+  }>;
+  standing: string | null;
+}
+
 export interface EndCustomerPortalSessionsInput {
   sessionId?: string;
 }
@@ -5565,6 +5618,7 @@ export interface GetAgreementOutput {
   renewalCount: number;
   cancelledOn: string | null;
   cancellationReason: string | null;
+  cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
   visitsIncludedThisTerm: number;
   visitsDeliveredThisTerm: number;
   planName: string;
@@ -6140,6 +6194,49 @@ export interface GetConsumptionOutput {
     partialFills: number;
     nextDueEstimate: string | null;
   } | null;
+}
+
+export interface GetContractBillingOutput {
+  contractId: string;
+  schedule: {
+    id: string;
+    amount: string;
+    frequency: "monthly" | "quarterly" | "yearly";
+    billingDay: number;
+    startsOn: string;
+    prorate: boolean;
+    taxable: boolean;
+    description: string;
+    state: "active" | "paused" | "ended";
+    pausedOn: string | null;
+    endedOn: string | null;
+    lastDay: string | null;
+  } | null;
+  next: {
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+  } | null;
+  due: number;
+  periods: Array<{
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+    id: string;
+    status: "invoiced" | "skipped";
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    note: string | null;
+  }>;
+  standing: string | null;
 }
 
 export interface GetConversationOutput {
@@ -7925,7 +8022,7 @@ export interface GetKpiRecordsOutput {
   label: string;
   definition: string;
   format: "percent" | "money" | "number" | "duration";
-  half: "numerator" | "denominator";
+  half: "numerator" | "denominator" | "excluded" | "unknown";
   halfLabel: string;
   from: string;
   to: string;
@@ -7963,6 +8060,11 @@ export interface GetKpiScorecardOutput {
     denominatorMoney: boolean;
     needs: string | null;
     endpoint: string | null;
+    besides: Array<{
+      key: "excluded" | "unknown";
+      label: string;
+      count: string;
+    }>;
   }>;
   unavailable: Array<{
     key: string;
@@ -7980,6 +8082,11 @@ export interface GetKpiScorecardOutput {
     denominatorMoney: boolean;
     needs: string | null;
     endpoint: string | null;
+    besides: Array<{
+      key: "excluded" | "unknown";
+      label: string;
+      count: string;
+    }>;
   }>;
   elsewhere: Array<{
     key: string;
@@ -7997,6 +8104,11 @@ export interface GetKpiScorecardOutput {
     denominatorMoney: boolean;
     needs: string | null;
     endpoint: string | null;
+    besides: Array<{
+      key: "excluded" | "unknown";
+      label: string;
+      count: string;
+    }>;
   }>;
 }
 
@@ -10997,6 +11109,7 @@ export interface ListAgreementsOutput {
     renewalCount: number;
     cancelledOn: string | null;
     cancellationReason: string | null;
+    cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
     visitsIncludedThisTerm: number;
     visitsDeliveredThisTerm: number;
     planName: string;
@@ -15636,6 +15749,51 @@ export interface OpenRegulatorySubmissionOutput {
   statement: string;
 }
 
+export type PauseContractBillingInput = Record<string, unknown>;
+
+export interface PauseContractBillingOutput {
+  contractId: string;
+  schedule: {
+    id: string;
+    amount: string;
+    frequency: "monthly" | "quarterly" | "yearly";
+    billingDay: number;
+    startsOn: string;
+    prorate: boolean;
+    taxable: boolean;
+    description: string;
+    state: "active" | "paused" | "ended";
+    pausedOn: string | null;
+    endedOn: string | null;
+    lastDay: string | null;
+  } | null;
+  next: {
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+  } | null;
+  due: number;
+  periods: Array<{
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+    id: string;
+    status: "invoiced" | "skipped";
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    note: string | null;
+  }>;
+  standing: string | null;
+}
+
 export interface PayCommissionsInput {
   periodId: string;
 }
@@ -16017,6 +16175,7 @@ export interface PreviewJobBillingOutput {
     note: string | null;
     rateCardId: string | null;
     rateCardLineId: string | null;
+    allowedMinutes: number | null;
     outOfScope: boolean;
     taxable: boolean;
     taxRate: string;
@@ -16073,6 +16232,17 @@ export interface PreviewJobBillingOutput {
     total: string;
     status: string;
   }>;
+  beyond: {
+    workedMinutes: number;
+    allowedMinutes: number;
+    onLinesMinutes: number;
+    beyondMinutes: number;
+    addedTo: string | null;
+    payers: Array<{
+      customerId: string;
+      name: string;
+    }>;
+  } | null;
 }
 
 export interface PreviewMailCampaignOutput {
@@ -16564,6 +16734,23 @@ export interface QuoteDeficiencyOutput {
   estimateId: string;
   amount: string | null;
   created: boolean;
+}
+
+export type RaiseContractBillingInput = Record<string, unknown>;
+
+export interface RaiseContractBillingOutput {
+  raised: Array<{
+    contractId: string;
+    periodStart: string;
+    periodEnd: string;
+    invoiceId: string;
+    invoiceNumber: number;
+    total: string;
+  }>;
+  failed: Array<{
+    contractId: string;
+    reason: string;
+  }>;
 }
 
 export type RaiseProjectApplicationInput = Record<string, unknown>;
@@ -18376,6 +18563,51 @@ export interface ResubmitRegulatorySubmissionOutput {
   statement: string;
 }
 
+export type ResumeContractBillingInput = Record<string, unknown>;
+
+export interface ResumeContractBillingOutput {
+  contractId: string;
+  schedule: {
+    id: string;
+    amount: string;
+    frequency: "monthly" | "quarterly" | "yearly";
+    billingDay: number;
+    startsOn: string;
+    prorate: boolean;
+    taxable: boolean;
+    description: string;
+    state: "active" | "paused" | "ended";
+    pausedOn: string | null;
+    endedOn: string | null;
+    lastDay: string | null;
+  } | null;
+  next: {
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+  } | null;
+  due: number;
+  periods: Array<{
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+    id: string;
+    status: "invoiced" | "skipped";
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    note: string | null;
+  }>;
+  standing: string | null;
+}
+
 export type RetireAgreementPlanInput = Record<string, unknown>;
 
 export interface RetireAgreementPlanOutput {
@@ -19202,6 +19434,7 @@ export interface SellAgreementOutput {
   renewalCount: number;
   cancelledOn: string | null;
   cancellationReason: string | null;
+  cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
   visitsIncludedThisTerm: number;
   visitsDeliveredThisTerm: number;
 }
@@ -19651,6 +19884,59 @@ export interface SetContactPortalAccessOutput {
   id: string;
   portalAccess: boolean;
   endedSessions: number;
+}
+
+export interface SetContractBillingInput {
+  amount: string;
+  frequency: "monthly" | "quarterly" | "yearly";
+  billingDay: number;
+  startsOn?: string;
+  prorate?: boolean;
+  taxable?: boolean;
+  description: string;
+}
+
+export interface SetContractBillingOutput {
+  contractId: string;
+  schedule: {
+    id: string;
+    amount: string;
+    frequency: "monthly" | "quarterly" | "yearly";
+    billingDay: number;
+    startsOn: string;
+    prorate: boolean;
+    taxable: boolean;
+    description: string;
+    state: "active" | "paused" | "ended";
+    pausedOn: string | null;
+    endedOn: string | null;
+    lastDay: string | null;
+  } | null;
+  next: {
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+  } | null;
+  due: number;
+  periods: Array<{
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+    id: string;
+    status: "invoiced" | "skipped";
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    note: string | null;
+  }>;
+  standing: string | null;
 }
 
 export interface SetCostingRateInput {
@@ -24440,6 +24726,10 @@ export interface EmailPurchaseOrderParams {
   id: string;
 }
 
+export interface EndContractBillingParams {
+  contractId: string;
+}
+
 export interface EndCustomerPortalSessionsParams {
   id: string;
 }
@@ -24570,6 +24860,10 @@ export interface GetConsentInput {
 export interface GetConsumptionInput {
   propertyId: string;
   product: string;
+}
+
+export interface GetContractBillingInput {
+  contractId: string;
 }
 
 export interface GetConversationInput {
@@ -24768,7 +25062,7 @@ export interface GetJournalEntryInput {
 
 export interface GetKpiRecordsInput {
   key: string;
-  half: "numerator" | "denominator";
+  half: "numerator" | "denominator" | "excluded" | "unknown";
   from: string;
   to: string;
 }
@@ -26141,6 +26435,10 @@ export interface OpenPortalLinkInput {
   token: string;
 }
 
+export interface PauseContractBillingParams {
+  contractId: string;
+}
+
 export interface PayOutCreditNoteParams {
   id: string;
 }
@@ -26183,6 +26481,8 @@ export interface PreviewJobBillingInput {
   id: string;
   taxRate?: string;
   lineRates?: string[];
+  beyondPayer?: string;
+  beyondRate?: string;
 }
 
 export interface PreviewMailCampaignInput {
@@ -26233,6 +26533,10 @@ export interface PublishWorkflowParams {
 
 export interface QuoteDeficiencyParams {
   id: string;
+}
+
+export interface RaiseContractBillingParams {
+  contractId: string;
 }
 
 export interface RaiseProjectApplicationParams {
@@ -26485,6 +26789,10 @@ export interface ResubmitRegulatorySubmissionParams {
   id: string;
 }
 
+export interface ResumeContractBillingParams {
+  contractId: string;
+}
+
 export interface RetireAgreementPlanParams {
   id: string;
 }
@@ -26654,6 +26962,10 @@ export interface SetCertificationStatusParams {
 
 export interface SetContactPortalAccessParams {
   id: string;
+}
+
+export interface SetContractBillingParams {
+  contractId: string;
 }
 
 export interface SetCrewMembersParams {
@@ -27400,6 +27712,7 @@ export interface OperationTypes {
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
   emailPurchaseOrder: { input: EmailPurchaseOrderParams & EmailPurchaseOrderInput; output: EmailPurchaseOrderOutput };
+  endContractBilling: { input: EndContractBillingParams & EndContractBillingInput; output: EndContractBillingOutput };
   endCustomerPortalSessions: { input: EndCustomerPortalSessionsParams & EndCustomerPortalSessionsInput; output: EndCustomerPortalSessionsOutput };
   endTechnicianSkill: { input: EndTechnicianSkillParams & EndTechnicianSkillInput; output: EndTechnicianSkillOutput };
   exceptRecurringOccurrence: { input: ExceptRecurringOccurrenceParams & ExceptRecurringOccurrenceInput; output: ExceptRecurringOccurrenceOutput };
@@ -27442,6 +27755,7 @@ export interface OperationTypes {
   getComplianceSummary: { input: GetComplianceSummaryInput; output: GetComplianceSummaryOutput };
   getConsent: { input: GetConsentInput; output: GetConsentOutput };
   getConsumption: { input: GetConsumptionInput; output: GetConsumptionOutput };
+  getContractBilling: { input: GetContractBillingInput; output: GetContractBillingOutput };
   getConversation: { input: GetConversationInput; output: GetConversationOutput };
   getConversions: { input: GetConversionsInput; output: GetConversionsOutput };
   getCreditNote: { input: GetCreditNoteInput; output: GetCreditNoteOutput };
@@ -27838,6 +28152,7 @@ export interface OperationTypes {
   openPortalLink: { input: OpenPortalLinkInput; output: OpenPortalLinkOutput };
   openPortalRecord: { input: OpenPortalRecordInput; output: OpenPortalRecordOutput };
   openRegulatorySubmission: { input: OpenRegulatorySubmissionInput; output: OpenRegulatorySubmissionOutput };
+  pauseContractBilling: { input: PauseContractBillingParams & PauseContractBillingInput; output: PauseContractBillingOutput };
   payCommissions: { input: PayCommissionsInput; output: PayCommissionsOutput };
   payOutCreditNote: { input: PayOutCreditNoteParams & PayOutCreditNoteInput; output: PayOutCreditNoteOutput };
   payPortalAccountInvoice: { input: PayPortalAccountInvoiceInput; output: PayPortalAccountInvoiceOutput };
@@ -27871,6 +28186,7 @@ export interface OperationTypes {
   putBackupDestination: { input: PutBackupDestinationInput; output: PutBackupDestinationOutput };
   queueEmail: { input: QueueEmailInput; output: QueueEmailOutput };
   quoteDeficiency: { input: QuoteDeficiencyParams & QuoteDeficiencyInput; output: QuoteDeficiencyOutput };
+  raiseContractBilling: { input: RaiseContractBillingParams & RaiseContractBillingInput; output: RaiseContractBillingOutput };
   raiseProjectApplication: { input: RaiseProjectApplicationParams & RaiseProjectApplicationInput; output: RaiseProjectApplicationOutput };
   raiseProjectDraw: { input: RaiseProjectDrawParams & RaiseProjectDrawInput; output: RaiseProjectDrawOutput };
   readAuditLog: { input: ReadAuditLogInput; output: ReadAuditLogOutput };
@@ -27967,6 +28283,7 @@ export interface OperationTypes {
   restoreCopy: { input: RestoreCopyInput; output: RestoreCopyOutput };
   restoreCustomerDuplicate: { input: RestoreCustomerDuplicateInput; output: RestoreCustomerDuplicateOutput };
   resubmitRegulatorySubmission: { input: ResubmitRegulatorySubmissionParams & ResubmitRegulatorySubmissionInput; output: ResubmitRegulatorySubmissionOutput };
+  resumeContractBilling: { input: ResumeContractBillingParams & ResumeContractBillingInput; output: ResumeContractBillingOutput };
   retireAgreementPlan: { input: RetireAgreementPlanParams & RetireAgreementPlanInput; output: RetireAgreementPlanOutput };
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
   retireEquipment: { input: RetireEquipmentParams & RetireEquipmentInput; output: RetireEquipmentOutput };
@@ -28029,6 +28346,7 @@ export interface OperationTypes {
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
+  setContractBilling: { input: SetContractBillingParams & SetContractBillingInput; output: SetContractBillingOutput };
   setCostingRate: { input: SetCostingRateInput; output: SetCostingRateOutput };
   setCrewMembers: { input: SetCrewMembersParams & SetCrewMembersInput; output: SetCrewMembersOutput };
   setCustomerAdData: { input: SetCustomerAdDataParams & SetCustomerAdDataInput; output: SetCustomerAdDataOutput };
@@ -28428,6 +28746,7 @@ export const OPERATIONS = {
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   emailPurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  endContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/end", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   endCustomerPortalSessions: { method: "POST", path: "/v1/customers/{id}/portal-sessions/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:revoke"] },
   endTechnicianSkill: { method: "POST", path: "/v1/technician-skills/{id}/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   exceptRecurringOccurrence: { method: "POST", path: "/v1/recurring-schedules/{id}/exceptions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -28470,6 +28789,7 @@ export const OPERATIONS = {
   getComplianceSummary: { method: "GET", path: "/v1/compliance/documents/summary", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   getConsent: { method: "GET", path: "/v1/consent", pathParams: [], queryParams: ["address"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getConsumption: { method: "GET", path: "/v1/deliveries/consumption", pathParams: [], queryParams: ["propertyId","product"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getContractBilling: { method: "GET", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   getConversation: { method: "GET", path: "/v1/conversations/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getConversions: { method: "GET", path: "/v1/marketing/conversions", pathParams: [], queryParams: ["from","to","model","format"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getCreditNote: { method: "GET", path: "/v1/credit-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -28866,6 +29186,7 @@ export const OPERATIONS = {
   openPortalLink: { method: "GET", path: "/v1/portal/session", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openPortalRecord: { method: "POST", path: "/v1/portal/account/open", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  pauseContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/pause", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   payCommissions: { method: "POST", path: "/v1/payroll/commission-payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   payOutCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/payouts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   payPortalAccountInvoice: { method: "POST", path: "/v1/portal/account/pay", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -28882,7 +29203,7 @@ export const OPERATIONS = {
   planVisitUnits: { method: "PUT", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   previewCampaign: { method: "POST", path: "/v1/campaigns/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewContractEscalation: { method: "GET", path: "/v1/contracts/{contractId}/escalation", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
-  previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: ["taxRate","lineRates"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: ["taxRate","lineRates","beyondPayer","beyondRate"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   previewMailCampaign: { method: "GET", path: "/v1/marketing/mail/{id}/preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending","effectiveOn"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -28899,6 +29220,7 @@ export const OPERATIONS = {
   putBackupDestination: { method: "PUT", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   queueEmail: { method: "POST", path: "/v1/email/messages", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   quoteDeficiency: { method: "POST", path: "/v1/inspection-deficiencies/{id}/quote", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write","estimate:write"] },
+  raiseContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/raise", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   raiseProjectApplication: { method: "POST", path: "/v1/project-applications/{id}/raise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   raiseProjectDraw: { method: "POST", path: "/v1/project-draws/{id}/raise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   readAuditLog: { method: "GET", path: "/v1/audit", pathParams: [], queryParams: ["entityType","entityId","actorUserId","action","from","to","before","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["audit:read"] },
@@ -28995,6 +29317,7 @@ export const OPERATIONS = {
   restoreCopy: { method: "POST", path: "/v1/restores", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   restoreCustomerDuplicate: { method: "POST", path: "/v1/customer-duplicates/restore", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
   resubmitRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/resubmit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  resumeContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/resume", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   retireAgreementPlan: { method: "POST", path: "/v1/agreement-plans/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireEquipment: { method: "POST", path: "/v1/equipment/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
@@ -29057,6 +29380,7 @@ export const OPERATIONS = {
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
+  setContractBilling: { method: "PUT", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   setCostingRate: { method: "POST", path: "/v1/costing/rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setCrewMembers: { method: "PUT", path: "/v1/crews/{id}/members", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   setCustomerAdData: { method: "PUT", path: "/v1/customers/{id}/ad-data", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
@@ -31157,6 +31481,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * End a contract's fixed fee on a last day.
+   *
+   * POST /v1/contracts/{contractId}/billing/end. Needs contract:write.
+   */
+  endContractBilling(input: EndContractBillingParams & EndContractBillingInput, options?: CallOptions): Promise<EndContractBillingOutput> {
+    return this.call("endContractBilling", input, options);
+  }
+
+  /**
    * End a customer's sign in, or every one they have open.
    *
    * POST /v1/customers/{id}/portal-sessions/end. Needs portal:revoke.
@@ -31532,6 +31865,15 @@ export abstract class GeneratedOperations {
    */
   getConsumption(input: GetConsumptionInput, options?: CallOptions): Promise<GetConsumptionOutput> {
     return this.call("getConsumption", input, options);
+  }
+
+  /**
+   * A contract's fixed fee schedule, and every period it has billed.
+   *
+   * GET /v1/contracts/{contractId}/billing. Needs contract:read.
+   */
+  getContractBilling(input: GetContractBillingInput, options?: CallOptions): Promise<GetContractBillingOutput> {
+    return this.call("getContractBilling", input, options);
   }
 
   /**
@@ -35099,6 +35441,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Stop a contract's fixed fee until it is resumed.
+   *
+   * POST /v1/contracts/{contractId}/billing/pause. Needs contract:write.
+   */
+  pauseContractBilling(input: PauseContractBillingParams & PauseContractBillingInput, options?: CallOptions): Promise<PauseContractBillingOutput> {
+    return this.call("pauseContractBilling", input, options);
+  }
+
+  /**
    * Clear the commission liability against cash.
    *
    * POST /v1/payroll/commission-payments. Needs payroll:export.
@@ -35393,6 +35744,15 @@ export abstract class GeneratedOperations {
    */
   quoteDeficiency(input: QuoteDeficiencyParams & QuoteDeficiencyInput, options?: CallOptions): Promise<QuoteDeficiencyOutput> {
     return this.call("quoteDeficiency", input, options);
+  }
+
+  /**
+   * Raise the contract's owed periods now, rather than on the worker's pass.
+   *
+   * POST /v1/contracts/{contractId}/billing/raise. Needs invoice:write.
+   */
+  raiseContractBilling(input: RaiseContractBillingParams & RaiseContractBillingInput, options?: CallOptions): Promise<RaiseContractBillingOutput> {
+    return this.call("raiseContractBilling", input, options);
   }
 
   /**
@@ -36260,6 +36620,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Start a paused fixed fee again.
+   *
+   * POST /v1/contracts/{contractId}/billing/resume. Needs contract:write.
+   */
+  resumeContractBilling(input: ResumeContractBillingParams & ResumeContractBillingInput, options?: CallOptions): Promise<ResumeContractBillingOutput> {
+    return this.call("resumeContractBilling", input, options);
+  }
+
+  /**
    * Retire a membership plan.
    *
    * POST /v1/agreement-plans/{id}/retire. Needs membership:write.
@@ -36815,6 +37184,15 @@ export abstract class GeneratedOperations {
    */
   setContactPortalAccess(input: SetContactPortalAccessParams & SetContactPortalAccessInput, options?: CallOptions): Promise<SetContactPortalAccessOutput> {
     return this.call("setContactPortalAccess", input, options);
+  }
+
+  /**
+   * Bill a contract a fixed fee every month, quarter or year.
+   *
+   * PUT /v1/contracts/{contractId}/billing. Needs contract:write.
+   */
+  setContractBilling(input: SetContractBillingParams & SetContractBillingInput, options?: CallOptions): Promise<SetContractBillingOutput> {
+    return this.call("setContractBilling", input, options);
   }
 
   /**

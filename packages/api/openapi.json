@@ -3617,7 +3617,7 @@
       "post": {
         "operationId": "cancelAgreement",
         "summary": "Cancel an agreement",
-        "description": "A reason is required, because it is the whole of a win-back campaign. Instalments not yet invoiced are cancelled. Whatever was billed and not earned is released: to revenue when `keepThePrepayment` is true, otherwise back to the customer's account. Leaving it deferred forever is the one answer that is wrong either way.\n\nRequires a session holding: membership:write.",
+        "description": "A reason from the fixed list is required, because it is the whole of a win-back campaign and because every retention, renewal and churn figure has to tell a move or a house sale from a lost customer: `moved`, `sold`, `price`, `service`, `switched`, `not_needed`, or `other` with the words in `reason`. Any reason may carry words. For `moved` or `sold`, `endPropertyLink` ends the customer's link to the address the agreement covers today (`endedLinks` says how many were ended), which is what tells a later lapse at that address from churn. Instalments not yet invoiced are cancelled. Whatever was billed and not earned is released: to revenue when `keepThePrepayment` is true, otherwise back to the customer's account. Leaving it deferred forever is the one answer that is wrong either way.\n\nRequires a session holding: membership:write.",
         "tags": [
           "M08"
         ],
@@ -27132,6 +27132,800 @@
         "x-authorization": "session",
         "x-permissions": [
           "pricebook:read"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getContractBilling",
+        "summary": "A contract's fixed fee schedule, and every period it has billed",
+        "description": "The schedule (the fee, how often, the billing day, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A contract's fixed fee schedule, and every period it has billed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetContractBillingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
+        ]
+      },
+      "put": {
+        "operationId": "setContractBilling",
+        "summary": "Bill a contract a fixed fee every month, quarter or year",
+        "description": "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer on the period's billing day in the company's calendar, in advance, for the period that starts that day, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue like any invoice. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of. The billing day is 1 to 28. Changing how often or on which day it bills, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetContractBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bill a contract a fixed fee every month, quarter or year",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetContractBillingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing/end": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "endContractBilling",
+        "summary": "End a contract's fixed fee on a last day",
+        "description": "Periods up to `lastDay` (today when left off) are still billed, one cut short by it as a part period, and nothing after. An invoice already raised for a period the end cuts short is left as it is: crediting the rest is decided on that invoice. Saving the schedule again starts it again.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndContractBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "End a contract's fixed fee on a last day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndContractBillingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing/pause": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "pauseContractBilling",
+        "summary": "Stop a contract's fixed fee until it is resumed",
+        "description": "Nothing is billed while it is paused, and a period whose billing day falls in the pause is written down as skipped when it is resumed, so it is never billed afterwards. Pausing one already paused changes nothing.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseContractBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop a contract's fixed fee until it is resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseContractBillingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing/raise": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "raiseContractBilling",
+        "summary": "Raise the contract's owed periods now, rather than on the worker's pass",
+        "description": "Every period whose billing day has come and that is not billed yet, as one invoice each, by the same code and under the same claim on the period as the worker, so nothing the worker billed is billed again. A schedule years behind is caught up twelve periods at a time. Refused, in words, when an invoice cannot be raised, with nothing written.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RaiseContractBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Raise the contract's owed periods now, rather than on the worker's pass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RaiseContractBillingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing/resume": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "resumeContractBilling",
+        "summary": "Start a paused fixed fee again",
+        "description": "Billing starts again from today. Each period whose billing day fell while it was paused is written down as skipped rather than billed, so a customer is not sent the paused months the morning it is resumed. A period owed from before the pause is still billed. Resuming one not paused changes nothing.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeContractBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Start a paused fixed fee again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumeContractBillingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
         ]
       }
     },
@@ -53575,7 +54369,7 @@
       "get": {
         "operationId": "previewJobBilling",
         "summary": "How a job would be billed, and to whom",
-        "description": "Every unbilled line on the job, plus a card's trip charge per visit made, each priced by the authority of whoever pays for it: their contract's card, a warranty network schedule or a manufacturer allowance, with our price book as the fallback. Then split between payers: a third party covering part of the work pays the covered work less the deductible and the customer the rest; payers named with shares pay their shares and the party billed the remainder. `problems` says what has to be decided before it can be billed. Nothing is written.\n\nRequires a session holding: invoice:read.",
+        "description": "Every unbilled line on the job, plus a card's trip charge per visit made, each priced by the authority of whoever pays for it: their contract's card, a warranty network schedule or a manufacturer allowance, with our price book as the fallback. Then split between payers: a third party covering part of the work pays the covered work less the deductible and the customer the rest; payers named with shares pay their shares and the party billed the remainder. When a manufacturer's allowance is billed and the minutes on site exceed what it allows, `beyond` offers the difference with the minutes, and `beyondPayer` with `beyondRate` puts it on one payer's part. `problems` says what has to be decided before it can be billed. Nothing is written.\n\nRequires a session holding: invoice:read.",
         "tags": [
           "M31"
         ],
@@ -53611,6 +54405,24 @@
                 "pattern": "^[a-z]+(:[0-9a-f-]{36})?=([0-9a-f-]{36}|none)$"
               },
               "maxItems": 500
+            }
+          },
+          {
+            "name": "beyondPayer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "beyondRate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
             }
           }
         ],
@@ -55896,7 +56708,7 @@
       "get": {
         "operationId": "getKpiRecords",
         "summary": "The records behind one half of one KPI",
-        "description": "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
+        "description": "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -55919,7 +56731,9 @@
               "type": "string",
               "enum": [
                 "numerator",
-                "denominator"
+                "denominator",
+                "excluded",
+                "unknown"
               ]
             }
           },
@@ -133097,6 +133911,14 @@
               "pattern": "^[a-z]+(:[0-9a-f-]{36})?=([0-9a-f-]{36}|none)$"
             },
             "maxItems": 500
+          },
+          "beyondPayer": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "beyondRate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         }
       },
@@ -133632,18 +134454,32 @@
       "CancelAgreementInput": {
         "type": "object",
         "properties": {
+          "reasonCode": {
+            "type": "string",
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
           "reason": {
             "type": "string",
-            "minLength": 1,
             "maxLength": 1000
           },
           "keepThePrepayment": {
             "type": "boolean",
             "default": false
+          },
+          "endPropertyLink": {
+            "type": "boolean"
           }
         },
         "required": [
-          "reason"
+          "reasonCode"
         ]
       },
       "CancelAgreementOutput": {
@@ -133740,6 +134576,21 @@
               "null"
             ]
           },
+          "cancellationCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
           "visitsIncludedThisTerm": {
             "type": "integer"
           },
@@ -133749,6 +134600,9 @@
           "released": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "endedLinks": {
+            "type": "integer"
           }
         },
         "required": [
@@ -133767,9 +134621,11 @@
           "renewalCount",
           "cancelledOn",
           "cancellationReason",
+          "cancellationCode",
           "visitsIncludedThisTerm",
           "visitsDeliveredThisTerm",
-          "released"
+          "released",
+          "endedLinks"
         ]
       },
       "CancelCampaignInput": {
@@ -153137,6 +153993,243 @@
           "link"
         ]
       },
+      "EndContractBillingInput": {
+        "type": "object",
+        "properties": {
+          "lastDay": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "EndContractBillingOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "yearly"
+                ]
+              },
+              "billingDay": {
+                "type": "integer"
+              },
+              "startsOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "prorate": {
+                "type": "boolean"
+              },
+              "taxable": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused",
+                  "ended"
+                ]
+              },
+              "pausedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lastDay": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              }
+            },
+            "required": [
+              "id",
+              "amount",
+              "frequency",
+              "billingDay",
+              "startsOn",
+              "prorate",
+              "taxable",
+              "description",
+              "state",
+              "pausedOn",
+              "endedOn",
+              "lastDay"
+            ]
+          },
+          "next": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              },
+              "billOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "prorated": {
+                "type": "boolean"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "fullDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "billOn",
+              "amount",
+              "prorated",
+              "days",
+              "fullDays"
+            ]
+          },
+          "due": {
+            "type": "integer"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "prorated": {
+                  "type": "boolean"
+                },
+                "days": {
+                  "type": "integer"
+                },
+                "fullDays": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invoiced",
+                    "skipped"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "billOn",
+                "amount",
+                "prorated",
+                "days",
+                "fullDays",
+                "id",
+                "status",
+                "invoiceId",
+                "invoiceNumber",
+                "note"
+              ]
+            }
+          },
+          "standing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractId",
+          "schedule",
+          "next",
+          "due",
+          "periods",
+          "standing"
+        ]
+      },
       "EndCustomerPortalSessionsInput": {
         "type": "object",
         "properties": {
@@ -154197,6 +155290,21 @@
               "null"
             ]
           },
+          "cancellationCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
           "visitsIncludedThisTerm": {
             "type": "integer"
           },
@@ -154392,6 +155500,7 @@
           "renewalCount",
           "cancelledOn",
           "cancellationReason",
+          "cancellationCode",
           "visitsIncludedThisTerm",
           "visitsDeliveredThisTerm",
           "planName",
@@ -157250,6 +158359,234 @@
         },
         "required": [
           "consumption"
+        ]
+      },
+      "GetContractBillingOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "yearly"
+                ]
+              },
+              "billingDay": {
+                "type": "integer"
+              },
+              "startsOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "prorate": {
+                "type": "boolean"
+              },
+              "taxable": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused",
+                  "ended"
+                ]
+              },
+              "pausedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lastDay": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              }
+            },
+            "required": [
+              "id",
+              "amount",
+              "frequency",
+              "billingDay",
+              "startsOn",
+              "prorate",
+              "taxable",
+              "description",
+              "state",
+              "pausedOn",
+              "endedOn",
+              "lastDay"
+            ]
+          },
+          "next": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              },
+              "billOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "prorated": {
+                "type": "boolean"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "fullDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "billOn",
+              "amount",
+              "prorated",
+              "days",
+              "fullDays"
+            ]
+          },
+          "due": {
+            "type": "integer"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "prorated": {
+                  "type": "boolean"
+                },
+                "days": {
+                  "type": "integer"
+                },
+                "fullDays": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invoiced",
+                    "skipped"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "billOn",
+                "amount",
+                "prorated",
+                "days",
+                "fullDays",
+                "id",
+                "status",
+                "invoiceId",
+                "invoiceNumber",
+                "note"
+              ]
+            }
+          },
+          "standing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractId",
+          "schedule",
+          "next",
+          "due",
+          "periods",
+          "standing"
         ]
       },
       "GetConversationOutput": {
@@ -166739,7 +168076,9 @@
             "type": "string",
             "enum": [
               "numerator",
-              "denominator"
+              "denominator",
+              "excluded",
+              "unknown"
             ]
           },
           "halfLabel": {
@@ -166916,6 +168255,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "besides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "enum": [
+                          "excluded",
+                          "unknown"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "count"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -166933,7 +168298,8 @@
                 "numeratorMoney",
                 "denominatorMoney",
                 "needs",
-                "endpoint"
+                "endpoint",
+                "besides"
               ]
             }
           },
@@ -167021,6 +168387,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "besides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "enum": [
+                          "excluded",
+                          "unknown"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "count"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -167038,7 +168430,8 @@
                 "numeratorMoney",
                 "denominatorMoney",
                 "needs",
-                "endpoint"
+                "endpoint",
+                "besides"
               ]
             }
           },
@@ -167126,6 +168519,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "besides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "enum": [
+                          "excluded",
+                          "unknown"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "count"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -167143,7 +168562,8 @@
                 "numeratorMoney",
                 "denominatorMoney",
                 "needs",
-                "endpoint"
+                "endpoint",
+                "besides"
               ]
             }
           }
@@ -182659,6 +184079,21 @@
                     "null"
                   ]
                 },
+                "cancellationCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "moved",
+                    "sold",
+                    "price",
+                    "service",
+                    "switched",
+                    "not_needed",
+                    "other"
+                  ]
+                },
                 "visitsIncludedThisTerm": {
                   "type": "integer"
                 },
@@ -182688,6 +184123,7 @@
                 "renewalCount",
                 "cancelledOn",
                 "cancellationReason",
+                "cancellationCode",
                 "visitsIncludedThisTerm",
                 "visitsDeliveredThisTerm",
                 "planName",
@@ -207024,6 +208460,238 @@
           "statement"
         ]
       },
+      "PauseContractBillingInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "PauseContractBillingOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "yearly"
+                ]
+              },
+              "billingDay": {
+                "type": "integer"
+              },
+              "startsOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "prorate": {
+                "type": "boolean"
+              },
+              "taxable": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused",
+                  "ended"
+                ]
+              },
+              "pausedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lastDay": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              }
+            },
+            "required": [
+              "id",
+              "amount",
+              "frequency",
+              "billingDay",
+              "startsOn",
+              "prorate",
+              "taxable",
+              "description",
+              "state",
+              "pausedOn",
+              "endedOn",
+              "lastDay"
+            ]
+          },
+          "next": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              },
+              "billOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "prorated": {
+                "type": "boolean"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "fullDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "billOn",
+              "amount",
+              "prorated",
+              "days",
+              "fullDays"
+            ]
+          },
+          "due": {
+            "type": "integer"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "prorated": {
+                  "type": "boolean"
+                },
+                "days": {
+                  "type": "integer"
+                },
+                "fullDays": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invoiced",
+                    "skipped"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "billOn",
+                "amount",
+                "prorated",
+                "days",
+                "fullDays",
+                "id",
+                "status",
+                "invoiceId",
+                "invoiceNumber",
+                "note"
+              ]
+            }
+          },
+          "standing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractId",
+          "schedule",
+          "next",
+          "due",
+          "periods",
+          "standing"
+        ]
+      },
       "PayCommissionsInput": {
         "type": "object",
         "properties": {
@@ -208947,6 +210615,12 @@
                   ],
                   "format": "uuid"
                 },
+                "allowedMinutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "outOfScope": {
                   "type": "boolean"
                 },
@@ -208993,6 +210667,7 @@
                 "note",
                 "rateCardId",
                 "rateCardLineId",
+                "allowedMinutes",
                 "outOfScope",
                 "taxable",
                 "taxRate",
@@ -209235,6 +210910,60 @@
                 "status"
               ]
             }
+          },
+          "beyond": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "workedMinutes": {
+                "type": "integer"
+              },
+              "allowedMinutes": {
+                "type": "integer"
+              },
+              "onLinesMinutes": {
+                "type": "integer"
+              },
+              "beyondMinutes": {
+                "type": "integer"
+              },
+              "addedTo": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "payers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "customerId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "customerId",
+                    "name"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "workedMinutes",
+              "allowedMinutes",
+              "onLinesMinutes",
+              "beyondMinutes",
+              "addedTo",
+              "payers"
+            ]
           }
         },
         "required": [
@@ -209254,7 +210983,8 @@
           "outOfScope",
           "tax",
           "problems",
-          "existing"
+          "existing",
+          "beyond"
         ]
       },
       "PreviewMailCampaignOutput": {
@@ -211769,6 +213499,77 @@
           "estimateId",
           "amount",
           "created"
+        ]
+      },
+      "RaiseContractBillingInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RaiseContractBillingOutput": {
+        "type": "object",
+        "properties": {
+          "raised": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contractId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "periodStart": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "periodEnd": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "contractId",
+                "periodStart",
+                "periodEnd",
+                "invoiceId",
+                "invoiceNumber",
+                "total"
+              ]
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contractId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "contractId",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "raised",
+          "failed"
         ]
       },
       "RaiseProjectApplicationInput": {
@@ -220412,6 +222213,238 @@
           "statement"
         ]
       },
+      "ResumeContractBillingInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResumeContractBillingOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "yearly"
+                ]
+              },
+              "billingDay": {
+                "type": "integer"
+              },
+              "startsOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "prorate": {
+                "type": "boolean"
+              },
+              "taxable": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused",
+                  "ended"
+                ]
+              },
+              "pausedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lastDay": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              }
+            },
+            "required": [
+              "id",
+              "amount",
+              "frequency",
+              "billingDay",
+              "startsOn",
+              "prorate",
+              "taxable",
+              "description",
+              "state",
+              "pausedOn",
+              "endedOn",
+              "lastDay"
+            ]
+          },
+          "next": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              },
+              "billOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "prorated": {
+                "type": "boolean"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "fullDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "billOn",
+              "amount",
+              "prorated",
+              "days",
+              "fullDays"
+            ]
+          },
+          "due": {
+            "type": "integer"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "prorated": {
+                  "type": "boolean"
+                },
+                "days": {
+                  "type": "integer"
+                },
+                "fullDays": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invoiced",
+                    "skipped"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "billOn",
+                "amount",
+                "prorated",
+                "days",
+                "fullDays",
+                "id",
+                "status",
+                "invoiceId",
+                "invoiceNumber",
+                "note"
+              ]
+            }
+          },
+          "standing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractId",
+          "schedule",
+          "next",
+          "due",
+          "periods",
+          "standing"
+        ]
+      },
       "RetireAgreementPlanInput": {
         "type": "object",
         "properties": {}
@@ -224340,6 +226373,21 @@
               "null"
             ]
           },
+          "cancellationCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
           "visitsIncludedThisTerm": {
             "type": "integer"
           },
@@ -224363,6 +226411,7 @@
           "renewalCount",
           "cancelledOn",
           "cancellationReason",
+          "cancellationCode",
           "visitsIncludedThisTerm",
           "visitsDeliveredThisTerm"
         ]
@@ -226493,6 +228542,277 @@
           "id",
           "portalAccess",
           "endedSessions"
+        ]
+      },
+      "SetContractBillingInput": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "yearly"
+            ]
+          },
+          "billingDay": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 28
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "prorate": {
+            "type": "boolean"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "amount",
+          "frequency",
+          "billingDay",
+          "description"
+        ]
+      },
+      "SetContractBillingOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "yearly"
+                ]
+              },
+              "billingDay": {
+                "type": "integer"
+              },
+              "startsOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "prorate": {
+                "type": "boolean"
+              },
+              "taxable": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused",
+                  "ended"
+                ]
+              },
+              "pausedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lastDay": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              }
+            },
+            "required": [
+              "id",
+              "amount",
+              "frequency",
+              "billingDay",
+              "startsOn",
+              "prorate",
+              "taxable",
+              "description",
+              "state",
+              "pausedOn",
+              "endedOn",
+              "lastDay"
+            ]
+          },
+          "next": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              },
+              "billOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "prorated": {
+                "type": "boolean"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "fullDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "billOn",
+              "amount",
+              "prorated",
+              "days",
+              "fullDays"
+            ]
+          },
+          "due": {
+            "type": "integer"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "prorated": {
+                  "type": "boolean"
+                },
+                "days": {
+                  "type": "integer"
+                },
+                "fullDays": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invoiced",
+                    "skipped"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "billOn",
+                "amount",
+                "prorated",
+                "days",
+                "fullDays",
+                "id",
+                "status",
+                "invoiceId",
+                "invoiceNumber",
+                "note"
+              ]
+            }
+          },
+          "standing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractId",
+          "schedule",
+          "next",
+          "due",
+          "periods",
+          "standing"
         ]
       },
       "SetCostingRateInput": {

@@ -103,6 +103,8 @@ export const BillingLine = z.object({
   note: z.string().nullable(),
   rateCardId: Uuid.nullable(),
   rateCardLineId: Uuid.nullable(),
+  /** The minutes a manufacturer's allowance allows for this line, when it is one. */
+  allowedMinutes: z.number().int().nullable(),
   /** A card applies to this payer and none of its rules prices this line. */
   outOfScope: z.boolean(),
   taxable: z.boolean(),
@@ -172,6 +174,21 @@ export const BillingPlan = z.object({
   existing: z.array(z.object({
     id: Uuid, number: z.number().int(), customerName: z.string(), total: MoneyString, status: z.string(),
   })),
+  /**
+   * Labour worked beyond a manufacturer's allowance, when the plan bills an
+   * allowance and the minutes on site exceed what every allowance on the job
+   * allows and what is already on a labour line. Offered, never added: it is
+   * a line (key `beyond`) only when `beyondPayer` and `beyondRate` ask for it,
+   * and then `addedTo` names the payer.
+   */
+  beyond: z.object({
+    workedMinutes: z.number().int(),
+    allowedMinutes: z.number().int(),
+    onLinesMinutes: z.number().int(),
+    beyondMinutes: z.number().int(),
+    addedTo: Uuid.nullable(),
+    payers: z.array(z.object({ customerId: Uuid, name: z.string() })),
+  }).nullable(),
 });
 
 export const previewJobBilling = defineRoute({
@@ -179,7 +196,7 @@ export const previewJobBilling = defineRoute({
   path: "/v1/jobs/{id}/billing",
   summary: "How a job would be billed, and to whom",
   description:
-    "Every unbilled line on the job, plus a card's trip charge per visit made, each priced by the authority of whoever pays for it: their contract's card, a warranty network schedule or a manufacturer allowance, with our price book as the fallback. Then split between payers: a third party covering part of the work pays the covered work less the deductible and the customer the rest; payers named with shares pay their shares and the party billed the remainder. `problems` says what has to be decided before it can be billed. Nothing is written.",
+    "Every unbilled line on the job, plus a card's trip charge per visit made, each priced by the authority of whoever pays for it: their contract's card, a warranty network schedule or a manufacturer allowance, with our price book as the fallback. Then split between payers: a third party covering part of the work pays the covered work less the deductible and the customer the rest; payers named with shares pay their shares and the party billed the remainder. When a manufacturer's allowance is billed and the minutes on site exceed what it allows, `beyond` offers the difference with the minutes, and `beyondPayer` with `beyondRate` puts it on one payer's part. `problems` says what has to be decided before it can be billed. Nothing is written.",
   module: "M31",
   permissions: ["invoice:read"],
   input: z.object({
@@ -194,6 +211,14 @@ export const previewJobBilling = defineRoute({
     taxRate: RateString.optional(),
     /** A line's own rate: `line:<job line id>=<tax rate id>`, or `=none` for no tax on it. */
     lineRates: z.array(LineRate).max(500).optional(),
+    /**
+     * Put the labour worked beyond a manufacturer's allowance on this payer's
+     * part, one of the payers the plan names, priced at their card's hourly
+     * rate when they have one and otherwise at `beyondRate` an hour. Only
+     * when `beyond` offers it.
+     */
+    beyondPayer: Uuid.optional(),
+    beyondRate: MoneyString.optional(),
   }),
   output: BillingPlan,
 });
@@ -210,6 +235,14 @@ export const billJob = defineRoute({
   input: z.object({
     id: Uuid, draft: z.boolean().optional(), taxRate: RateString.optional(),
     lineRates: z.array(LineRate).max(500).optional(),
+    /**
+     * Put the labour worked beyond a manufacturer's allowance on this payer's
+     * part, one of the payers the plan names, priced at their card's hourly
+     * rate when they have one and otherwise at `beyondRate` an hour. Only
+     * when `beyond` offers it.
+     */
+    beyondPayer: Uuid.optional(),
+    beyondRate: MoneyString.optional(),
   }),
   output: z.object({
     jobId: Uuid,
