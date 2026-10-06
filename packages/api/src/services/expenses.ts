@@ -75,7 +75,7 @@ export interface PerDiemView {
 }
 
 const RECEIPTS = sql<number>`(select count(*)::int from public.attachment a
-  where a.entity_type = 'expense' and a.entity_id = ${schema.expense.id} and a.deleted_at is null)`;
+  where a.entity_type = 'expense' and a.entity_id = "expense"."id" and a.deleted_at is null)`;
 
 type Found = ReturnType<typeof periodFinder> extends Promise<infer F> ? F : never;
 

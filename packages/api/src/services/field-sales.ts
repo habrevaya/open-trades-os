@@ -618,7 +618,7 @@ export async function expensesFor(tx: Database, technicianId: string) {
     expense: schema.expense,
     jobNumber: schema.job.number,
     receipts: sql<number>`(select count(*)::int from public.attachment a
-      where a.entity_type = 'expense' and a.entity_id = ${schema.expense.id} and a.deleted_at is null)`,
+      where a.entity_type = 'expense' and a.entity_id = "expense"."id" and a.deleted_at is null)`,
   }).from(schema.expense)
     .leftJoin(schema.job, eq(schema.job.id, schema.expense.jobId))
     .where(and(eq(schema.expense.technicianId, technicianId), gte(schema.expense.recordedAt, since)))
