@@ -89,8 +89,10 @@ export function CoverageFromUnit({ jobId }: { jobId: string }) {
  * button is exactly this, so the screen is the preview rather than a guess.
  * The problems are the decisions that have to be made first, in words.
  */
-export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate, lineRates }: {
+export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate, lineRates, beyond = {} }: {
   jobId: string; plan: Plan; canBill: boolean;
+  /** The labour beyond an allowance as asked for on the preview: on whose part, at what an hour. */
+  beyond?: { beyondPayer?: string; beyondRate?: string } | undefined;
   /** The sales tax percentage as typed, shown back in the box. */
   typedTax: string;
   /** Each line's own rate as chosen on the preview, `line:<id>=<rate id>`. */
@@ -132,9 +134,53 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate, lineR
           </Table>
           <p className="mt-2 text-right text-sm font-medium">Priced at <Money value={plan.pricedTotal} /></p>
 
+          {/*
+            Time on site beyond what a manufacturer's allowance allows was
+            charged to nobody. It is offered here with the minutes, and is a
+            line only when somebody puts it on a payer's part: never by itself.
+          */}
+          {plan.beyond && (
+            <form method="get" aria-label="Labour beyond the allowance"
+                  className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3 text-sm">
+              <p className="w-full text-ink-700">
+                Labour beyond the allowance: {plan.beyond.workedMinutes} min on site, {plan.beyond.allowedMinutes} min
+                allowed{plan.beyond.onLinesMinutes > 0 ? `, ${plan.beyond.onLinesMinutes} min already on a labour line` : ""},
+                so <strong>{plan.beyond.beyondMinutes} min</strong> nobody is charged for.
+                {plan.beyond.addedTo
+                  ? ` It is on ${plan.beyond.payers.find((p) => p.customerId === plan.beyond!.addedTo)?.name ?? "their"} part below.`
+                  : " Charge it to somebody, or leave it."}
+              </p>
+              {lineRates.map((pair) => <input key={pair} type="hidden" name="lineRate" value={pair} />)}
+              {typedTax !== "" && <input type="hidden" name="taxRate" value={typedTax} />}
+              <label className="flex flex-col gap-1">
+                <span className="text-ink-700">Charge it to</span>
+                <select name="beyondPayer" defaultValue={beyond.beyondPayer ?? plan.beyond.payers.at(-1)?.customerId ?? ""}
+                        className="h-8 rounded border border-steel-300 px-2">
+                  {plan.beyond.payers.map((p) => <option key={p.customerId} value={p.customerId}>{p.name}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-ink-700">At, an hour</span>
+                <input name="beyondRate" inputMode="decimal" required defaultValue={beyond.beyondRate ?? ""} placeholder="120.00"
+                       className="h-8 w-28 rounded border border-steel-300 px-2" />
+              </label>
+              <button type="submit" className="h-8 rounded border border-steel-300 px-3 font-medium hover:bg-steel-100">
+                {plan.beyond.addedTo ? "Change it" : "Add it to their part"}
+              </button>
+              {plan.beyond.addedTo && (
+                <a href={`/jobs/${jobId}${lineRates.length > 0 || typedTax !== "" ? `?${new URLSearchParams([
+                  ...lineRates.map((pair) => ["lineRate", pair]), ...(typedTax !== "" ? [["taxRate", typedTax]] : []),
+                ]).toString()}` : ""}`} className="text-ink-700 underline underline-offset-2">Leave it off</a>
+              )}
+              <span className="w-full text-xs text-ink-500">A payer whose card has an hourly rate is charged at that instead.</span>
+            </form>
+          )}
+
           {taxable && (
             <form method="get" className="mt-3 flex flex-wrap items-end gap-2 text-sm">
               <p className="w-full text-ink-700">Sales tax: {plan.tax.worked} Each taxable line can be charged its own rate.</p>
+              {beyond.beyondPayer && <input type="hidden" name="beyondPayer" value={beyond.beyondPayer} />}
+              {beyond.beyondRate && <input type="hidden" name="beyondRate" value={beyond.beyondRate} />}
               {plan.lines.filter((line) => line.taxable).map((line) => (
                 <label key={line.key} className="flex flex-col gap-1">
                   <span className="text-ink-700">Rate for {line.name}</span>
@@ -212,7 +258,10 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate, lineR
       )}
 
       {canBill && !nothing && (
-        <ActionForm action={billThisJob} hidden={{ jobId, taxRate: taxRate ?? "", lineRates: lineRates.join(",") }}
+        <ActionForm action={billThisJob} hidden={{
+          jobId, taxRate: taxRate ?? "", lineRates: lineRates.join(","),
+          beyondPayer: beyond.beyondPayer ?? "", beyondRate: beyond.beyondRate ?? "",
+        }}
                     submit={plan.payers.length > 1 ? `Bill in ${plan.payers.length} parts` : "Bill this job"}
                     className="mt-3 flex flex-wrap items-center gap-3" />
       )}

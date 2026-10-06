@@ -245,3 +245,42 @@ describe("a contract's annual escalation", () => {
     expect(rates.escalationRateProblem("0.03")).toBeNull();
   });
 });
+
+describe("labour beyond a manufacturer's allowance", () => {
+  /**
+   * An allowance pays a listed price and allows a number of minutes; time
+   * worked beyond them is offered to somebody, never added by itself, and
+   * time already on a labour line is not offered twice.
+   */
+  it("is what was worked on site beyond what the allowance allows and what is already on a line", () => {
+    expect(rates.labourBeyondAllowance({ workedMinutes: 150, allowedMinutes: 90, onLinesMinutes: 0 }).beyondMinutes).toBe(60);
+    expect(rates.labourBeyondAllowance({ workedMinutes: 150, allowedMinutes: 90, onLinesMinutes: 30 }).beyondMinutes).toBe(30);
+    expect(rates.labourBeyondAllowance({ workedMinutes: 80, allowedMinutes: 90, onLinesMinutes: 0 }).beyondMinutes).toBe(0);
+  });
+
+  it("carries the minutes a listed price allows", () => {
+    const allowance = card({
+      authority: "manufacturer_allowance",
+      lines: [{ id: "l1", priceBookItemId: "item-coil", externalCode: null, description: "Coil", price: usd("210.00"), allowedMinutes: 90 }],
+    });
+    const priced = rates.priceWork([allowance], {
+      kind: "part", name: "Coil", priceBookItemId: "item-coil", quantity: "1", ourPrice: usd("300.00"),
+      ourPriceIsBook: true, unitCost: null, at: tuesday(10), jobTypeId: null,
+    });
+    expect(priced).toMatchObject({ basis: "card_line", allowedMinutes: 90 });
+  });
+
+  it("is priced at the payer's own hourly rate when their card has one, otherwise at the office's", () => {
+    const own = rates.priceBeyondAllowance([], { minutes: 60, hourlyRate: usd("120.00"), at: tuesday(10), jobTypeId: null });
+    expect(own).toMatchObject({ quantity: "1.0000", basis: "entered", outOfScope: false });
+    expect(m.toString(own.unitPrice)).toBe("120.0000");
+    /** Fifty minutes is not a whole number of hundredths of an hour: one line of the amount. */
+    const odd = rates.priceBeyondAllowance([], { minutes: 50, hourlyRate: usd("120.00"), at: tuesday(10), jobTypeId: null });
+    expect(odd.quantity).toBe("1");
+    expect(m.toString(odd.unitPrice)).toBe("100.0000");
+    const theirs = rates.priceBeyondAllowance([card({ labourRates: [{ jobTypeId: null, band: "standard", hourlyRate: usd("95.00"), minimumMinutes: null, incrementMinutes: null }] })],
+      { minutes: 60, hourlyRate: usd("120.00"), at: tuesday(10), jobTypeId: null });
+    expect(theirs.basis).toBe("labour_rate");
+    expect(m.toString(theirs.unitPrice)).toBe("95.0000");
+  });
+});

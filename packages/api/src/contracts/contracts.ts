@@ -308,9 +308,162 @@ export const applyContractEscalation = defineRoute({
   }),
 });
 
+/* ------------------------------------------------ billed on a schedule */
+
+const BillingFrequency = z.enum(["monthly", "quarterly", "yearly"]);
+
+const BillingPeriod = z.object({
+  start: z.string().date(),
+  end: z.string().date(),
+  /** The day it is billed: its first day. */
+  billOn: z.string().date(),
+  amount: MoneyString,
+  /** A part period's share of the fee, by day, when the schedule prorates. */
+  prorated: z.boolean(),
+  days: z.number().int(),
+  /** The days of the whole period it is part of. */
+  fullDays: z.number().int(),
+});
+
+export const ContractBilling = z.object({
+  contractId: Uuid,
+  schedule: z.object({
+    id: Uuid,
+    /** The fee for one whole period, before tax. */
+    amount: MoneyString,
+    frequency: BillingFrequency,
+    /** 1 to 28. */
+    billingDay: z.number().int(),
+    /** The first day billed for, and the day the billing days are counted from. */
+    startsOn: z.string().date(),
+    prorate: z.boolean(),
+    taxable: z.boolean(),
+    /** The words on the invoice line. */
+    description: z.string(),
+    state: z.enum(["active", "paused", "ended"]),
+    pausedOn: z.string().date().nullable(),
+    endedOn: z.string().date().nullable(),
+    /** The last day it bills for: the contract's end or the schedule's own, whichever is first. */
+    lastDay: z.string().date().nullable(),
+  }).nullable(),
+  /** The next period still to come. */
+  next: BillingPeriod.nullable(),
+  /** Periods owed now and not yet raised, which the worker raises on its next pass. */
+  due: z.number().int(),
+  periods: z.array(BillingPeriod.extend({
+    id: Uuid,
+    /** `skipped` for a period whose billing day fell while the schedule was paused. */
+    status: z.enum(["invoiced", "skipped"]),
+    invoiceId: Uuid.nullable(),
+    invoiceNumber: z.number().int().nullable(),
+    note: z.string().nullable(),
+  })),
+  /** Why nothing is being billed, in words, when nothing is. */
+  standing: z.string().nullable(),
+});
+
+export const getContractBilling = defineRoute({
+  method: "get",
+  path: "/v1/contracts/{contractId}/billing",
+  summary: "A contract's fixed fee schedule, and every period it has billed",
+  description:
+    "The schedule (the fee, how often, the billing day, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.",
+  module: "M31",
+  permissions: ["contract:read"],
+  input: z.object({ contractId: Uuid }),
+  output: ContractBilling,
+});
+
+export const setContractBilling = defineRoute({
+  method: "put",
+  path: "/v1/contracts/{contractId}/billing",
+  summary: "Bill a contract a fixed fee every month, quarter or year",
+  description:
+    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer on the period's billing day in the company's calendar, in advance, for the period that starts that day, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue like any invoice. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of. The billing day is 1 to 28. Changing how often or on which day it bills, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.",
+  module: "M31",
+  permissions: ["contract:write"],
+  idempotent: true,
+  input: z.object({
+    contractId: Uuid,
+    amount: MoneyString,
+    frequency: BillingFrequency,
+    billingDay: z.number().int().min(1).max(28),
+    /** The first day billed for. Left off, the contract's start, or today. */
+    startsOn: z.string().date().optional(),
+    prorate: z.boolean().optional(),
+    taxable: z.boolean().optional(),
+    description: z.string().min(1).max(200),
+  }),
+  output: ContractBilling,
+});
+
+export const pauseContractBilling = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/billing/pause",
+  summary: "Stop a contract's fixed fee until it is resumed",
+  description:
+    "Nothing is billed while it is paused, and a period whose billing day falls in the pause is written down as skipped when it is resumed, so it is never billed afterwards. Pausing one already paused changes nothing.",
+  module: "M31",
+  permissions: ["contract:write"],
+  idempotent: true,
+  input: z.object({ contractId: Uuid }),
+  output: ContractBilling,
+});
+
+export const resumeContractBilling = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/billing/resume",
+  summary: "Start a paused fixed fee again",
+  description:
+    "Billing starts again from today. Each period whose billing day fell while it was paused is written down as skipped rather than billed, so a customer is not sent the paused months the morning it is resumed. A period owed from before the pause is still billed. Resuming one not paused changes nothing.",
+  module: "M31",
+  permissions: ["contract:write"],
+  idempotent: true,
+  input: z.object({ contractId: Uuid }),
+  output: ContractBilling,
+});
+
+export const endContractBilling = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/billing/end",
+  summary: "End a contract's fixed fee on a last day",
+  description:
+    "Periods up to `lastDay` (today when left off) are still billed, one cut short by it as a part period, and nothing after. An invoice already raised for a period the end cuts short is left as it is: crediting the rest is decided on that invoice. Saving the schedule again starts it again.",
+  module: "M31",
+  permissions: ["contract:write"],
+  idempotent: true,
+  input: z.object({ contractId: Uuid, lastDay: z.string().date().optional() }),
+  output: ContractBilling,
+});
+
+export const raiseContractBilling = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/billing/raise",
+  summary: "Raise the contract's owed periods now, rather than on the worker's pass",
+  description:
+    "Every period whose billing day has come and that is not billed yet, as one invoice each, by the same code and under the same claim on the period as the worker, so nothing the worker billed is billed again. A schedule years behind is caught up twelve periods at a time. Refused, in words, when an invoice cannot be raised, with nothing written.",
+  module: "M31",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: z.object({ contractId: Uuid }),
+  output: z.object({
+    raised: z.array(z.object({
+      contractId: Uuid,
+      periodStart: z.string().date(),
+      periodEnd: z.string().date(),
+      invoiceId: Uuid,
+      invoiceNumber: z.number().int(),
+      total: MoneyString,
+    })),
+    failed: z.array(z.object({ contractId: Uuid, reason: z.string() })),
+  }),
+});
+
 export const contractRoutes = {
   listContracts, createContract, updateContract, addContractSite,
   createRateCard, setRateCardLines, listRateCardLines,
   resolveContractPrice, getPropertyCeiling,
   previewContractEscalation, applyContractEscalation,
+  getContractBilling, setContractBilling, pauseContractBilling, resumeContractBilling,
+  endContractBilling, raiseContractBilling,
 } as const;

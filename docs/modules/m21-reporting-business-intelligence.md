@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty three of the forty seven are answered: nineteen computed here, four by
-M22's fleet report. The other twenty four each name what they still lack.
+Twenty seven of the forty seven are answered: twenty three computed here, four
+by M22's fleet report. The other twenty each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -72,10 +72,10 @@ job (M14) and job costing reads it (below). Every one of the rest was checked
 again against what has shipped since (crews, terms and breakage, member holds,
 purchasing returns and late freight, part days off, estimate expiry, credit
 payouts, retainage, push notices). Where something answers half of one the
-`needs` sentence says which half is still missing: a term is now a row of its
-own (`agreement_term`) but nothing records why a programme ended other than
-free text, a hire's invoice is linked to it but holds only part of what the haul
-earned, and a cost can be put on a job but nothing marks a supply as billed back.
+`needs` sentence says which half is still missing: a hire's invoice is linked
+to it but holds only part of what the haul earned, and a cost can be put on a
+job but nothing marks a supply as billed back. The four retention, renewal and
+churn figures moved when a cancellation got a coded reason (below).
 
 That is a product decision rather than an apology. **Most of these definitions
 name an exclusion**, and a KPI computed without its exclusions is worse than an
@@ -92,11 +92,9 @@ the ones somebody makes a hiring decision on.
 
 ### Three missing data would unlock most of the rest
 
-- **A coded cancellation reason.** Four KPIs need it: every retention and
-  renewal figure has to separate churn from a house sale. A customer's link to a
-  property can be ended with a date through the API, which would say the home was
-  sold, but no screen sets it and cancelling an agreement does not ask, so it is
-  not enough to compute them: most house sales would still read as churn.
+- **A coded cancellation reason.** It arrived, and unlocked the four that
+  needed it (below): cancelling an agreement now asks why from a fixed list,
+  and a move or a sale offers to end the customer's link to the address.
 - **A flag for supplies billed back.** Two cost ratios need it. A cost posting
   was the other half of this item, and it exists now: an accountant can journal a
   subcontractor's bill or a disposal receipt to a job (M14) and job costing counts
@@ -147,6 +145,56 @@ a job's margin takes: reading it needs the job costing permission and the
 financial reports permission (`job.cost:read` and `report.financial:read`), and a
 reader without them is told which in the unavailable list instead of being shown
 a margin one division away from the cost column.
+
+### The four that waited on a coded cancellation reason
+
+Cleaning's **recurring customer retention**, pest control's **program renewal
+rate**, lawn's **programme renewal rate** and the trash bin trade's **monthly
+subscription churn** all exclude the customer who moved or sold the home,
+because that is not churn the owner can do anything about. They are computed
+now, each as core's rule (`reporting.retention`, `reporting.renewals`,
+`reporting.churn`, with unit tests) written again in SQL, and
+`plan-retention.integration.test.ts` puts the same agreements through both
+and requires the same records in every half.
+
+**What says the home was left.** A cancellation coded `moved` or `sold` (M08),
+or the customer's link to the agreement's address ended
+(`customer_property.ended_on`) after the agreement started and by the end of
+the window. The second is the one that matters most: a plan that simply
+lapsed because the house was sold was never cancelled, and only the address
+says why. Cancelling with a move or a sale offers to end that link.
+
+**When an agreement is on.** From the day it started until the day it was
+cancelled, or for one that lapsed until its end date, the first day without
+cover. A pending one has not started; one still active past its end is
+waiting on the worker's renewal and is on.
+
+- **Retention** is accounts (customers) on a plan on the window's first day
+  still on one on its last, over accounts on a plan on its first day. A
+  customer lost because the home was left is out of both halves. A customer
+  on two plans who keeps either is kept, and a one time clean is never an
+  account.
+- **Program renewal** and **programme renewal** are the same records: terms
+  whose end date falls in the window and has come by today, on an agreement
+  not cancelled before it (one cancelled half way through never reached a
+  renewal decision), renewed when the agreement went on to a later term. A
+  term written down (`agreement_term`) is used, and the agreement's own end for
+  a current term never written down. A term not renewed because the home was
+  left is out of both halves.
+- **Churn** is subscriptions on at the window's start and not on at its end,
+  cancelled or lapsed, other than for a move or a sale, over every
+  subscription on at the start. The definition's denominator is the plain
+  count at the start, so the exclusion comes off the losses only.
+
+**Two counts beside each number.** The pest definition asks for the
+exclusions to be "counted separately so the exclusion cannot be abused", so
+every one of the four shows how many it left out because the home was left.
+And cancellations made before reasons were coded have only words, which are
+never read for a reason ("sold" might be the house or a competitor's pitch):
+such a loss is counted as the definition counts any loss, and the figure says
+how many of its losses are unknown. Both counts open their records like a
+half (`half=excluded` and `half=unknown` on `GET /v1/kpi-records`), and on
+`GET /v1/kpis` they are each figure's `besides`.
 
 ### What `job_revenue_class` is, and is not
 
@@ -538,7 +586,7 @@ prefix off.
 
 ## What is not built
 
-Twenty four of the forty seven declared KPIs cannot be computed, and each one
+Twenty of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. The records behind a KPI are listed only for a
@@ -547,6 +595,17 @@ technician is on the datasets whose rows hang off one, never as a dataset of its
 own, because no dataset is a row of one; a unit's fields reach only the kinds of
 record that link a unit, and a technician's only Visits, through its lead. A drill, of a report or of a KPI, lists at most a thousand records (its
 totals still cover all of them).
+
+The retention, renewal and churn figures know a move or a sale only from a
+coded cancellation or from the customer's link to the address being ended.
+A plan that lapsed because the house was sold, where nobody cancelled it and
+nobody ended the link, still reads as a lost customer; ending the link on the
+address is the fix, and the cancellation form offers it. A cancellation made
+before reasons were coded is never guessed at from its words: it counts as a
+loss and is counted as unknown beside the figure. A plan that covers the
+customer at any address has no one address to end, so only its cancellation
+code can say they moved. "Moved out of the service area" is not told apart
+from a move across town: both are coded `moved` and both are left out.
 
 The PDF is set in the Noto Sans that ships inside the product, as every PDF is,
 so a customer, a technician or a column in Latin, Vietnamese, modern Greek or

@@ -1,0 +1,2 @@
+CREATE TYPE "public"."agreement_cancellation_code" AS ENUM('moved', 'sold', 'price', 'service', 'switched', 'not_needed', 'other');--> statement-breakpoint
+ALTER TABLE "agreement" ADD COLUMN "cancellation_code" "agreement_cancellation_code";

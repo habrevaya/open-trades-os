@@ -6,6 +6,7 @@ import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
 import { clockPass } from "./contract-clocks";
+import { billingPass as contractBillingPass } from "./contract-billing";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { adsPass } from "./ads";
 import type { AdsDeps } from "./ad-platforms";
@@ -420,6 +421,24 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] contract clocks:", (error as Error).message);
+    }
+    /**
+     * Contract fees on a schedule, each period raised as an invoice on its
+     * billing day in the company's calendar. Its own try, and each company's
+     * failure is kept to that company: a period not raised on this pass is
+     * raised on the next, and never twice, because the period's row is the
+     * claim under a unique index. Each invoice writes its own event, so the
+     * drain below hands it to whatever automation waits for one.
+     */
+    try {
+      for (const result of await contractBillingPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] contract billing ${result.organizationId}: ${result.error}`);
+        for (const failure of result.failed) {
+          console.error(`[worker] contract billing ${result.organizationId} ${failure.contractId}: ${failure.reason}`);
+        }
+      }
+    } catch (error) {
+      console.error("[worker] contract billing:", (error as Error).message);
     }
     /**
      * Toolbox talks on a schedule, raised on their day with the crew's

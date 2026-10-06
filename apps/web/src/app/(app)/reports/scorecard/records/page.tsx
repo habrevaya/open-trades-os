@@ -36,7 +36,9 @@ export default async function KpiRecordsPage({
     return Array.isArray(value) ? value[0] : value;
   };
   const key = one("key") ?? "";
-  const half = one("half") === "denominator" ? "denominator" : "numerator";
+  const asked = one("half");
+  /** A half of the figure, or one of the counts beside it; anything else is the numerator. */
+  const half = asked === "denominator" || asked === "excluded" || asked === "unknown" ? asked : "numerator";
   const from = one("from") ?? "";
   const to = one("to") ?? "";
   if (!key || !DATE.test(from) || !DATE.test(to)) notFound();

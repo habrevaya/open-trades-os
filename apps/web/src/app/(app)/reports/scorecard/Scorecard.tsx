@@ -23,9 +23,9 @@ export function Figure({ kpi, records }: {
    * Where the records behind one half open. Each half is a link, as every
    * number on a report is: the list under it adds up to the half clicked.
    */
-  records?: ((half: "numerator" | "denominator") => string) | undefined;
+  records?: ((half: kpis.KpiHalf) => string) | undefined;
 }) {
-  const open = (half: "numerator" | "denominator", children: React.ReactNode) => records
+  const open = (half: kpis.KpiHalf, children: React.ReactNode) => records
     ? <a href={records(half)} className="underline underline-offset-2 hover:text-ink-900">{children}</a>
     : children;
   return (
@@ -50,6 +50,19 @@ export function Figure({ kpi, records }: {
           {open("denominator", <>{half(kpi.denominatorMoney, kpi.denominator)} {kpi.denominatorLabel}</>)}
         </p>
       )}
+
+      {/*
+        Counted beside the number and not in it: what the definition leaves
+        out, so the exclusion can be checked, and what it counts for a reason
+        nobody recorded, so nobody reads a guess as a fact.
+      */}
+      {kpi.besides && kpi.besides.length > 0 ? (
+        <ul className="mt-1 space-y-0.5 text-xs text-ink-500">
+          {kpi.besides.map((beside) => (
+            <li key={beside.key}>{open(beside.key, <>{beside.count} {beside.label.charAt(0).toLowerCase() + beside.label.slice(1)}</>)}</li>
+          ))}
+        </ul>
+      ) : null}
 
       <p className="mt-2 text-xs text-ink-700">{kpi.definition}</p>
     </>

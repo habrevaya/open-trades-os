@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { agreements, NotFoundError } from "@opentradesos/api/services";
-import { can, money } from "@opentradesos/core";
+import { can, money, membership } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { formatDay, formatIn } from "@/lib/dates";
 import { ActionForm, TextField } from "@/components/ActionForm";
@@ -101,7 +101,11 @@ export default async function AgreementPage({
       {agreement.cancellationReason ? (
         <p className="mt-2 text-sm text-ink-700">
           Cancelled{agreement.cancelledOn ? ` on ${formatDay(agreement.cancelledOn, zone)}` : ""}:{" "}
-          {agreement.cancellationReason}
+          {agreement.cancellationCode
+            ? (membership.CANCELLATION_LABEL[agreement.cancellationCode] === agreement.cancellationReason
+              ? agreement.cancellationReason
+              : `${membership.CANCELLATION_LABEL[agreement.cancellationCode]}. ${agreement.cancellationReason}`)
+            : `${agreement.cancellationReason} (cancelled before reasons were chosen from a list)`}
         </p>
       ) : null}
 
@@ -284,7 +288,7 @@ export default async function AgreementPage({
             because voiding an issued invoice is a decision made on the
             invoice.
           </p>
-          <CancelForm id={agreement.id} />
+          <CancelForm id={agreement.id} coversAnAddress={agreement.propertyId !== null} />
         </div>
       ) : null}
     </div>

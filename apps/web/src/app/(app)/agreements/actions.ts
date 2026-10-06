@@ -95,10 +95,14 @@ export async function billInstalment(_previous: unknown, form: FormData) {
 export async function cancelAgreement(_previous: unknown, form: FormData) {
   const id = String(form.get("id") ?? "");
   try {
+    const code = String(form.get("reasonCode") ?? "");
     await agreements.cancel(await ctx(), {
       id,
+      /** Checked by the service against the list, and refused in words when it is not on it. */
+      reasonCode: code as NonNullable<Parameters<typeof agreements.cancel>[1]["reasonCode"]>,
       reason: String(form.get("reason") ?? ""),
       keepThePrepayment: form.get("keepThePrepayment") === "1",
+      endPropertyLink: form.get("endPropertyLink") === "1",
     });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);

@@ -227,6 +227,22 @@ export const agreementStatus = pgEnum("agreement_status", [
   "pending", "active", "past_due", "paused", "lapsed", "cancelled", "completed",
 ]);
 
+/**
+ * WHY AN AGREEMENT WAS CANCELLED, AS ONE OF A FIXED LIST.
+ *
+ * The reason used to be free text only, and every retention, renewal and
+ * churn figure has to tell a house sale or a move from a customer who left
+ * because of the price or the service: the first is not churn the owner can
+ * do anything about, the second is the whole of it. "Sold the house", "sold
+ * house", "moved" and "relocating" are four strings and one fact. `other`
+ * carries the words in `cancellation_reason`. Null is a cancellation made
+ * before the list existed, which the figures count as unknown rather than
+ * guess at.
+ */
+export const agreementCancellationCode = pgEnum("agreement_cancellation_code", [
+  "moved", "sold", "price", "service", "switched", "not_needed", "other",
+]);
+
 export const agreement = pgTable("agreement", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -241,6 +257,8 @@ export const agreement = pgTable("agreement", {
   endsOn: date("ends_on"),
   cancelledOn: date("cancelled_on"),
   cancellationReason: text("cancellation_reason"),
+  /** The reason from the fixed list. Null on a cancellation made before there was one. */
+  cancellationCode: agreementCancellationCode("cancellation_code"),
 
   /** Frozen at sale. Raising the plan price must not reprice existing members. */
   price: money("price").notNull(),
