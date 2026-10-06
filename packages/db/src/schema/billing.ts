@@ -3,7 +3,7 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueInde
 import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
 import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
-import { job } from "./work";
+import { job, jobType } from "./work";
 import { priceBookItemVersion } from "./pricebook";
 
 /**
@@ -22,6 +22,61 @@ import { priceBookItemVersion } from "./pricebook";
  * 5. Every call out to Stripe carries an idempotency key written to
  *    integration_event BEFORE the call fires.
  */
+
+/**
+ * HOW A COMPANY LAYS OUT ITS PROPOSALS
+ *
+ * The proposal used to have one fixed shape: the options, then the terms. A
+ * contractor selling a system against a competitor's glossy folder wants a
+ * cover with a photograph of a finished install, a page about who they are,
+ * the warranty in their own words, financing, what other customers said, and
+ * the small print, in the order they sell in. This is that order, saved, by
+ * name, and optionally the one a job type starts with.
+ *
+ * The layout is DATA in a closed vocabulary (`core/estimate/proposal-layout`),
+ * checked before it is stored: a section kind this build cannot draw is
+ * refused at the save rather than skipped on a customer's screen.
+ *
+ * An estimate COPIES the layout when one is applied (`estimate.proposal_layout`)
+ * rather than pointing at this row, for the reason it copies the terms: a
+ * company rewording its warranty page in March must not change what a
+ * customer was shown in February. Editing a template changes the estimates it
+ * is applied to from then on, and none before.
+ */
+export const proposalTemplate = pgTable("proposal_template", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /**
+   * The job type whose estimates start with this layout. One template per
+   * job type at most, and none is fine: those estimates take the company's
+   * default, or the fixed layout when there is no default either.
+   */
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
+  /** The layout every estimate starts with when its job type names none. */
+  isDefault: boolean("is_default").notNull().default(false),
+  /**
+   * The cover page: a headline, a sentence under it, and the photograph by
+   * its stored file key. Null is no cover; the proposal opens on its first
+   * section.
+   */
+  cover: jsonb("cover").$type<{ headline: string; intro: string | null; photoKey: string | null } | null>(),
+  /** The sections in the order they are drawn. See core for the vocabulary. */
+  sections: jsonb("sections").$type<Array<Record<string, unknown>>>().notNull().default([]),
+  /** Whether each option shows the photographs attached to it on the estimate. */
+  showOptionPhotos: boolean("show_option_photos").notNull().default(true),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  nameIdx: uniqueIndex("proposal_template_name_idx").on(t.organizationId, t.name)
+    .where(sql`${t.deletedAt} is null`),
+  /** One layout per job type, or which one a new estimate starts with depends on the heap. */
+  jobTypeIdx: uniqueIndex("proposal_template_job_type_idx").on(t.organizationId, t.jobTypeId)
+    .where(sql`${t.deletedAt} is null and ${t.jobTypeId} is not null`),
+  /** One default, for the same reason. */
+  defaultIdx: uniqueIndex("proposal_template_default_idx").on(t.organizationId)
+    .where(sql`${t.deletedAt} is null and ${t.isDefault}`),
+}));
 
 export const estimateStatus = pgEnum("estimate_status", [
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -52,6 +107,27 @@ export const estimate = pgTable("estimate", {
   selectedOptionId: uuid("selected_option_id"),
   signatureUrl: text("signature_url"),
   signerName: text("signer_name"),
+  /**
+   * The terms printed under the options, copied from the company's own at the
+   * moment the estimate is written and never looked up again.
+   *
+   * Copied rather than read live for the reason a price is: a company that
+   * changes its warranty wording in March must not change what a customer
+   * signed in February. The approval hash covers this column, so what was
+   * agreed includes the small print that was on the page.
+   */
+  terms: text("terms"),
+  /**
+   * The proposal layout this estimate is drawn in, COPIED from a template when
+   * one was applied, with the template's id and name for the record. Null is
+   * the fixed layout: the options, then the terms. Copied rather than read
+   * live, like `terms` above, so editing a template never changes a proposal
+   * a customer has already been sent.
+   */
+  proposalTemplateId: uuid("proposal_template_id").references(() => proposalTemplate.id, { onDelete: "set null" }),
+  proposalLayout: jsonb("proposal_layout").$type<Record<string, unknown> | null>(),
+  /** The company's own fields. See `services/custom-fields.ts`. */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   currency: currency(),
   ...sourceRef,
   ...timestamps,
@@ -166,6 +242,21 @@ export const estimateLine = pgTable("estimate_line", {
   unitPrice: money("unit_price").notNull().default("0"),
   unitCost: money("unit_cost"),
   discountAmount: money("discount_amount").notNull().default("0"),
+  /**
+   * MEMBER PRICING, AND WHICH AGREEMENT PRODUCED IT.
+   *
+   * `discount_amount` is the whole of the line's discount and is what every
+   * total and the ledger read, so a member discount posts to the discounts
+   * account exactly as a hand typed one does. These two say how much of it
+   * came from a plan and from which agreement, because "why is this line
+   * cheaper" has to have an answer that is not somebody's memory, and a
+   * discount a customer is entitled to is a different fact from one somebody
+   * chose to give. Not a foreign key, like `entitlement_id`: the agreement
+   * schema imports this file, and the link is a record of what applied on
+   * the day rather than a dependency.
+   */
+  memberAgreementId: uuid("member_agreement_id"),
+  memberDiscountAmount: money("member_discount_amount").notNull().default("0"),
   taxable: boolean("taxable").notNull().default(true),
   /** The rate AS APPLIED, carried onto the invoice on conversion. */
   taxRate: rate("tax_rate").notNull().default("0"),
@@ -196,6 +287,16 @@ export const estimateLine = pgTable("estimate_line", {
  */
 export const signatureSubject = pgEnum("signature_subject", [
   "estimate", "service_report", "agreement", "authorization",
+  /** A change order on a project, signed through its link or recorded by the office. */
+  "change_order",
+  /** An invoice the customer signed for on the technician's phone, at the end of the visit. */
+  "invoice",
+  /**
+   * A document the company gave one of its own people to sign: the handbook,
+   * the vehicle use agreement. The subject is the request to that person, so
+   * the signature says whose it is and which words it was given against.
+   */
+  "staff_document",
 ]);
 
 export const documentSignature = pgTable("document_signature", {
@@ -208,6 +309,13 @@ export const documentSignature = pgTable("document_signature", {
   signerPhone: text("signer_phone"),
   /** Vector or raster capture, stored as a document reference. */
   imageUrl: text("image_url"),
+  /**
+   * The drawn signature taken on a technician's phone, by the id the phone
+   * gave it. The image travels the way every photograph from the field does,
+   * behind the record and hash checked, and is found by this id in
+   * `field_upload` once it lands. Null for a signature made anywhere else.
+   */
+  uploadId: text("upload_id"),
   /** SHA-256 of the rendered document at the moment of signing. */
   documentHash: text("document_hash").notNull(),
   /** Which option the signature covers, where the subject offered a choice. */
@@ -268,6 +376,14 @@ export const invoice = pgTable("invoice", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   number: integer("number").notNull(),
+  /**
+   * The branch's mark printed in front of the number ("AUS-7100"), written
+   * once when the invoice is made and only when the company prints branch
+   * marks. Never worked out again, so moving work between branches or
+   * changing a branch's code renumbers nothing a customer already holds.
+   * `app.number_prefix` in `sql/after.sql` writes it.
+   */
+  numberPrefix: text("number_prefix"),
   customerId: uuid("customer_id").notNull().references(() => customer.id),
   propertyId: uuid("property_id").references(() => property.id),
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
@@ -310,6 +426,11 @@ export const invoice = pgTable("invoice", {
   memo: text("memo"),
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("invoice_source_ref_idx", t),
@@ -354,6 +475,9 @@ export const invoiceLine = pgTable("invoice_line", {
   unitPrice: money("unit_price").notNull().default("0"),
   unitCost: money("unit_cost"),
   discountAmount: money("discount_amount").notNull().default("0"),
+  /** See `estimate_line.member_agreement_id`. Carried across on conversion. */
+  memberAgreementId: uuid("member_agreement_id"),
+  memberDiscountAmount: money("member_discount_amount").notNull().default("0"),
   taxable: boolean("taxable").notNull().default(true),
   /** The rate AS APPLIED. Never recomputed on read. */
   taxRate: rate("tax_rate").notNull().default("0"),
@@ -363,6 +487,25 @@ export const invoiceLine = pgTable("invoice_line", {
   costCode: text("cost_code"),
   /** Set when the price came from a rate card rather than our own price book. */
   rateCardLineId: uuid("rate_card_line_id"),
+  /**
+   * WHO PRICED THIS LINE, written when the line is priced and never worked
+   * out again. `price_book`, `entered` (a price somebody typed), or a card's
+   * authority: `contract`, `warranty_network`, `manufacturer_allowance`,
+   * `insurance`, `brand`. A commercial client rejecting an invoice asks one
+   * question first, "whose price is that", and the answer has to be on the
+   * line rather than reconstructed from which card was in force that week.
+   */
+  priceAuthority: text("price_authority"),
+  /** The card that priced it, when one did. */
+  rateCardId: uuid("rate_card_id"),
+  /**
+   * HOW the authority priced it: `card_line`, `labour_rate`, `material_markup`,
+   * `trip_charge`, `price_book`, `entered`, `history`, or `share` for a line
+   * that is one payer's part of a line split between payers.
+   */
+  priceBasis: text("price_basis"),
+  /** The working, in a sentence: "After hours rate, 1.50 h at 142.50". */
+  priceNote: text("price_note"),
   ...timestamps,
 }, (t) => ({ invoiceIdx: index("invoice_line_invoice_idx").on(t.invoiceId) }));
 
@@ -597,4 +740,6 @@ export const ledgerEntry = pgTable("ledger_entry", {
   accountIdx: index("ledger_entry_account_idx").on(t.organizationId, t.accountCode, t.occurredAt),
   jobIdx: index("ledger_entry_job_idx").on(t.jobId),
   sourceIdx: index("ledger_entry_source_idx").on(t.sourceType, t.sourceId),
+  /** A customer's statement reads their receivable and what is held for them, in order. */
+  customerIdx: index("ledger_entry_customer_idx").on(t.organizationId, t.customerId, t.occurredAt),
 }));

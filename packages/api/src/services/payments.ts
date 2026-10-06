@@ -1,14 +1,16 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, inTenant,
+  guardedRead, guardedWrite, audit, inTenant, timezoneOf,
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
 import { readerFor } from "../secrets/store";
 import * as deposits from "./deposits";
 import { assertPeriodOpen } from "./history";
+import * as tips from "./tips";
+import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import {
   createPaymentProvider, PaymentProviderNotConfiguredError,
   type PaymentEvent, type PaymentProvider, type WebhookRequest,
@@ -169,6 +171,18 @@ async function providerFrom(
   return createPaymentProvider(connection.provider, connection.settings, key);
 }
 
+/**
+ * The company's connection and an adapter for it, for a service beside this
+ * one that talks to the same processor (saving a card). One way to reach the
+ * processor, so the secret is read the same way whoever is asking.
+ */
+export async function processorFor(
+  tx: Database, organizationId: string, deps: PaymentDeps = DEFAULT_DEPS,
+): Promise<{ connection: Connection; provider: PaymentProvider }> {
+  const connection = await connectionFor(tx, organizationId);
+  return { connection, provider: await providerFrom(tx, connection, deps) };
+}
+
 /* ------------------------------------------------------------- the charge */
 
 export interface IntentInput {
@@ -194,6 +208,34 @@ export interface IntentInput {
    * webhook says it arrived: a liability, not a sale.
    */
   depositId?: string | undefined;
+  /**
+   * A tip for the technicians, on top of ONE invoice's balance, as the
+   * customer typed it. Checked here against the company's tip settings and
+   * the balance, split between the technicians on the invoice's job, and
+   * carried on the attempt until the money arrives. Only the portal passes
+   * it: the office takes tips the way it takes any other money.
+   */
+  tip?: string | undefined;
+  /**
+   * A card this customer saved, by our id for it. The charge is confirmed
+   * with it on the spot rather than handed to a payment form.
+   */
+  savedCardId?: string | undefined;
+  /**
+   * Where the customer was and what they used when they pressed Pay, for
+   * the mandate a bank debit carries. Only the portal passes it.
+   */
+  acceptance?: { ip?: string | undefined; userAgent?: string | undefined } | undefined;
+}
+
+/** What the attempt remembers about a tip, for the moment the money arrives. */
+interface TipPlan {
+  tip: string;
+  invoiceId: string;
+  jobId: string | null;
+  technicianIds: string[];
+  /** The invoice part the tip was added to, so settlement pays the bill first. */
+  invoicePart: string;
 }
 
 /**
@@ -227,6 +269,11 @@ export async function intent(
      */
     let amount: string;
     const allocations: { invoiceId: string; amount: string }[] = [];
+    let tipPlan: TipPlan | null = null;
+
+    if (input.tip !== undefined && (input.depositId || !input.invoiceIds || input.invoiceIds.length !== 1)) {
+      throw new ConflictError("A tip goes with paying one invoice, and nothing else.");
+    }
 
     if (input.depositId) {
       if (input.invoiceIds && input.invoiceIds.length > 0) {
@@ -269,6 +316,34 @@ export async function intent(
         total = m.add(total, balance);
       }
       amount = m.toString(total);
+
+      if (input.tip !== undefined) {
+        const invoiceId = input.invoiceIds[0]!;
+        const settings = await portalSettingsWithin(tx, ctx.actor.organizationId);
+        const checked = cp.checkTip(input.tip, total, settings.tipping);
+        if (!checked.ok) throw new ConflictError(checked.reason);
+        if (m.isPositive(checked.tip)) {
+          const crew = await tips.techniciansFor(tx, invoiceId);
+          if (crew.technicians.length === 0) {
+            /**
+             * Refused before the card is charged rather than after: a tip
+             * with nobody to give it to would sit as money owed to nobody.
+             */
+            throw new ConflictError(
+              "Nobody is recorded as having done this work yet, so there is nobody to give a tip to. "
+              + "Pay the invoice without one.",
+            );
+          }
+          tipPlan = {
+            tip: m.toString(checked.tip),
+            invoiceId,
+            jobId: crew.jobId,
+            technicianIds: crew.technicians.map((t) => t.id),
+            invoicePart: amount,
+          };
+          amount = m.toString(cp.chargeFor(total, checked.tip));
+        }
+      }
     } else {
       if (!input.amount) {
         throw new ConflictError(
@@ -282,6 +357,59 @@ export async function intent(
     const minor = toMinor(amount);
     if (minor <= 0) {
       throw new ConflictError("A card payment has to be for more than nothing.");
+    }
+
+    /**
+     * A SAVED CARD BELONGS TO THE CUSTOMER BEING CHARGED, checked here
+     * whoever the caller is. A card id from another customer is the same
+     * not found as one that does not exist.
+     */
+    let saved: { customerRef: string; paymentMethodRef: string; id: string; kind: string } | null = null;
+    if (input.savedCardId) {
+      const [card] = await tx.select({
+        id: schema.savedPaymentMethod.id,
+        kind: schema.savedPaymentMethod.kind,
+        paymentMethodRef: schema.savedPaymentMethod.externalRef,
+        customerRef: schema.paymentProfile.externalRef,
+        connectionId: schema.paymentProfile.connectionId,
+      })
+        .from(schema.savedPaymentMethod)
+        .innerJoin(schema.paymentProfile, eq(schema.paymentProfile.id, schema.savedPaymentMethod.profileId))
+        .where(and(
+          eq(schema.savedPaymentMethod.id, input.savedCardId),
+          eq(schema.savedPaymentMethod.customerId, input.customerId),
+          isNull(schema.savedPaymentMethod.removedAt),
+        )).limit(1);
+      if (!card) throw new NotFoundError("Saved card");
+      if (card.connectionId !== connection.id) {
+        /**
+         * Saved against a processor account this company has since
+         * replaced. The reference names a card in the old account, which
+         * the new key cannot charge.
+         */
+        throw new ConflictError("That card was saved before the company changed how it takes payments. Add it again.");
+      }
+      saved = { id: card.id, kind: card.kind, customerRef: card.customerRef, paymentMethodRef: card.paymentMethodRef };
+    }
+    const bank = saved?.kind === "bank_account";
+
+    /**
+     * NOT TWICE WHILE A BANK PAYMENT IS ON ITS WAY. A bank debit takes days
+     * to arrive, and the invoice stays open until it does: a customer who
+     * looks again on Wednesday and pays the same bill by card has paid it
+     * twice, and the second refund is a phone call. Asked of every path,
+     * the office's included, for the same reason.
+     */
+    if (allocations.length > 0) {
+      const pending = await pendingBankPayments(tx, { invoiceIds: allocations.map((a) => a.invoiceId) });
+      if (pending.length > 0) {
+        throw new ConflictError(
+          `A bank payment of ${m.format(usd(pending[0]!.amount))} for this invoice is already on its way, `
+          + "started " + time.dateIn(pending[0]!.startedAt, await timezoneOf(tx, ctx.actor.organizationId))
+          + ". Bank payments take a few "
+          + "business days to arrive. If it fails, the invoice can be paid another way then.",
+        );
+      }
     }
 
     /**
@@ -305,6 +433,10 @@ export async function intent(
       requestPayload: {
         amount, allocations, connectionId: connection.id,
         ...(input.depositId ? { depositId: input.depositId } : {}),
+        ...(tipPlan ? { tip: tipPlan } : {}),
+        ...(saved ? { savedCardId: saved.id } : {}),
+        /** Remembered so settlement books it as a bank payment and a failure is told to the office. */
+        ...(bank ? { method: "ach" } : {}),
       },
     }).returning();
 
@@ -321,6 +453,8 @@ export async function intent(
         [METADATA_ATTEMPT]: attempt!.id,
         [METADATA_ORG]: ctx.actor.organizationId,
       },
+      ...(saved ? { customerRef: saved.customerRef, paymentMethodRef: saved.paymentMethodRef } : {}),
+      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance ? { acceptance: input.acceptance } : {}) } : {}),
     });
 
     if (!outcome.ok) {
@@ -339,12 +473,20 @@ export async function intent(
      */
     await tx.update(schema.integrationEvent).set({
       responsePayload: { intentId: outcome.intent.intentId, status: outcome.intent.status },
+      /**
+       * `in_flight` is a payment the processor has accepted and not yet
+       * settled: a bank debit, for days. It is what the invoice and the
+       * customer's account read as "on its way".
+       */
+      ...(outcome.intent.status === "processing" ? { status: "in_flight" as const } : {}),
       attempts: 1,
       updatedAt: new Date(),
     }).where(eq(schema.integrationEvent.id, attempt!.id));
 
     await audit(tx, ctx, "payment.intent_created", "customer", input.customerId, null, {
       attemptId: attempt!.id, intentId: outcome.intent.intentId, amount,
+      ...(tipPlan ? { tip: tipPlan.tip } : {}),
+      ...(saved ? { savedCardId: saved.id } : {}),
     });
 
     return {
@@ -355,6 +497,9 @@ export async function intent(
       amount,
       currency: outcome.intent.currency,
       allocations,
+      /** What the processor said, which only matters for a saved card confirmed on the spot. */
+      status: outcome.intent.status,
+      tip: tipPlan?.tip ?? "0.0000",
     };
   });
 }
@@ -495,23 +640,42 @@ export async function receive(
     };
   }
 
-  if (event.kind === "failed") {
+  if (event.kind === "processing") {
+    /**
+     * On its way and not arrived. The attempt is marked so, which is what
+     * the invoice and the customer's account read as pending; nothing is
+     * booked until the processor says it succeeded.
+     */
     await inTenant(ctx, async (tx) => {
       if (!event.intentId) return;
       await tx.update(schema.integrationEvent)
         .set({
-          status: "failed",
-          error: event.failureMessage ?? "The card was declined.",
+          status: "in_flight",
+          ...(event.methodType === "us_bank_account"
+            ? { requestPayload: sql`${schema.integrationEvent.requestPayload} || '{"method":"ach"}'::jsonb` }
+            : {}),
           updatedAt: new Date(),
         })
         .where(and(
           eq(schema.integrationEvent.organizationId, connection.organizationId),
           eq(schema.integrationEvent.direction, "outbound"),
+          eq(schema.integrationEvent.eventType, "payment.intent"),
+          eq(schema.integrationEvent.status, "pending"),
           sql`${schema.integrationEvent.responsePayload}->>'intentId' = ${event.intentId}`,
         ));
     });
     await record("succeeded", null);
     return { handled: true, kind: event.kind, eventId: event.eventId };
+  }
+
+  if (event.kind === "failed") {
+    const note = await failed(ctx, connection, event);
+    await record("succeeded", note.paymentId ?? null);
+    return {
+      handled: true, kind: event.kind, eventId: event.eventId,
+      ...(note.paymentId ? { paymentId: note.paymentId } : {}),
+      ...(note.note ? { note: note.note } : {}),
+    };
   }
 
   /**
@@ -602,6 +766,7 @@ async function settle(
 
   const request = (attempt?.requestPayload ?? {}) as {
     amount?: string; allocations?: { invoiceId: string; amount: string }[]; depositId?: string;
+    tip?: TipPlan; method?: string;
   };
 
   /**
@@ -650,20 +815,63 @@ async function settle(
    * first, which is the rule for money that arrives without instructions,
    * and that is exactly what this is.
    */
+  /**
+   * THE TIP COMES OUT OF WHAT ARRIVED, AFTER THE BILL.
+   *
+   * The charge was the balance plus the tip, and `payment.amount` is what
+   * goes on invoices while `payment.tip_amount` is held for the
+   * technicians, so the two are separated here. When less arrived than was
+   * asked, core pays the invoice first and the tip takes what is left: see
+   * `customerPortal.settleTip`.
+   */
+  const plan = request.tip ?? null;
+  let applied = amount;
+  let tip = m.zero("USD");
+  if (plan) {
+    const split = cp.settleTip({
+      reported: usd(amount), invoicePart: usd(plan.invoicePart), tip: usd(plan.tip),
+    });
+    applied = m.toString(split.applied);
+    tip = split.tip;
+  }
+
   const asked = (request.allocations ?? []).reduce(
     (total, one) => m.add(total, usd(one.amount)), m.money("0", "USD"),
   );
   const fits = request.allocations && request.allocations.length > 0
-    && m.compare(asked, usd(amount)) === 0;
+    && m.compare(asked, usd(applied)) === 0;
 
-  const result = await billing.pay(ctx, {
-    customerId,
-    method: "card",
-    amount,
-    tipAmount: "0",
-    ...(event.feeMinor !== null ? { feeAmount: fromMinor(event.feeMinor) } : {}),
-    ...(fits ? { allocations: request.allocations! } : {}),
-    ...(event.intentId ? { processorPaymentId: event.intentId } : {}),
+  /**
+   * The payment and the tip's shares in one transaction, so a tip is never
+   * on the books as owed without anybody it is owed to. `billing.pay` runs
+   * inside it as a nested transaction, which is how the rest of this layer
+   * puts one guarded write inside another.
+   */
+  const result = await inTenant(ctx, async (tx) => {
+    const paid = await billing.pay({ ...ctx, db: tx }, {
+      customerId,
+      /** A bank debit is booked as one, so the office can tell the slow money from the card money. */
+      method: request.method === "ach" || event.methodType === "us_bank_account" ? "ach" : "card",
+      amount: applied,
+      tipAmount: m.toString(tip),
+      ...(event.feeMinor !== null ? { feeAmount: fromMinor(event.feeMinor) } : {}),
+      ...(fits ? { allocations: request.allocations! } : {}),
+      ...(event.intentId ? { processorPaymentId: event.intentId } : {}),
+    });
+    if (plan && m.isPositive(tip)) {
+      const [row] = await tx.select({ receivedAt: schema.payment.receivedAt })
+        .from(schema.payment).where(eq(schema.payment.id, paid.id)).limit(1);
+      await tips.writeShares(tx, {
+        organizationId: connection.organizationId,
+        paymentId: paid.id,
+        invoiceId: plan.invoiceId,
+        jobId: plan.jobId,
+        tip,
+        technicianIds: plan.technicianIds,
+        occurredAt: row?.receivedAt ?? new Date(),
+      });
+    }
+    return paid;
   });
 
   await inTenant(ctx, async (tx) => {
@@ -866,6 +1074,210 @@ async function openDateFor(tx: Database, organizationId: string, at: Date): Prom
     if (error instanceof ConflictError) return new Date();
     throw error;
   }
+}
+
+/* ------------------------------------------------------- money that did not come */
+
+/**
+ * A payment the processor says failed.
+ *
+ * Most failures are a card declined with the customer on the page, who sees
+ * it there, and those only close the attempt. A BANK PAYMENT IS DIFFERENT:
+ * it failed days after the customer pressed Pay, they have walked away
+ * believing the bill is settled, and nobody will look. So when the attempt
+ * was a bank debit on its way, the office is told in its queue, in words,
+ * with what to do next.
+ *
+ * And when a payment had already been BOOKED for this charge (a bank that
+ * returns a debit after the processor first called it settled), it is
+ * reversed: the invoices it paid are reopened and the ledger takes the cash
+ * back out, through the same path a refund takes, and the payment is marked
+ * failed rather than refunded, because nobody gave anything back. The
+ * office is told that too. Safe to receive twice: a payment already marked
+ * failed is not reversed again.
+ */
+async function failed(
+  ctx: ServiceContext, connection: Connection, event: PaymentEvent,
+): Promise<{ paymentId?: string; note?: string }> {
+  if (!event.intentId) return {};
+  const reason = event.failureMessage ?? "The payment was declined.";
+
+  const attempt = await inTenant(ctx, async (tx) => {
+    const [row] = await tx.select().from(schema.integrationEvent)
+      .where(and(
+        eq(schema.integrationEvent.organizationId, connection.organizationId),
+        eq(schema.integrationEvent.direction, "outbound"),
+        eq(schema.integrationEvent.eventType, "payment.intent"),
+        sql`${schema.integrationEvent.responsePayload}->>'intentId' = ${event.intentId}`,
+      ))
+      .orderBy(desc(schema.integrationEvent.createdAt)).limit(1);
+    if (row && row.status !== "succeeded" && row.status !== "failed") {
+      await tx.update(schema.integrationEvent)
+        .set({ status: "failed", error: reason, completedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.integrationEvent.id, row.id));
+    }
+    return row ?? null;
+  });
+  const request = (attempt?.requestPayload ?? {}) as { amount?: string; allocations?: { invoiceId: string }[]; method?: string };
+  const bank = request.method === "ach" || event.methodType === "us_bank_account";
+  const wasOnItsWay = attempt?.status === "in_flight" || (bank && attempt?.status === "pending");
+
+  const reversed = await guardedWrite(ctx, "payment:refund", async (tx) => {
+    const [payment] = await tx.select().from(schema.payment)
+      .where(eq(schema.payment.processorPaymentId, event.intentId!)).limit(1)
+      .for("update");
+    if (!payment || payment.status === "failed") return null;
+    const left = m.subtract(usd(payment.amount), usd(payment.refundedAmount));
+    const reopened = await tx.select({ invoiceId: schema.paymentAllocation.invoiceId })
+      .from(schema.paymentAllocation).where(eq(schema.paymentAllocation.paymentId, payment.id));
+    let after = payment;
+    if (m.isPositive(left)) {
+      const at = await openDateFor(tx, ctx.actor.organizationId, event.occurredAt ?? new Date());
+      after = (await billing.reverseForRefund(tx, ctx, payment, left, at)).after;
+    }
+    const [marked] = await tx.update(schema.payment)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(eq(schema.payment.id, payment.id)).returning();
+    await audit(tx, ctx, "payment.returned", "payment", payment.id, after, { ...marked!, reason });
+    return { payment, amount: left, invoiceIds: [...new Set(reopened.map((r) => r.invoiceId))] };
+  });
+
+  if (!reversed && !(bank && wasOnItsWay)) return {};
+
+  await inTenant(ctx, async (tx) => {
+    const customerId = reversed?.payment.customerId ?? attempt?.entityId ?? null;
+    if (!customerId) return;
+    const [customer] = await tx.select({ name: schema.customer.name })
+      .from(schema.customer).where(eq(schema.customer.id, customerId)).limit(1);
+    const invoiceIds = reversed?.invoiceIds ?? (request.allocations ?? []).map((a) => a.invoiceId);
+    const invoices = invoiceIds.length > 0
+      ? await tx.select({ id: schema.invoice.id, number: schema.invoice.number })
+        .from(schema.invoice).where(inArray(schema.invoice.id, invoiceIds))
+      : [];
+    const numbers = invoices.map((i) => `#${i.number}`).join(", ");
+    const amount = reversed ? m.format(reversed.amount) : m.format(usd(request.amount ?? "0"));
+    const who = customer?.name ?? "A customer";
+    const what = bank ? "bank payment" : "payment";
+    await tx.insert(schema.task).values({
+      organizationId: connection.organizationId,
+      title: reversed
+        ? `${who}'s ${what} of ${amount} was returned and has been taken back off ${numbers ? `invoice ${numbers}` : "their account"}`
+        : `${who}'s ${what} of ${amount}${numbers ? ` for invoice ${numbers}` : ""} did not go through`,
+      body: reversed
+        ? `Their bank returned it after it had been recorded as paid: ${reason} `
+          + `The invoice is open again for what it covered, and the books no longer count the money. `
+          + "Ask them for another way to pay."
+        : `Their bank refused it: ${reason} Nothing was recorded as paid, so the invoice is still open. `
+          + "Ask them for another way to pay.",
+      priority: "high",
+      entityType: invoices.length === 1 ? "invoice" : "customer",
+      entityId: invoices.length === 1 ? invoices[0]!.id : customerId,
+      queue: "office",
+    });
+  });
+
+  return reversed
+    ? { paymentId: reversed.payment.id, note: "payment reversed" }
+    : { note: "bank payment failed" };
+}
+
+/**
+ * Bank payments on their way: accepted by the processor and not yet
+ * arrived, for some invoices or one customer. What an invoice shows as
+ * pending, and what stops it being paid twice in the meantime.
+ */
+export interface PendingBankPayment {
+  attemptId: string;
+  customerId: string;
+  amount: string;
+  invoiceIds: string[];
+  startedAt: Date;
+}
+
+export async function pendingBankPayments(
+  tx: Database, input: { invoiceIds?: string[] | undefined; customerId?: string | undefined },
+): Promise<PendingBankPayment[]> {
+  if (input.invoiceIds && input.invoiceIds.length === 0) return [];
+  const rows = await tx.select().from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.direction, "outbound"),
+      eq(schema.integrationEvent.eventType, "payment.intent"),
+      eq(schema.integrationEvent.status, "in_flight"),
+      input.customerId ? eq(schema.integrationEvent.entityId, input.customerId) : undefined,
+      input.invoiceIds
+        ? sql`exists (select 1 from jsonb_array_elements(${schema.integrationEvent.requestPayload}->'allocations') a
+            where a->>'invoiceId' in ${sql`(${sql.join(input.invoiceIds.map((id) => sql`${id}`), sql`, `)})`})`
+        : undefined,
+    ))
+    .orderBy(desc(schema.integrationEvent.createdAt))
+    .limit(50);
+  return rows.map((row) => {
+    const request = (row.requestPayload ?? {}) as { amount?: string; allocations?: { invoiceId: string }[] };
+    return {
+      attemptId: row.id,
+      customerId: row.entityId ?? "",
+      amount: request.amount ?? "0",
+      invoiceIds: (request.allocations ?? []).map((a) => a.invoiceId),
+      startedAt: row.createdAt,
+    };
+  });
+}
+
+/** A bank payment as the office and the customer see it: on its way, or failed recently and why. */
+export interface BankPaymentView {
+  id: string;
+  status: "pending" | "failed";
+  amount: string;
+  invoiceIds: string[];
+  startedAt: string;
+  failedAt: string | null;
+  reason: string | null;
+}
+
+/**
+ * One customer's bank payments that are on their way, and the ones that
+ * failed in the last thirty days, newest first. Read inside a caller's
+ * transaction, because the portal reads it through a grant and the office
+ * through its own guard.
+ */
+export async function bankPaymentsWithin(
+  tx: Database, input: { customerId?: string | undefined; invoiceId?: string | undefined },
+): Promise<BankPaymentView[]> {
+  const since = new Date(Date.now() - 30 * 864e5);
+  const rows = await tx.select().from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.direction, "outbound"),
+      eq(schema.integrationEvent.eventType, "payment.intent"),
+      sql`${schema.integrationEvent.requestPayload}->>'method' = 'ach'`,
+      input.customerId ? eq(schema.integrationEvent.entityId, input.customerId) : undefined,
+      input.invoiceId
+        ? sql`exists (select 1 from jsonb_array_elements(${schema.integrationEvent.requestPayload}->'allocations') a
+            where a->>'invoiceId' = ${input.invoiceId})`
+        : undefined,
+      sql`(${schema.integrationEvent.status} = 'in_flight'
+        or (${schema.integrationEvent.status} = 'failed' and ${schema.integrationEvent.updatedAt} >= ${since.toISOString()}::timestamptz))`,
+    ))
+    .orderBy(desc(schema.integrationEvent.createdAt))
+    .limit(20);
+  return rows.map((row) => {
+    const request = (row.requestPayload ?? {}) as { amount?: string; allocations?: { invoiceId: string }[] };
+    return {
+      id: row.id,
+      status: row.status === "in_flight" ? "pending" as const : "failed" as const,
+      amount: request.amount ?? "0",
+      invoiceIds: (request.allocations ?? []).map((a) => a.invoiceId),
+      startedAt: row.createdAt.toISOString(),
+      failedAt: row.status === "failed" ? (row.completedAt ?? row.updatedAt).toISOString() : null,
+      reason: row.status === "failed" ? row.error : null,
+    };
+  });
+}
+
+/** The office's read of the same thing, for an invoice or a customer. */
+export async function bankPayments(
+  ctx: ServiceContext, input: { customerId?: string | undefined; invoiceId?: string | undefined },
+): Promise<{ bankPayments: BankPaymentView[] }> {
+  return guardedRead(ctx, "payment:read", async (tx) => ({ bankPayments: await bankPaymentsWithin(tx, input) }));
 }
 
 /* ------------------------------------------------------- giving it back */

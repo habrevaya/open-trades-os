@@ -35,6 +35,9 @@ import { work, type reporting } from "@opentradesos/core";
  * so rather than implying a trial balance behind it. When something posts
  * COGS, these two fragments are where the reads move.
  */
+/** The company's own zone, for a day in its calendar, with the fallback the session resolver uses. */
+const COMPANY_ZONE = "coalesce((select o.timezone from public.organization o where o.id = job.organization_id), 'America/Chicago')";
+
 export const JOB_COSTING_SQL = {
   /**
    * REVENUE RECOGNISED ON THE JOB, net of discount and excluding tax.
@@ -236,6 +239,68 @@ export const JOB_COSTING_SQL = {
    * reads as the most profitable work in the company. Counting those jobs is
    * what stops a league table being topped by the work nobody recorded.
    */
+  /**
+   * LABOUR BURDEN AT THE COMPANY'S OWN RATES, each punch at the rates in
+   * effect on the day it started in the company's calendar.
+   *
+   * The employer's payroll taxes, benefits and workers' compensation, which
+   * the loaded rate above does not hold unless a wage scale's fringe was set
+   * to include them. A percentage is of the BASE wage on the punch, because
+   * those costs are charged on wages and the fringe is a benefit already
+   * counted; a per hour figure is per paid hour. A punch with no base rate
+   * carries only the per hour part, and is named as unpriced already.
+   *
+   * Zero for a company that set no rates, which is every company until it
+   * does: nothing here is a default somebody did not choose. The same rules in
+   * TypeScript are `costing.labourBurden` in core, and an integration test
+   * holds the two to each other.
+   */
+  labourBurden: `(
+    select coalesce(sum((tc.minutes::numeric / 60) * (
+      select coalesce(sum(case cr.basis
+        when 'per_hour' then cr.rate
+        when 'percent_of_wages' then coalesce(tc.applied_base_rate, 0) * cr.rate / 100
+        else 0 end), 0)
+      from public.costing_rate cr
+      where cr.organization_id = job.organization_id
+        and cr.component in ('payroll_taxes', 'benefits', 'workers_comp')
+        and cr.effective_from = (
+          select max(c2.effective_from) from public.costing_rate c2
+          where c2.organization_id = cr.organization_id and c2.component = cr.component
+            and c2.effective_from <= (tc.started_at at time zone ${COMPANY_ZONE})::date
+        )
+    )), 0)
+    from public.timeclock_entry tc
+    where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
+  )`,
+
+  /**
+   * OVERHEAD CHARGED TO THE JOB, at the overhead rate in effect on the job's
+   * day (finished, or started while it runs), by whichever basis the company
+   * chose: per paid hour on it, a flat amount per job, or a share of its
+   * revenue. None on a cancelled job. Zero with no rate set.
+   */
+  overhead: `(case when job.status = 'cancelled' then 0 else coalesce((
+    select case cr.basis
+      when 'per_job' then cr.rate
+      when 'per_hour' then cr.rate * (
+        select coalesce(sum(tc.minutes), 0)::numeric / 60
+        from public.timeclock_entry tc
+        where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
+      )
+      when 'percent_of_revenue' then cr.rate / 100 * (
+        select coalesce(sum(case when le.direction = 'credit' then le.amount else -le.amount end), 0)
+        from public.ledger_entry le
+        where le.job_id = job.id and le.account_code in ('4000', '4100', '4900')
+      )
+      else 0 end
+    from public.costing_rate cr
+    where cr.organization_id = job.organization_id and cr.component = 'overhead'
+      and cr.effective_from <= (coalesce(job.completed_at, job.created_at) at time zone ${COMPANY_ZONE})::date
+    order by cr.effective_from desc
+    limit 1
+  ), 0) end)`,
+
   labourNotRecorded: `(case when not exists (
     select 1 from public.timeclock_entry tc
     where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
@@ -261,6 +326,19 @@ export const JOB_COSTING_SQL = {
 export const GROSS_MARGIN_SQL =
   `(${JOB_COSTING_SQL.revenue} - ${JOB_COSTING_SQL.materialCost}`
   + ` - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.processingFees})`;
+
+/**
+ * FULLY LOADED MARGIN: the gross margin above, less labour burden and
+ * overhead at the rates the company set on its costing settings.
+ *
+ * Beside the gross margin and never instead of it. Everything the comment
+ * above says about overhead is still true of a DEFAULT, which is why there is
+ * none: with no rates set the two margins are equal. What changes is that an
+ * owner who has decided what an hour and a job carry can see the margin that
+ * decision implies, and the statement says which rates did it.
+ */
+export const FULLY_LOADED_MARGIN_SQL =
+  `(${GROSS_MARGIN_SQL} - ${JOB_COSTING_SQL.labourBurden} - ${JOB_COSTING_SQL.overhead})`;
 
 /**
  * WHETHER THIS JOB'S MARGIN IS FINISHED BEING WRONG.
@@ -303,6 +381,55 @@ export const SETTLEMENT_SQL = `(case when
   then 'Settled' else 'In progress' end)`;
 
 /**
+ * THE BRANCH A RECORD'S JOB IS IN, as a column to group by, so "revenue by
+ * branch" and "jobs by branch" are reports rather than requests. Through the
+ * job, which is the one record that carries a branch: an invoice or a visit
+ * belongs to whichever branch its job does. A record with no job, or on a job
+ * in no branch, groups as "No branch" rather than vanishing.
+ *
+ * Grouping says nothing about who may see what. Scope does that, before any
+ * grouping, so a Houston manager grouping by branch sees one bar.
+ */
+const branchDimension = (jobId: string): reporting.Dimension => ({
+  key: "branch", label: "Branch", type: "text",
+  sql: `coalesce((select bu.name from public.job bj join public.business_unit bu on bu.id = bj.business_unit_id
+    where bj.id = ${jobId}), 'No branch')`,
+});
+
+/**
+ * A DATE ON A DRILLED RECORD, IN THE COMPANY'S CALENDAR.
+ *
+ * A timestamp rendered as a date in the database session's zone is the
+ * evening of the day before for a company west of Greenwich, and a list of
+ * jobs "created on the 30th" that opens from a report about the 1st reads as
+ * the drill being wrong. The company's own timezone, with the same fallback
+ * the session resolver uses.
+ */
+const zoneOf = (table: string) =>
+  `coalesce((select o.timezone from public.organization o where o.id = ${table}.organization_id), 'America/Chicago')`;
+const localDate = (table: string, instant: string) => `to_char(${instant} at time zone ${zoneOf(table)}, 'YYYY-MM-DD')`;
+
+/**
+ * The month and the day of the week an instant falls in, in the company's
+ * calendar, for a dimension. The same reasoning as a drilled date: grouped in
+ * the database session's zone, a job finished on the evening of the 31st in
+ * Chicago is counted in the next month, and a Saturday evening's drain call
+ * on a Sunday.
+ */
+const localMonth = (table: string, instant: string) => `to_char(${instant} at time zone ${zoneOf(table)}, 'YYYY-MM')`;
+const localWeekday = (table: string, instant: string) => `to_char(${instant} at time zone ${zoneOf(table)}, 'ID Dy')`;
+
+/** The company's own today, for an invoice row. */
+const TODAY_FOR_INVOICE = `(now() at time zone ${zoneOf("invoice")})::date`;
+
+/** The customer on a record, named and linked, because that is the next thing somebody opens. */
+const customerColumn = (table: string, column = "customer_id"): reporting.RecordColumn => ({
+  key: "customer", label: "Customer", type: "text",
+  sql: `(select c.name from public.customer c where c.id = ${table}.${column})`,
+  link: { id: `${table}.${column}`, href: "/customers/{id}" },
+});
+
+/**
  * PROFITABILITY, AS A DATASET RATHER THAN A SECOND REPORTING ENGINE.
  *
  * It is a row per job, so every question an owner asks about which work makes
@@ -333,6 +460,28 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
   permission: "report.financial:read",
   scope: "job",
   dateColumn: "coalesce(job.completed_at, job.created_at)",
+  /**
+   * A job, and the statement for it is on the job's own screen. The money
+   * columns on the drilled list are the measures themselves, one job at a
+   * time, which is what makes a margin by technician something an owner can
+   * argue with: the jobs, and what each one added to the number.
+   */
+  records: {
+    noun: "job", plural: "jobs",
+    id: "job.id",
+    label: "concat('#', job.number, ' ', job.summary)",
+    href: "/jobs/{id}",
+    orderBy: "coalesce(job.completed_at, job.created_at)",
+    columns: [
+      customerColumn("job"),
+      { key: "status", label: "Status", type: "status", sql: "job.status::text" },
+      { key: "settled", label: "Settled", type: "text", sql: SETTLEMENT_SQL },
+      {
+        key: "worked_on", label: "Finished, or started", type: "date",
+        sql: localDate("job", "coalesce(job.completed_at, job.created_at)"),
+      },
+    ],
+  },
   dimensions: [
     {
       key: "job", label: "Job", type: "text",
@@ -340,11 +489,11 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     },
     {
       key: "month", label: "Month", type: "date",
-      sql: "to_char(date_trunc('month', coalesce(job.completed_at, job.created_at)), 'YYYY-MM')",
+      sql: localMonth("job", "coalesce(job.completed_at, job.created_at)"),
     },
     {
       key: "day", label: "Day", type: "date",
-      sql: "to_char(coalesce(job.completed_at, job.created_at), 'YYYY-MM-DD')",
+      sql: localDate("job", "coalesce(job.completed_at, job.created_at)"),
     },
     {
       key: "weekday", label: "Day of week", type: "text", sortPrefix: true,
@@ -354,7 +503,7 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
        * number for the same reason the aging buckets are, because
        * alphabetically Friday opens the week.
        */
-      sql: "to_char(coalesce(job.completed_at, job.created_at), 'ID Dy')",
+      sql: localWeekday("job", "coalesce(job.completed_at, job.created_at)"),
     },
     {
       key: "job_type", label: "Job type", type: "text",
@@ -365,7 +514,11 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
       sql: "(select c.name from public.customer c where c.id = job.customer_id)",
     },
     {
-      key: "business_unit", label: "Business unit", type: "text",
+      /**
+       * The branch, under the key it has always had here, so a saved margin
+       * report grouped by it keeps working. Labelled as the screens say it.
+       */
+      key: "business_unit", label: "Branch", type: "text",
       sql: "coalesce((select b.name from public.business_unit b where b.id = job.business_unit_id), 'None')",
     },
     {
@@ -435,6 +588,18 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
       permission: "job.cost:read", sql: GROSS_MARGIN_SQL,
     },
     {
+      key: "labour_burden", label: "Labour burden", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.labourBurden,
+    },
+    {
+      key: "overhead", label: "Overhead", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overhead,
+    },
+    {
+      key: "fully_loaded_margin", label: "Fully loaded margin", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: FULLY_LOADED_MARGIN_SQL,
+    },
+    {
       key: "unbilled_cost", label: "Unbilled cost", kind: "sum", type: "money",
       permission: "job.cost:read", sql: JOB_COSTING_SQL.unbilledCost,
     },
@@ -467,6 +632,116 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
 };
 
 /**
+ * WHERE THE WORK CAME FROM, as dimensions on any dataset with a job behind it.
+ *
+ * Read from the job's own columns, which `marketing.creditWork` writes when
+ * the job is created from the company's chosen attribution model, or which a
+ * person set by hand. These are the job's ONE answer; the funnel report at
+ * `/marketing` weighs every touch under a model the reader picks, and the two
+ * agree whenever the model is the company's own.
+ *
+ * Written as functions of the job's alias, so the invoices dataset can reach
+ * them through `invoice.job_id` without a second copy of the SQL.
+ */
+const sourceDimensions = (jobId: string, prefix = ""): reporting.Dimension[] => [
+  {
+    key: `${prefix}channel`, label: "Channel", type: "text",
+    sql: `coalesce((select ch.name from public.job j join public.marketing_channel ch on ch.id = j.channel_id
+      where j.id = ${jobId}), 'Not attributed')`,
+  },
+  {
+    key: `${prefix}tracking_campaign`, label: "Tracking campaign", type: "text",
+    sql: `coalesce((select k.name from public.job j join public.acquisition_campaign k on k.id = j.acquisition_campaign_id
+      where j.id = ${jobId}), 'No campaign')`,
+  },
+  {
+    key: `${prefix}lead_source`, label: "Lead source", type: "text",
+    /**
+     * The catalogue key as its label would read, done in SQL so the group is
+     * one row per source. A value nothing in the catalogue knows (a migration
+     * keeps what its old system said) is shown as written rather than hidden.
+     */
+    sql: `coalesce((select initcap(replace(j.lead_source, '_', ' ')) from public.job j where j.id = ${jobId}), 'Not recorded')`,
+  },
+];
+
+/**
+ * THE CALLS, as a dataset, so "calls by campaign by week" is a report a
+ * company can build rather than one it has to ask for.
+ *
+ * Inbound only. An outbound call is the company ringing out and has no
+ * campaign. The channel and campaign are the ones the number belonged to AT
+ * THE TIME, which the call row keeps for exactly this.
+ */
+export const CALLS_DATASET: reporting.Dataset = {
+  key: "calls",
+  label: "Calls",
+  description: "Inbound calls by tracking number, campaign and channel, answered or missed, first time or not.",
+  from: "public.call",
+  permission: "adspend:read",
+  scope: "job",
+  dateColumn: "coalesce(call.started_at, call.created_at)",
+  /**
+   * One call, opened on the call log's own page, which is where the recording
+   * policy, the disposition and "create customer and job from this call" live.
+   */
+  records: {
+    noun: "call", plural: "calls",
+    id: "call.id",
+    label: "coalesce(call.from_e164, 'Unknown caller')",
+    href: "/marketing/calls/{id}",
+    orderBy: "coalesce(call.started_at, call.created_at)",
+    columns: [
+      customerColumn("call"),
+      { key: "status", label: "Status", type: "status", sql: "call.status::text" },
+      { key: "day", label: "Day", type: "date", sql: localDate("call", "coalesce(call.started_at, call.created_at)") },
+    ],
+  },
+  dimensions: [
+    {
+      key: "day", label: "Day", type: "date",
+      sql: localDate("call", "coalesce(call.started_at, call.created_at)"),
+    },
+    {
+      key: "month", label: "Month", type: "date",
+      sql: localMonth("call", "coalesce(call.started_at, call.created_at)"),
+    },
+    {
+      key: "channel", label: "Channel", type: "text",
+      sql: "coalesce((select ch.name from public.marketing_channel ch where ch.id = call.channel_id), 'Not attributed')",
+    },
+    {
+      key: "tracking_campaign", label: "Tracking campaign", type: "text",
+      sql: "coalesce((select k.name from public.acquisition_campaign k where k.id = call.acquisition_campaign_id), 'No campaign')",
+    },
+    {
+      key: "number", label: "Number dialled", type: "text",
+      sql: "coalesce(call.received_on_e164, call.to_e164)",
+    },
+    { key: "status", label: "Status", sql: "call.status::text", type: "status" },
+    {
+      key: "first_time", label: "Caller", type: "text",
+      sql: "case when call.first_time_caller then 'First time' when call.first_time_caller = false then 'Called before' else 'Not known' end",
+    },
+  ],
+  measures: [
+    { key: "count", label: "Calls", kind: "count", type: "number" },
+    {
+      key: "answered", label: "Answered", kind: "sum", type: "number",
+      sql: "case when call.status = 'completed' then 1 else 0 end",
+    },
+    {
+      key: "first_time", label: "First time callers", kind: "sum", type: "number",
+      sql: "case when call.first_time_caller then 1 else 0 end",
+    },
+    {
+      key: "booked", label: "Turned into a job", kind: "sum", type: "number",
+      sql: "case when call.job_id is not null then 1 else 0 end",
+    },
+  ],
+};
+
+/**
  * THE CATALOGUE
  *
  * Every fragment of SQL a report can contain, written herestimate. Nothing a caller
@@ -490,6 +765,18 @@ export const CATALOGUE: reporting.Dataset[] = [
     permission: "job:read",
     scope: "job",
     dateColumn: "job.created_at",
+    records: {
+      noun: "job", plural: "jobs",
+      id: "job.id",
+      label: "concat('#', job.number, ' ', job.summary)",
+      href: "/jobs/{id}",
+      orderBy: "job.created_at",
+      columns: [
+        customerColumn("job"),
+        { key: "status", label: "Status", type: "status", sql: "job.status::text" },
+        { key: "created", label: "Booked", type: "date", sql: localDate("job", "job.created_at") },
+      ],
+    },
     dimensions: [
       { key: "status", label: "Status", sql: "job.status::text", type: "status" },
       {
@@ -505,9 +792,9 @@ export const CATALOGUE: reporting.Dataset[] = [
         key: "month", label: "Month", type: "date",
         // Truncated in the database rather than grouped in JavaScript, which
         // would mean fetching every row to count them.
-        sql: "to_char(date_trunc('month', job.created_at), 'YYYY-MM')",
+        sql: localMonth("job", "job.created_at"),
       },
-      { key: "day", label: "Day", sql: "to_char(job.created_at, 'YYYY-MM-DD')", type: "date" },
+      { key: "day", label: "Day", sql: localDate("job", "job.created_at"), type: "date" },
       {
         key: "customer", label: "Customer", type: "text",
         sql: "(select c.name from public.customer c where c.id = job.customer_id)",
@@ -516,6 +803,8 @@ export const CATALOGUE: reporting.Dataset[] = [
         key: "job_type", label: "Job type", type: "text",
         sql: "coalesce((select t.name from public.job_type t where t.id = job.job_type_id), 'None')",
       },
+      ...sourceDimensions("job.id"),
+      branchDimension("job.id"),
     ],
     measures: [
       { key: "count", label: "Jobs", kind: "count", type: "number" },
@@ -532,11 +821,31 @@ export const CATALOGUE: reporting.Dataset[] = [
     permission: "report.financial:read",
     scope: "invoice",
     dateColumn: "invoice.issued_on",
+    dateIsDay: true,
+    /**
+     * The invoices behind a receivables number. The payer is not a separate
+     * column: the customer an invoice is grouped under is the one the report's
+     * customer dimension reads, and the drill has to say the same thing the
+     * row it opened from said.
+     */
+    records: {
+      noun: "invoice", plural: "invoices",
+      id: "invoice.id",
+      label: "concat('Invoice ', invoice.number)",
+      href: "/invoices/{id}",
+      orderBy: "invoice.issued_on",
+      columns: [
+        customerColumn("invoice"),
+        { key: "status", label: "Status", type: "status", sql: "invoice.status::text" },
+        { key: "issued", label: "Issued", type: "date", sql: "invoice.issued_on::text" },
+        { key: "due", label: "Due", type: "date", sql: "invoice.due_on::text" },
+      ],
+    },
     dimensions: [
       { key: "status", label: "Status", sql: "invoice.status::text", type: "status" },
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', invoice.issued_on), 'YYYY-MM')",
+        sql: "to_char(invoice.issued_on, 'YYYY-MM')",
       },
       {
         key: "customer", label: "Customer", type: "text",
@@ -549,16 +858,22 @@ export const CATALOGUE: reporting.Dataset[] = [
          * Without the numeric prefix "Over 90" lands between "1 to 30" and
          * "31 to 60" alphabetically, which makes the report look wrong to
          * the person who needs it most.
+         *
+         * Today is the company's today, not the database's: from seven in the
+         * evening in Austin `current_date` is already tomorrow, and an invoice
+         * due today read as a day late every evening.
          */
         sql: `case
           when invoice.balance = 0 then '0 Paid'
-          when invoice.due_on >= current_date then '1 Current'
-          when invoice.due_on >= current_date - 30 then '2 1 to 30 days'
-          when invoice.due_on >= current_date - 60 then '3 31 to 60 days'
-          when invoice.due_on >= current_date - 90 then '4 61 to 90 days'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} then '1 Current'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} - 30 then '2 1 to 30 days'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} - 60 then '3 31 to 60 days'
+          when invoice.due_on >= ${TODAY_FOR_INVOICE} - 90 then '4 61 to 90 days'
           else '5 Over 90 days'
         end`,
       },
+      ...sourceDimensions("invoice.job_id"),
+      branchDimension("invoice.job_id"),
     ],
     measures: [
       { key: "count", label: "Invoices", kind: "count", type: "number" },
@@ -575,11 +890,24 @@ export const CATALOGUE: reporting.Dataset[] = [
     permission: "estimate:read",
     scope: "estimate",
     dateColumn: "estimate.created_at",
+    records: {
+      noun: "estimate", plural: "estimates",
+      id: "estimate.id",
+      label: "concat('Estimate ', estimate.number, coalesce(' ' || estimate.title, ''))",
+      href: "/estimates/{id}",
+      orderBy: "estimate.created_at",
+      columns: [
+        customerColumn("estimate"),
+        { key: "status", label: "Status", type: "status", sql: "estimate.status::text" },
+        { key: "created", label: "Written", type: "date", sql: localDate("estimate", "estimate.created_at") },
+      ],
+    },
     dimensions: [
       { key: "status", label: "Status", sql: "estimate.status::text", type: "status" },
+      branchDimension("estimate.job_id"),
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', estimate.created_at), 'YYYY-MM')",
+        sql: localMonth("estimate", "estimate.created_at"),
       },
       {
         key: "customer", label: "Customer", type: "text",
@@ -616,11 +944,37 @@ export const CATALOGUE: reporting.Dataset[] = [
     permission: "visit:read",
     scope: "visit",
     dateColumn: "visit.window_start",
+    /**
+     * A visit opens on its own screen, which says what happened on that trip
+     * and links its job. It used to open the job, which left somebody to work
+     * out which of a three day install's visits the row was.
+     */
+    records: {
+      noun: "visit", plural: "visits",
+      id: "visit.id",
+      label: `concat('#', (select j.number from public.job j where j.id = visit.job_id), ' visit ', visit.sequence)`,
+      href: "/visits/{id}",
+      orderBy: "visit.window_start",
+      columns: [
+        { key: "status", label: "Status", type: "status", sql: "visit.status::text" },
+        { key: "window", label: "Day", type: "date", sql: localDate("visit", "visit.window_start") },
+        {
+          key: "technician", label: "Lead", type: "text",
+          sql: `coalesce((
+            select t.display_name from public.visit_assignment a
+            join public.technician t on t.id = a.technician_id
+            where a.visit_id = visit.id and a.is_lead
+            limit 1
+          ), 'Unassigned')`,
+        },
+      ],
+    },
     dimensions: [
       { key: "status", label: "Status", sql: "visit.status::text", type: "status" },
+      branchDimension("visit.job_id"),
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', visit.window_start), 'YYYY-MM')",
+        sql: localMonth("visit", "visit.window_start"),
       },
       {
         key: "technician", label: "Technician", type: "text",
@@ -646,6 +1000,20 @@ export const CATALOGUE: reporting.Dataset[] = [
     // Reads of the queue itself are already gated on `task:read`.
     scope: "job",
     dateColumn: "task.created_at",
+    /** A task opens on its own page, with its checklist and what escalation did to it. */
+    records: {
+      noun: "task", plural: "tasks",
+      id: "task.id",
+      label: "task.title",
+      href: "/tasks/{id}",
+      orderBy: "task.created_at",
+      columns: [
+        { key: "status", label: "Status", type: "status", sql: "task.status::text" },
+        { key: "priority", label: "Priority", type: "status", sql: "task.priority::text" },
+        { key: "queue", label: "Queue", type: "text", sql: "coalesce(task.queue, 'None')" },
+        { key: "created", label: "Raised", type: "date", sql: localDate("task", "task.created_at") },
+      ],
+    },
     dimensions: [
       { key: "status", label: "Status", sql: "task.status::text", type: "status" },
       { key: "priority", label: "Priority", sql: "task.priority::text", type: "status" },
@@ -658,7 +1026,7 @@ export const CATALOGUE: reporting.Dataset[] = [
       },
       {
         key: "month", label: "Month", type: "date",
-        sql: "to_char(date_trunc('month', task.created_at), 'YYYY-MM')",
+        sql: localMonth("task", "task.created_at"),
       },
     ],
     measures: [
@@ -666,4 +1034,5 @@ export const CATALOGUE: reporting.Dataset[] = [
     ],
   },
   PROFITABILITY_DATASET,
+  CALLS_DATASET,
 ];

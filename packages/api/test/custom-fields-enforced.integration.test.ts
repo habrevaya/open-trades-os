@@ -4,7 +4,8 @@ import type { Actor } from "@opentradesos/core";
 import * as fields from "../src/services/custom-fields";
 import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
-import { type ServiceContext } from "../src/services/context";
+import * as jobs from "../src/services/jobs";
+import { UnprocessableError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -65,6 +66,19 @@ async function storeBehindTheService(customerId: string, customFields: Record<st
     where id = ${customerId} and organization_id = ${ORG}`;
 }
 
+/**
+ * What a refused save says, field by field.
+ *
+ * Each problem is its own sentence at `customFields.<key>`, starting with the
+ * field's label, so an API client can put it beside the box it is about and a
+ * form can say all of them at once.
+ */
+async function refusal(write: Promise<unknown>) {
+  const error = await write.then(() => null, (e: unknown) => e);
+  expect(error).toBeInstanceOf(UnprocessableError);
+  return (error as UnprocessableError).issues;
+}
+
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
@@ -91,8 +105,9 @@ run("a declared field binds the save", () => {
       label: "Warranty expires", dataType: "date",
     });
 
-    await expect(customerWith({ warranty_expires: "soon" }))
-      .rejects.toThrow(/warranty_expires.*Warranty expires/is);
+    expect(await refusal(customerWith({ warranty_expires: "soon" }))).toEqual([{
+      path: "customFields.warranty_expires", message: "Warranty expires has to be a date like 2026-03-01.",
+    }]);
   });
 
   it("refuses a value that contradicts the type on update", async () => {
@@ -101,8 +116,8 @@ run("a declared field binds the save", () => {
       entityType: "customer", key: "unit_count", label: "Units", dataType: "number",
     });
 
-    await expect(customers.update(owner(), { id: customer.id, customFields: { unit_count: "six" } }))
-      .rejects.toThrow(/unit_count/i);
+    expect(await refusal(customers.update(owner(), { id: customer.id, customFields: { unit_count: "six" } })))
+      .toEqual([{ path: "customFields.unit_count", message: "Units has to be a number." }]);
   });
 
   it("refuses a select value that is not one of the options", async () => {
@@ -111,7 +126,9 @@ run("a declared field binds the save", () => {
       dataType: "select", options: ["gold", "silver"],
     });
 
-    await expect(customerWith({ tier: "bronze" })).rejects.toThrow(/tier/i);
+    expect(await refusal(customerWith({ tier: "bronze" }))).toEqual([{
+      path: "customFields.tier", message: "Tier is not one of the options (gold, silver).",
+    }]);
     const fine = await customerWith({ tier: "gold" });
     expect(fine.id).toBeTruthy();
   });
@@ -126,7 +143,8 @@ run("a declared field binds the save", () => {
       entityType: "customer", key: "account_ref", label: "Account reference", required: true,
     });
 
-    await expect(customerWith({})).rejects.toThrow(/account_ref.*required/is);
+    expect(await refusal(customerWith({})))
+      .toEqual([{ path: "customFields.account_ref", message: "Account reference is required." }]);
   });
 
   it("refuses a required field this write cleared", async () => {
@@ -135,8 +153,8 @@ run("a declared field binds the save", () => {
     });
     const customer = await customerWith({ account_ref: "A-1" });
 
-    await expect(customers.update(owner(), { id: customer.id, customFields: {} }))
-      .rejects.toThrow(/account_ref.*required/is);
+    expect(await refusal(customers.update(owner(), { id: customer.id, customFields: {} })))
+      .toEqual([{ path: "customFields.account_ref", message: "Account reference is required." }]);
   });
 
   it("binds on properties as well as customers", async () => {
@@ -150,10 +168,79 @@ run("a declared field binds the save", () => {
       entityType: "property", key: "roof_year", label: "Roof year", dataType: "number",
     });
 
-    await expect(properties.create(owner(), {
+    expect(await refusal(properties.create(owner(), {
       address: { line1: "1 Test St", city: "Austin", state: "TX", postalCode: "78701", country: "US" },
       hasDog: false, customFields: { roof_year: "recent" }, customerRole: "owner",
-    })).rejects.toThrow(/roof_year/i);
+    }))).toEqual([{ path: "customFields.roof_year", message: "Roof year has to be a number." }]);
+  });
+
+  it("says every field that is wrong at once, one sentence each", async () => {
+    await fields.define(owner(), {
+      entityType: "customer", key: "account_ref", label: "Account reference", required: true,
+    });
+    await fields.define(owner(), {
+      entityType: "customer", key: "unit_count", label: "Units", dataType: "number",
+    });
+    expect(await refusal(customerWith({ unit_count: "six" }))).toEqual([
+      { path: "customFields.account_ref", message: "Account reference is required." },
+      { path: "customFields.unit_count", message: "Units has to be a number." },
+    ]);
+  });
+
+  it("binds an address created with its customer, which used to skip the property rules", async () => {
+    await fields.define(owner(), {
+      entityType: "property", key: "gate_code", label: "Gate code", required: true,
+    });
+    const address = { line1: "4 Gate St", city: "Austin", state: "TX", postalCode: "78701", country: "US" };
+    const create = (customFields?: Record<string, unknown>) => customers.create(owner(), {
+      type: "residential", name: `Gated ${made += 1}`, paymentTermsDays: 0, taxExempt: false, tags: [],
+      customFields: {}, property: { address, ...(customFields ? { customFields } : {}) },
+    });
+
+    expect(await refusal(create()))
+      .toEqual([{ path: "property.customFields.gate_code", message: "Gate code is required." }]);
+    const fine = await create({ gate_code: "1234" });
+    const [stored] = await raw<{ custom_fields: Record<string, unknown> }[]>`
+      select p.custom_fields from public.property p
+      join public.customer_property cp on cp.property_id = p.id
+      where cp.customer_id = ${fine.id}`;
+    expect(stored!.custom_fields).toEqual({ gate_code: "1234" });
+  });
+
+  it("binds on jobs, on create and on update", async () => {
+    await fields.define(owner(), {
+      entityType: "job", key: "permit_no", label: "Permit number", required: true,
+    });
+    const customer = await customerWith({});
+    const property = await properties.create(owner(), {
+      address: { line1: "2 Job St", city: "Austin", state: "TX", postalCode: "78701", country: "US" },
+      hasDog: false, customFields: {}, customerId: customer.id, customerRole: "owner",
+    });
+    const job = (fieldsFor: Record<string, unknown>) => jobs.create(owner(), {
+      customerId: customer.id, propertyId: property.id, summary: "Panel swap", tags: [], customFields: fieldsFor,
+    });
+
+    expect(await refusal(job({})))
+      .toEqual([{ path: "customFields.permit_no", message: "Permit number is required." }]);
+    const made = await job({ permit_no: "P-77" });
+    expect(await refusal(jobs.update(owner(), { id: made.id, customFields: { permit_no: "" } })))
+      .toEqual([{ path: "customFields.permit_no", message: "Permit number is required." }]);
+  });
+
+  it("does not refuse a job from before the field became required", async () => {
+    const customer = await customerWith({});
+    const property = await properties.create(owner(), {
+      address: { line1: "3 Job St", city: "Austin", state: "TX", postalCode: "78701", country: "US" },
+      hasDog: false, customFields: {}, customerId: customer.id, customerRole: "owner",
+    });
+    const made = await jobs.create(owner(), {
+      customerId: customer.id, propertyId: property.id, summary: "Old job", tags: [], customFields: { note: "x" },
+    });
+    await fields.define(owner(), {
+      entityType: "job", key: "permit_no", label: "Permit number", required: true,
+    });
+    const after = await jobs.update(owner(), { id: made.id, summary: "Old job, renamed", customFields: { note: "y" } });
+    expect(after.summary).toBe("Old job, renamed");
   });
 
   it("does not check a customer's field against a property's definition", async () => {

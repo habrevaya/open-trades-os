@@ -317,7 +317,10 @@ run("seeing what happened", () => {
      * the screen would be offering a step that does nothing at run time.
      */
     const kinds = workflows.availableSteps(owner()).map((s) => s.kind);
-    expect(kinds).toEqual(["send_message", "create_task", "wait", "branch"]);
+    expect(kinds).toEqual([
+      "send_message", "create_task", "wait", "email_report", "branch",
+      "stop_unless", "send_estimate", "request_review", "send_review_request", "text_caller",
+    ]);
     expect(kinds).not.toContain("record_payment");
   });
 
@@ -378,9 +381,18 @@ run("seeing what happened", () => {
    */
   it("offers nothing the product does not emit", async () => {
     const offered = await workflows.triggerEvents(owner());
-    for (const name of ["estimate.sent", "estimate.approved", "invoice.overdue", "payment.failed"]) {
+    for (const name of ["visit.scheduled", "invoice.overdue", "payment.failed"]) {
       expect(offered, `${name} cannot fire and must not be offered`).not.toContain(name);
     }
+    /**
+     * `estimate.sent` left that list when sending an estimate started
+     * emitting it, which is what the estimate follow up waits from. Offered
+     * now because it fires now, and asserted so it does not quietly drop off.
+     */
+    expect(offered).toContain("estimate.sent");
+    /** And the two decisions, since approving and declining started emitting them. */
+    expect(offered).toContain("estimate.approved");
+    expect(offered).toContain("estimate.declined");
   });
 
   it("does not offer a dwell event as an event subscription", async () => {
@@ -396,7 +408,7 @@ run("seeing what happened", () => {
   it("refuses to save a subscription to an event nothing emits", async () => {
     await expect(workflows.create(owner(), {
       name: "Never runs", triggerKind: "event",
-      triggerEvents: ["estimate.approved"], steps: [TASK_STEP],
+      triggerEvents: ["invoice.overdue"], steps: [TASK_STEP],
     })).rejects.toThrow(/never run/i);
   });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, Address, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { FieldFilters } from "./custom-fields";
 
 export const CustomerType = z.enum(["residential", "commercial"]);
 
@@ -11,7 +12,13 @@ export const Customer = z.object({
   email: z.string().email().nullable(),
   phone: z.string().nullable(),
   billingAddress: Address.partial().nullable(),
+  /** A key from the lead source catalogue, for the screens that show one word. */
   leadSource: z.string().nullable(),
+  /** `manual` when somebody chose it, `derived` when the attribution filled it, `imported` from a migration. */
+  leadSourceOrigin: z.string().nullable().optional(),
+  /** The company's own channel and tracking campaign behind the source. */
+  channelId: Uuid.nullable().optional(),
+  acquisitionCampaignId: Uuid.nullable().optional(),
   paymentTermsDays: z.number().int(),
   taxExempt: z.boolean(),
   doNotService: z.boolean(),
@@ -67,7 +74,16 @@ export const CustomerCreate = z.object({
   email: z.string().email().optional(),
   phone: z.string().max(40).optional(),
   billingAddress: Address.optional(),
+  /**
+   * Where they came from. A catalogue key or anything its alias list places
+   * ("Google Ads" arrives as `google_ads`), a channel from the company's
+   * list, or a tracking campaign, which implies its channel. A word nothing
+   * can place is refused, except on a record carrying `externalRef`, which
+   * keeps what its old system said.
+   */
   leadSource: z.string().max(100).optional(),
+  channelId: Uuid.optional(),
+  campaignId: Uuid.optional(),
   paymentTermsDays: z.number().int().min(0).max(365).default(0),
   taxExempt: z.boolean().default(false),
   tags: z.array(z.string()).default([]),
@@ -81,6 +97,12 @@ export const CustomerCreate = z.object({
     nickname: z.string().max(100).optional(),
     address: Address,
     accessNotes: z.string().max(2000).optional(),
+    /**
+     * The address's own custom fields, held to the property definitions as a
+     * property created on its own is. Without this a required property field
+     * was skipped by every customer created with an address.
+     */
+    customFields: z.record(z.unknown()).optional(),
   }).optional(),
   /** Where this came from in another system. See `ExternalRef`. */
   externalRef: ExternalRef.optional(),
@@ -96,7 +118,26 @@ export const listCustomers = defineRoute({
     /** Trigram search across name, email and phone. */
     q: z.string().max(200).optional(),
     type: CustomerType.optional(),
-    tag: z.string().optional(),
+    /** One tag. Kept for callers that already send it; the same as `tags` with one entry. */
+    tag: z.string().max(40).optional(),
+    /**
+     * Customers carrying these tags, compared without case. `tagMatch` says
+     * whether a customer needs any of them (the default) or every one.
+     */
+    tags: z.array(z.string().max(40)).max(20).optional(),
+    tagMatch: z.enum(["any", "all"]).optional(),
+    /** Customers one branch has done work for. */
+    businessUnitId: Uuid.optional(),
+    /**
+     * Customers whose custom field `fieldKey` holds `fieldValue`. The key has
+     * to be a field the company has declared on customers. A yes or no field
+     * matches `true` or `false`; a field with several choices matches a
+     * customer holding that choice among theirs.
+     */
+    fieldKey: z.string().max(64).optional(),
+    fieldValue: z.string().max(200).optional(),
+    /** Several fields at once, each `key:value`, every one of which has to hold. */
+    fields: FieldFilters,
     includeInactive: z.boolean().default(false),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
@@ -143,6 +184,8 @@ export const updateCustomer = defineRoute({
     email: z.string().email().nullable().optional(),
     phone: z.string().max(40).nullable().optional(),
     leadSource: z.string().max(100).nullable().optional(),
+    channelId: Uuid.nullable().optional(),
+    campaignId: Uuid.nullable().optional(),
   }).merge(CustomerStanding),
   output: Customer,
 });

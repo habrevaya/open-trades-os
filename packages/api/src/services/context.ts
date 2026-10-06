@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, isSystem, redact, redactMany, effectiveScope, type Actor, type Permission, type ScopedResource } from "@opentradesos/core";
+import { assertCan, branding, isSystem, redact, redactMany, effectiveScope, type Actor, type Permission, type ScopedResource } from "@opentradesos/core";
 
 /**
  * THE SERVICE LAYER
@@ -37,6 +37,18 @@ export interface ServiceContext {
    * trail names the grant instead.
    */
   portalGrantId?: string;
+  /**
+   * The contact holding that grant, when a contact on the customer signed in
+   * as them. Written on every audit entry beside the grant, so the trail
+   * names the person and not only the account they used.
+   */
+  portalContactId?: string | null | undefined;
+  /**
+   * The SHA-256 of the phone app's device token, when that is what signed
+   * this request in. Registering a device reads it to bind the token to the
+   * device it came from, so revoking that device ends the sign in too.
+   */
+  deviceTokenHash?: string;
 }
 
 export interface RequestMeta {
@@ -126,6 +138,21 @@ export class DemoReadOnlyError extends Error {
   }
 }
 
+/**
+ * A sign in that did not happen: the wrong password, a locked account, or an
+ * account with nothing for the app it signed in from.
+ *
+ * Its own class so the HTTP layer answers 401 rather than 409. A phone that
+ * reads 409 as "the office changed something" would show a sync conflict to
+ * somebody who mistyped their password.
+ */
+export class SignInRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SignInRefusedError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor(resource: string) {
     super(`${resource} not found`);
@@ -137,6 +164,20 @@ export class ConflictError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ConflictError";
+  }
+}
+
+/**
+ * Somebody on the open internet has knocked too often.
+ *
+ * Only the public endpoints raise it, and the message says to wait rather
+ * than what the ceiling is: a ceiling a script can read is a ceiling it can
+ * pace itself just under.
+ */
+export class TooManyRequestsError extends Error {
+  constructor(readonly retryAfterSeconds = 60) {
+    super("Too many requests. Wait a minute and try again.");
+    this.name = "TooManyRequestsError";
   }
 }
 
@@ -339,6 +380,28 @@ export async function timezoneOf(tx: Database, organizationId: string): Promise<
 }
 
 /**
+ * How a customer reaches the company: its phone, email and postal address,
+ * for the documents and pages that print them under its name.
+ *
+ * Read here beside `timezoneOf` for the same reason: several services print
+ * it (the proposal, the statement, the PDFs, the portal's header), and every
+ * one of them reading the same columns the same way is what stops one
+ * document printing the suite number and another leaving it off.
+ */
+export async function contactOf(tx: Database, organizationId: string): Promise<branding.CompanyContact> {
+  const [org] = await tx.select({
+    phone: schema.organization.phone,
+    email: schema.organization.email,
+    addressLine1: schema.organization.addressLine1,
+    addressLine2: schema.organization.addressLine2,
+    city: schema.organization.city,
+    state: schema.organization.state,
+    postalCode: schema.organization.postalCode,
+  }).from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  return org ?? branding.NO_CONTACT;
+}
+
+/**
  * EVERY MUTATION WRITES HERE, and an AI agent is named as the actor when one
  * is acting. Being able to answer "what did the agent do, and when" is what
  * makes an agent layer something an owner will actually turn on.
@@ -377,6 +440,7 @@ export async function audit(
      */
     actorUserId: ctx.portalGrantId || isSystem(ctx.actor) ? null : ctx.actor.userId,
     actorPortalGrantId: ctx.portalGrantId ?? null,
+    actorContactId: ctx.portalGrantId ? ctx.portalContactId ?? null : null,
     actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
     action,
     entityType,

@@ -67,7 +67,30 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `callrail` | telephony | Tracked calls into `call` and `marketing_touch`, signed webhook plus a backfill, because they do not resend. |
 | `twilio` | messaging | The first adapter the product ever had. In this table only now, because it was missing from the catalogue entirely until a second carrier was added beside it. |
 | `justcall` | messaging | The second carrier on the same seam. Their signature covers the URL, the type and a timestamp, and not the message, so the replay window is five minutes rather than a day. |
+| `nominatim` | maps | OpenStreetMap's geocoder, public or self hosted. No key; one request a second against the public server, and a contact address on every request as its usage policy asks. |
+| `mapbox` | maps | The commercial geocoder, always on the permanent tier because every answer is stored. Google is not offered: its terms forbid keeping the coordinates. |
+| `whisper` | transcription | Speech to text for kept recordings and voicemails, over the Whisper API: OpenAI's, or a server the company runs itself so calls never leave the building. Card numbers are removed before the words are stored. |
+| `osrm` | routing | Drive times by road from a routing server the company runs itself on OpenStreetMap roads. No key and no default address, because the project's demo server asks not to carry real traffic. Answers kept thirty days. |
+| `mapbox_directions` | routing | Drive times from Mapbox's Matrix API, a separate connection from the Mapbox geocoder. Kept a day at most, the cautious reading of terms that restrict storing results. |
+| `openrouteservice` | routing | Drive times over OpenStreetMap from the hosted service with a free key, or the same software self hosted with none. Kept a week. |
 | `xero` | accounting | The second adapter on the accounting seam. No change feed on their side, so inbound is a modified-since boundary; refresh tokens rotate with no grace period at all. |
+| `google_ads` | ads | Spend per campaign per day pulled into the spend rows and mapped onto tracking campaigns; paid jobs uploaded as click conversions with the job's id as Google's order id. Needs the operator's own developer token. |
+| `google_lsa` | ads | Local Services leads into the lead inbox and their spend under Local Services, through the Google Ads API with the same token and sign in. |
+| `meta_ads` | ads | Spend per campaign per day, and booked and paid jobs through the Conversions API with hashed details only where consent allows. Meta's sign in lasts sixty days. |
+| `ga4` | analytics | Leads and purchases through the Measurement Protocol, tied to the visit by the analytics id the website snippet reads. An API secret, no sign in. |
+| `google_business_profile` | reviews | Reviews read hourly into the review work list, replies posted back, and who wrote one suggested rather than asserted. Needs Google's separate approval for the API. |
+| `facebook_page` | reviews | A Page's ratings and recommendations read hourly through the Graph API with the Page's token (a yes counted as five, a no as one), and replies posted back as comments from the Page. Needs Meta's app review for pages_read_user_content and pages_manage_engagement before anything is read; tested against a fake. |
+| `bing_ads` | ads | Microsoft Advertising spend through its report job: submitted, polled, the zipped CSV downloaded with no token on the signed address. Microsoft's sign in rotates its refresh token and the new one is kept sealed. Spend only; tested against a fake. |
+| `meta_lead_ads` | ads | Meta's instant form leads, posted to one deployment wide address signed with the app's secret and read back with the Page's token, and pulled every ten minutes in case a post was missed. App review for five scopes. |
+| `search_console` | analytics | Search queries per day with clicks, impressions and position, read twice a day onto the marketing overview. A sign in with Google. |
+| `ga4_data` | analytics | Sessions by source and medium per day from the Data API, beside the leads each source brought. A sign in, as distinct from `ga4`, which only sends. |
+| `angi` | lead_source | Leads Angi posts, authenticated with the company's key, the fee recorded as spend. Angi's CRM integration program approves partners by hand. |
+| `thumbtack` | lead_source | Leads and messages Thumbtack posts with HTTP Basic, the price recorded as spend, replies sent back through Thumbtack. Its partner API is approval gated. |
+| `yelp` | lead_source | Request a Quote: Yelp posts only an id and the lead and its messages are read back with the token; replies go back through Yelp. Partners only. |
+| `nextdoor` | lead_source | No API exists for a business's enquiries, so built as the lead email reader for Nextdoor's notifications. |
+| `lead_email` | lead_source | One inbox address per company that every marketplace's lead emails are forwarded to, read by their labels into lead offers. The way in for every marketplace without API access. |
+| `lob` | direct_mail | Postcards and letters, each under its own id as Lob's idempotency key with a QR code to its own address. A `test_` key prints nothing. |
+| `wisetack` | financing | Consumer financing: an application link for an invoice or estimate, the decision read back from Wisetack after every signed webhook, and the funded loan recorded as a payment with Wisetack's fee as an expense. Tested against a fake of its API; needs a Wisetack merchant account. |
 
 ---
 
@@ -137,10 +160,15 @@ with an HMAC signature. What none of them offers is self-serve credentials.
 - Same shape: Modernize, Home Solutions, WinGen, SmartAC, Building36,
   ActiveProspect, The Home Depot, ServiceChannel, ResQ, FlowPath.
 
-**So the honest sequencing is: do not build adapters for these.** Document how
-to point each one at the generic lead webhook, and spend the effort on the
-field-mapping screen that makes an unanticipated sender a settings change
-rather than a release. One piece of work serves all sixteen.
+**Built since, for the three with a documented shape:** Angi, Thumbtack and
+Yelp each have an adapter on the marketplace seam (M19, "Lead marketplaces"),
+verified their own way and tested against fakes of their documentation,
+because a partner who is approved should not have to translate a
+marketplace's post into the generic webhook's signature. The approval itself is
+still the gate, and nothing here gets around it. For every marketplace without
+API access, and the rest of the list above, the lead emails are read from one
+inbox address per company, and the generic webhook with its field mapping
+serves any sender who can post.
 
 ---
 
@@ -176,7 +204,10 @@ Hard because of what they are, not because of their APIs.
 - **Consumer financing**: GreenSky, Synchrony, Wells Fargo, Service Finance,
   Financeit, TURNS, Bluevine, Coral. Every one needs a contract, a dealer
   agreement and in most cases a lending licence held by the contractor. The
-  integration is the smallest part.
+  integration is the smallest part, and since Wisetack shipped it is an
+  adapter on the `financing` seam rather than a module: `src/financing/provider.ts`
+  is the interface, and the estimate, invoice, portal and payment paths
+  already speak it.
 - **Permitting**: PermitFlow, iPermit. Jurisdiction by jurisdiction, with
   authority-specific forms. The code is easy and the coverage is the product.
 - **Warranties**: JB Warranties. Registration flows tied to manufacturer

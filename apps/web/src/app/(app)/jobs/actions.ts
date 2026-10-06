@@ -4,10 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { jobs } from "@opentradesos/api/services";
+import { customFields, jobs } from "@opentradesos/api/services";
+import { customFieldsFrom } from "@/lib/custom-field-form";
 import { createJob, scheduleVisit } from "@opentradesos/api/contracts";
 import { attempt, field, fields, parsed, type FormState, refused } from "@/lib/actions";
 import { windowFrom } from "@/lib/visit-window";
+import { sourceFrom } from "@/lib/lead-source";
 
 /**
  * BOOKING A JOB, FROM THE OFFICE
@@ -28,13 +30,17 @@ export async function bookJob(_previous: FormState, form: FormData): Promise<For
 
   let createdId: string | null = null;
   const result = await attempt(form, async () => {
+    const jobFields = await customFields.formFields({ actor: user.actor, db: getDb() }, "job");
     const input = parsed(createJob.input, {
+      customFields: customFieldsFrom(form, jobFields),
       customerId: field(form, "customerId"),
       propertyId: field(form, "propertyId"),
       jobTypeId: field(form, "jobTypeId"),
       summary: field(form, "summary") ?? "",
       description: field(form, "description"),
       customerComplaint: field(form, "customerComplaint"),
+      ...sourceFrom(form),
+      callId: field(form, "callId"),
       ...(window.kind === "window"
         ? {
             visit: {

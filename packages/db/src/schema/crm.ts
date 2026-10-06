@@ -1,6 +1,8 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
-import { organization } from "./tenancy";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, date, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
+import { organization, user } from "./tenancy";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * CRM SPINE
@@ -36,7 +38,24 @@ export const customer = pgTable("customer", {
   billingState: text("billing_state"),
   billingPostalCode: text("billing_postal_code"),
   billingCountry: text("billing_country").notNull().default("US"),
+  /**
+   * The catalogue key this customer is credited to, for the screens that show
+   * one word. The full story is the touches in `marketing_touch`; this is a
+   * denormalisation of it, and `lead_source_origin` says whose answer it is.
+   */
   leadSource: text("lead_source"),
+  /**
+   * `manual` when somebody chose it on a form, `derived` when the attribution
+   * filled it in from the touches, `imported` when it arrived with a
+   * migration. Kept because "the CSR said Google" and "the tracking number
+   * said Google" are different evidence, and a report that cannot tell them
+   * apart cannot say how much of itself is a guess.
+   */
+  leadSourceOrigin: text("lead_source_origin"),
+  /** The company's own channel and campaign behind `lead_source`, when one is known. */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   /** Net terms in days. 0 means due on receipt. */
   paymentTermsDays: text("payment_terms_days").notNull().default("0"),
   taxExempt: boolean("tax_exempt").notNull().default(false),
@@ -46,6 +65,13 @@ export const customer = pgTable("customer", {
   doNotService: boolean("do_not_service").notNull().default(false),
   doNotServiceReason: text("do_not_service_reason"),
   notes: text("notes"),
+  /**
+   * The days of the week that suit this customer, 0 for Sunday as Postgres
+   * `dow` counts. Empty is "any day". The multi day rebalance may move one
+   * of their visits to another of these days, and to no other, and tells
+   * them when it does.
+   */
+  preferredDays: jsonb("preferred_days").$type<number[]>().notNull().default([]),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   /**
@@ -62,13 +88,112 @@ export const customer = pgTable("customer", {
    * that is actually current.
    */
   mergedIntoId: uuid("merged_into_id"),
+  /**
+   * The customer who sent them, when somebody did.
+   *
+   * Written once, from a referral link they arrived through or by the office,
+   * and never overwritten by a later link: the neighbour who told them about
+   * the company is the referrer, and a second neighbour sharing a link a year
+   * later does not take the first one's reward. Set null when the referrer is
+   * deleted rather than cascading, because the referred customer is still a
+   * customer.
+   */
+  referredByCustomerId: uuid("referred_by_customer_id")
+    .references((): AnyPgColumn => customer.id, { onDelete: "set null" }),
+  /**
+   * The code in this customer's own shareable link. Minted the first time
+   * anybody asks for it rather than at creation, so the thousands of
+   * customers nobody will ever ask to refer anyone carry nothing. Short,
+   * unambiguous to read aloud, and unique within the company: it is typed
+   * into a phone by a neighbour as often as it is clicked.
+   */
+  referralCode: text("referral_code"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("customer_source_ref_idx", t),
+  referralCodeIdx: uniqueIndex("customer_referral_code_idx").on(t.organizationId, t.referralCode)
+    .where(sql`${t.referralCode} is not null`),
+  referredByIdx: index("customer_referred_by_idx").on(t.organizationId, t.referredByCustomerId),
   orgIdx: index("customer_org_idx").on(t.organizationId),
   nameIdx: index("customer_name_idx").on(t.organizationId, t.name),
   emailIdx: index("customer_email_idx").on(t.organizationId, t.email),
+}));
+
+/**
+ * TWO RECORDS SOMEBODY LOOKED AT AND SAID ARE DIFFERENT PEOPLE.
+ *
+ * The company wide duplicate sweep matches on a shared phone, a shared email
+ * or a similar name, and two of those are true of people who are not the
+ * same: a landlord and the tenant whose bills she pays share a number, and
+ * "John Smith" is two customers in any town of size. Without a memory of the
+ * decision the sweep shows the same pair every morning until somebody stops
+ * opening it, which is the failure a duplicate list most often dies of.
+ *
+ * Stored as an ORDERED pair, the smaller id first, so the pair has one row
+ * whichever side somebody dismissed it from, and the unique index makes a
+ * second press a no op rather than a second row.
+ */
+export const customerNotDuplicate = pgTable("customer_not_duplicate", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The smaller of the two ids. */
+  customerAId: uuid("customer_a_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** The larger. */
+  customerBId: uuid("customer_b_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** Why, when somebody said. "Landlord and tenant" is the usual one. */
+  reason: text("reason"),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pairIdx: uniqueIndex("customer_not_duplicate_pair_idx").on(t.organizationId, t.customerAId, t.customerBId),
+  /** The per record matcher asks from either side. */
+  bIdx: index("customer_not_duplicate_b_idx").on(t.customerBId),
+}));
+
+/**
+ * ONE ROW PER TAG A LIVE CUSTOMER CARRIES, SO A TAG IS SOMETHING AN INDEX CAN FIND.
+ *
+ * `customer.tags` is still the customer's own list, in the order it was
+ * written, and it is what the API returns and what every import, the
+ * sandbox and the portal write. Filtering by it meant reading every
+ * customer's list, which is milliseconds at ten thousand customers and
+ * seconds at a million. This table holds the same tags one per row with the
+ * case blind key beside each, under an index on that key, and the tag
+ * filter, the counts and the campaign rule read it instead.
+ *
+ * WRITTEN BY THE DATABASE, NEVER BY A SERVICE. A trigger on `customer`
+ * (`app.sync_customer_tags` in `sql/after.sql`) rebuilds a customer's rows
+ * whenever its list or its deleted state changes, inside the same statement.
+ * So there is no second writer to forget: a CSV import, a restore, a test
+ * inserting a customer by hand and the tag screen's rename across the book
+ * all leave this table equal to the lists, and a service that wrote here as
+ * well would only be a way for the two to disagree.
+ *
+ * Live customers only. Every reader of a tag (the filter, the counts, an
+ * audience) is about the live book, and a merged duplicate keeps its tags on
+ * its own row, where its record is. That is what lets the counts read this
+ * table and nothing else.
+ */
+export const customerTag = pgTable("customer_tag", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** Where it sits in the customer's own list, from zero, so the list can be read back in its order. */
+  position: integer("position").notNull(),
+  /** Exactly as the list holds it, spaces and capitals included. */
+  tag: text("tag").notNull(),
+  /**
+   * The tag trimmed, its inner spaces run together and lower cased: "VIP",
+   * "vip" and " Vip " are one tag. The same key `core/tags` compares by, so a
+   * key worked out in TypeScript finds the rows the trigger wrote.
+   */
+  tagKey: text("tag_key").notNull(),
+}, (t) => ({
+  /** A customer's rows are rebuilt whole by the trigger, one per place in its list. */
+  slotIdx: uniqueIndex("customer_tag_slot_idx").on(t.customerId, t.position),
+  /** The filter and the counts: every customer carrying a key, without reading anybody's list. */
+  keyIdx: index("customer_tag_key_idx").on(t.organizationId, t.tagKey, t.customerId),
 }));
 
 export const property = pgTable("property", {
@@ -81,8 +206,13 @@ export const property = pgTable("property", {
   state: text("state").notNull(),
   postalCode: text("postal_code").notNull(),
   country: text("country").notNull().default("US"),
-  latitude: text("latitude"),
-  longitude: text("longitude"),
+  /**
+   * Where it is, how close, and who said so. Filled by the worker from the
+   * company's geocoder, never inline in the request that saved the address,
+   * so a slow geocoder never holds up a customer being added; or placed by
+   * hand from the property page, which then wins. See `geocodeColumns`.
+   */
+  ...geocodeColumns(),
   /** Resolved at save time from the service-area territories. Drives dispatch zoning. */
   territoryId: uuid("territory_id"),
   /** Jurisdiction stack for sales tax. Historical rates live on the invoice line. */
@@ -148,6 +278,16 @@ export const contact = pgTable("contact", {
    */
   smsConsentAt: timestamp("sms_consent_at", { withTimezone: true }),
   emailOptOutAt: timestamp("email_opt_out_at", { withTimezone: true }),
+  /**
+   * When the office let this person sign in to the customer's portal with
+   * their own email or mobile number. Null is the default and means they
+   * cannot: a contact is somebody the office talks to about an account,
+   * which is not the same as somebody who may see its bills and pay them,
+   * so the office says so person by person. What they reach once signed in
+   * is the customer's account, and everything they do there is recorded as
+   * them (`audit_log.actor_contact_id`).
+   */
+  portalAccessAt: timestamp("portal_access_at", { withTimezone: true }),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({ orgIdx: index("contact_org_idx").on(t.organizationId) }));
@@ -180,6 +320,11 @@ export const equipment = pgTable("equipment", {
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   active: boolean("active").notNull().default(true),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   propIdx: index("equipment_property_idx").on(t.propertyId),

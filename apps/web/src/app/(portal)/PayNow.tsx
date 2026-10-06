@@ -8,14 +8,21 @@ import type { StartPayment } from "./start-payment";
  * a dependency: Stripe requires the library to be loaded from its own domain
  * anyway, so a package would only be a loader for this one script tag.
  */
-interface StripeElement { mount(target: HTMLElement): void; destroy(): void }
-interface StripeElements { create(kind: "payment"): StripeElement }
-interface StripeClient {
+export interface StripeElement { mount(target: HTMLElement): void; destroy(): void }
+export interface StripeElements { create(kind: "payment"): StripeElement }
+export interface StripeClient {
   elements(options: { clientSecret: string }): StripeElements;
   confirmPayment(options: {
     elements: StripeElements;
     confirmParams: { return_url: string };
   }): Promise<{ error?: { message?: string } }>;
+  /** Saving a card: the same element, in setup mode, sent back to the page with the setup's id. */
+  confirmSetup(options: {
+    elements: StripeElements;
+    confirmParams: { return_url: string };
+  }): Promise<{ error?: { message?: string } }>;
+  /** A bank asking the cardholder to prove it is them, on a saved card confirmed by the server. */
+  handleNextAction(options: { clientSecret: string }): Promise<{ error?: { message?: string } }>;
 }
 declare global {
   interface Window { Stripe?: (key: string) => StripeClient }
@@ -23,7 +30,7 @@ declare global {
 
 const STRIPE_JS = "https://js.stripe.com/v3/";
 
-function loadStripe(): Promise<NonNullable<Window["Stripe"]>> {
+export function loadStripe(): Promise<NonNullable<Window["Stripe"]>> {
   if (window.Stripe) return Promise.resolve(window.Stripe);
   return new Promise((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${STRIPE_JS}"]`);
@@ -63,6 +70,19 @@ export function PayNow({ start, balance, label, cta }: {
 
   useEffect(() => () => elementRef.current?.destroy(), []);
 
+  /**
+   * Mounted once the box it goes in has been drawn. Waiting a frame instead
+   * was a race: on a busy phone the frame could come before React drew the
+   * box, and the customer was left with a Pay button and no card form.
+   */
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (state === "ready" && !mounted.current && elementRef.current && mountRef.current) {
+      elementRef.current.mount(mountRef.current);
+      mounted.current = true;
+    }
+  }, [state]);
+
   async function open() {
     setState("loading");
     setError(null);
@@ -79,11 +99,8 @@ export function PayNow({ start, balance, label, cta }: {
       const element = elements.create("payment");
       stripeRef.current = { stripe, elements };
       elementRef.current = element;
+      mounted.current = false;
       setState("ready");
-      // Mounted after the container renders.
-      requestAnimationFrame(() => {
-        if (mountRef.current) element.mount(mountRef.current);
-      });
     } catch {
       setError("The card form could not load. Check your connection and try again.");
       setState("idle");

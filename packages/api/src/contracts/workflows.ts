@@ -15,14 +15,21 @@ import { Uuid } from "./common";
  * An automation sending the wrong thing to customers with no way to stop it is the
  * failure that ends a trial, and it is worse than the automation not existing.
  *
- * WRITING A DEFINITION IS DELIBERATELY NOT HERE, and the reason is not timidity.
- * A definition carries a condition group, which is a recursive shape, and the
- * OpenAPI generator cannot describe a recursive schema: publishing one would mean
- * publishing a document that does not say what the request is. Worse, publishing a
- * builder's input invites a caller to construct a definition the engine then
- * refuses at publish time, and the authority check on a publish is against what
- * the AUTHOR holds, which is a question about a session rather than about a
- * payload. The builder stays where the permission check can see who is asking.
+ * AND WRITING ONE, which used to be deliberately missing for two reasons that
+ * turned out to be smaller than they looked. The recursive shape is the
+ * canvas's TREE, which a person draws; what the engine runs, and what is
+ * published here, is the flat list core translates it into, with a branch
+ * counting the steps of its arms and a condition group that is three lists of
+ * conditions and nothing deeper, so the OpenAPI generator describes it
+ * exactly. And the authority check on a publish is against what the CALLER
+ * holds, which over the API is the token's holder: an app or an agent acting
+ * for a person cannot publish a step that person could not, and the refusal
+ * names the permission. The same check, the same versions and the same
+ * "switched off when made" as the canvas, because these routes call the
+ * service the canvas calls.
+ *
+ * Every write here can be tried first: a dry run checks the definition the
+ * way the save does, writes the version, and rolls it back.
  */
 
 export const WorkflowStepRef = z.object({ kind: z.string() });
@@ -151,6 +158,187 @@ export const listWorkflowSteps = defineRoute({
   }),
 });
 
+/**
+ * RECOMMENDED AUTOMATIONS
+ *
+ * Turning one on IS on the API, unlike writing a definition, and the
+ * difference is the shape of the input: a template's key and a few named
+ * values, none of them recursive, rather than a condition group. What it
+ * installs is an ordinary workflow, published through the same check as one
+ * drawn on the canvas, with the same rule that a workflow cannot do anything
+ * its installer may not.
+ */
+export const WorkflowTemplateView = z.object({
+  key: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  /** What has to be true in the company for it to do anything. */
+  needs: z.string(),
+  parameters: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    help: z.string(),
+    kind: z.enum(["number", "platform"]),
+    default: z.number().int().optional(),
+    min: z.number().int().optional(),
+    max: z.number().int().optional(),
+  })),
+  /** The ordinary workflow it installed, when it is installed. */
+  installed: z.object({ id: Uuid, enabled: z.boolean(), name: z.string() }).nullable(),
+  /** Why it cannot be turned on yet, in words. */
+  blockedBy: z.string().nullable(),
+  platforms: z.array(z.object({ platform: z.string(), displayName: z.string() })),
+  /** Installed and switched on when a company is created; switched off like any other. */
+  onForNewCompanies: z.boolean(),
+});
+
+export const listWorkflowTemplates = defineRoute({
+  method: "get",
+  path: "/v1/workflow-templates",
+  summary: "Recommended automations, and which are on",
+  description:
+    "Following up an estimate nobody answered, and asking for a review once a job is paid. Each says what it does, what it needs from the company, and whether it is installed; an installed one is an ordinary workflow at `/v1/workflows`.",
+  module: "M29",
+  permissions: ["workflow:read"],
+  input: z.object({}),
+  output: z.object({ templates: z.array(WorkflowTemplateView) }),
+});
+
+export const installWorkflowTemplate = defineRoute({
+  method: "post",
+  path: "/v1/workflow-templates/{key}/install",
+  summary: "Turn a recommended automation on",
+  description:
+    "Installs the template as an ordinary, editable workflow and switches it on. Refused when it is already installed, when a value is outside its bounds, when the installer does not hold every permission its steps need, and, for the review request, when the company has no review rules or no review site with a link to send people to.",
+  module: "M29",
+  permissions: ["workflow:write"],
+  idempotent: true,
+  input: z.object({
+    key: z.string().min(1).max(60),
+    values: z.record(z.union([z.string().max(200), z.number()])).optional(),
+  }),
+  output: z.object({
+    id: Uuid, name: z.string(), enabled: z.boolean(), templateKey: z.string().nullable(),
+  }),
+});
+
+
+const Comparator = z.enum([
+  "eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "contains", "exists", "not_exists", "changed", "changed_to",
+]);
+
+/** One condition: a dotted path into the event (`job.status`, `record.fields.status`), how to compare, and with what. */
+export const WorkflowCondition = z.object({
+  path: z.string().min(1).max(200),
+  op: Comparator,
+  value: z.unknown().optional(),
+});
+
+/** Every condition in `all` holds, at least one in `any`, none in `none`. Flat: a condition never holds a group. */
+export const WorkflowConditionGroup = z.object({
+  all: z.array(WorkflowCondition).max(30).optional(),
+  any: z.array(WorkflowCondition).max(30).optional(),
+  none: z.array(WorkflowCondition).max(30).optional(),
+});
+
+/**
+ * One step of the flat list the engine runs. A `branch` carries
+ * `config.conditions` (a group as above) and `config.then` and
+ * `config.otherwise`, the number of steps after it that belong to each arm.
+ * `GET /v1/workflow-steps` lists every kind with what it needs.
+ */
+export const WorkflowStep = z.object({
+  kind: z.string().min(1).max(40),
+  config: z.record(z.unknown()).optional(),
+});
+
+export const WorkflowDefinitionInput = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  triggerKind: z.enum(["event", "schedule", "dwell"]),
+  /** When the trigger is an event: names from `GET /v1/workflow-events`. */
+  triggerEvents: z.array(z.string().max(80)).max(20).optional(),
+  /** When the trigger is a schedule: five cron fields, in the company's timezone. */
+  schedule: z.string().max(100).optional(),
+  /** When the trigger is something sitting too long. */
+  dwell: z.object({ shape: z.string().max(60), afterDays: z.number().int().min(0).max(365) }).optional(),
+  conditions: WorkflowConditionGroup.optional(),
+  steps: z.array(WorkflowStep).min(1).max(60),
+});
+
+export const WorkflowDefinitionView = z.object({
+  id: Uuid,
+  name: z.string(),
+  description: z.string().nullable(),
+  enabled: z.boolean(),
+  triggerKind: z.string(),
+  triggerEvents: z.array(z.string()),
+  schedule: z.string().nullable(),
+  dwell: z.object({ shape: z.string(), afterDays: z.number().int() }).nullable(),
+  /** The recommended automation it was installed from, when it was. */
+  templateKey: z.string().nullable(),
+  /** The version that runs: its number, its conditions and its steps. */
+  version: z.number().int().nullable(),
+  conditions: WorkflowConditionGroup,
+  steps: z.array(WorkflowStep),
+  requiredPermissions: z.array(z.string()),
+});
+
+export const getWorkflow = defineRoute({
+  method: "get",
+  path: "/v1/workflows/{id}",
+  summary: "One automation's definition, as the engine runs it",
+  description:
+    "The trigger, the conditions and the flat list of steps of the version that runs, with the permissions it needs. Send it back changed to `POST /v1/workflows/{id}/versions` to publish a new version.",
+  module: "M29",
+  permissions: ["workflow:read"],
+  input: z.object({ id: Uuid }),
+  output: WorkflowDefinitionView,
+});
+
+export const createWorkflow = defineRoute({
+  method: "post",
+  path: "/v1/workflows",
+  summary: "Write a new automation, switched off",
+  description:
+    "Checked the way the canvas's save is: an event nothing emits, a step this build does not have, a branch whose arms overlap, or a step the caller does not hold the permission for is refused in words. Made switched off, so nothing runs until somebody has read it back and turned it on.",
+  module: "M29",
+  permissions: ["workflow:write"],
+  idempotent: true,
+  dryRun: true,
+  input: WorkflowDefinitionInput,
+  output: WorkflowDefinitionView,
+});
+
+export const publishWorkflow = defineRoute({
+  method: "post",
+  path: "/v1/workflows/{id}/versions",
+  summary: "Publish a new version of an automation",
+  description:
+    "A new version rather than an edit, always, so \"why did this customer get that text in March\" stays answerable after four edits. Runs already in flight finish on the version they started with. Held to the same checks as a new automation.",
+  module: "M29",
+  permissions: ["workflow:write"],
+  idempotent: true,
+  dryRun: true,
+  input: WorkflowDefinitionInput.extend({ id: Uuid }),
+  output: WorkflowDefinitionView,
+});
+
+export const deleteWorkflow = defineRoute({
+  method: "delete",
+  path: "/v1/workflows/{id}",
+  summary: "Delete an automation",
+  description: "It stops starting runs at once and keeps its history. Runs in flight finish.",
+  module: "M29",
+  permissions: ["workflow:write"],
+  idempotent: true,
+  dryRun: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, deleted: z.literal(true) }),
+});
+
 export const workflowRoutes = {
   listWorkflows, getWorkflowRuns, setWorkflowEnabled, listWorkflowEvents, listWorkflowSteps,
+  listWorkflowTemplates, installWorkflowTemplate,
+  getWorkflow, createWorkflow, publishWorkflow, deleteWorkflow,
 } as const;

@@ -28,6 +28,7 @@ import { registeredAiProviders } from "../src/ai/index";
  */
 import { registeredCalendarProviders } from "../src/calendar/index";
 import { registeredCallTrackingProviders } from "../src/call-tracking/index";
+import { transcriptionProviders as registeredTranscriptionProviders } from "../src/voice/index";
 /**
  * THE MESSAGING REGISTRY, WHICH THIS SWEEP DID NOT KNOW ABOUT.
  *
@@ -38,6 +39,28 @@ import { registeredCallTrackingProviders } from "../src/call-tracking/index";
  * entry either, so the two silences agreed with each other.
  */
 import { registeredProviders as registeredMessagingProviders } from "../src/comms/index";
+/**
+ * The geocoders, which are the first thing on the `maps` seam. Named here for
+ * the reason every registry above is: a sweep that does not know about a
+ * registry stops covering it in both directions at once.
+ */
+import { registeredGeocoders } from "../src/maps/index";
+/** The routing services, on the `routing` seam beside the geocoders, for the same reason. */
+import { registeredRouters } from "../src/routing/index";
+/**
+ * The ad platforms, analytics and the review listing, which share one seam
+ * because they move the same things in the same directions.
+ */
+import { registeredAdsAdapters } from "../src/ads/index";
+/** The lenders, on the financing seam, for the reason every registry above is named. */
+import { registeredFinancingProviders } from "../src/financing/index";
+/**
+ * The lead marketplaces' own posts, the readers of their lead emails, and the
+ * mail house, each its own seam, named for the same reason.
+ */
+import { registeredMarketplaces } from "../src/marketplaces/index";
+import { registeredLeadEmailReaders } from "../src/services/lead-emails";
+import { registeredMailProviders } from "../src/direct-mail/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -74,7 +97,10 @@ describe("the connector catalogue", () => {
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
-      ...registeredMessagingProviders(),
+      ...registeredMessagingProviders(), ...registeredGeocoders(), ...registeredRouters(),
+      ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
+      ...registeredFinancingProviders(), ...registeredMarketplaces(), ...registeredLeadEmailReaders(),
+      ...registeredMailProviders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -98,7 +124,10 @@ describe("the connector catalogue", () => {
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
-      ...registeredMessagingProviders(),
+      ...registeredMessagingProviders(), ...registeredGeocoders(), ...registeredRouters(),
+      ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
+      ...registeredFinancingProviders(), ...registeredMarketplaces(), ...registeredLeadEmailReaders(),
+      ...registeredMailProviders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
@@ -140,6 +169,16 @@ describe("the connector catalogue", () => {
       "callrail",
       /** And the calendar, which is the capability that sat in the enum with nothing behind it. */
       "ics_feed",
+      /** And maps, which sat there longer: the reason a property's coordinates were never filled. */
+      "nominatim", "mapbox",
+      /** And financing, the last capability that sat in the enum with nothing behind it that an owner asks for by name. */
+      "wisetack",
+      /**
+       * The rest of where a trades company's leads and money go: the other
+       * marketplaces, the emails every one of them sends, Meta's own forms,
+       * the analytics read back, and the mail house.
+       */
+      "yelp", "nextdoor", "lead_email", "meta_lead_ads", "ga4_data", "lob",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 import { CoverageSource } from "./jobs";
 
 export const InvoiceStatus = z.enum(["draft", "open", "partially_paid", "paid", "void", "written_off"]);
@@ -15,6 +16,13 @@ export const InvoiceLine = z.object({
   quantity: MoneyString,
   unitPrice: MoneyString,
   discountAmount: MoneyString,
+  /**
+   * How much of `discountAmount` was member pricing, and which agreement it
+   * came from. Worked out by the server as the invoice is priced; a line sent
+   * in carries only the discount somebody typed.
+   */
+  memberDiscountAmount: MoneyString.optional(),
+  memberAgreementId: Uuid.nullable().optional(),
   taxable: z.boolean(),
   /** The rate AS APPLIED, frozen on the line. Never recomputed on read. */
   taxRate: RateString,
@@ -26,11 +34,29 @@ export const InvoiceLine = z.object({
   coverageSource: CoverageSource.nullable(),
   /** Redacted unless the caller holds pricebook.cost:read. */
   unitCost: MoneyString.nullable().optional(),
+  /**
+   * Who priced this line: `price_book`, `entered`, or a card's authority
+   * (`contract`, `warranty_network`, `manufacturer_allowance`, `insurance`,
+   * `brand`). Null on a line written before it was recorded.
+   */
+  priceAuthority: z.string().nullable().optional(),
+  /** How: `card_line`, `labour_rate`, `material_markup`, `trip_charge`, `price_book`, `entered`, `history`, `share`. */
+  priceBasis: z.string().nullable().optional(),
+  /** The working, in a sentence. */
+  priceNote: z.string().nullable().optional(),
+  rateCardId: Uuid.nullable().optional(),
+  rateCardLineId: Uuid.nullable().optional(),
 });
 
 export const Invoice = z.object({
   id: Uuid,
   number: z.number().int(),
+  /**
+   * The branch's code printed in front of the number ("AUS-1042"), when the
+   * company prints branch codes and this was made in a branch with one.
+   * Written once, when it was made: see `/v1/branch-numbering`.
+   */
+  numberPrefix: z.string().nullable().optional(),
   status: InvoiceStatus,
   customerId: Uuid,
   /** Frequently not the customer: a warranty company, a carrier, an owner. */
@@ -53,6 +79,8 @@ export const Invoice = z.object({
   memo: z.string().nullable(),
   lines: z.array(InvoiceLine),
   externalRef: ExternalRef.nullable(),
+  /** The company's own fields (M29), by key. Saved with `PUT .../custom-fields`. */
+  customFields: z.record(z.unknown()).optional(),
 }).merge(Timestamps);
 
 /** A line as a caller writes it. Shared by a new invoice and a draft being edited. */
@@ -174,8 +202,11 @@ export const listInvoices = defineRoute({
     payerCustomerId: Uuid.optional(),
     jobId: Uuid.optional(),
     dueBefore: z.string().date().optional(),
+    /** Invoices on one branch's jobs. An invoice with no job is in no branch. */
+    businessUnitId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Invoice.omit({ lines: true }).extend({ customerName: z.string() })),
 });

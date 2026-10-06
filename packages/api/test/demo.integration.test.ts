@@ -11,6 +11,10 @@ import { inTenant, DemoReadOnlyError, type ServiceContext } from "../src/service
 import * as customers from "../src/services/customers";
 import * as portal from "../src/services/portal";
 import * as booking from "../src/services/booking";
+import * as referrals from "../src/services/referrals";
+import * as acquisition from "../src/services/acquisition";
+import * as websiteTracking from "../src/services/website-tracking";
+import * as portalSignIn from "../src/services/portal-sign-in";
 import { usage } from "../src/services/operator";
 import { drainAll } from "../src/services/workflow-worker";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
@@ -76,10 +80,18 @@ afterAll(async () => {
 
 run("setting a company up as the demo", () => {
   it("is idempotent, and deletes nothing in it or anywhere else", async () => {
-    const before = await raw<{ n: number }[]>`select count(*)::int as n from public.membership`;
+    /**
+     * Counted in the two companies this file owns, not across the table:
+     * every other test file seeds members in parallel, so a global count
+     * moves under this test for reasons that have nothing to do with it.
+     */
+    const count = () => raw<{ n: number }[]>`
+      select count(*)::int as n from public.membership
+       where organization_id in (${DEMO_ORG}, ${REAL_ORG})`;
+    const before = await count();
     const again = await setupDemo(db(), DEMO_ORG);
     expect(again.changed).toBe(false);
-    const after = await raw<{ n: number }[]>`select count(*)::int as n from public.membership`;
+    const after = await count();
     expect(after[0]!.n).toBe(before[0]!.n);
     const [membership] = await raw<{ role: string }[]>`
       select m.role::text as role from public.membership m
@@ -228,6 +240,38 @@ run("the demo company's customer side and background work", () => {
     await expect(portal.consume(db(), token)).rejects.toBeInstanceOf(DemoReadOnlyError);
     const [grant] = await raw<{ use_count: number }[]>`select use_count from public.portal_grant where token_hash = ${hash(token)}`;
     expect(grant!.use_count).toBe(0);
+  });
+
+  it("opens a customer, whose referral code and channel list were written when the demo was set up", async () => {
+    /**
+     * The customer page mints a referral code and seeds the marketing
+     * channels on first view, writes the demo's read only session cannot
+     * make. Setting the demo up does both, so the page reads and the demo
+     * writes nothing.
+     */
+    const customer = await customers.create(ownerOf(DEMO_ORG, OWNER), {
+      type: "residential", name: "Rae Referral", paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
+    });
+    await raw`update public.customer set referral_code = null where id = ${customer.id}`;
+    await raw`delete from public.marketing_channel where organization_id = ${DEMO_ORG}`;
+    const { ctx } = await demoSession();
+    await expect(referrals.forCustomer(ctx, customer.id)).rejects.toBeInstanceOf(DemoReadOnlyError);
+    await expect(acquisition.channelOptions(ctx)).rejects.toBeInstanceOf(DemoReadOnlyError);
+
+    expect((await setupDemo(db(), DEMO_ORG)).changed).toBe(true);
+    const mine = await referrals.forCustomer(ctx, customer.id);
+    expect(mine.code).toMatch(/\S/);
+    expect((await acquisition.channelOptions(ctx)).length).toBeGreaterThan(0);
+    expect((await setupDemo(db(), DEMO_ORG)).changed).toBe(false);
+  });
+
+  it("its website snippet records no visit and its portal sends no sign in code", async () => {
+    await expect(websiteTracking.writableCompanyFor(db(), "demo-co")).rejects.toBeInstanceOf(DemoReadOnlyError);
+    await expect(websiteTracking.writableCompanyFor(db(), "real-co")).resolves.toMatchObject({ slug: "real-co" });
+    await expect(portalSignIn.requestCode(db(), { organizationSlug: "demo-co", address: "pat@example.com" }))
+      .rejects.toBeInstanceOf(DemoReadOnlyError);
+    // Reading the company, for its sign in page, is still a read.
+    await expect(websiteTracking.companyFor(db(), "demo-co")).resolves.toMatchObject({ demo: true });
   });
 
   it("its booking page books nothing", async () => {

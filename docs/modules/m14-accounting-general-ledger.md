@@ -41,12 +41,19 @@ transaction failed and not which of forty entries was wrong. The second exists
 because the first can be bypassed by anything writing SQL directly, and the
 ledger is the one table where that must not be possible.
 
-**There is no bare journal entry surface, and that is a decision.** A posting is
-a consequence of a guarded business action: invoicing, taking a payment, writing
-one off. An operator who can post freely can make the books say anything with no
-document behind it. `ledger:post` exists in the catalogue for the day a manual
-journal is genuinely needed, and until then it is excused by name in the
-permissions guard rather than quietly unenforced.
+**A manual journal is allowed, under rules that answer why there was none.** A
+posting is usually a consequence of a guarded business action: invoicing,
+taking a payment, writing one off. An operator who can post freely can make the
+books say anything, so for a long time there was no journal entry surface at
+all, and an accountant's rent, depreciation, accruals and payroll never reached
+this ledger: every report here disagreed with the books by exactly their work.
+Now a journal entry exists under its own permission, `ledger:post`, and it is
+balanced or refused line by line with the imbalance named, never dated in the
+future or into a closed period, never posted to an account the product keeps in
+step with documents (the receivable, customer deposits, tips and commission
+owed, deferred revenue: correct those through the credit note, refund or
+deposit instead), reversed by a reversing entry that points at what it takes
+back and never edited, reversed once, and audited.
 
 **The audit has to be reachable or double entry is pointless.** The postings were
 written, append only and trigger enforced, and nothing could read them back: a
@@ -81,6 +88,23 @@ Accounts Receivable, and to Xero as an invoice for the amount plus Spend Money
 through the mapped customer deposits account, because Xero's receivable is a
 system account nothing else may touch.
 
+**A credit note becomes four kinds of document, each waiting for the one before.**
+Issued, it goes as a QuickBooks CreditMemo or a Xero ACCRECCREDIT credit note, with
+its own lines on the revenue account the ledger debited when it was issued and its
+tax on the mapped tax account, exactly as an invoice's lines are mapped. Each time it
+is used on an invoice, that application goes on its own date once both documents are
+over there: in QuickBooks as a zero payment linking the invoice and the credit memo,
+in Xero as an Allocation on the credit note. A void goes as an invoice for the same
+lines dated the day of the void, settled against the credit note the same way, rather
+than as either book's own void: QuickBooks' API offers no void for a credit memo, only
+a delete, and Xero's void takes the credit out of the period it was issued in, which
+may be closed. A credit note voided before it reached the books never goes. Each is
+dated by its own act for the close (issue, application, void), offered a bounded
+number of times, refused by name when an account is unmapped, and found again after a
+lost response: by its number, or for a Xero allocation by reading the credit note and
+matching the invoice, amount and date. A write off sent after a credit note was used
+on the invoice credits only what was left owing.
+
 ## Setup
 
 QuickBooks Online or Xero is connected at `/settings/integrations`.
@@ -88,6 +112,12 @@ QuickBooks Online or Xero is connected at `/settings/integrations`.
 `PUT /v1/accounting/mappings` says which of this product's categories lands in
 which account. Nothing syncs until the mappings it needs exist, because a default
 is worse than a refusal.
+
+In QuickBooks, turn off **Automatically apply credits** (Account and settings,
+Advanced). With it on, QuickBooks applies a new credit memo to the customer's
+oldest open invoice by itself, which may not be the invoice it was used on here,
+and the application sent afterwards is then refused with QuickBooks' own reason
+and shows on the problems list.
 
 ## Using it
 
@@ -106,6 +136,20 @@ stands, `GET /v1/accounting/runs` is the history, and
 `POST /v1/accounting/problems/{id}/retry` to offer one again. All of them need
 `accounting:sync`.
 
+### Post a journal entry
+
+`/books` lists every journal entry with its lines, posts a new one (a date, what
+it is for, and up to eight lines of an account with a debit or a credit) and
+reverses one. `POST /v1/ledger/journal-entries` posts one,
+`POST /v1/ledger/journal-entries/{id}/reverse` reverses it (today, or another open
+day not before the original), and `GET /v1/ledger/journal-entries` lists them.
+On the next sync each one goes to the books as a QuickBooks JournalEntry
+numbered `OTJ` and the journal's number, or a posted Xero manual journal whose
+narration starts with that key, once every account on it is mapped; an unmapped
+account stops it and names the code on the problems list. A reversal is a
+journal of its own and goes the same way. An accounting adapter that cannot
+take a journal records each one as a problem saying so.
+
 ### Close a month
 
 `POST /v1/accounting/periods/close` closes a period and
@@ -121,7 +165,7 @@ migration, and the refusal names the period.
 | Owner | Everything |
 | Administrator | Everything except the ledger and closing a period, which are granted explicitly |
 | Office manager | Neither the ledger nor the sync |
-| Accountant | Reads the ledger, runs the sync, closes the period |
+| Accountant | Reads the ledger, posts and reverses journal entries, runs the sync, closes the period |
 
 `ledger:read` is on the sensitive list. The administrator preset deliberately
 excludes it along with `ledger:post` and `accounting:close`: running the system is
@@ -134,6 +178,9 @@ both grants it rather than inheriting it.
 |---|---|
 | `GET /v1/ledger/trial-balance` | `ledger:read` |
 | `GET /v1/ledger/journal` | `ledger:read` |
+| `GET /v1/ledger/journal-entries` | `ledger:read` |
+| `POST /v1/ledger/journal-entries` | `ledger:post` |
+| `POST /v1/ledger/journal-entries/{id}/reverse` | `ledger:post` |
 | `GET /v1/accounting/accounts` | `accounting:sync` |
 | `PUT /v1/accounting/mappings` | `accounting:sync` |
 | `POST /v1/accounting/sync` | `accounting:sync` |
@@ -161,8 +208,13 @@ open.
 
 ## What is not built
 
-No manual journal entry, as above. No branch dimension on a posting. A refund sent
-to the accounting system is not watched for deletion over there. There is no
+A journal entry has no branch, job or customer on its lines, and cannot be
+edited, only reversed. A journal synced to the books is not watched for
+deletion over there. No branch dimension on a posting. A refund sent
+to the accounting system is not watched for deletion over there, and neither is a
+credit note application. A credit note used on an invoice raised to a different
+customer it pays for goes to QuickBooks under the credit note's customer and is
+refused there, because a QuickBooks payment cannot link two customers' documents. There is no
 reconciliation screen against a bank feed, and no fixed asset or depreciation
 handling: a company that needs those does them in the accounting system, which is
 where they belong.

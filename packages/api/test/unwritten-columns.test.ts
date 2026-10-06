@@ -92,11 +92,11 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
  * and a test below fails in both directions.
  */
 const SOFT_DELETE_NOT_OFFERED = [
-  "adSpend", "attachment", "bookableService", "conversation", "customerProperty",
+  "bookableService", "conversation", "customerProperty",
   "integrationConnection", "invoice", "job", "overtimePolicy", "priceBookItem",
   "property", "purchaseOrder", "rateCard", "recurringSchedule", "review",
   "reviewPlatform", "reviewPolicy", "reviewRequest", "serviceContract",
-  "storedFile", "vendor", "wageScale", "webForm",
+  "vendor", "wageScale", "webForm",
   /**
    * `campaignRecipient` and `unsubscribeLink` are deliberately NOT here, and
    * that is worth saying because both carry the column. Neither is filtered on

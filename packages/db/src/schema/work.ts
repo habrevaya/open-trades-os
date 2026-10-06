@@ -1,7 +1,8 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 import { capacityModel, crew, route, routeStop, rental, territory } from "./scheduling";
 
 /**
@@ -130,6 +131,12 @@ export const job = pgTable("job", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   /** Human-facing sequential number, per organization. Generated, never the uuid. */
   number: integer("number").notNull(),
+  /**
+   * The branch's mark printed in front of the number ("AUS-1042"), written
+   * once when the job is made and only when the company prints branch marks.
+   * Never worked out again: see the same column on `invoice`.
+   */
+  numberPrefix: text("number_prefix"),
   customerId: uuid("customer_id").notNull().references(() => customer.id),
   propertyId: uuid("property_id").notNull().references(() => property.id),
   jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
@@ -143,7 +150,25 @@ export const job = pgTable("job", {
   /** The customer's own words, captured at intake. Invaluable for the AI agents. */
   customerComplaint: text("customer_complaint"),
   equipmentId: uuid("equipment_id").references(() => equipment.id, { onDelete: "set null" }),
+  /**
+   * The catalogue key this job is credited to. Filled when blank from the
+   * attribution the company chose, and `lead_source_origin` says so: a
+   * source somebody picked and a source the touches implied are different
+   * evidence.
+   */
   leadSource: text("lead_source"),
+  leadSourceOrigin: text("lead_source_origin"),
+  /** The channel and tracking campaign the credited touch belonged to. */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
+  /**
+   * The outbound text or email send (`marketing_campaign`) this job is
+   * credited to, when the credited touch carried that send's utm tag.
+   * Written by `services/marketing.ts` `creditWork`, which every path that
+   * creates work for a customer calls. Its foreign key is declared in
+   * `sql/after.sql`, because the campaign tables import this one.
+   */
   campaignId: uuid("campaign_id"),
 
   /**
@@ -170,6 +195,17 @@ export const job = pgTable("job", {
   /** Generated from a membership or recurring schedule rather than booked ad hoc. */
   agreementId: uuid("agreement_id"),
   priority: integer("priority").notNull().default(0),
+  /**
+   * SKILLS THIS ONE JOB NEEDS BEYOND ITS JOB TYPE.
+   *
+   * A job type says what its work ordinarily needs. One unusual job (a
+   * service call on a unit that turns out to need a confined space entry, a
+   * repair on a roof that needs a lift ticket) needs something its type does
+   * not, and before this column the only place to say so was a note nobody's
+   * assignment check read. Added to the type's list wherever a person is
+   * checked for the work, never instead of it.
+   */
+  requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
   total: money("total"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
@@ -207,6 +243,21 @@ export const visit = pgTable("visit", {
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
   /** Ordering within a technician's day, set by the dispatch board and route pass. */
   routeOrder: integer("route_order"),
+  /**
+   * Locked by the office: the rebalance and the route optimiser leave this
+   * visit with whoever has it, in its place. For the customer who was
+   * promised "Ray, first thing", which no arrival window can say.
+   */
+  dispatchLocked: boolean("dispatch_locked").notNull().default(false),
+  /**
+   * The days, in the company's calendar, the customer agreed this visit may
+   * happen on: "any day the week of the fifth". Null at either end is no
+   * agreement, and a visit with neither stays on its day unless its
+   * customer named the days of the week that suit them. The multi day
+   * rebalance moves a visit only inside these, and tells the customer.
+   */
+  movableFrom: date("movable_from"),
+  movableUntil: date("movable_until"),
 
   /**
    * Exactly one of these is set, determined by the job type's capacity model.
@@ -223,9 +274,25 @@ export const visit = pgTable("visit", {
   arrivedAt: timestamp("arrived_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   technicianNotes: text("technician_notes"),
+  /**
+   * What the customer reads about this visit, chosen by the office.
+   *
+   * A copy rather than a switch on `technician_notes`, because those notes
+   * keep growing from the phone after the visit and a customer must read
+   * the words somebody in the office approved, not whatever was appended at
+   * the next sync. Null means nothing is shown. Set with
+   * `servicereport:publish`, the same decision as publishing a report.
+   */
+  customerNotes: text("customer_notes"),
+  customerNotesSharedAt: timestamp("customer_notes_shared_at", { withTimezone: true }),
   checklist: jsonb("checklist").$type<Array<{ id: string; label: string; required: boolean; doneAt: string | null }>>().notNull().default([]),
   signatureUrl: text("signature_url"),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("visit_source_ref_idx", t),

@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { connectors, isSystem } from "@opentradesos/core";
+import { connectors, isSystem, type Permission } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, timezoneOf,
   ConflictError, NotFoundError, type ServiceContext,
@@ -693,10 +693,44 @@ async function recordUsage(
 export async function runCompletion(
   ctx: ServiceContext, input: CompleteInput, deps: AiDeps = DEFAULT_DEPS,
 ) {
+  return turn(ctx, "agent:configure", input,
+    input.offerTools ? offeredTools(ctx) : undefined, deps);
+}
+
+/**
+ * One turn for one of the product's own agents.
+ *
+ * The same three phases, the same ceiling, the same usage row and the same
+ * refusal of a repeated key as `runCompletion`, with two differences, and both
+ * are narrower rather than wider:
+ *
+ *   THE TOOLS ARE THE AGENT'S OWN SHORT LIST (`core/agents`), already filtered
+ *   by the permissions of the person it runs as, rather than the MCP
+ *   catalogue. An agent that runs unattended on a stranger's words is offered
+ *   what its job needs and nothing else.
+ *
+ *   THE GUARD IS THE AGENT'S OWN PERMISSION rather than `agent:configure`.
+ *   Configuring agents is an owner's job; an agent answering the website as a
+ *   customer service person runs with that person's authority, and that person
+ *   does not configure agents. Requiring `agent:configure` here would mean every
+ *   agent had to run as an owner, which is the opposite of the point.
+ */
+export async function agentTurn(
+  ctx: ServiceContext,
+  input: Omit<CompleteInput, "offerTools"> & { permission: Permission; tools: AiToolDefinition[] },
+  deps: AiDeps = DEFAULT_DEPS,
+) {
+  return turn(ctx, input.permission, input, input.tools, deps);
+}
+
+async function turn(
+  ctx: ServiceContext, guard: Permission, input: Omit<CompleteInput, "offerTools">,
+  tools: AiToolDefinition[] | undefined, deps: AiDeps,
+) {
   const now = (deps.now ?? (() => new Date()))();
 
   /* Phase one: who, which model, and may it run at all. */
-  const plan = await guardedWrite(ctx, "agent:configure", async (tx) => {
+  const plan = await guardedWrite(ctx, guard, async (tx) => {
     /**
      * A RETRY IS REFUSED, NOT REPLAYED, and this is the first thing checked.
      *
@@ -796,13 +830,13 @@ export async function runCompletion(
     model: plan.model,
     ...(input.system ? { system: input.system } : {}),
     messages: input.messages,
-    ...(input.offerTools ? { tools: offeredTools(ctx) } : {}),
+    ...(tools && tools.length > 0 ? { tools } : {}),
     maxOutputTokens: input.maxOutputTokens,
   });
 
   /* Phase three: what it cost. */
   if (!outcome.ok) {
-    await guardedWrite(ctx, "agent:configure", async (tx) => {
+    await guardedWrite(ctx, guard, async (tx) => {
       /**
        * Recorded with no tokens, which is the truth for every failure these
        * vendors have: a request they refused at the edge was not metered.
@@ -826,7 +860,7 @@ export async function runCompletion(
     ? costOf(plan.rate, completion.usage.inputTokens, completion.usage.outputTokens)
     : null;
 
-  const usageId = await guardedWrite(ctx, "agent:configure", async (tx) => {
+  const usageId = await guardedWrite(ctx, guard, async (tx) => {
     const id = await recordUsage(tx, ctx, {
       connectionId: plan.connection.id, provider: plan.connection.provider,
       model: completion.model, purpose: input.purpose,

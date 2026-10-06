@@ -13,9 +13,11 @@ status: partial
 ## What it does
 
 Holds work that runs for weeks: a bathroom refit, a system changeout, a
-commercial fit out. Phases that wait for each other, a schedule of values, draws
-raised as invoices as the work progresses, and the spend against the budget the
-whole time.
+commercial fit out. Phases that wait for each other on a timeline with the
+critical path marked, a schedule of values, change orders the customer signs,
+billing as the work progresses (by draws, or by applications for payment with
+retainage), notices and waivers against each payment, and the spend against the
+budget the whole time.
 
 ## The problem
 
@@ -66,6 +68,56 @@ idempotent by reading what already exists for a stable identity and skipping it,
 reporting a count rather than failing. This is the third, and it does not invent a
 fourth answer to "has this already been created".
 
+**A change order changes the contract only when it is signed, and then in the
+same transaction as the signature.** Approving one adds its amount to the
+contract value and to the phase it names (so the schedule of values still adds
+up), and its cost to the budget; a budget nobody set stays unset. A change that
+names no phase becomes its own line on the schedule of values. A credit has to
+name the phase it comes out of, and one that would take the contract below what
+has been billed, or a phase below what was billed against it, is refused, before
+the customer is asked to sign it as well as when they do. The signature covers a
+hash of the page as sent, so a change order cannot be edited once it is with the
+customer: withdraw it and raise another.
+
+**A change order is priced from the price book or the customer's rate card.** A
+price book line takes the version in force; where the customer holds a contract
+with a rate card that covers the item, the card's price governs, through the
+same lookup invoices use. An item a card applies to and does not cover is
+refused rather than priced at list, because somebody has to agree that price
+with the client first; it can then be typed by hand.
+
+**The critical path is computed against the planned dates.** Each phase's float
+is how many days it can slip before the finish date moves, given everything that
+waits for it; a phase with none is critical. A finished phase is never critical,
+because it cannot slip. Dragging a phase moves everything waiting for it by the
+same days and keeps their lengths, and a start on or before the day the phase it
+waits for ends is refused with the earliest day it could start. Who is booked on
+a phase is read from the visits on its jobs, never kept as a second list.
+
+**An application for payment states the whole position every period.** The
+schedule of values line by line, work from earlier applications, work this
+period, materials stored and not yet installed, completed and stored to date,
+retainage at its own rate on work and on stored materials, what earlier
+applications certified, and the payment due now. Retainage is computed on the
+totals and rounded once. It is released by lowering the rate or by an amount,
+and releasing more than is held is refused. A schedule of values that does not
+add up to the contract to date, a line billed past its value, and a line that
+goes down from the last application are refused in words, every one at once.
+
+**An application becomes one invoice that adds up to its payment due to the
+cent.** One line per schedule of values line that moved, net of its share of the
+retainage held this period, and a line for retainage released. Raised the same
+idempotent way a draw is. Once invoiced, the application's figures are frozen,
+because the next one reads its previous certificates from them.
+
+**A project bills by draws or by applications, never both.** Two ways of billing
+the same work is how it gets billed twice.
+
+**Notices and waivers are records, never rules.** What was sent and received,
+when, to or from whom, for how much, and against which payment, with the scanned
+copy. The checklist per payment says only what is on file. No state's lien law is
+encoded, and the screen says so where it is read.
+
 **No permission is invented.** There is no project permission in the catalogue,
 and a string that is not in the catalogue cannot be granted to anybody. Reads use
 `job:read` and structural writes use `job:write`, because a project is a container
@@ -95,6 +147,38 @@ for. `/projects/new` is the office form.
 `POST /v1/project-draws/{id}/raise` turns it into an invoice. Both need
 `invoice:write`.
 
+### Change the contract
+
+`/projects/{id}/change-orders` is the change order log.
+`POST /v1/projects/{projectId}/change-orders` logs a change the customer asked
+for, `POST /v1/project-change-orders/{changeOrderId}/lines` prices a line,
+`POST /v1/project-change-orders/{id}/send` mints the customer's approval link (and
+emails it when asked), and the customer approves and signs at `/co/{token}`, or
+`POST /v1/project-change-orders/{id}/decision` records an answer given in person.
+`POST /v1/project-change-orders/{id}/withdraw` withdraws one nobody has agreed to.
+Each change order prints at `/projects/{id}/change-orders/{changeOrderId}/document`.
+
+### Plan it
+
+`/projects/{id}/schedule` is the timeline. `GET /v1/projects/{projectId}/schedule`
+reads it, `POST /v1/project-phases/{id}/move` drags a phase, and
+`POST /v1/project-phases/{id}/dates` gives one its own dates.
+
+### Apply for payment
+
+`/projects/{id}/applications` lists them.
+`POST /v1/projects/{projectId}/applications` starts the next,
+`PATCH /v1/project-applications/{id}` fills in a draft, and
+`POST /v1/project-applications/{id}/raise` raises its invoice. Each prints in the
+two page shape at `/projects/{id}/applications/{applicationId}/document`.
+
+### Keep the paper
+
+`/projects/{id}/liens` holds notices and waivers.
+`POST /v1/projects/{projectId}/lien-records` records one, with the copy, and
+`GET /v1/projects/{projectId}/lien-records` returns them with the checklist per
+payment.
+
 ### Watch the money
 
 `GET /v1/projects/{id}/profitability` is budget against actual, and needs
@@ -105,9 +189,9 @@ for. `/projects/new` is the office form.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | Reads, builds the structure, plans and raises draws |
-| Dispatcher | Reads and writes the structure. Nothing that touches money |
-| CSR | Reads |
+| Office manager | Reads, builds the structure, plans and raises draws, prices, sends and records change orders, applications for payment, notices and waivers |
+| Dispatcher | Reads and writes the structure and the schedule, and logs a change the customer asked for. Nothing that touches money: no applications, no waivers, no change order cost |
+| CSR | Reads, applications and waivers included; logs, prices and sends change orders and records the customer's answer; moves the schedule |
 | Technician | Reads their own jobs within it |
 | Accountant | Reads the profitability |
 
@@ -123,6 +207,30 @@ for. `/projects/new` is the office form.
 | `POST /v1/projects/{projectId}/draws` | `invoice:write` |
 | `POST /v1/project-draws/{id}/raise` | `invoice:write` |
 | `GET /v1/projects/{id}/profitability` | `job.cost:read`, `report.financial:read` |
+| `GET /v1/projects/{projectId}/change-orders` | `job:read` |
+| `POST /v1/projects/{projectId}/change-orders` | `job:write` |
+| `GET /v1/project-change-orders/{id}` | `job:read` |
+| `PATCH /v1/project-change-orders/{id}` | `estimate:write` |
+| `POST /v1/project-change-orders/{changeOrderId}/lines` | `estimate:write` |
+| `DELETE /v1/project-change-orders/{changeOrderId}/lines/{lineId}` | `estimate:write` |
+| `POST /v1/project-change-orders/{id}/send` | `estimate:send`, `portal:grant` |
+| `POST /v1/project-change-orders/{id}/decision` | `estimate:approve` |
+| `POST /v1/project-change-orders/{id}/withdraw` | `estimate:write` |
+| `GET /v1/portal/change-order` | The link |
+| `POST /v1/portal/change-order/approve` | The link |
+| `POST /v1/portal/change-order/decline` | The link |
+| `GET /v1/projects/{projectId}/schedule` | `job:read` |
+| `POST /v1/project-phases/{id}/move` | `job:write` |
+| `POST /v1/project-phases/{id}/dates` | `job:write` |
+| `GET /v1/projects/{projectId}/applications` | `invoice:read` |
+| `POST /v1/projects/{projectId}/applications` | `invoice:write` |
+| `GET /v1/project-applications/{id}` | `invoice:read` |
+| `PATCH /v1/project-applications/{id}` | `invoice:write` |
+| `DELETE /v1/project-applications/{id}` | `invoice:write` |
+| `POST /v1/project-applications/{id}/raise` | `invoice:write` |
+| `GET /v1/projects/{projectId}/lien-records` | `invoice:read` |
+| `POST /v1/projects/{projectId}/lien-records` | `invoice:write` |
+| `DELETE /v1/project-lien-records/{id}` | `invoice:write` |
 
 ## Common questions
 
@@ -132,14 +240,31 @@ the sequences that actually occur and keeps the cycle check answerable.
 **What happens to a draw if the contract is revised down?** The revision is
 refused if it would go below what has been billed. Revising upward is fine.
 
-**Is retention modelled?** Not as its own concept. A retention draw is a draw like
+**Is retention modelled?** On applications for payment, yes: a rate on work and on
+stored materials, held on every application and released by lowering the rate or
+by an amount. On a project billed by draws, no: a retention draw is a draw like
 any other, held back until somebody raises it.
+
+**Can a change order be changed after it is sent?** No. The customer's signature
+covers the page as sent. Withdraw it and raise another.
+
+**Does a change order's extra days move the schedule?** No. They print on the
+change order; moving the phases is a drag on the timeline, which is somebody's
+decision.
+
+**Is the application the AIA form?** No. It is the common two page shape that
+certifiers read (a summary and a continuation sheet), in our own words, with no
+association's form, numbering or name.
 
 ## What is not built
 
-No Gantt view, no critical path and no resource levelling: the dependency chain is
-one phase waiting for one other, and the screen shows it as a list. Change orders
-are a contract revision rather than their own object, so the history of what was
-agreed when is in the audit log rather than on a document. No lien waiver or
-notice tracking, and no application for payment document: BUILD.md is explicit
-that this project records lien dates and does not author the rules.
+Resource levelling: the schedule shows who is booked on each phase and does not
+move people to resolve a clash. The days a change order adds are printed, not
+applied to the schedule. Retainage held on an application is not posted to a
+retainage receivable account: the invoice carries what is due now, so revenue is
+booked net when billed and the retainage when it is released and invoiced. An
+application whose invoice is voided stays invoiced; the correction is a credit
+note and the next application. No association's form or name is reproduced. No
+lien rules of any state are encoded: notices and waivers are records with dates
+and amounts, and BUILD.md is explicit that this project records the dates and
+does not author the rules.

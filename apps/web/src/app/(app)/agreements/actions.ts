@@ -1,6 +1,6 @@
 "use server";
 
-import { refused } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
@@ -106,4 +106,22 @@ export async function cancelAgreement(_previous: unknown, form: FormData) {
   }
   revalidatePath(`/agreements/${id}`);
   return { done: true };
+}
+
+/**
+ * Another term, from the agreement screen.
+ *
+ * The new price box is optional and blank means the agreement's own price,
+ * which is the rule the service enforces: a renewal is not the moment a price
+ * rise happens without anybody saying so.
+ */
+export async function renewAgreement(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  const result = await attempt(form, async () => {
+    const renewed = await agreements.renew(await ctx(), { id, price: field(form, "price") });
+    return { message: `Renewed. The new term runs to ${renewed.endsOn}.` };
+  });
+  revalidatePath(`/agreements/${id}`);
+  revalidatePath("/agreements/renewals");
+  return result;
 }

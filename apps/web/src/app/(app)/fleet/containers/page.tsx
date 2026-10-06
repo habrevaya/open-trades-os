@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { rentals, properties, inTenant } from "@opentradesos/api/services";
+import { rentals, rentalBilling, properties, inTenant } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
@@ -8,6 +8,19 @@ import { Empty, PageHeader } from "@/components/Table";
 import { todayIn } from "@/lib/dates";
 import { Numbers, Register, Hires, Overage } from "./ContainerView";
 import { ActionForm } from "./ActionForm";
+import { ActionForm as SaidForm, Select, TextField } from "@/components/ActionForm";
+import { Money } from "@opentradesos/ui";
+import {
+  collectionTimeAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
+} from "./billing-actions";
+
+const CHARGE_KINDS = [
+  { value: "prohibited_item", label: "Prohibited item" },
+  { value: "contamination", label: "Contaminated load" },
+  { value: "overweight", label: "Overweight" },
+  { value: "overfill", label: "Overfilled" },
+  { value: "other", label: "Something else" },
+];
 
 export const dynamic = "force-dynamic";
 
@@ -107,6 +120,21 @@ export default async function ContainersPage(
     : [];
   const inTheYard = fleet.data.filter((row) => row.status === "available");
   const open = hires.data.filter((row) => row.open);
+  const invoices = can(user.actor, "invoice:write");
+  const schedules = writes && can(user.actor, "job:write");
+  const dispatching = await rentalBilling.rentalDispatch(ctx);
+  const settingsWrite = can(user.actor, "settings:write");
+  const agreedText = (start: string | null, end: string | null) => {
+    if (!start) return null;
+    const day = new Date(start).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: zone });
+    const at = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone });
+    return `${day}, ${at(start)}${end && end !== start ? ` to ${at(end)}` : ""}`;
+  };
+  const [charges, fees] = await Promise.all([
+    rentalBilling.charges(ctx, {}),
+    writes ? rentalBilling.chargeFees(ctx) : Promise.resolve([]),
+  ]);
+  const hireLabel = new Map(hires.data.map((h) => [h.id, `${h.assetIdentifier ?? "A can"} at ${h.propertyAddress ?? "a site"}`]));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -144,7 +172,12 @@ export default async function ContainersPage(
         </section>
       ) : null}
 
-      <h2 className="mt-8 text-base font-semibold">Out on hire</h2>
+      <div className="mt-8 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base font-semibold">Out on hire</h2>
+        {writes ? (
+          <a href="/fleet/containers/tickets" className="text-sm underline underline-offset-4">Import a facility&apos;s scale tickets</a>
+        ) : null}
+      </div>
       <Hires
         hires={hires.data}
         controls={(hire) => (
@@ -195,6 +228,40 @@ export default async function ContainersPage(
                 What it is owed
               </a>
             )}
+            {/*
+              Raised once per hire, from the collected period, both meters and
+              every charge on the haul, as a draft for the office to check.
+              Once it is on an invoice the row says so rather than offering a
+              second one.
+            */}
+            {!hire.open && invoices && !hire.invoiceId && (
+              <SaidForm action={invoiceHireAction} submit="Raise invoice" tone="quiet" className="flex flex-wrap items-center gap-2"
+                        hidden={{ id: hire.id }} />
+            )}
+            {hire.invoiceId ? <span className="self-center text-sm text-ink-500">Invoiced</span> : null}
+            {hire.open && hire.collectionVisitId ? <span className="self-center text-sm text-ink-500">Collection booked</span> : null}
+            {/*
+              The time the customer agreed for the collection beats the end of
+              the price, early or late. Shown when there is one, with a way to
+              clear it; set with a day and a window in the company's clock.
+            */}
+            {hire.open && hire.collectionAgreedStart ? (
+              <span className="self-center text-sm text-ink-700">
+                Collection agreed: {agreedText(hire.collectionAgreedStart, hire.collectionAgreedEnd ?? null)}
+              </span>
+            ) : null}
+            {hire.open && writes && (
+              <SaidForm action={collectionTimeAction} submit={hire.collectionAgreedStart ? "Change agreed pickup time" : "Agree a pickup time"}
+                        tone="quiet" className="flex flex-wrap items-end gap-2" hidden={{ id: hire.id }}>
+                <input name="day" type="date" className={input} aria-label="Collection day agreed" />
+                <input name="from" type="time" defaultValue="08:00" className={input} aria-label="Collection from" />
+                <input name="to" type="time" defaultValue="12:00" className={input} aria-label="Collection to" />
+              </SaidForm>
+            )}
+            {hire.open && writes && hire.collectionAgreedStart ? (
+              <SaidForm action={collectionTimeAction} submit="Clear agreed time" tone="quiet" className="inline-flex"
+                        hidden={{ id: hire.id, clear: "yes" }} />
+            ) : null}
           </div>
         )}
       />
@@ -205,6 +272,83 @@ export default async function ContainersPage(
           bill from until the can is collected.
         </p>
       )}
+
+      {schedules && (
+        <section className="mt-6" aria-labelledby="collections">
+          <h2 id="collections" className="text-base font-semibold">Collections</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            {dispatching.automaticCollections
+              ? `Collections are booked on their own, ${dispatching.collectionLeadDays === 0 ? "on the day each hire is due" : dispatching.collectionLeadDays === 1 ? "the day before each hire is due" : `${dispatching.collectionLeadDays} days before each hire is due`}: at the time agreed with the customer when there is one, otherwise in the working day the hire runs out, or today when that has passed. `
+              : "Collections are not booked on their own: press the button below. "}
+            Each is marked as the pickup so the driver arrives empty. A hire that already has one is left alone, so
+            nothing is booked twice.
+          </p>
+          <SaidForm action={scheduleCollectionsAction} submit="Put collections on the board" className="mt-2 flex flex-wrap items-end gap-3">
+            <TextField label="Due back by" name="through" type="date" className="w-44" />
+          </SaidForm>
+        </section>
+      )}
+
+      <section className="mt-6" aria-labelledby="truck">
+        <h2 id="truck" className="text-base font-semibold">Collections and the truck</h2>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          A driver&apos;s day is ordered by what is on the truck: a drop needs an empty on board, a collection needs room,
+          and Optimise route on the board counts the runs to the yard between. The yard is where the driver&apos;s day starts.
+          Now: {dispatching.containersPerTruck === 1 ? "one container" : `${dispatching.containersPerTruck} containers`} a truck,{" "}
+          {dispatching.yardMinutes} minutes at the yard.
+        </p>
+        {settingsWrite ? (
+          <SaidForm action={rentalDispatchAction} submit="Save" className="mt-2 flex flex-wrap items-end gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="automaticCollections" defaultChecked={dispatching.automaticCollections} />
+              Book collections on their own
+            </label>
+            <TextField label="Days ahead" name="collectionLeadDays" type="number" min={0} max={7}
+                       defaultValue={dispatching.collectionLeadDays} className="w-28" />
+            <TextField label="Containers a truck carries" name="containersPerTruck" type="number" min={1} max={4}
+                       defaultValue={dispatching.containersPerTruck} className="w-48" />
+            <TextField label="Minutes at the yard" name="yardMinutes" type="number" min={0} max={120}
+                       defaultValue={dispatching.yardMinutes} className="w-40" />
+          </SaidForm>
+        ) : null}
+      </section>
+
+      <section className="mt-8" aria-labelledby="charges">
+        <h2 id="charges" className="text-base font-semibold">Charges found on hauls</h2>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          A mattress, a tire, a load the facility had to sort. Recorded against the haul when it is found, and invoiced
+          with the hire.
+        </p>
+        {charges.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-sm">
+            {charges.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center gap-2">
+                <span>{hireLabel.get(c.rentalId) ?? "A hire"}:</span>
+                <span className="font-medium">{c.description}</span>
+                <span className="text-ink-700">{c.quantity} at <Money value={c.unitPrice} /></span>
+                {c.invoiceId ? <span className="text-ink-500">invoiced</span> : writes ? (
+                  <SaidForm action={removeChargeAction} submit="Remove" tone="quiet" className="inline-flex" hidden={{ id: c.id }} />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {writes && hires.data.some((h) => !h.invoiceId) ? (
+          <SaidForm action={recordChargeAction} submit="Record charge" className="mt-3 grid gap-3 sm:grid-cols-3">
+            <Select label="Hire" name="rentalId" options={hires.data.filter((h) => !h.invoiceId)
+              .map((h) => ({ value: h.id, label: `${hireLabel.get(h.id)}${h.open ? "" : ", collected"}` }))} />
+            <Select label="What" name="kind" options={CHARGE_KINDS} />
+            <Select label="Priced from" name="priceBookItemId" options={[
+              { value: "", label: "A price I give" },
+              ...fees.map((f) => ({ value: f.id, label: `${f.name} (${Number(f.price).toFixed(2)})` })),
+            ]} />
+            <TextField label="Description" name="description" placeholder="Left empty, the fee's name" />
+            <TextField label="How many" name="quantity" inputMode="decimal" placeholder="1" />
+            <TextField label="Price each" name="unitPrice" inputMode="decimal" placeholder="Left empty, the fee's price" />
+            <TextField label="Where and what was seen" name="note" className="sm:col-span-3" />
+          </SaidForm>
+        ) : null}
+      </section>
 
       <h2 className="mt-10 text-base font-semibold">The register</h2>
       <Register

@@ -457,7 +457,65 @@ export type BodyRefusal =
   | { reason: "empty"; message: string }
   | { reason: "no_subject"; message: string }
   | { reason: "subject_on_sms"; message: string }
-  | { reason: "too_long"; message: string };
+  | { reason: "too_long"; message: string }
+  | { reason: "unknown_field"; message: string };
+
+/**
+ * WHAT A CAMPAIGN BODY MAY SAY ABOUT THE PERSON IT GOES TO.
+ *
+ * The placeholders are the message templates' own syntax, `{{ customer.firstName }}`,
+ * filled by the one renderer this product has, so a template an operator
+ * already wrote in M18 can be the body of a campaign without translation.
+ *
+ * A CLOSED LIST, and the reason is the renderer's own rule: an unknown path
+ * resolves to an empty string rather than failing, so `{{ custmer.firstName }}`
+ * sends "Hi ," to four thousand people and nothing anywhere reports it. A
+ * template can be checked against what it declares; a campaign is checked
+ * against this, before it can be saved.
+ */
+export const MERGE_FIELDS = [
+  { key: "customer.firstName", label: "Their first name", example: "Maria" },
+  { key: "customer.name", label: "Their name as it is on the account", example: "Maria Lopez" },
+  { key: "company.name", label: "Your company's name", example: "Hartley Heating and Air" },
+  { key: "company.phone", label: "Your main number", example: "+15125550100" },
+] as const;
+
+export type MergeField = (typeof MERGE_FIELDS)[number]["key"];
+
+const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+
+/** Every placeholder a body uses, in the order it first uses them. */
+export function placeholdersIn(text: string): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(PLACEHOLDER)) {
+    const name = match[1]!;
+    if (!found.includes(name)) found.push(name);
+  }
+  return found;
+}
+
+/**
+ * The first word of a customer's name, for "Hi Maria".
+ *
+ * Only the first word, because that is what a person is called, and the whole
+ * name when it is one word. A commercial account comes out as the first word
+ * of the company, which is why the merge field list says what each one is.
+ */
+export function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? "";
+}
+
+/** The scope a campaign body renders against, for one recipient. */
+export function mergeScope(input: {
+  customerName: string;
+  companyName: string;
+  companyPhone?: string | null | undefined;
+}): Record<string, unknown> {
+  return {
+    customer: { firstName: firstNameOf(input.customerName), name: input.customerName.trim() },
+    company: { name: input.companyName, phone: input.companyPhone ?? "" },
+  };
+}
 
 /**
  * Whether what is written can be sent on this channel.
@@ -503,6 +561,18 @@ export function checkBody(input: {
       reason: "too_long",
       message: `${body.length} characters is longer than the ${SMS_MAX} a text can carry. The `
         + "carrier truncates the rest, and what gets cut off is the end, where the opt out line is.",
+    });
+  }
+
+  const known = MERGE_FIELDS.map((f) => f.key as string);
+  const unknown = [...placeholdersIn(body), ...placeholdersIn(subject)]
+    .filter((name, i, all) => !known.includes(name) && all.indexOf(name) === i);
+  if (unknown.length > 0) {
+    refusals.push({
+      reason: "unknown_field",
+      message: `${unknown.map((u) => `{{ ${u} }}`).join(", ")} is not something a campaign can fill in, `
+        + "and it would arrive as a gap in the sentence. The ones that work are: "
+        + `${known.map((k) => `{{ ${k} }}`).join(", ")}.`,
     });
   }
 

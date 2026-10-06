@@ -59,6 +59,13 @@ export const TaskRow = z.object({
    * fails.
    */
   overdue: z.boolean(),
+  /** When an escalation rule first acted on it. Null when none has. */
+  escalatedAt: z.string().nullable(),
+  /** Its checklist, counted, so a queue can say "2 of 5" without opening each one. */
+  checklistTotal: z.number().int(),
+  checklistDone: z.number().int(),
+  /** The recurring template that raised it, when one did. */
+  templateId: Uuid.nullable(),
 });
 
 export const listTasks = defineRoute({
@@ -103,6 +110,8 @@ export const createTask = defineRoute({
     assigneeUserId: Uuid.optional(),
     queue: z.string().max(60).optional(),
     dueAt: z.string().datetime().optional(),
+    /** Things to tick off inside it, in order. Fifty at most. */
+    checklist: z.array(z.string().min(1).max(300)).max(50).optional(),
   }),
   output: z.object({ id: Uuid }),
 });
@@ -159,14 +168,19 @@ export const closeTask = defineRoute({
   path: "/v1/tasks/{id}/close",
   summary: "Finish a task, or decide against it",
   description:
-    "DISMISSED IS A SEPARATE STATE FROM DONE. \"We decided not to\" and \"we did it\" are different facts, and a queue where the second quietly absorbs the first tells an owner nothing about how much of the raised work was worth raising. A dismissal with no reason is indistinguishable from a task somebody could not be bothered with, so it is refused.",
+    "DISMISSED IS A SEPARATE STATE FROM DONE. \"We decided not to\" and \"we did it\" are different facts, and a queue where the second quietly absorbs the first tells an owner nothing about how much of the raised work was worth raising. A dismissal with no reason is indistinguishable from a task somebody could not be bothered with, so it is refused. `task:read` lets the person a task is assigned to mark it done, which is the same class of act as claiming it; dismissing it, or closing anybody else's, needs `task:write`.",
   module: "M34",
-  permissions: ["task:write"],
+  permissions: ["task:read"],
   idempotent: true,
   input: z.object({
     id: Uuid,
     outcome: z.string().max(2000).optional(),
     dismissed: z.boolean().optional(),
+    /**
+     * Why it is done with checklist items unticked. Required in that case and
+     * kept apart from the outcome, because "gauge missing" is a finding.
+     */
+    overrideReason: z.string().max(2000).optional(),
   }),
   output: z.object({ id: Uuid, status: TaskStatusValue }),
 });

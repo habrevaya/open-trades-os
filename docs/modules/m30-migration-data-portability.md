@@ -166,10 +166,17 @@ A migration app token needs, at most: `customer:read`, `customer:write`,
 The generated reference is `packages/api/openapi.json`. The calls above are
 the whole of a load.
 
-Not yet accepted, and reported by the toolkit as gaps: an estimate's historical
-status (sent, approved, converted) with its date, customer notes, partial
-billing addresses, property coordinates, a price book item without a code, and
-a person who never had a login.
+An estimate's outcome comes in on `POST /v1/estimates` as `outcome`: approved
+on a day with the option that won (and who signed, when the source says),
+declined on a day with the reason, or expired on a day. It needs
+`data:import`, emits no event and records no signature, so loading history
+starts no automation. An imported approval converts like any other.
+
+Not yet accepted, and reported by the toolkit as gaps: the day an estimate was
+sent or converted, customer notes, partial billing addresses, a price book item
+without a code, and a person who never had a login. A property's coordinates
+are not taken when it is created; they are set afterwards with
+`POST /v1/properties/{id}/pin`, which the geocoder then never moves.
 
 ## Taking a copy
 
@@ -211,20 +218,26 @@ integer key would still sort correctly.
 | `calendar_feed` | `token_hash` | Reissue it; the technician's phone needs a new URL anyway. |
 | `unsubscribe_link` | `token_hash` | The address and whether it was used are exported; the link is not. |
 | `device` | `push_token` | A live push credential, reissued by the app on first run. |
+| `device` | `session_token_hash` | The hash of the phone app's live sign in. Phones sign in again. |
+| `webhook_endpoint` | `secret_ref`, `previous_secret_ref` | The signing secrets themselves. Give the receiver a new one from the new system. |
+| `connected_app` | `claim_hash` | The hash of the secret an app collects its credential with. |
+| `oauth_code` | `code_hash` | A one time code that lived ten minutes. |
+| `oauth_refresh_token` | `token_hash` | A connected assistant connects again. |
 
 An export carrying live tokens is a breach in a file. An export that silently
 drops them is a claim of completeness that is false. So each one is named, with
 the reason, in the manifest and on every page.
 
-What is NOT redacted, deliberately: `integration_connection.credential_ref` and
-`webhook_endpoint.secret_ref` are the NAMES of secrets in the deployment's own
-store, by design, and a company moving away needs them to know which secrets to
-go and find. `storage_key` on a file is the pointer to the bytes, without which
+What is NOT redacted, deliberately: `integration_connection.credential_ref` is
+the NAME of a secret in the deployment's own store, by design, and a company
+moving away needs it to know which secrets to go and find. A webhook's signing
+secret is not a name: the delivery code has to sign with it, so the column holds
+the secret itself, and it stays out of the file. `storage_key` on a file is the pointer to the bytes, without which
 an export cannot be matched to the attachments.
 
 ### What is outside the tenant
 
-`user`, `credential`, `session`, `setup_token`, `demo_visit`, `organization` and `network`
+`user`, `credential`, `session`, `setup_token`, `demo_visit`, `organization`, `network` and `oauth_client`
 carry no `organization_id`, so row level security does not scope them and this
 export cannot reach them.
 
@@ -295,8 +308,8 @@ The importer is the separate migration toolkit, which loads through `/api/v1`
 with a connected app's token, and what is here is the half that has to be right:
 an API that takes history faithfully and refuses what it should.
 
-An estimate's historical status is not accepted, so a migration brings estimates
-in as current rather than as won or lost. The export writes one newline delimited
+An estimate's history carries its outcome but not the day it was sent or
+converted. The export writes one newline delimited
 JSON stream and nothing else: no per table CSV, no archive, and no object storage
 path, so a company exporting a large instance streams it to their own disk.
 Nothing imports an export back, which is the obvious symmetry and is not built.

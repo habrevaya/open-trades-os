@@ -1,23 +1,25 @@
 import { and, asc, eq, desc, lt, gte, lte, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { authorization as authz, coverage, history, ledger, money as m, time } from "@opentradesos/core";
+import { authorization as authz, coverage, history, ledger, membership, money as m, rates, splits, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
+import { listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
-import { invoiceScopeFilter } from "./scope";
+import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
 import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
-import * as contracts from "./contracts";
+import * as rateCards from "./rate-cards";
 import * as obligations from "./obligations";
 import { claimNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
+import { memberPricingWithin } from "./agreements";
 import type {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
   updateInvoice, issueInvoice, deleteInvoice,
@@ -44,141 +46,222 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
         )).limit(1);
       if (seen?.entityId) return loadInvoice(tx, ctx, seen.entityId);
     }
-
-    /**
-     * THE DAY IT WAS ISSUED, which used to be whatever day the request
-     * arrived. A migrated invoice from 2023 was issued on the day of the
-     * cutover, the aging report put all of them in "current", and ten years
-     * of revenue landed in one month. The date is admitted by the same rules
-     * as every other business date (see services/history.ts), and the
-     * posting below is dated by it.
-     */
-    if (input.draft && input.issuedOn) {
-      throw new UnprocessableError("A draft has not been issued", [{
-        path: "issuedOn", message: "Leave issuedOn off a draft, and send it when the draft is issued.",
-      }]);
-    }
-    const now = new Date();
-    const admitted = input.issuedOn
-      ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
-      : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
-    const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
-
-    const { resolved, computed, uncovered } = await priceInvoice(tx, ctx, input);
-
-    /**
-     * AND IT MAY NOT GO OVER WHAT THEY AUTHORISED.
-     *
-     * A facilities network authorises five hundred, the technician finds
-     * more wrong, the office invoices nine hundred, and the network pays
-     * five hundred and disputes the rest. The four hundred is not a
-     * receivable, it is a write-off, and nobody notices until the aging
-     * report has a column of them.
-     *
-     * Checked here rather than reconstructed afterwards, against the total
-     * the invoice will actually carry.
-     */
-    const ceiling = input.jobId ? await commercial.ceilingFor(tx, input.jobId) : null;
-    if (ceiling) {
-      const decision = authz.decide(ceiling.terms, computed.totals.total);
-      if (!decision.ok) throw new ConflictError(decision.detail);
-    }
-
-    await assertUnclaimed(tx, "invoice", input.externalRef);
-    const number = await claimNumber(tx, ctx, "invoice", input.number);
-
-    const [invoice] = await tx.insert(schema.invoice).values({
-      organizationId: ctx.actor.organizationId,
-      number,
-      customerId: input.customerId,
-      payerCustomerId: input.payerCustomerId ?? null,
-      jobId: input.jobId ?? null,
-      purchaseOrderNumber: input.purchaseOrderNumber ?? null,
-      /**
-       * WHICH AUTHORIZATION GOVERNED THIS INVOICE.
-       *
-       * The column's own comment says "Set when a ceiling governs this
-       * invoice, so a breach is checkable", and nothing set it, so the answer
-       * to "what were we authorised for when we billed this" was always null.
-       *
-       * The ceiling itself IS enforced, twenty lines above: an invoice over
-       * the limit is refused before it exists. What was missing is narrower
-       * and still worth having. `authorization.consumed_amount` is a running
-       * total with no itemisation behind it, so when a commercial client asks
-       * which invoices ate their two thousand five hundred dollars, the
-       * answer had to be reconstructed by matching job ids and dates. Now it
-       * is a join.
-       */
-      authorizationId: ceiling?.id ?? null,
-      /**
-       * A draft is numbered (so it can be found and talked about) and is
-       * nothing else yet: no issue date, no posting, nothing owed. It
-       * becomes a receivable when it is issued.
-       */
-      status: input.draft ? "draft" : "open",
-      issuedOn: input.draft ? null : issuedOn,
-      dueOn: input.dueOn ?? null,
-      subtotal: m.toString(computed.totals.subtotal),
-      discountTotal: m.toString(computed.totals.discountTotal),
-      taxTotal: m.toString(computed.totals.taxTotal),
-      total: m.toString(computed.totals.total),
-      balance: m.toString(computed.totals.total),
-      memo: input.memo ?? null,
-      ...provenance(input.externalRef),
-    }).returning();
-
-    /**
-     * A LINE THE CLIENT'S CARD DOES NOT PRICE IS SOMEBODY'S PROBLEM BEFORE
-     * IT IS THE CLIENT'S.
-     *
-     * Not a refusal: an out of scope item genuinely can be agreed by phone,
-     * and blocking the invoice would have somebody delete the line to get
-     * past it. Raised as an obligation instead, which is this product's one
-     * primitive for work a person owes, so it appears on the deadlines list
-     * beside every other approaching thing rather than in a log nobody
-     * opens.
-     *
-     * The alternative, which is what every system does, is to invoice at
-     * list and find out when the client rejects it: a month of somebody's
-     * time to re-bill and a conversation about whether we read the
-     * agreement.
-     */
-    if (uncovered.length > 0) {
-      await obligations.raise(tx, ctx.actor.organizationId, {
-        kind: "contract.price_not_on_card",
-        entityType: "invoice",
-        entityId: invoice!.id,
-        dueAt: new Date(),
-        consequence:
-          `${uncovered.length === 1 ? "An item is" : `${uncovered.length} items are`} `
-          + `not on this customer's rate card (${uncovered.slice(0, 3).join(", ")}), `
-          + "so they are priced at our list. Agree a price before this goes out.",
-      });
-    }
-
-    await writeLines(tx, ctx, { invoiceId: invoice!.id, jobId: input.jobId ?? null, resolved, computed });
-
-    if (!input.draft) {
-      await postIssue(tx, ctx, {
-        invoiceId: invoice!.id, customerId: input.customerId, jobId: input.jobId ?? null,
-        totals: computed.totals, issuedOn, timeZone: admitted.timeZone, now,
-        historical: admitted.historical, ceiling,
-      });
-    }
-
-    if (ctx.idempotencyKey) {
-      await tx.insert(schema.integrationEvent).values({
-        organizationId: ctx.actor.organizationId,
-        direction: "inbound", provider: "api", eventType: "invoice.create",
-        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
-        entityType: "invoice", entityId: invoice!.id,
-      });
-    }
-
-    await audit(tx, ctx, input.draft ? "invoice.drafted" : "invoice.created", "invoice", invoice!.id, null,
-      admitted.historical ? { ...invoice!, historical: true } : invoice!);
-    return loadInvoice(tx, ctx, invoice!.id);
+    return createIn(tx, ctx, input);
   });
+}
+
+/**
+ * What a caller inside a transaction may say about an invoice beyond its
+ * public input. Billing a job in parts (services/job-billing.ts) prices and
+ * splits every line itself, so the lines arrive already priced, already cut
+ * to each payer's share, and addressed to one of several payers the job
+ * names. None of this is reachable from the API: the public route can only
+ * reach `create`, which passes none of it.
+ */
+export interface CreateOptions {
+  /** Per line, by index: the price, quantity and authority already decided. */
+  prepared?: ReadonlyArray<PreparedLine | undefined>;
+  /** Payers a split names, any of whom may be addressed despite the bill-to party. */
+  allowedPayers?: readonly string[];
+  /** False when the lines are already one payer's share, so coverage is not taken off twice. */
+  applyCoverage?: boolean;
+  /** False when the job's authorisation belongs to another payer in the split. */
+  applyCeiling?: boolean;
+  /** False to leave member pricing off: a split prices every line once, before it is cut. */
+  memberPricing?: boolean;
+  /**
+   * The invoice's id when a phone made it: an invoice raised on site is
+   * named by the phone before the server has it, so the payment and the
+   * signature queued behind it can name it too.
+   */
+  id?: string;
+}
+
+export interface PreparedLine {
+  unitPrice: m.Money;
+  quantity: string;
+  authority: rates.PriceAuthority;
+  basis: rates.PriceBasis;
+  note: string | null;
+  rateCardId: string | null;
+  rateCardLineId: string | null;
+}
+
+/**
+ * Creating an invoice inside a caller's transaction. `create` is this plus
+ * the permission and the idempotency key; job billing calls it once per
+ * payer inside one transaction, so a split either produces every invoice or
+ * none of them.
+ */
+export async function createIn(
+  tx: Database, ctx: ServiceContext, input: z.infer<typeof createInvoice.input>, options: CreateOptions = {},
+) {
+  /**
+   * THE DAY IT WAS ISSUED, which used to be whatever day the request
+   * arrived. A migrated invoice from 2023 was issued on the day of the
+   * cutover, the aging report put all of them in "current", and ten years
+   * of revenue landed in one month. The date is admitted by the same rules
+   * as every other business date (see services/history.ts), and the
+   * posting below is dated by it.
+   */
+  if (input.draft && input.issuedOn) {
+    throw new UnprocessableError("A draft has not been issued", [{
+      path: "issuedOn", message: "Leave issuedOn off a draft, and send it when the draft is issued.",
+    }]);
+  }
+  const now = new Date();
+  const admitted = input.issuedOn
+    ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
+    : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
+  const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
+
+  const { resolved, computed, uncovered } = await priceInvoice(
+    tx, ctx, input, undefined,
+    admitted.historical || input.externalRef || options.memberPricing === false ? null : issuedOn,
+    options,
+  );
+
+  /**
+   * AND IT MAY NOT GO OVER WHAT THEY AUTHORISED.
+   *
+   * A facilities network authorises five hundred, the technician finds
+   * more wrong, the office invoices nine hundred, and the network pays
+   * five hundred and disputes the rest. The four hundred is not a
+   * receivable, it is a write-off, and nobody notices until the aging
+   * report has a column of them.
+   *
+   * Checked here rather than reconstructed afterwards, against the total
+   * the invoice will actually carry.
+   */
+  const ceiling = input.jobId && options.applyCeiling !== false
+    ? await commercial.ceilingFor(tx, input.jobId) : null;
+  if (ceiling) {
+    const decision = authz.decide(ceiling.terms, computed.totals.total);
+    if (!decision.ok) throw new ConflictError(decision.detail);
+  }
+
+  /**
+   * AND THE CONTRACT'S OWN LIMIT, when nobody authorised the job by hand.
+   *
+   * A facilities contract says what work at a site may cost before the
+   * client has to be asked, and the job's own authorisation is the per job
+   * version of the same thing. With an authorisation it governs, as above;
+   * without one the contract's limit does, held or let through as the
+   * contract says. Let through is still said, as a deadline on the
+   * invoice, because the client will question the difference.
+   */
+  const contractLimit = input.jobId && !ceiling && options.applyCeiling !== false && !admitted.historical
+    ? await rateCards.contractCeilingFor(tx, ctx.actor.organizationId, {
+        jobId: input.jobId, customerId: input.customerId, amount: computed.totals.total,
+      })
+    : null;
+  if (contractLimit?.held) throw new ConflictError(contractLimit.message!);
+
+  await assertUnclaimed(tx, "invoice", input.externalRef);
+  const number = await claimNumber(tx, ctx, "invoice", input.number);
+
+  const [invoice] = await tx.insert(schema.invoice).values({
+    ...(options.id ? { id: options.id } : {}),
+    organizationId: ctx.actor.organizationId,
+    number,
+    customerId: input.customerId,
+    payerCustomerId: input.payerCustomerId ?? null,
+    jobId: input.jobId ?? null,
+    purchaseOrderNumber: input.purchaseOrderNumber ?? null,
+    /**
+     * WHICH AUTHORIZATION GOVERNED THIS INVOICE.
+     *
+     * The column's own comment says "Set when a ceiling governs this
+     * invoice, so a breach is checkable", and nothing set it, so the answer
+     * to "what were we authorised for when we billed this" was always null.
+     *
+     * The ceiling itself IS enforced, twenty lines above: an invoice over
+     * the limit is refused before it exists. What was missing is narrower
+     * and still worth having. `authorization.consumed_amount` is a running
+     * total with no itemisation behind it, so when a commercial client asks
+     * which invoices ate their two thousand five hundred dollars, the
+     * answer had to be reconstructed by matching job ids and dates. Now it
+     * is a join.
+     */
+    authorizationId: ceiling?.id ?? null,
+    /**
+     * A draft is numbered (so it can be found and talked about) and is
+     * nothing else yet: no issue date, no posting, nothing owed. It
+     * becomes a receivable when it is issued.
+     */
+    status: input.draft ? "draft" : "open",
+    issuedOn: input.draft ? null : issuedOn,
+    dueOn: input.dueOn ?? null,
+    subtotal: m.toString(computed.totals.subtotal),
+    discountTotal: m.toString(computed.totals.discountTotal),
+    taxTotal: m.toString(computed.totals.taxTotal),
+    total: m.toString(computed.totals.total),
+    balance: m.toString(computed.totals.total),
+    memo: input.memo ?? null,
+    ...provenance(input.externalRef),
+  }).returning();
+
+  /**
+   * A LINE THE CLIENT'S CARD DOES NOT PRICE IS SOMEBODY'S PROBLEM BEFORE
+   * IT IS THE CLIENT'S.
+   *
+   * Not a refusal: an out of scope item genuinely can be agreed by phone,
+   * and blocking the invoice would have somebody delete the line to get
+   * past it. Raised as an obligation instead, which is this product's one
+   * primitive for work a person owes, so it appears on the deadlines list
+   * beside every other approaching thing rather than in a log nobody
+   * opens.
+   *
+   * The alternative, which is what every system does, is to invoice at
+   * list and find out when the client rejects it: a month of somebody's
+   * time to re-bill and a conversation about whether we read the
+   * agreement.
+   */
+  if (uncovered.length > 0) {
+    await obligations.raise(tx, ctx.actor.organizationId, {
+      kind: "contract.price_not_on_card",
+      entityType: "invoice",
+      entityId: invoice!.id,
+      dueAt: new Date(),
+      consequence:
+        `${uncovered.length === 1 ? "An item is" : `${uncovered.length} items are`} `
+        + `not on this customer's rate card (${uncovered.slice(0, 3).join(", ")}), `
+        + "so they are priced at our list. Agree a price before this goes out.",
+    });
+  }
+
+  if (contractLimit?.state === "over" && contractLimit.message) {
+    await obligations.raise(tx, ctx.actor.organizationId, {
+      kind: "contract.over_not_to_exceed",
+      entityType: "invoice",
+      entityId: invoice!.id,
+      dueAt: new Date(),
+      consequence: contractLimit.message,
+    });
+  }
+
+  await writeLines(tx, ctx, { invoiceId: invoice!.id, jobId: input.jobId ?? null, resolved, computed });
+
+  if (!input.draft) {
+    await postIssue(tx, ctx, {
+      invoiceId: invoice!.id, customerId: input.customerId, jobId: input.jobId ?? null,
+      totals: computed.totals, issuedOn, timeZone: admitted.timeZone, now,
+      historical: admitted.historical, ceiling,
+    });
+  }
+
+  if (ctx.idempotencyKey) {
+    await tx.insert(schema.integrationEvent).values({
+      organizationId: ctx.actor.organizationId,
+      direction: "inbound", provider: "api", eventType: "invoice.create",
+      idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+      entityType: "invoice", entityId: invoice!.id,
+    });
+  }
+
+  await audit(tx, ctx, input.draft ? "invoice.drafted" : "invoice.created", "invoice", invoice!.id, null,
+    admitted.historical ? { ...invoice!, historical: true } : invoice!);
+  return loadInvoice(tx, ctx, invoice!.id);
 }
 
 
@@ -224,12 +307,19 @@ async function writeLines(
     unitPrice: m.toString(r.unitPrice),
     unitCost: r.unitCost ? m.toString(r.unitCost) : null,
     discountAmount: m.toString(r.discountAmount),
+    memberAgreementId: r.memberAgreementId,
+    memberDiscountAmount: m.toString(r.memberDiscountAmount),
     taxable: r.taxable,
     taxRate: r.taxRate,
     taxAmount: m.toString(computed.lines[i]!.taxAmount),
     lineTotal: m.toString(computed.lines[i]!.lineTotal),
     costCode: r.costCode,
     priceBookItemVersionId: r.versionId,
+    priceAuthority: r.authority,
+    priceBasis: r.basis,
+    priceNote: r.note,
+    rateCardId: r.rateCardId,
+    rateCardLineId: r.rateCardLineId,
   }))).returning({ id: schema.invoiceLine.id, sortOrder: schema.invoiceLine.sortOrder });
 
   for (const line of written) {
@@ -432,11 +522,34 @@ async function pricedForDraft(
     ...(input.adjustment ? { adjustment: input.adjustment } : {}),
     ...(input.expectedTotals ? { expectedTotals: input.expectedTotals } : {}),
   };
-  return priceInvoice(tx, ctx, pricing, draft.id);
+  /**
+   * A draft is priced as of today, member pricing included, and the lines
+   * sent are what somebody typed: the edit screen shows the hand discount
+   * apart from the member one for exactly this reason, so saving a draft
+   * does not take the member rate off twice.
+   */
+  return priceInvoice(tx, ctx, pricing, draft.id,
+    time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)));
+}
+
+/** The address a job's work is at, which is what decides whose membership covers it. */
+async function propertyOfJob(tx: Database, jobId: string): Promise<string | null> {
+  const [row] = await tx.select({ propertyId: schema.job.propertyId })
+    .from(schema.job).where(eq(schema.job.id, jobId)).limit(1);
+  return row?.propertyId ?? null;
 }
 
 export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
-  return guardedWrite(ctx, "invoice:write", async (tx) => {
+  return guardedWrite(ctx, "invoice:write", (tx) => issueIn(tx, ctx, input));
+}
+
+/**
+ * Issuing a draft inside a caller's transaction. The office's route is this
+ * with its permission; an invoice raised on site (`field-invoices`) issues
+ * the copy of the option the customer signed for with it.
+ */
+export async function issueIn(tx: Database, ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
+  {
     const draft = await loadDraft(tx, input.id);
     const now = new Date();
     const admitted = input.issuedOn
@@ -460,6 +573,13 @@ export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvo
       const decision = authz.decide(ceiling.terms, totals.total);
       if (!decision.ok) throw new ConflictError(decision.detail);
     }
+    /** And the contract's own limit, which a draft has used none of yet. */
+    if (draft.jobId && !ceiling && !admitted.historical) {
+      const limit = await rateCards.contractCeilingFor(tx, ctx.actor.organizationId, {
+        jobId: draft.jobId, customerId: draft.customerId, amount: totals.total,
+      });
+      if (limit?.held) throw new ConflictError(limit.message!);
+    }
 
     const [after] = await tx.update(schema.invoice).set({
       status: "open",
@@ -477,7 +597,7 @@ export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvo
     await audit(tx, ctx, "invoice.issued", "invoice", draft.id, { status: "draft" },
       admitted.historical ? { ...after!, historical: true } : after!);
     return loadInvoice(tx, ctx, draft.id);
-  });
+  }
 }
 
 export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof deleteInvoice.input>) {
@@ -508,7 +628,17 @@ export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof del
 type PricingInput = Pick<z.infer<typeof createInvoice.input>,
   "customerId" | "jobId" | "lines" | "adjustment" | "expectedTotals">;
 
-async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string) {
+async function priceInvoice(
+  tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string,
+  /**
+   * The day member pricing is decided on, or null for none. Null for history:
+   * an invoice recorded from another system charged what it charged, and a
+   * member discount applied to it today would make it disagree with the copy
+   * the customer was sent.
+   */
+  memberOn: string | null = null,
+  options: CreateOptions = {},
+) {
   /**
    * Prices come from the price book VERSION, not from the request, whenever
    * an item id is given. A client that can name its own price is a client
@@ -524,8 +654,11 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
         price: schema.priceBookItemVersion.price,
         cost: schema.priceBookItemVersion.cost,
         taxable: schema.priceBookItemVersion.taxable,
+        kind: schema.priceBookItem.kind,
+        feeRole: schema.priceBookItem.feeRole,
       })
       .from(schema.priceBookItemVersion)
+      .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
       .where(and(
         inArray(schema.priceBookItemVersion.itemId, itemIds),
         /**
@@ -542,32 +675,82 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
   /**
    * WHOSE PRICE GOVERNS, PER LINE.
    *
-   * Our price book is not the authority when the customer holds a
-   * contract with a rate card: the schema has said so since it was
-   * written, and until now nothing read it, so every commercial job
-   * invoiced at our list price and got rejected.
+   * Our price book is not the authority when whoever this invoice is
+   * addressed to holds a contract with a rate card. Resolved per line,
+   * because a card covers some work and not other work, and by the card's
+   * own rules (`core/rates`): a listed price for the item, an hourly rate
+   * for the trade and the time the work was done, a markup on what the part
+   * cost us. A line the card does not price stays at ours AND is recorded,
+   * so the caller is told rather than finding out when the client rejects
+   * the invoice.
    *
-   * Resolved per line rather than once per invoice, because a card covers
-   * some items and not others. A line the card prices takes the card's
-   * price; a line it does not is left at ours AND recorded, so the caller
-   * is told rather than finding out when the client rejects the invoice.
+   * Every line says which authority priced it and how, on the line, so
+   * "whose price is that" is answered by the document rather than by
+   * working out which card was in force that week.
    *
    * COST IS NEVER TAKEN FROM THE CARD. The price is theirs and the cost is
    * ours, which is the whole reason margin reporting still works on work
    * we did not price.
    */
-  const contracted = new Map<string, contracts.PriceResolution>();
+  const [jobRow] = input.jobId
+    ? await tx.select({
+        customerId: schema.job.customerId,
+        contractId: schema.job.contractId,
+        jobTypeId: schema.job.jobTypeId,
+      }).from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1)
+    : [];
+  const today = await rateCards.todayFor(tx, ctx.actor.organizationId);
+  const cards = await rateCards.cardsFor(tx, ctx.actor.organizationId, {
+    customerId: input.customerId, contractId: jobRow?.contractId ?? null, ...today,
+  });
+  const recordedLines = await rateCards.jobLinesFor(
+    tx, input.lines.map((l) => l.jobLineId).filter((x): x is string => Boolean(x)),
+  );
   const uncovered: string[] = [];
-  for (const itemId of new Set(itemIds)) {
-    const resolution = await contracts.priceFor(ctx, {
-      customerId: input.customerId,
+  const authorities = input.lines.map((line, i): LineAuthority => {
+    const prepared = options.prepared?.[i];
+    const recorded = line.jobLineId ? recordedLines.get(line.jobLineId) : undefined;
+    const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
+    const kind = recorded
+      ? chargeKindOfWork(recorded.kind)
+      : linked ? chargeKindOfWork(rateCards.workKindOfItem(linked.kind)) : null;
+    if (prepared) return { ...prepared, outOfScope: false, kind };
+    if (line.priceAsGiven) return { ...UNPRICED, authority: "entered", basis: "history", kind };
+    const book = linked !== undefined;
+    const plain: LineAuthority = {
+      ...UNPRICED, authority: book ? "price_book" : "entered", basis: book ? "price_book" : "entered", kind,
+    };
+    const itemId = line.priceBookItemId ?? recorded?.itemId ?? null;
+    if (cards.length === 0 || (!recorded && !itemId)) return plain;
+
+    const cost = recorded?.line.unitCost ?? linked?.cost ?? null;
+    const priced = rates.priceWork(cards, {
+      kind: recorded ? recorded.kind : rateCards.workKindOfItem(linked?.kind),
+      name: linked?.name ?? line.name,
       priceBookItemId: itemId,
+      quantity: line.quantity,
+      ourPrice: usd(linked?.price ?? line.unitPrice),
+      ourPriceIsBook: book,
+      unitCost: cost ? usd(cost) : null,
+      at: recorded?.at ?? new Date(),
+      jobTypeId: jobRow?.jobTypeId ?? null,
     });
-    contracted.set(itemId, resolution);
-    if (!resolution.covered && resolution.cardApplies) {
-      uncovered.push(byItem.get(itemId)?.name ?? itemId);
+    if (priced.outOfScope) {
+      uncovered.push(linked?.name ?? line.name);
+      return { ...plain, note: priced.note, outOfScope: true };
     }
-  }
+    return {
+      unitPrice: priced.unitPrice,
+      quantity: priced.quantity,
+      authority: priced.authority,
+      basis: priced.basis,
+      note: priced.note,
+      rateCardId: priced.rateCardId,
+      rateCardLineId: priced.rateCardLineId,
+      outOfScope: false,
+      kind,
+    };
+  });
 
   /**
    * TAX AS CHARGED, AND PRICES AS CHARGED, ARE HISTORY ONLY.
@@ -582,7 +765,7 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
     requireImport(ctx);
   }
 
-  const resolved = input.lines.map((line) => {
+  const resolved = input.lines.map((line, index) => {
     const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
     /**
      * A line kept as given still links the item, so "which invoices sold
@@ -590,13 +773,13 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
      * price, cost and taxability are what the source charged.
      */
     const version = line.priceAsGiven ? undefined : linked;
-    const contract = line.priceBookItemId && !line.priceAsGiven ? contracted.get(line.priceBookItemId) : undefined;
-    const contractPrice = contract?.covered ? contract.price : undefined;
+    const authority = authorities[index]!;
+    const price = authority.unitPrice ?? usd(version?.price ?? line.unitPrice);
     return {
       name: version?.name ?? line.name,
       description: line.description ?? null,
-      quantity: line.quantity,
-      unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
+      quantity: authority.quantity ?? line.quantity,
+      unitPrice: price,
       unitCost: version?.cost ? usd(version.cost) : null,
       discountAmount: usd(line.discountAmount),
       taxable: version?.taxable ?? line.taxable,
@@ -611,8 +794,62 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
       coverageSource: line.coverageSource ?? null,
       origin: "job" as "job" | "manual",
       jobLineId: line.jobLineId ?? null as string | null,
+      /** Whether member pricing may touch it. A line kept as given is history. */
+      memberEligible: !line.priceAsGiven
+        && membership.eligibleForMemberPricing({
+          unitPrice: price,
+          itemKind: linked?.kind ?? null,
+        }),
+      /** The diagnostic fee or the after hours rate, which a plan may waive outright. */
+      feeRole: line.priceAsGiven ? null : linked?.feeRole ?? null,
+      memberDiscountAmount: usd("0"),
+      memberAgreementId: null as string | null,
+      authority: authority.authority as string,
+      basis: authority.basis as string,
+      note: authority.note,
+      rateCardId: authority.rateCardId,
+      rateCardLineId: authority.rateCardLineId,
+      kind: authority.kind,
     };
   });
+
+  /**
+   * MEMBER PRICING, on the lines that take it, as a per line discount.
+   *
+   * The same decision and the same arithmetic an estimate uses, from core, so
+   * a member quoted a price and then invoiced for the work directly pays the
+   * same either way. Written into each line's own discount, which is what
+   * every total and `postInvoice` already read: the discount posts to the
+   * discounts account with revenue at the full price, exactly as a discount
+   * typed by hand does. The line records how much of it was the plan and
+   * which agreement, so it is shown rather than silently taken.
+   *
+   * A line priced from a client's rate card is still a line this customer is
+   * a member for. Whether a contract price should also take the member rate
+   * is a question for whoever wrote the contract; the plan's rate is the
+   * company's own standing offer and it is applied the same way to both.
+   */
+  const member = memberOn === null ? null : await memberPricingWithin(tx, {
+    customerId: input.customerId,
+    propertyId: input.jobId ? await propertyOfJob(tx, input.jobId) : null,
+    on: memberOn,
+  });
+  if (member) {
+    const off = membership.memberDiscounts(resolved.map((r) => ({
+      quantity: r.quantity,
+      unitPrice: r.unitPrice,
+      discountAmount: r.discountAmount,
+      eligible: r.memberEligible,
+      feeRole: r.feeRole,
+    })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
+    for (const [i, r] of resolved.entries()) {
+      const amount = off[i]!;
+      if (!m.isPositive(amount)) continue;
+      r.memberDiscountAmount = amount;
+      r.memberAgreementId = member.agreementId;
+      r.discountAmount = m.add(r.discountAmount, amount);
+    }
+  }
 
   /**
    * AN AMOUNT THE LINES DO NOT ACCOUNT FOR.
@@ -647,6 +884,16 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
       coverageSource: null,
       origin: "manual",
       jobLineId: null,
+      memberEligible: false,
+      feeRole: null,
+      memberDiscountAmount: usd("0"),
+      memberAgreementId: null,
+      authority: "entered",
+      basis: "entered",
+      note: null,
+      rateCardId: null,
+      rateCardLineId: null,
+      kind: null,
     });
   }
 
@@ -675,11 +922,66 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
     const charges = resolved
       .filter((r) => r.coverageSource == null)
       .map((r) => ({
-        kind: chargeKindOf(r.name, r.costCode),
+        kind: r.kind ?? chargeKindOf(r.name, r.costCode),
         amount: m.multiply(r.unitPrice, r.quantity),
       }));
     const refusal = entitlements.refusalFor(terms, charges);
     if (refusal) throw new ConflictError(refusal);
+  }
+
+  /**
+   * THE CUSTOMER'S SHARE, TAKEN AUTOMATICALLY.
+   *
+   * `quote` has always worked out what the customer owes under the job's
+   * coverage, and the person writing the invoice then had to apply it by
+   * hand: knock the part off for a parts warranty, take the deductible
+   * once, stop at the cap. Now the invoice to the job's own customer does it
+   * as it is raised, by the same arithmetic, and each line says what the
+   * coverage took off it. The covered part is billed to whoever covers it,
+   * by billing the job in parts (services/job-billing.ts) or a claim, and
+   * never silently: the line keeps its whole price in the sentence beside
+   * the customer's part.
+   *
+   * Only lines that inherit the job's coverage, so a chargeable extra a
+   * person marked as the customer's stays the customer's. Our own warranty,
+   * goodwill and a callback are refused above rather than reduced here,
+   * because billing a customer for those is a mistake to stop, not a share
+   * to work out.
+   */
+  if (terms && input.jobId && jobRow && options.applyCoverage !== false
+    && input.customerId === jobRow.customerId
+    && terms.source !== "customer" && !coverage.isOurCost(terms.source)) {
+    const inherit = resolved
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.coverageSource == null && r.origin !== "manual");
+    const amounts = inherit.map(({ r }) =>
+      m.round(m.subtract(m.multiply(r.unitPrice, r.quantity), r.discountAmount), 2));
+    if (amounts.length > 0 && amounts.every((a) => !m.isNegative(a))) {
+      const lines = inherit.map(({ r }, j) => ({ amount: amounts[j]!, kind: r.kind ?? chargeKindOf(r.name, r.costCode) }));
+      const targets = splits.coverageTargets(terms, lines);
+      const coveredPart = m.round(targets.thirdParty, 2);
+      if (m.isPositive(coveredPart)) {
+        const total = m.sum(amounts, "USD");
+        const parts = splits.allocateAcross(
+          amounts, [coveredPart, m.subtract(total, coveredPart)], [targets.eligible, amounts.map(() => true)],
+        );
+        const label = coverage.COVERAGE[terms.source].label;
+        for (const [j, { r }] of inherit.entries()) {
+          const covered = parts[0]![j]!;
+          if (m.isZero(covered)) continue;
+          const theirs = parts[1]![j]!;
+          r.description = [r.description, `${label} covers ${m.edit(covered)} of ${m.edit(amounts[j]!)}.`]
+            .filter(Boolean).join(" ");
+          r.note = `${label} covers ${m.edit(covered)}; the customer's part is ${m.edit(theirs)}.`;
+          r.basis = "share";
+          r.quantity = "1";
+          r.unitPrice = theirs;
+          r.discountAmount = usd("0");
+          r.memberDiscountAmount = usd("0");
+          r.memberAgreementId = null;
+        }
+      }
+    }
   }
 
   let computed: ReturnType<typeof ledger.computeInvoice>;
@@ -731,7 +1033,8 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
    */
   if (input.jobId) {
     const billTo = await commercial.billToFor(tx, input.jobId);
-    if (billTo?.customerId && billTo.customerId !== input.customerId) {
+    if (billTo?.customerId && billTo.customerId !== input.customerId
+      && !(options.allowedPayers ?? []).includes(input.customerId)) {
       const [who] = await tx.select({ name: schema.customer.name })
         .from(schema.customer).where(eq(schema.customer.id, billTo.customerId)).limit(1);
       throw new ConflictError(
@@ -787,7 +1090,18 @@ async function loadInvoice(tx: Database, ctx: ServiceContext, id: string) {
 }
 
 export async function get(ctx: ServiceContext, input: z.infer<typeof getInvoice.input>) {
-  return guardedRead(ctx, "invoice:read", (tx) => loadInvoice(tx, ctx, input.id));
+  return guardedRead(ctx, "invoice:read", async (tx) => {
+    /**
+     * In scope, as the invoice list is: a technician who sees invoices for
+     * their own work cannot open another by its id, and one out of scope
+     * reads as not found rather than as forbidden, so an id says nothing.
+     */
+    const [visible] = await tx.select({ id: schema.invoice.id }).from(schema.invoice)
+      .where(and(eq(schema.invoice.id, input.id), invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor)))
+      .limit(1);
+    if (!visible) throw new NotFoundError("Invoice");
+    return loadInvoice(tx, ctx, input.id);
+  });
 }
 
 export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoices.input>) {
@@ -805,7 +1119,9 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.customerId ? eq(schema.invoice.customerId, input.customerId) : undefined,
         input.payerCustomerId ? eq(schema.invoice.payerCustomerId, input.payerCustomerId) : undefined,
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
+        input.businessUnitId ? invoiceBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.invoice, input),
+        await listFilter(tx, ctx.actor.organizationId, "invoice", input, sql`${schema.invoice.customFields}`),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))
       .orderBy(desc(schema.invoice.createdAt))
@@ -1459,7 +1775,11 @@ async function allocate(
  */
 export async function arAging(ctx: ServiceContext, input: z.infer<typeof getArAging.input>) {
   return guardedRead(ctx, "invoice:read", async (tx) => {
-    const asOf = input.asOf ?? new Date().toISOString().slice(0, 10);
+    /**
+     * Today where the company is. UTC's date is tomorrow from seven in the
+     * evening in Austin, which aged every invoice a day early all evening.
+     */
+    const asOf = input.asOf ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
 
     const rows = await tx.execute<{
       payer_id: string | null; payer_name: string;
@@ -1517,6 +1837,37 @@ export function chargeKindOf(name: string, costCode: string | null): coverage.Ch
   }
   return "other";
 }
+
+/**
+ * What a job line or an item is, for the purpose of who pays for it, or null
+ * when its kind does not say. A flat rate service ("run capacitor
+ * replacement") is most of a trade pack's price book and is neither labour
+ * nor a part by kind, so its name decides, as it always has.
+ */
+export function chargeKindOfWork(kind: rates.WorkKind): coverage.ChargeKind | null {
+  if (kind === "labor") return "labour";
+  if (kind === "part" || kind === "equipment") return "parts";
+  if (kind === "trip") return "trip";
+  return null;
+}
+
+/** How one line was priced, before it becomes a row. */
+interface LineAuthority {
+  /** Null to keep the price the line already has (the book's, or the one typed). */
+  unitPrice: m.Money | null;
+  quantity: string | null;
+  authority: rates.PriceAuthority;
+  basis: rates.PriceBasis;
+  note: string | null;
+  rateCardId: string | null;
+  rateCardLineId: string | null;
+  outOfScope: boolean;
+  kind: coverage.ChargeKind | null;
+}
+
+const UNPRICED = {
+  unitPrice: null, quantity: null, note: null, rateCardId: null, rateCardLineId: null, outOfScope: false,
+} as const;
 
 /** The entitlement row this job resolved to, for linking lines to it. */
 async function entitlementIdFor(tx: Database, jobId: string): Promise<string | null> {

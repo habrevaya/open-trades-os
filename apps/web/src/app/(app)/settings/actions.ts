@@ -1,16 +1,45 @@
 "use server";
 
-import { refused } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
-import { requireSetupUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, telephony, phoneNumbers, ConflictError } from "@opentradesos/api/services";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, ConflictError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
-const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
+/**
+ * `requireUser`, not the setup gate: the setup wizard draws these same forms
+ * before setup is finished, and the gate is about which page a person lands
+ * on, not about what they may change. What they may change is the service's
+ * question, asked the same way either side of setup.
+ */
+const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
 
 /** Everything under this layout renders the colours, so it all revalidates. */
 const refresh = () => revalidatePath("/", "layout");
+
+/**
+ * The company's names and how a customer reaches it, from the one form the
+ * setup wizard and Settings both draw. An emptied contact box is posted as
+ * null, which clears it, rather than left out, which would keep the old one:
+ * somebody who deletes the address expects it off the next invoice.
+ */
+export async function saveCompanyDetails(_previous: FormState, form: FormData): Promise<FormState> {
+  const cleared = (name: string) => field(form, name) ?? null;
+  const result = await attempt(form, async () => setup.updateDetails(await ctx(), {
+    name: field(form, "name") ?? "",
+    legalName: cleared("legalName"),
+    phone: cleared("phone"),
+    email: cleared("email"),
+    addressLine1: cleared("addressLine1"),
+    addressLine2: cleared("addressLine2"),
+    city: cleared("city"),
+    state: cleared("state"),
+    postalCode: cleared("postalCode"),
+  }));
+  refresh();
+  return result;
+}
 
 export async function setBrandColor(_previous: unknown, form: FormData) {
   try {
@@ -146,8 +175,35 @@ export async function addNumber(_previous: unknown, form: FormData) {
       e164: String(form.get("e164") ?? ""),
       purpose: String(form.get("purpose") ?? "main") as "main",
       label: String(form.get("label") ?? "") || null,
-      attributionSource: String(form.get("attributionSource") ?? "") || null,
+      ...creditFrom(form),
       smsRegistered: form.get("smsRegistered") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true };
+}
+
+/**
+ * What a tracking number's calls are credited to, off the form's one select:
+ * `campaign:<id>` or `channel:<id>`. The service makes the campaign, the
+ * channel and the source key agree.
+ */
+function creditFrom(form: FormData): { campaignId?: string; channelId?: string } {
+  const [kind, id] = String(form.get("credit") ?? "").split(":");
+  if (!id) return {};
+  return kind === "campaign" ? { campaignId: id } : kind === "channel" ? { channelId: id } : {};
+}
+
+/** Move a tracking number to another campaign. Calls already taken keep theirs. */
+export async function assignNumber(_previous: unknown, form: FormData) {
+  try {
+    const credit = creditFrom(form);
+    await phoneNumbers.update(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      ...(credit.campaignId ? { campaignId: credit.campaignId } : { channelId: credit.channelId ?? null }),
     });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);
@@ -169,11 +225,97 @@ export async function addNumber(_previous: unknown, form: FormData) {
 export async function releaseNumber(_previous: unknown, form: FormData) {
   let result;
   try {
-    result = await phoneNumbers.release(await ctx(), { id: String(form.get("id") ?? "") });
+    /**
+     * Through the voice service, which hands a number bought here back at the
+     * carrier first and then here, and a typed in number here only.
+     */
+    result = await voice.releaseNumber(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/settings");
   return { done: true, nowSendingFrom: result.nowSendingFrom };
+}
+
+/**
+ * Numbers the company's own Twilio account could buy.
+ *
+ * The list comes back in the form's state rather than a page reload, because
+ * it is a question asked of the carrier, not something this product stores.
+ */
+export async function searchNumbers(_previous: unknown, form: FormData) {
+  try {
+    const numbers = await voice.searchNumbers(await ctx(), {
+      areaCode: String(form.get("areaCode") ?? "") || undefined,
+      locality: String(form.get("locality") ?? "") || undefined,
+      region: String(form.get("region") ?? "") || undefined,
+    });
+    return { done: true, numbers };
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+}
+
+const e164Or = (form: FormData, name: string) => {
+  const value = String(form.get(name) ?? "").trim();
+  return value === "" ? undefined : value;
+};
+
+/** Buy one of them, credited and routed as the form says. */
+export async function buyNumber(_previous: unknown, form: FormData) {
+  try {
+    const purpose = String(form.get("purpose") ?? "tracking") === "pool" ? "pool" as const : "tracking" as const;
+    const credit = creditFrom(form);
+    const forwardsToE164 = e164Or(form, "forwardsToE164");
+    const afterHoursForwardsToE164 = e164Or(form, "afterHoursForwardsToE164");
+    await voice.buyNumber(await ctx(), {
+      e164: String(form.get("e164") ?? ""),
+      purpose,
+      label: String(form.get("label") ?? "") || null,
+      ...(purpose === "tracking" ? credit : {}),
+      ...(forwardsToE164 ? { forwardsToE164 } : {}),
+      ...(afterHoursForwardsToE164 ? { afterHoursForwardsToE164 } : {}),
+      whisper: form.get("whisper") === "yes",
+      recordCalls: form.get("recordCalls") === "yes",
+      routeByHours: form.get("routeByHours") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true, bought: String(form.get("e164") ?? "") };
+}
+
+/** How a routed number's calls are answered. */
+export async function setRouting(_previous: unknown, form: FormData) {
+  try {
+    await phoneNumbers.update(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      forwardsToE164: e164Or(form, "forwardsToE164") ?? null,
+      afterHoursForwardsToE164: e164Or(form, "afterHoursForwardsToE164") ?? null,
+      whisper: form.get("whisper") === "yes",
+      recordCalls: form.get("recordCalls") === "yes",
+      routeByHours: form.get("routeByHours") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true };
+}
+
+/** How long a quiet website visitor keeps their pool number. */
+export async function setIdleMinutes(_previous: unknown, form: FormData) {
+  try {
+    await websiteTracking.setSettings(await ctx(), { idleMinutes: Number(form.get("idleMinutes") ?? "") });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings/website");
+  return { done: true, message: "Saved." };
 }

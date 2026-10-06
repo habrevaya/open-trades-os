@@ -1,5 +1,6 @@
 import { handleMcp } from "@opentradesos/api/mcp";
-import { authenticate } from "@opentradesos/api/http";
+import { authenticate, oauthEndpoints } from "@opentradesos/api/http";
+import { OrganizationSuspendedError } from "@opentradesos/api/services";
 import { getDb } from "@/lib/db";
 import { sessionFromCookie } from "@/lib/auth";
 
@@ -27,6 +28,24 @@ export const dynamic = "force-dynamic";
 async function handle(request: Request): Promise<Response> {
   const db = getDb();
 
+  /**
+   * NO USABLE CREDENTIAL IS A 401 WITH A CHALLENGE, not an empty tool list.
+   *
+   * A remote MCP client learns that it should connect with OAuth, and where,
+   * only from a 401 whose `WWW-Authenticate` header names the protected
+   * resource document. Answered before the protocol is read, so it cannot
+   * describe the product to anybody: the empty list `handleMcp` gives a
+   * caller with no credential stays the answer for a pipe, which has no
+   * OAuth. A suspended company is let through, because `handleMcp` already
+   * says that in words a model can repeat.
+   */
+  try {
+    const who = await authenticate(request.clone(), { db, session: sessionFromCookie });
+    if (!who) return oauthEndpoints.mcpUnauthorized(request, request.headers.has("authorization"));
+  } catch (error) {
+    if (!(error instanceof OrganizationSuspendedError)) throw error;
+  }
+
   return handleMcp(request, {
     db,
     serverName: "opentradesos",
@@ -51,6 +70,9 @@ async function handle(request: Request): Promise<Response> {
 }
 
 export const POST = handle;
+
+/** A browser based MCP client asks before posting. Nothing here reads a cookie it could borrow. */
+export const OPTIONS = oauthEndpoints.preflight;
 
 /**
  * A GET answers rather than 404s.

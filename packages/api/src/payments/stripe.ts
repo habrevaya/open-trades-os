@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   registerPaymentProvider,
-  type ChargeOutcome, type ChargeRequest, type PaymentEvent, type PaymentEventKind,
+  type CardVault, type ChargeOutcome, type ChargeRequest, type PaymentEvent, type PaymentEventKind,
   type PaymentProvider, type PaymentRefund, type RefundOutcome, type RefundRequest, type WebhookRequest,
 } from "./provider";
 
@@ -149,6 +149,7 @@ export function verifyStripeSignature(
  */
 function kindOf(type: string): PaymentEventKind {
   if (type === "payment_intent.succeeded") return "succeeded";
+  if (type === "payment_intent.processing") return "processing";
   if (type === "payment_intent.payment_failed") return "failed";
   if (type === "charge.refunded" || type === "refund.created" || type === "refund.updated") {
     return "refunded";
@@ -224,6 +225,20 @@ function feeFrom(object: Record<string, unknown>): number | null {
   return fee ?? (direct === null ? null : direct);
 }
 
+/**
+ * How the customer paid, where the event says so definitely: the charge's
+ * own details, or an intent that only ever allowed one kind. An intent
+ * that offered several says nothing about which was used, and then this is
+ * null rather than a guess.
+ */
+function methodTypeFrom(object: Record<string, unknown>): string | null {
+  const charge = asObject(object["latest_charge"]) ?? (object["object"] === "charge" ? object : null);
+  const details = str(asObject(charge?.["payment_method_details"])?.["type"]);
+  if (details) return details;
+  const allowed = object["payment_method_types"];
+  return Array.isArray(allowed) && allowed.length === 1 ? str(allowed[0]) : null;
+}
+
 function metadataFrom(object: Record<string, unknown>): Record<string, string> {
   const raw = asObject(object["metadata"]);
   if (!raw) return {};
@@ -240,11 +255,21 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
   async function call(
     path: string,
     body: Record<string, unknown>,
-    idempotencyKey: string,
+    idempotencyKey: string | null,
+    method: "POST" | "GET" = "POST",
   ): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
-    const response = await fetch(`${base}${path}`, {
-      method: "POST",
-      headers: {
+    /**
+     * A read carries its parameters in the query and no idempotency key,
+     * because there is nothing to deduplicate: reading a setup twice
+     * changes nothing at Stripe.
+     */
+    const query = method === "GET" && Object.keys(body).length > 0 ? `?${form(body).join("&")}` : "";
+    const response = await fetch(`${base}${path}${query}`, {
+      method,
+      headers: method === "GET" ? {
+        authorization: `Bearer ${secretKey}`,
+        "stripe-version": "2024-06-20",
+      } : {
         authorization: `Bearer ${secretKey}`,
         "content-type": "application/x-www-form-urlencoded",
         /**
@@ -254,10 +279,10 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
          * charged when the first one's response was lost in the network,
          * which is the failure our side cannot see and cannot recover from.
          */
-        "idempotency-key": idempotencyKey,
+        "idempotency-key": idempotencyKey ?? "",
         "stripe-version": "2024-06-20",
       },
-      body: form(body).join("&"),
+      ...(method === "GET" ? {} : { body: form(body).join("&") }),
     });
 
     const text = await response.text();
@@ -297,6 +322,25 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
     publishableKey: settings.publishableKey ?? null,
 
     async charge(request: ChargeRequest): Promise<ChargeOutcome> {
+      /**
+       * A SAVED CARD IS CONFIRMED HERE, on the server, because the customer
+       * is on the page and pressed Pay. Redirects are refused for it: a card
+       * already saved needs no redirect, and a payment method that would
+       * want one cannot be finished from a button that expects an answer.
+       * A bank asking to check the cardholder comes back as
+       * `requires_action`, and the browser finishes that with the client
+       * secret like any other card.
+       */
+      const saved = request.customerRef && request.paymentMethodRef;
+      /**
+       * A SAVED BANK ACCOUNT is debited through ACH, named explicitly rather
+       * than left to automatic payment methods, and carries the customer's
+       * agreement to this debit: they are on the page pressing Pay, and
+       * Stripe keeps where and on what as the mandate. It comes back
+       * `processing`, and stays so until the webhook says it settled.
+       */
+      const bank = saved && request.methodKind === "bank_account";
+      const online = request.acceptance?.ip && request.acceptance.userAgent;
       const { ok, status, json } = await call("/payment_intents", {
         amount: request.amountMinor,
         currency: request.currency.toLowerCase(),
@@ -307,7 +351,22 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
          * method types that has to be kept in step with a dashboard nobody
          * on this side can see.
          */
-        automatic_payment_methods: { enabled: true },
+        ...(bank
+          ? { payment_method_types: ["us_bank_account"] }
+          : { automatic_payment_methods: saved ? { enabled: true, allow_redirects: "never" } : { enabled: true } }),
+        ...(saved ? {
+          customer: request.customerRef,
+          payment_method: request.paymentMethodRef,
+          confirm: true,
+        } : {}),
+        ...(bank && online ? {
+          mandate_data: {
+            customer_acceptance: {
+              type: "online",
+              online: { ip_address: request.acceptance!.ip, user_agent: request.acceptance!.userAgent },
+            },
+          },
+        } : {}),
         description: request.description,
         receipt_email: request.receiptEmail,
         metadata: request.metadata,
@@ -373,6 +432,8 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
       };
     },
 
+    cards: vault(call, failure),
+
     verify(request: WebhookRequest, secret: string): boolean {
       return verifyStripeSignature(request, secret);
     },
@@ -413,7 +474,142 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
         failureMessage:
           str(asObject(object["last_payment_error"])?.["message"])
           ?? str(object["failure_message"]),
+        methodType: methodTypeFrom(object),
       };
+    },
+  };
+}
+
+type Call = (
+  path: string, body: Record<string, unknown>, idempotencyKey: string | null, method?: "POST" | "GET",
+) => Promise<{ ok: boolean; status: number; json: Record<string, unknown> }>;
+
+type Failure = (status: number, json: Record<string, unknown>) =>
+  { ok: false; code: string; message: string; retryable: boolean };
+
+/**
+ * Saving cards, through Stripe's customers and setup intents.
+ *
+ * The browser collects the card with Stripe's own element in setup mode, so
+ * the number never reaches this server; what comes back here is the setup
+ * intent's id, which is then READ from Stripe with the secret key rather
+ * than believed from the browser. The card it names is only recorded when
+ * Stripe says the setup succeeded, for the customer this company made.
+ *
+ * A bank account is saved the same way, verified by the customer signing
+ * in to their bank in Stripe's window, and only when the company has turned
+ * bank payments on (`portal.bankAccounts`), because the money from one
+ * arrives days later and can still fail in between.
+ */
+function vault(call: Call, failure: Failure): CardVault {
+  return {
+    async createCustomer(request) {
+      const { ok, status, json } = await call("/customers", {
+        email: request.email,
+        name: request.name,
+        metadata: request.metadata,
+      }, request.idempotencyKey);
+      if (!ok) return failure(status, json);
+      const customerRef = str(json["id"]);
+      if (!customerRef) {
+        return { ok: false, code: "no_customer_id", message: "Stripe made a customer and returned no id.", retryable: false };
+      }
+      return { ok: true, value: { customerRef } };
+    },
+
+    async startSetup(request) {
+      const bank = request.kind === "bank_account";
+      const { ok, status, json } = await call("/setup_intents", {
+        customer: request.customerRef,
+        payment_method_types: [bank ? "us_bank_account" : "card"],
+        /**
+         * A bank account is verified by the customer signing in to their
+         * bank in Stripe's window (Financial Connections), and by nothing
+         * slower: `instant` refuses micro deposits, which would leave a
+         * customer waiting two days to finish saving it.
+         */
+        ...(bank ? {
+          payment_method_options: {
+            us_bank_account: {
+              verification_method: "instant",
+              financial_connections: { permissions: ["payment_method"] },
+            },
+          },
+        } : {}),
+        /**
+         * On session: the customer will be on the page, pressing Pay, every
+         * time this card is used. Asking for off session use would let the
+         * company charge it with nobody there, which is not what the
+         * customer was told when they saved it.
+         */
+        usage: "on_session",
+        metadata: request.metadata,
+      }, request.idempotencyKey);
+      if (!ok) return failure(status, json);
+      const setupId = str(json["id"]);
+      const clientSecret = str(json["client_secret"]);
+      if (!setupId || !clientSecret) {
+        return { ok: false, code: "no_client_secret", message: "Stripe started a setup and returned nothing to finish it with.", retryable: false };
+      }
+      return { ok: true, value: { setupId, clientSecret } };
+    },
+
+    async readSetup(setupId) {
+      const { ok, status, json } = await call(
+        `/setup_intents/${encodeURIComponent(setupId)}`, { expand: ["payment_method"] }, null, "GET",
+      );
+      if (!ok) return failure(status, json);
+      const method = asObject(json["payment_method"]);
+      const card = asObject(method?.["card"]);
+      const ref = str(method?.["id"]) ?? str(json["payment_method"]);
+      const account = asObject(method?.["us_bank_account"]);
+      if (ref && (method?.["type"] === "us_bank_account" || account)) {
+        return {
+          ok: true,
+          value: {
+            setupId: str(json["id"]) ?? setupId,
+            status: str(json["status"]) ?? "unknown",
+            customerRef: str(json["customer"]),
+            card: null,
+            bankAccount: { ref, bankName: str(account?.["bank_name"]), last4: str(account?.["last4"]) },
+            metadata: metadataFrom(json),
+          },
+        };
+      }
+      return {
+        ok: true,
+        value: {
+          setupId: str(json["id"]) ?? setupId,
+          status: str(json["status"]) ?? "unknown",
+          customerRef: str(json["customer"]),
+          card: ref ? {
+            ref,
+            brand: str(card?.["brand"]),
+            last4: str(card?.["last4"]),
+            expMonth: num(card?.["exp_month"]),
+            expYear: num(card?.["exp_year"]),
+          } : null,
+          metadata: metadataFrom(json),
+        },
+      };
+    },
+
+    async detach(cardRef, idempotencyKey) {
+      const { ok, status, json } = await call(
+        `/payment_methods/${encodeURIComponent(cardRef)}/detach`, {}, idempotencyKey,
+      );
+      /**
+       * Already gone is the state that was asked for. A card the customer
+       * removed in another tab, or that Stripe detached when it expired,
+       * must not leave the row saying it is still saved.
+       */
+      if (!ok) {
+        const refused = failure(status, json);
+        const gone = status === 404 || refused.code === "resource_missing"
+          || refused.code === "payment_method_unexpected_state";
+        if (!gone) return refused;
+      }
+      return { ok: true, value: { detached: true } };
     },
   };
 }

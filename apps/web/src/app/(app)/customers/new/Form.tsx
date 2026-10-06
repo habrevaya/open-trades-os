@@ -1,7 +1,9 @@
 "use client";
 
 import { useKeptAction } from "@/lib/use-kept-action";
+import { LeadSourceSelect, type SourceOption } from "@/components/LeadSourceSelect";
 import { createCustomer } from "../actions";
+import { CustomFieldInputs, type CustomFieldDefinitionView } from "@/components/CustomFieldInputs";
 
 /**
  * A plain form that posts to a server action.
@@ -10,7 +12,15 @@ import { createCustomer } from "../actions";
  * live in one schema on the server, and a second copy here would be a second
  * thing to keep in step for the sake of saving one round trip.
  */
-export function NewCustomerForm() {
+export function NewCustomerForm({
+  sources, sourceRequired, customerFields, propertyFields,
+}: {
+  sources: SourceOption[];
+  sourceRequired: boolean;
+  /** The fields this company added to customers and to addresses, drawn from their definitions. */
+  customerFields: readonly CustomFieldDefinitionView[];
+  propertyFields: readonly CustomFieldDefinitionView[];
+}) {
   const [state, actionForm, pending] = useKeptAction(createCustomer, null);
 
   return (
@@ -37,6 +47,17 @@ export function NewCustomerForm() {
 
       <Field label="Email" name="email" type="email" autoComplete="email" />
 
+      {/*
+        Picked from the company's own channels, never typed: "google", "Google"
+        and "google ads" in a text box are three rows on the report. Left blank,
+        it is filled from a call they already made to a tracking number, marked
+        as worked out rather than chosen.
+      */}
+      <LeadSourceSelect
+        options={sources} required={sourceRequired}
+        help="Leave it if they rang a tracking number: the call already says."
+      />
+
       <fieldset className="space-y-5 rounded-md border border-steel-200 p-4">
         <legend className="px-1 text-sm font-medium">Service address</legend>
         <Field label="Street" name="line1" autoComplete="address-line1" />
@@ -45,7 +66,10 @@ export function NewCustomerForm() {
           <Field label="State" name="state" autoComplete="address-level1" />
           <Field label="ZIP" name="postalCode" autoComplete="postal-code" inputMode="numeric" />
         </div>
+        <CustomFieldInputs definitions={propertyFields} prefix="pcf" legend="About the address" />
       </fieldset>
+
+      <CustomFieldInputs definitions={customerFields} legend="Your fields" />
 
       <div className="flex gap-3">
         <button type="submit" disabled={pending}

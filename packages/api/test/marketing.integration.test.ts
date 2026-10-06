@@ -6,7 +6,7 @@ import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import * as jobs from "../src/services/jobs";
 import { inTenant, ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId, testDb } from "./helpers";
+import { seedOrg, fixtureId, testDb, companyToday } from "./helpers";
 
 /**
  * ATTRIBUTION, WHICH WAS IMPOSSIBLE BECAUSE ONE LINE THREW IT AWAY
@@ -367,7 +367,8 @@ run("what it cost and what came back", () => {
      * lead. Counting touches is the most flattering error available to an ad
      * platform and the one it makes by default.
      */
-    const today = new Date().toISOString().slice(0, 10);
+    /** The company's today: the report counts whole days where the company is. */
+    const today = companyToday();
     for (let i = 0; i < 5; i += 1) {
       await touch({ customerId, query: "?utm_source=facebook&utm_medium=paid_social" });
     }
@@ -382,7 +383,7 @@ run("what it cost and what came back", () => {
   });
 
   it("names spend that booked nothing", async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = companyToday();
     await marketing.recordSpend(owner(), { source: "google_ads", spentOn: today, amount: "900.00" });
 
     const result = await marketing.performance(owner(), { from: today, to: today });

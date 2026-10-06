@@ -429,7 +429,7 @@ export const getServiceRouteDensity = defineRoute({
   path: "/v1/service-routes/{id}/density",
   summary: "Will this day fit",
   description:
-    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. Travel is the figure the operator declared and nothing else, because there is no geocoding here; undeclared, the total is reported as a floor and says so rather than claiming a fifteen stop day fits. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.",
+    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.",
   module: "M09",
   permissions: ["job:read"],
   input: z.object({
@@ -445,10 +445,17 @@ export const getServiceRouteDensity = defineRoute({
     targetStopCount: z.number().int().nullable(),
     overTarget: z.boolean().nullable(),
     serviceMinutes: z.number().int(),
-    /** Null, never zero, when the route has no declared drive time. */
+    /** Null, never zero, when there is no drive time to give: none declared and no road network to ask. */
     travelMinutes: z.number().int().nullable(),
     totalMinutes: z.number().int(),
+    /** True only when the route's own declared drive time was used. */
     travelDeclared: z.boolean(),
+    /** `declared` from the route, `road` from the routing service, `none` when neither. */
+    travelSource: z.enum(["declared", "road", "none"]),
+    /** Whether every leg of the drive is in the total. When false, the total is a floor. */
+    travelComplete: z.boolean(),
+    /** Where the drive came from and what it leaves out, in a sentence. */
+    travelNote: z.string(),
     overtimeAfterMinutes: z.number().int().nullable(),
     dayBasis: z.enum(["overtime_policy", "business_hours", "unknown"]),
     minutesOverThreshold: z.number().int().nullable(),
@@ -527,6 +534,31 @@ export const scheduleOnCall = defineRoute({
   }),
 });
 
+export const fillOnCallWeeks = defineRoute({
+  method: "post",
+  path: "/v1/on-call/weeks",
+  summary: "Fill the on call rota a week at a time",
+  description:
+    "The people listed take a week each, in turn, from firstDay, the phone changing hands at handoverAt on the company's own clock every week, including the weeks the clocks change. Every week goes through the same overlap refusal a single shift does, all in one go, so a rota that collides with somebody already on adds nothing at all and the refusal names the week. A handover at a time the clocks skip is refused.",
+  module: "M09",
+  permissions: ["visit:dispatch"],
+  idempotent: true,
+  input: z.object({
+    technicianIds: z.array(Uuid).min(1).max(20),
+    /** The first handover day, YYYY-MM-DD, in the company's zone. */
+    firstDay: z.string().date(),
+    /** The time of day the phone changes hands, as HH:MM. */
+    handoverAt: z.string().regex(/^\d{1,2}:\d{2}$/),
+    weeks: z.number().int().min(1).max(52),
+    businessUnitId: Uuid.nullable().optional(),
+  }),
+  output: z.object({
+    shifts: z.array(z.object({
+      id: Uuid, technicianId: Uuid, startsAt: z.string().datetime(), endsAt: z.string().datetime(),
+    })),
+  }),
+});
+
 export const handOverOnCall = defineRoute({
   method: "post",
   path: "/v1/on-call/handover",
@@ -555,5 +587,5 @@ export const crewRoutes = {
   listServiceRoutes, createServiceRoute, listServiceRouteStops,
   addServiceRouteStop, reorderServiceRouteStops, setServiceRouteStopActive,
   recordServiceRouteStopServiced, materialiseServiceRoute, getServiceRouteDensity,
-  getOnCallNow, listOnCallRotations, scheduleOnCall, handOverOnCall,
+  getOnCallNow, listOnCallRotations, scheduleOnCall, fillOnCallWeeks, handOverOnCall,
 } as const;

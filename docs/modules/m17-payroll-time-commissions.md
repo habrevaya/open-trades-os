@@ -112,7 +112,37 @@ because stating what people are owed is a different act from paying them.
 `GET /v1/timeclock/me` is somebody's own clock, with `timeclock:own`.
 `GET /v1/timesheets/week` and `GET /v1/timesheets/entries` are the week, with
 `timesheet:read`, and `POST /v1/timesheets/approvals` approves it, with
-`timesheet:approve`. `/timesheets` is the screen.
+`timesheet:approve`. `/timesheets` is the screen. Timesheets are scoped by the
+person they belong to: a branch scoped reader sees and approves the people in
+their branch, including an hour one of them spent on another branch's job, and
+a crew lead their crew.
+
+### A person's own pay
+
+`/me/pay` is the signed in person's own statement for each period payroll has
+closed (`GET /v1/me/pay-statements`, `payroll:own`): their lines exactly as the
+register and the export carried them, worked out at the moment the period
+closed, and the commission behind the commission lines, invoice by invoice,
+with whether it has been paid. Open periods are left off, because a figure
+read on Tuesday that has moved by Friday is a dispute rather than a statement.
+A year of periods at most. The call takes no person; it is whoever is signed
+in.
+
+### Time off
+
+A technician asks for days off on `/me/time-off` (`POST /v1/time-off`, with
+`timeclock:own`), and sees each request's answer there. Whoever approves the
+hours answers on `/timesheets/time-off` (`GET /v1/time-off/pending`,
+`POST /v1/time-off/{id}/approve`, `POST /v1/time-off/{id}/decline`, all
+`timesheet:approve`), which also lists the leave already granted that is still
+to come (`GET /v1/time-off/upcoming`, `timesheet:read`). Approved leave is what
+the board, the crew check and the booking page read; a request changes nothing
+for anybody until it is approved. A request is asked again with the same key
+and gets its first answer rather than a refusal that it overlaps itself.
+
+Both lists, and approving and declining, are for the people the approver's
+timesheet scope reaches: a branch manager given `timesheet:approve` answers
+their own branch's people, and another branch's request is not found.
 
 ### Run payroll
 
@@ -133,6 +163,56 @@ write. `POST /v1/commissions` settles an earning,
 `POST /v1/payroll/commission-payments` records them as paid, which is a payroll
 act and takes `payroll:export`. `/payroll/commissions` is the screen.
 
+### Tips
+
+A tip a customer adds when paying an invoice from the portal (M05, M13) is
+split evenly between the technicians on the job's visits and arrives owed to
+them. Each share is its own line on that technician's register and export,
+`tip` in the pay category column, in the period the payment arrived in, and a
+technician who was tipped and not on the clock that period is still on the
+register. A commission reversal is never taken out of a tip: it is measured
+against wages, carried forward when wages cannot take it, and the tips are
+added whole afterwards, because a tip is the technician's money and an
+employer keeping part of one is what US federal law forbids. A tip arriving
+inside a period after it closed moves the period's fingerprint, so the export
+refuses until it is reopened and closed again.
+
+A tip taken with cash or a check on site (M11) is the same: held, split and
+paid through payroll. A cash tip a customer hands the technician for
+themselves, which they keep, is different: it never reaches the company and
+nothing about it is booked, but it is still pay that has to be reported, so
+the technician records it on the phone and it is a `cash_tip` line on their
+register and export, in the gross, said to be already in their hand. The
+bureau reading that category withholds on it and pays none of it out, and
+paying tips through payroll leaves it alone.
+
+`POST /v1/payroll/tip-payments` records the tips as passed on, from a closed
+period, everything owed up to its end; it debits Tips payable against cash and
+marks each share with the period that paid it, so running it twice pays nothing
+twice. **Record tips as paid** on `/payroll/{id}` is the same thing.
+
+### Declare overtime and wage scales
+
+`/payroll/pay-rules` is the screen: the overtime rule in use and the ones it
+replaced, every wage scale with its dates, and who is paid at which classification
+with the people whose time would cost nothing named. Reading it takes
+`timesheet:read` and changing anything `payroll:configure`.
+
+`GET /v1/payroll/overtime-policies` lists the policies and
+`POST /v1/payroll/overtime-policies` declares a new one, which replaces the old one
+and says when it reclassifies weeks already approved.
+`GET /v1/payroll/wage-scales` lists the scales and `POST /v1/payroll/wage-scales`
+loads one. `POST /v1/payroll/wage-scales/{id}/revisions` changes a rate from a date:
+the old scale is closed the day before and a new one opened from that day with
+everything else it said, in one step, so time worked before keeps its rate. A change
+dated on or before the day the scale began is refused, because that scale was wrong
+rather than changed: `POST /v1/payroll/wage-scales/{id}/retire` stops it on a date
+and the right one is loaded. Nothing is deleted.
+`GET /v1/payroll/crew-rates` says who costs what today and
+`POST /v1/payroll/classifications` sets a person's classification. Loading,
+changing and declaring answer a retried request with the first answer rather than
+writing a second row.
+
 ## Permissions
 
 | Role | Access |
@@ -141,7 +221,8 @@ act and takes `payroll:export`. `/payroll/commissions` is the screen.
 | Administrator | Nothing in payroll unless it is granted explicitly |
 | Office manager | Reads timesheets |
 | Dispatcher | Reads timesheets |
-| Technician | Clocks in and out. Their own time only |
+| Technician | Clocks in and out. Their own time only, and their own pay statements for closed periods |
+| Branch manager | Reads their branch's people's timesheets and time off; approving them is granted by name |
 | Accountant | Reads payroll, runs the export, reads commission |
 
 `payroll:read` and `commission:read` are both on the sensitive list, and the
@@ -162,6 +243,18 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/commissions` | `commission:read` |
 | `POST /v1/commissions/plans` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
+| `POST /v1/payroll/tip-payments` | `payroll:export` |
+| `GET /v1/payroll/overtime-policies` | `timesheet:read` |
+| `POST /v1/payroll/overtime-policies` | `payroll:configure` |
+| `GET /v1/payroll/wage-scales` | `timesheet:read` |
+| `POST /v1/payroll/wage-scales` | `payroll:configure` |
+| `POST /v1/payroll/wage-scales/{id}/revisions` | `payroll:configure` |
+| `POST /v1/payroll/wage-scales/{id}/retire` | `payroll:configure` |
+| `GET /v1/payroll/crew-rates` | `timesheet:read` |
+| `POST /v1/payroll/classifications` | `payroll:configure` |
+| `GET /v1/me/pay-statements` | `payroll:own` |
+| `GET /v1/time-off/pending` | `timesheet:approve` |
+| `GET /v1/time-off/upcoming` | `timesheet:read` |
 
 ## Common questions
 
@@ -169,9 +262,11 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 would differ from the file already sent, with nothing saying so. Reopen the
 period, close it again, and export.
 
-**Can a technician see their own pay rate?** Only with `payroll:read`, which the
-technician preset does not hold. The applied rates on a punch are redacted by the
-same permission.
+**Can a technician see their own pay rate?** On their own statement for a closed
+period, yes: `payroll:own`, which every preset holds, shows them the rate their
+hours were paid at. Anybody else's, and the rates on a punch while a period is
+open, need `payroll:read`, which the technician preset does not hold. A company
+that shows pay through its payroll bureau's own portal revokes `payroll:own`.
 
 **Why is there one commission permission for declaring a plan and settling an
 earning?** Declaring and settling are different acts and a larger product would
@@ -180,8 +275,17 @@ could hold, which is worse than a coarse one.
 
 ## What is not built
 
-No payroll processing, by design. There is no screen for wage scales or the
-overtime policy, so both are declared through the API. Tips, reimbursements and
-per diem are not modelled. Certified payroll reporting is not built. Commission
+No payroll processing, by design. A wage scale's own overtime multipliers and
+apprentice ratio are taken by the API and not offered on the pay rules screen,
+which loads a scale's classification, rates, authority, reference, jurisdiction
+and start date; and a scale cannot be corrected in place: a wrong one is retired and the right one
+loaded. Tips given through the portal or with a payment on site are paid through
+payroll; a cash tip a technician kept is recorded only by the technician, on
+the phone or on `/my-day`, and nobody in the office can record or change one
+for them. A tip is split evenly with no way to split it otherwise. Reimbursements and per diem
+are not modelled. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
-time rather than from a screen.
+time rather than from a screen. A person's own statement is gross pay: what the
+bureau withheld is on the bureau's statement, and this product never knows it.
+Time off is asked for in whole days on a screen; part of a day is asked for
+through the API.

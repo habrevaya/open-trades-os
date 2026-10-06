@@ -2,7 +2,7 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useEffect, useRef } from "react";
-import { close, declare, exportCsv, payOut, reopen, type ExportState, type PayrollState } from "./actions";
+import { close, declare, exportCsv, payOut, payOutTips, reopen, type ExportState, type PayrollState } from "./actions";
 
 const input = "h-9 rounded border border-steel-300 px-2 text-sm";
 const button = "inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100 disabled:opacity-60";
@@ -67,6 +67,24 @@ export function PayCommissions({ periodId }: { periodId: string }) {
       <input type="hidden" name="periodId" value={periodId} />
       <button type="submit" disabled={pending} className={button}>
         {pending ? "Recording" : "Record commissions as paid"}
+      </button>
+      <Said state={state} />
+    </form>
+  );
+}
+
+/**
+ * Tips customers added when they paid, passed on to the technicians. The
+ * register above shows each one on the person's lines; this records that
+ * the money went to them.
+ */
+export function PayTips({ periodId }: { periodId: string }) {
+  const [state, actionForm, pending] = useKeptAction(payOutTips, null);
+  return (
+    <form {...actionForm}>
+      <input type="hidden" name="periodId" value={periodId} />
+      <button type="submit" disabled={pending} className={button}>
+        {pending ? "Recording" : "Record tips as paid"}
       </button>
       <Said state={state} />
     </form>

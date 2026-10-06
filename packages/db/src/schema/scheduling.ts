@@ -275,6 +275,29 @@ export const rental = pgTable("rental", {
   /** What the quoted price covers, so the two meters have something to measure against. */
   includedTons: money("included_tons"),
   perTonRate: money("per_ton_rate"),
+  /**
+   * The stop that will collect it, once the collection scheduler has put one
+   * on the board. Read before scheduling, so running the scheduler twice puts
+   * one collection on the route rather than two. No foreign key, because
+   * `visit` is declared in a file that imports this one; the service writes it
+   * from the visit it has just created.
+   */
+  collectionVisitId: uuid("collection_visit_id"),
+  /**
+   * When the customer agreed the collection should happen, when they agreed
+   * one: the start and end of the window, as instants. It beats the day the
+   * price runs out, early or late, and the collection is booked into it by
+   * the worker or by a person. Null is no agreement: the collection goes on
+   * the day the price covers to, in the working day.
+   */
+  collectionAgreedStart: timestamp("collection_agreed_start", { withTimezone: true }),
+  collectionAgreedEnd: timestamp("collection_agreed_end", { withTimezone: true }),
+  /**
+   * The invoice this hire's period and meters were billed on. Set by raising
+   * it, and read before raising another, so the same extra days cannot reach
+   * two invoices. No foreign key, for the same reason as the stop above.
+   */
+  invoiceId: uuid("invoice_id"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

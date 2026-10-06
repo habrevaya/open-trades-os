@@ -80,6 +80,39 @@ export const EVENTS = {
     emitted: true,
   },
 
+  /**
+   * WHAT CHANGED ON SOMEBODY'S DAY, one event per kind of change.
+   *
+   * Emitted beside the write by every path that moves a visit onto, off or
+   * around a technician's day: the board, booking a job with people on it,
+   * adding a visit, cancelling a job, and the office answering a customer's
+   * request to move or cancel. The worker reads them to push a notice to the
+   * technician's phone, and the payload names the technicians each one is
+   * about (`technicianIds`), because who needs telling is decided at the
+   * moment of the change and not reconstructed later from whoever is on the
+   * visit by then.
+   */
+  "visit.assigned": {
+    summary: "A visit was put on a technician's day",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.unassigned": {
+    summary: "A visit was taken off a technician's day",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.rescheduled": {
+    summary: "A visit moved to a different time",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.cancelled": {
+    summary: "A visit was cancelled",
+    entity: "visit",
+    emitted: true,
+  },
+
   /* ----------------------------------------------------------------- money */
 
   "invoice.issued": { summary: "An invoice was raised", entity: "invoice", emitted: true },
@@ -109,6 +142,13 @@ export const EVENTS = {
   "agreement.visit_unskipped": {
     summary: "A member changed their mind about a skipped visit", entity: "agreement", emitted: true,
   },
+  "agreement.renewed": {
+    summary: "An agreement started a new term", entity: "agreement", emitted: true,
+  },
+  "agreement.renewal_noticed": {
+    summary: "The notice a plan owes before its renewal was sent, or could not be",
+    entity: "agreement", emitted: true,
+  },
 
   /* ------------------------------------------------------------- customers */
 
@@ -117,9 +157,78 @@ export const EVENTS = {
     entity: "booking_request",
     emitted: true,
   },
+  "visit.change_requested": {
+    summary: "A customer asked to move or cancel a visit from their link",
+    entity: "visit_change_request",
+    emitted: true,
+  },
+  /**
+   * The estimate's link was issued to the customer. Emitted by sending, which
+   * is the moment the clock on "they have not answered" starts, and which a
+   * follow up waits from.
+   */
+  "estimate.sent": {
+    summary: "An estimate went to the customer",
+    entity: "estimate",
+    emitted: true,
+  },
+  /**
+   * A decision, from the customer's own link or recorded by the office
+   * (`capturedVia` says which and how). Not emitted for an outcome loaded
+   * from another system's history, so a migration starts no automation.
+   */
+  "estimate.approved": {
+    summary: "A customer approved an estimate",
+    entity: "estimate",
+    emitted: true,
+  },
+  "estimate.declined": {
+    summary: "A customer declined an estimate",
+    entity: "estimate",
+    emitted: true,
+  },
+  /**
+   * A text, a picture message or a reply to an email. The channel rides on
+   * the payload, so a workflow that texts back can leave an email alone. An
+   * automatic reply (an out of office) is stored and does not emit this, so
+   * two autoresponders never answer each other all weekend.
+   */
   "message.received": {
-    summary: "A customer texted in",
+    summary: "A customer texted or emailed in",
     entity: "conversation",
+    emitted: true,
+  },
+  /**
+   * Somebody rang and nobody at the company picked up: no answer, busy, a
+   * forward that failed, or a voicemail. Emitted by both ways a call reaches
+   * this product, the company's own tracking numbers and a call tracking
+   * provider's webhook, once per call and only for an inbound one. The
+   * caller's number rides on the payload as `from`, because most missed
+   * callers are not customers yet and a step that waited for a customer
+   * record would never text them back.
+   */
+  "call.missed": {
+    summary: "A call came in and nobody answered it",
+    entity: "call",
+    emitted: true,
+  },
+  /**
+   * A recording was kept for a call the recording check allowed. Emitted
+   * when the audio is stored here, not when the call ends, because a
+   * recording the check refused is never kept and never announced.
+   */
+  "call.recorded": {
+    summary: "A call's recording was kept",
+    entity: "call",
+    emitted: true,
+  },
+  /**
+   * The words of a call's recording or voicemail were written down, redacted.
+   * The transcript is on the call; the payload says which audio it was of.
+   */
+  "call.transcribed": {
+    summary: "A call's recording or voicemail was written out",
+    entity: "call",
     emitted: true,
   },
 
@@ -155,6 +264,37 @@ export const EVENTS = {
     summary: "A job has been sitting in one status", entity: "job",
     emitted: true, subscribable: false,
   },
+  /**
+   * The one sweep event about something ABOUT to happen rather than something
+   * that did not: a unit's next warranty date coming inside the window the
+   * automation names. Carries the unit and the date, so a task can name both.
+   */
+  "equipment.warranty_lapsing": {
+    summary: "A unit's warranty is about to run out", entity: "equipment",
+    emitted: true, subscribable: false,
+  },
+
+  /* ------------------------------------------- the company's own records */
+
+  /**
+   * A permit, a warranty registration, a truck inspection: one of the kinds
+   * of record a company defines for itself (M29). One pair of events for
+   * every kind rather than a name per kind, because the kinds are the
+   * company's and this catalogue is the product's; the payload says which
+   * kind (`record.type`, its key) and carries every value (`record.fields`),
+   * so "when a permit's status becomes approved" is a condition on
+   * `record.type` and `record.fields.status`.
+   */
+  "record.created": {
+    summary: "One of the company's own records was added, like a permit",
+    entity: "custom_object_record",
+    emitted: true,
+  },
+  "record.updated": {
+    summary: "One of the company's own records changed",
+    entity: "custom_object_record",
+    emitted: true,
+  },
 
   /* ----------------------------------------------------- not yet emitted */
 
@@ -163,24 +303,6 @@ export const EVENTS = {
     entity: "visit",
     emitted: false,
     owedBy: "M09. Dispatch writes the visit and emits nothing.",
-  },
-  "estimate.sent": {
-    summary: "An estimate went to the customer",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07 records the delivery without emitting.",
-  },
-  "estimate.approved": {
-    summary: "A customer approved an estimate",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07. The portal records the signature; nothing emits.",
-  },
-  "estimate.declined": {
-    summary: "A customer declined an estimate",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07.",
   },
   "invoice.sent": {
     summary: "An invoice was delivered to the customer",

@@ -114,6 +114,14 @@ export const project = pgTable("project", {
    * technician's phone.
    */
   budgetCost: money("budget_cost"),
+  /**
+   * THE RETAINAGE THE CUSTOMER HOLDS BACK, as a fraction: 0.1 for ten per
+   * cent. What a new application for payment starts from, and nothing more:
+   * each application keeps its own rate, because lowering retainage at the
+   * halfway point is a release and the earlier applications have to keep
+   * saying what they said. Null means none is held.
+   */
+  retainageRate: rate("retainage_rate"),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("project_org_idx").on(t.organizationId, t.status),
@@ -251,4 +259,234 @@ export const projectJob = pgTable("project_job", {
   jobIdx: uniqueIndex("project_job_job_idx").on(t.jobId),
   projectIdx: index("project_job_project_idx").on(t.organizationId, t.projectId),
   phaseIdx: index("project_job_phase_idx").on(t.projectPhaseId),
+}));
+
+/**
+ * A CHANGE ORDER: WORK NOBODY PRICED AT THE START, AGREED IN WRITING.
+ *
+ * It used to be a contract revision: somebody typed a bigger number into the
+ * contract value, and the history of what was agreed, when, by whom and for
+ * how much lived in the audit log, if anywhere. On a fit out that is the
+ * whole argument at the end of the job. "We never agreed to the extra
+ * circuits" is answered by a signed page or it is not answered.
+ *
+ * So a change order is a document with its own life:
+ *
+ *   requested   somebody asked for it, nothing is priced
+ *   priced      it has lines, from the price book, a rate card or by hand
+ *   sent        the customer has a link to approve it and sign
+ *   approved    signed, and folded into the contract and the budget
+ *   declined    the customer said no, which is kept
+ *   void        withdrawn before anybody agreed to it
+ *
+ * APPROVING IT IS WHAT CHANGES THE CONTRACT, and nothing else does. The
+ * amount goes onto the contract value and the phase it names, and the cost
+ * onto the budget, in the same transaction as the signature, so a contract
+ * value that has moved always has a signed change order under it. The
+ * contract before and after are stamped on the row, which is what the
+ * change order log prints.
+ */
+export const changeOrderStatus = pgEnum("project_change_order_status", [
+  "requested", "priced", "sent", "approved", "declined", "void",
+]);
+
+export const projectChangeOrder = pgTable("project_change_order", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => project.id, { onDelete: "cascade" }),
+  /** "Change order 3". Per project, in the order they were raised. */
+  number: integer("number").notNull(),
+  title: text("title").notNull(),
+  /** What the work is, for the customer reading the page they sign. */
+  description: text("description"),
+  /** Who asked for it: the customer, the architect, an inspector, us. */
+  requestedBy: text("requested_by"),
+  /** Why, in a sentence. A hidden pipe behind the wall. */
+  reason: text("reason"),
+  status: changeOrderStatus("status").notNull().default("requested"),
+  /**
+   * The phase the work lands on, so the schedule of values keeps adding up
+   * to the contract. Null for work that is its own line on the schedule.
+   */
+  projectPhaseId: uuid("project_phase_id").references(() => projectPhase.id, { onDelete: "set null" }),
+  /** Days the change adds to the programme, or takes off when negative. Printed, not applied. */
+  scheduleDays: integer("schedule_days"),
+  /** The lines added up, rounded line by line. Negative for a credit. */
+  amount: money("amount").notNull().default("0"),
+  /** Our cost of the lines. Null when a line has no cost, which is unknown rather than zero. */
+  cost: money("cost"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  /** SHA-256 of the document as sent, which the signature is checked against. */
+  documentHash: text("document_hash"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** portal when the customer signed through the link, office when somebody recorded it. */
+  decidedVia: text("decided_via"),
+  signerName: text("signer_name"),
+  declineReason: text("decline_reason"),
+  /** The contract value either side of agreeing it. What the log prints. */
+  contractValueBefore: money("contract_value_before"),
+  contractValueAfter: money("contract_value_after"),
+  voidReason: text("void_reason"),
+  ...timestamps,
+}, (t) => ({
+  /** One change order 3 per project, for the reason the phase index gives. */
+  numberIdx: uniqueIndex("project_change_order_number_idx").on(t.projectId, t.number),
+  projectIdx: index("project_change_order_project_idx").on(t.organizationId, t.projectId, t.status),
+}));
+
+/**
+ * One line of a change order, PRICED WHEN IT WAS WRITTEN.
+ *
+ * The price is frozen on the line, with where it came from: the price book
+ * version in force, the customer's rate card, or typed. A change order the
+ * customer signed in March says what it said in March, whatever the price
+ * book says in May.
+ */
+export const projectChangeOrderLine = pgTable("project_change_order_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  changeOrderId: uuid("change_order_id").notNull().references(() => projectChangeOrder.id, { onDelete: "cascade" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  priceBookItemId: uuid("price_book_item_id"),
+  priceBookItemVersionId: uuid("price_book_item_version_id"),
+  rateCardId: uuid("rate_card_id"),
+  /** price_book, rate_card or manual. */
+  priceSource: text("price_source").notNull().default("manual"),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** Signed: a credit for work taken out is a negative quantity. */
+  quantity: money("quantity").notNull().default("1"),
+  unitPrice: money("unit_price").notNull(),
+  unitCost: money("unit_cost"),
+  lineTotal: money("line_total").notNull(),
+  ...timestamps,
+}, (t) => ({
+  orderIdx: index("project_change_order_line_order_idx").on(t.changeOrderId, t.sortOrder),
+}));
+
+/**
+ * AN APPLICATION FOR PAYMENT: ONE PERIOD'S PROGRESS BILLING.
+ *
+ * The formal version of a draw. Where a draw is "thirty per cent of the rough
+ * in", an application states the whole position every period: each line of
+ * the schedule of values with what was done before, what was done this
+ * period, what materials are stored on site, how much retainage the customer
+ * is holding, and what is due now. It is the document a general contractor,
+ * an owner's representative or a lender certifies before paying, in the
+ * shape they all expect: a summary page and a continuation sheet.
+ *
+ * A PROJECT BILLS BY DRAWS OR BY APPLICATIONS, NOT BOTH. Two ways of billing
+ * the same work is how the same work gets billed twice, and the service
+ * refuses the second kind on a project that has the first.
+ *
+ * A DRAFT IS LIVE AND AN INVOICED ONE IS FROZEN. While it is a draft its
+ * lines follow the schedule of values (an approved change order appears on
+ * it); once it is invoiced every total is stamped on the row, because the
+ * next application reads its previous certificates from these columns and
+ * not from a recomputation that could drift.
+ */
+export const applicationStatus = pgEnum("project_application_status", ["draft", "invoiced"]);
+
+export const projectApplication = pgTable("project_application", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => project.id, { onDelete: "cascade" }),
+  /** Application 1, 2, 3, in order. */
+  number: integer("number").notNull(),
+  periodFrom: date("period_from"),
+  periodTo: date("period_to").notNull(),
+  status: applicationStatus("status").notNull().default("draft"),
+  /** Held on completed work, as a fraction. */
+  retainageRate: rate("retainage_rate").notNull().default("0"),
+  /** Held on materials stored and not yet installed, as a fraction. */
+  storedRetainageRate: rate("stored_retainage_rate").notNull().default("0"),
+  /** Retainage released on this application. */
+  retainageReleased: money("retainage_released").notNull().default("0"),
+  notes: text("notes"),
+  /* The summary, stamped when it is invoiced. Null on a draft. */
+  contractSum: money("contract_sum"),
+  netChangeOrders: money("net_change_orders"),
+  totalCompletedAndStored: money("total_completed_and_stored"),
+  totalRetainage: money("total_retainage"),
+  totalEarnedLessRetainage: money("total_earned_less_retainage"),
+  previousCertificates: money("previous_certificates"),
+  currentPaymentDue: money("current_payment_due"),
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
+  invoicedAt: timestamp("invoiced_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  numberIdx: uniqueIndex("project_application_number_idx").on(t.projectId, t.number),
+  projectIdx: index("project_application_project_idx").on(t.organizationId, t.projectId),
+}));
+
+/**
+ * One line of the continuation sheet: a phase, or an agreed change order of
+ * its own. Previous figures are copied from the last invoiced application
+ * when the line is made, so this application can be printed without reading
+ * the last one, and the last one can never be changed by reading this.
+ */
+export const projectApplicationLine = pgTable("project_application_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  applicationId: uuid("application_id").notNull().references(() => projectApplication.id, { onDelete: "cascade" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  projectPhaseId: uuid("project_phase_id").references(() => projectPhase.id, { onDelete: "set null" }),
+  changeOrderId: uuid("change_order_id").references(() => projectChangeOrder.id, { onDelete: "set null" }),
+  description: text("description").notNull(),
+  scheduledValue: money("scheduled_value").notNull(),
+  previousWork: money("previous_work").notNull().default("0"),
+  previousStored: money("previous_stored").notNull().default("0"),
+  workThisPeriod: money("work_this_period").notNull().default("0"),
+  storedNow: money("stored_now").notNull().default("0"),
+  ...timestamps,
+}, (t) => ({
+  applicationIdx: index("project_application_line_application_idx").on(t.applicationId, t.sortOrder),
+}));
+
+/**
+ * NOTICES AND WAIVERS: THE PAPER THAT DECIDES WHETHER SOMEBODY GETS PAID.
+ *
+ * A preliminary notice sent to an owner, a notice received from a supplier,
+ * a conditional waiver handed over with an invoice, an unconditional one once
+ * the money cleared, a final one at the end. Each is a document with a date,
+ * a party, an amount and the payment it is against, and a contractor who
+ * cannot find one when a lien is threatened has a problem nobody can fix in
+ * the time there is.
+ *
+ * RECORDS, NEVER RULES. Which notices a state requires, by when, in what
+ * form, and when a waiver takes effect differ by state and change, and the
+ * consequences of getting them wrong are somebody's right to be paid. This
+ * table holds what was sent and received; it does not know what should have
+ * been, and nothing in this product claims to. BUILD.md says the same.
+ */
+export const lienRecordKind = pgEnum("project_lien_record_kind", ["notice", "waiver"]);
+export const lienRecordDirection = pgEnum("project_lien_record_direction", ["sent", "received"]);
+export const waiverCondition = pgEnum("project_waiver_condition", ["conditional", "unconditional"]);
+export const waiverScope = pgEnum("project_waiver_scope", ["progress", "final"]);
+
+export const projectLienRecord = pgTable("project_lien_record", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => project.id, { onDelete: "cascade" }),
+  kind: lienRecordKind("kind").notNull(),
+  direction: lienRecordDirection("direction").notNull(),
+  /** Waivers only. */
+  condition: waiverCondition("condition"),
+  scope: waiverScope("scope"),
+  /** What the document calls itself. "Preliminary notice", "Conditional waiver on progress payment". */
+  title: text("title").notNull(),
+  /** Who it went to or came from. */
+  partyName: text("party_name").notNull(),
+  /** The day it was sent, received or signed. */
+  onDate: date("on_date").notNull(),
+  /** A waiver covers work through this date. */
+  throughDate: date("through_date"),
+  amount: money("amount"),
+  /** The payment it is against: a raised draw's or an application's invoice. */
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  ...timestamps,
+}, (t) => ({
+  projectIdx: index("project_lien_record_project_idx").on(t.organizationId, t.projectId, t.onDate),
+  invoiceIdx: index("project_lien_record_invoice_idx").on(t.invoiceId),
 }));

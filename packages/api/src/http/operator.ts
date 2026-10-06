@@ -6,6 +6,7 @@ import { knownZone } from "../services/organizations";
 import { publicBaseUrl } from "../services/setup-tokens";
 import { presentsToken } from "./bearer";
 import { problem, json, errorResponse } from "./problem";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * THE OPERATOR API, OVER HTTP
@@ -185,7 +186,7 @@ export async function handleOperator(
          * address to put in the owner's link is a company whose owner cannot
          * get in, and the operator would have nothing to send them.
          */
-        const baseUrl = deps.publicUrl?.replace(/\/+$/, "") || publicBaseUrl();
+        const baseUrl = trimTrailingSlashes(deps.publicUrl ?? "") || publicBaseUrl();
         if (!baseUrl) {
           return problem(503, "PUBLIC_URL is not set, so there is nowhere to send the owner");
         }

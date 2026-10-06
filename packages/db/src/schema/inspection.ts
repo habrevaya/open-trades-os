@@ -51,8 +51,9 @@ export const inspectionProgram = pgTable("inspection_program", {
   reportAudience: text("report_audience").notNull().default("customer"),
   authorityName: text("authority_name"),
   frequencyMonths: integer("frequency_months"),
-  /** Ordered checkpoints, shipped with the pack and versioned with it. */
   /**
+   * Ordered checkpoints, shipped with the pack and versioned with it.
+   *
    * Severity mirrors the deficiency_severity enum, advisory included. The
    * first version of this type omitted advisory and a trade pack using it
    * failed to compile, which is the type system doing its job: a checkpoint
@@ -64,12 +65,19 @@ export const inspectionProgram = pgTable("inspection_program", {
    * exactOptionalPropertyTypes, and a pack author writing `{ key, label }` is
    * the normal case.
    */
-  checkpoints: jsonb("checkpoints").$type<Array<{
-    key: string;
-    label: string;
-    assetCategory?: string | undefined;
-    requiresReading?: boolean | undefined;
-    unit?: string | undefined;
+  checkpoints: jsonb("checkpoints").$type<InspectionCheckpoint[]>().notNull().default([]),
+  version: integer("version").notNull().default(1),
+  active: boolean("active").notNull().default(true),
+  ...timestamps,
+}, (t) => ({ orgIdx: index("inspection_program_org_idx").on(t.organizationId) }));
+
+/** One checkpoint, as a trade pack declares it. Ordered, shipped with the pack and versioned with it. */
+export type InspectionCheckpoint = {
+  key: string;
+  label: string;
+  assetCategory?: string | undefined;
+  requiresReading?: boolean | undefined;
+  unit?: string | undefined;
   /**
    * A reading has to be judgeable against something.
    *
@@ -80,31 +88,27 @@ export const inspectionProgram = pgTable("inspection_program", {
    * no trade pack could ever ship a judgeable reading, and the refusal was
    * unreachable because nothing called the validator.
    */
-    range?: { min: number | null; max: number | null; borderlineWithin?: number | undefined } | undefined;
-    /**
-     * What this failure suggests selling, declared on the CHECKPOINT.
-     *
-     * Core has carried a `Remedy` type since it was written and the
-     * checkpoint shape had nowhere to put one, so every finding came out of
-     * the proposal builder as `unmapped`: real, shown, and with no work
-     * behind it. A backlog where nothing can ever be quoted is a backlog
-     * that turns into a list somebody stops reading.
-     *
-     * A key into the contractor's own price book and never a price. The
-     * mapping from "the backflow preventer failed" to "which part number we
-     * sell for that" is a decision each contractor makes differently and has
-     * to be able to see and argue with.
-     */
-    remedies?: Array<{
-      priceBookItemKey: string; label: string; quantity: number; rationale: string;
-    }> | undefined;
-    failIsDeficiency?: boolean | undefined;
-    severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
-  }>>().notNull().default([]),
-  version: integer("version").notNull().default(1),
-  active: boolean("active").notNull().default(true),
-  ...timestamps,
-}, (t) => ({ orgIdx: index("inspection_program_org_idx").on(t.organizationId) }));
+  range?: { min: number | null; max: number | null; borderlineWithin?: number | undefined } | undefined;
+  /**
+   * What this failure suggests selling, declared on the CHECKPOINT.
+   *
+   * Core has carried a `Remedy` type since it was written and the
+   * checkpoint shape had nowhere to put one, so every finding came out of
+   * the proposal builder as `unmapped`: real, shown, and with no work
+   * behind it. A backlog where nothing can ever be quoted is a backlog
+   * that turns into a list somebody stops reading.
+   *
+   * A key into the contractor's own price book and never a price. The
+   * mapping from "the backflow preventer failed" to "which part number we
+   * sell for that" is a decision each contractor makes differently and has
+   * to be able to see and argue with.
+   */
+  remedies?: Array<{
+    priceBookItemKey: string; label: string; quantity: number; rationale: string;
+  }> | undefined;
+  failIsDeficiency?: boolean | undefined;
+  severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
+};
 
 export const inspection = pgTable("inspection", {
   id: pk(),
@@ -130,6 +134,41 @@ export const inspection = pgTable("inspection", {
   submissionRejectedAt: timestamp("submission_rejected_at", { withTimezone: true }),
   submissionRejectionReason: text("submission_rejection_reason"),
   reportUrl: text("report_url"),
+  /**
+   * THE CHECKPOINTS AS THEY WERE ASKED, frozen onto the inspection.
+   *
+   * The programme version is stamped above, and revising a programme writes
+   * the new checkpoints over the old ones on the same row, so the version
+   * number alone pointed at a list that no longer existed. A report rendered
+   * a year later from the programme as it is now would print prompts and
+   * ranges the technician was never shown, against answers to the old ones.
+   * The report is rendered from this copy. Null on inspections recorded
+   * before it was kept.
+   */
+  checkpoints: jsonb("checkpoints").$type<InspectionCheckpoint[] | null>(),
+  /**
+   * WHAT THE TECHNICIAN ANSWERED, item by item, with who and when.
+   *
+   * The deficiencies kept only the failures, so an inspection that passed
+   * had nothing behind it but the word pass: no readings, no notes, nothing
+   * a fire marshal's form asks for. A statutory report is mostly the items
+   * that passed, with their readings.
+   */
+  answers: jsonb("answers").$type<Array<{
+    itemKey: string;
+    value: Record<string, unknown> & { kind: string };
+    at: string;
+    by: string;
+    note?: string | undefined;
+    photoIds?: string[] | undefined;
+    equipmentId?: string | undefined;
+  }>>().notNull().default([]),
+  /** Core's sentence for the top of the report, as it was when filed. */
+  statement: text("statement"),
+  /** Who signed it off, when, and the signature's upload from the phone when there is one. */
+  signedByName: text("signed_by_name"),
+  signedAt: timestamp("signed_at", { withTimezone: true }),
+  signatureUploadId: text("signature_upload_id"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

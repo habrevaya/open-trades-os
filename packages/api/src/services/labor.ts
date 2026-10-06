@@ -1,10 +1,28 @@
-import { and, eq, gte, lte, isNull, desc, asc, or, inArray } from "drizzle-orm";
+import { and, eq, gte, lte, isNull, desc, asc, or, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { labor, money as m, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, NotFoundError, ConflictError,
+  guardedRead, guardedWrite, audit, timezoneOf, scopeOf, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
+import { technicianScopeFilter } from "./scope";
+
+/**
+ * WHOSE TIMESHEETS, as a condition on the technician a punch belongs to.
+ *
+ * A timesheet is a person's, so it is scoped by the person rather than by the
+ * jobs on it: a branch manager approves their branch's people, including the
+ * day one of them spent on another branch's job, and does not approve the
+ * other branch's people for the day they spent on theirs. `timesheet` was a
+ * scoped resource that nothing applied, so a branch scoped role read and
+ * approved every timesheet in the company.
+ */
+const timesheetScope = (ctx: ServiceContext) => {
+  const people = technicianScopeFilter(scopeOf(ctx, "timesheet"), ctx.actor);
+  return people === undefined ? undefined : sql`exists (
+    select 1 from public.technician where ${schema.technician.id} = ${schema.timeclockEntry.technicianId} and ${people}
+  )`;
+};
 
 /**
  * TIME, AND WHAT IT COST
@@ -93,7 +111,13 @@ export async function policyFor(tx: Database, organizationId: string): Promise<l
 export async function scaleOn(
   tx: Database, organizationId: string, classification: string, on: Date,
 ): Promise<typeof schema.wageScale.$inferSelect | null> {
-  const day = on.toISOString().slice(0, 10);
+  /**
+   * The company's day the work happened on, which is how a union agreement
+   * dates a rise and how the job costing report reads the same scale. Read
+   * as UTC, an evening shift on the last day of the old rate was costed at
+   * the new one.
+   */
+  const day = time.dateIn(on, await timezoneOf(tx, organizationId));
   const [row] = await tx.select().from(schema.wageScale)
     .where(and(
       eq(schema.wageScale.organizationId, organizationId),
@@ -237,6 +261,7 @@ export async function week(
         ...(input.technicianId
           ? [eq(schema.timeclockEntry.technicianId, input.technicianId)]
           : []),
+        timesheetScope(ctx),
       ))
       .orderBy(asc(schema.timeclockEntry.startedAt));
 
@@ -357,6 +382,20 @@ export async function approve(
   return guardedWrite(ctx, "timesheet:approve", async (tx) => {
     if (input.entryIds.length === 0) return { approved: 0 };
 
+    /**
+     * Every entry has to be one this person may read. Approving another
+     * branch's hours by id is refused as not found, all of them, rather than
+     * approving the ones that are theirs and quietly skipping the rest.
+     */
+    const visible = await tx.select({ id: schema.timeclockEntry.id })
+      .from(schema.timeclockEntry)
+      .where(and(
+        eq(schema.timeclockEntry.organizationId, ctx.actor.organizationId),
+        inArray(schema.timeclockEntry.id, input.entryIds),
+        timesheetScope(ctx),
+      ));
+    if (visible.length !== new Set(input.entryIds).size) throw new NotFoundError("Time entry");
+
     const open = await tx.select({ id: schema.timeclockEntry.id })
       .from(schema.timeclockEntry)
       .where(and(
@@ -421,6 +460,7 @@ export async function entriesFor(
         eq(schema.timeclockEntry.technicianId, input.technicianId),
         gte(schema.timeclockEntry.startedAt, new Date(start.getTime() - 864e5)),
         lte(schema.timeclockEntry.startedAt, new Date(end.getTime() + 864e5)),
+        timesheetScope(ctx),
       ))
       .orderBy(asc(schema.timeclockEntry.startedAt));
 

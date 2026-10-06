@@ -80,23 +80,45 @@ export async function put(
     claimedType?: string | undefined;
     uploadedByUserId?: string | null;
     maxBytes?: number | undefined;
+    /** Call audio is accepted only by the one caller that keeps recordings. */
+    accept?: "documents" | "recordings" | undefined;
   },
 ): Promise<{ file: StoredFileView; alreadyHeld: boolean }> {
   const verdict = f.checkFile(input.bytes, {
     ...(input.claimedType ? { claimedType: input.claimedType } : {}),
     ...(input.maxBytes ? { maxBytes: input.maxBytes } : {}),
+    ...(input.accept ? { accept: input.accept } : {}),
   });
   if (!verdict.ok) throw new ConflictError(verdict.reason);
 
   const hash = sha256(input.bytes);
   const key = f.storageKey({ organizationId, sha256: hash, extension: verdict.extension });
 
-  const [existing] = await tx.select().from(schema.storedFile)
+  const [found] = await tx.select().from(schema.storedFile)
     .where(and(
       eq(schema.storedFile.organizationId, organizationId),
       eq(schema.storedFile.storageKey, key),
-      isNull(schema.storedFile.deletedAt),
     )).limit(1);
+
+  /**
+   * THE SAME BYTES, KEPT AGAIN AFTER BEING DELETED. A deleted file keeps its
+   * row (emptied, stamped) and the key is unique, so inserting the same bytes
+   * a second time collided with the row of the first and failed. It happens
+   * more than it sounds: two calls that recorded the same few seconds of
+   * silence are the same file. The row is filled again rather than inserted.
+   */
+  if (found?.deletedAt) {
+    const [revived] = await tx.update(schema.storedFile).set({
+      bytes: Buffer.from(input.bytes),
+      sizeBytes: verdict.sizeBytes,
+      contentType: verdict.contentType,
+      uploadedByUserId: input.uploadedByUserId ?? null,
+      deletedAt: null,
+      updatedAt: new Date(),
+    }).where(eq(schema.storedFile.id, found.id)).returning();
+    return { file: view(revived!), alreadyHeld: false };
+  }
+  const existing = found;
 
   if (existing) {
     /**
@@ -218,7 +240,43 @@ export async function attachmentsFor(
       sizeBytes: row.sizeBytes,
       phase: row.phase,
       createdAt: row.createdAt,
+      /** When somebody chose to show it on the customer's job link. Null is private. */
+      sharedWithCustomerAt: row.sharedWithCustomerAt,
     }));
+  });
+}
+
+/**
+ * Show one photograph to the customer, or stop showing it.
+ *
+ * The same permission as publishing a service report, for the reason that
+ * one gives: showing a customer what a technician recorded is a different
+ * decision from recording it. Only a photograph on a job or one of its
+ * visits, because that is the only place a customer's link can show one.
+ */
+export async function shareWithCustomer(
+  ctx: ServiceContext, input: { attachmentId: string; shared: boolean },
+) {
+  return guardedWrite(ctx, "servicereport:publish", async (tx) => {
+    const [row] = await tx.select().from(schema.attachment)
+      .where(and(
+        eq(schema.attachment.organizationId, ctx.actor.organizationId),
+        eq(schema.attachment.id, input.attachmentId),
+        isNull(schema.attachment.deletedAt),
+      )).limit(1);
+    if (!row) throw new NotFoundError("Photo");
+    if (row.kind !== "photo" || (row.entityType !== "job" && row.entityType !== "visit")) {
+      throw new ConflictError("Only a photograph on a job can be shown to the customer.");
+    }
+    const sharedAt = input.shared ? (row.sharedWithCustomerAt ?? new Date()) : null;
+    await tx.update(schema.attachment).set({
+      sharedWithCustomerAt: sharedAt,
+      sharedByUserId: input.shared && !isSystem(ctx.actor) ? ctx.actor.userId : null,
+      updatedAt: new Date(),
+    }).where(eq(schema.attachment.id, row.id));
+    await audit(tx, ctx, input.shared ? "attachment.shared" : "attachment.unshared", "attachment", row.id,
+      { sharedWithCustomerAt: row.sharedWithCustomerAt }, { sharedWithCustomerAt: sharedAt });
+    return { id: row.id, sharedWithCustomerAt: sharedAt?.toISOString() ?? null };
   });
 }
 
@@ -595,6 +653,9 @@ export const handlers = {
 
   getUploadStatus: (ctx: ServiceContext, input: { subjectType: string; subjectId: string }) =>
     outstandingFor(ctx, input),
+
+  shareAttachmentWithCustomer: (ctx: ServiceContext, input: { id: string; shared: boolean }) =>
+    shareWithCustomer(ctx, { attachmentId: input.id, shared: input.shared }),
 } as const;
 
 /**
@@ -606,7 +667,7 @@ export const handlers = {
  * with "that is not a PNG", which sends whoever is debugging it to look at
  * the camera rather than at the transport.
  */
-function decode(encoded: string): Uint8Array {
+export function decode(encoded: string): Uint8Array {
   const cleaned = encoded.includes(",") ? encoded.slice(encoded.indexOf(",") + 1) : encoded;
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
     throw new ConflictError("That is not base64. The file did not survive the trip here.");

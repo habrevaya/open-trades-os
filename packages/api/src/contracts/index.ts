@@ -7,6 +7,7 @@ import { estimateRoutes } from "./estimates";
 import { portalRoutes } from "./portal";
 import { bookingRoutes } from "./booking";
 import { fieldRoutes } from "./field";
+import { fieldSalesRoutes } from "./field-sales";
 import { telephonyRoutes } from "./telephony";
 import { inventoryRoutes } from "./inventory";
 import { laborRoutes } from "./labor";
@@ -18,6 +19,7 @@ import { reviewRoutes } from "./reviews";
 import { recurringRoutes } from "./recurring";
 import { peopleRoutes } from "./people";
 import { contractRoutes } from "./contracts";
+import { commercialBillingRoutes } from "./commercial-billing";
 import { webhookRoutes } from "./webhooks";
 import { customFieldRoutes } from "./custom-fields";
 import { paymentRoutes } from "./payments";
@@ -28,23 +30,35 @@ import { conversationRoutes } from "./conversations";
 import { leadConnectorRoutes } from "./lead-connectors";
 import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
+import { financeRoutes } from "./finance";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
+import { payRuleRoutes } from "./pay-rules";
 import { aiRoutes } from "./ai";
+import { agentRoutes } from "./agents";
 import { assetRoutes } from "./assets";
 import { complianceRoutes } from "./compliance";
 import { projectRoutes } from "./projects";
+import { projectDocumentRoutes } from "./project-documents";
 import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
+import { trackingRoutes } from "./tracking";
+import { adsRoutes } from "./ads";
+import { marketplaceRoutes } from "./marketplaces";
+import { directMailRoutes } from "./direct-mail";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
+import { reportRoutes } from "./reports";
 import { appRoutes } from "./apps";
 import { equipmentRoutes } from "./equipment";
 import { taskRoutes } from "./tasks";
 import { workflowRoutes } from "./workflows";
+import { agreementRoutes } from "./agreements";
+import { visitChangeRoutes } from "./visit-changes";
 import { inspectionRoutes } from "./inspections";
 import { creditNoteRoutes } from "./credit-notes";
+import { statementRoutes } from "./statements";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 import { fieldAssetRoutes } from "./field-assets";
 import { campaignRoutes } from "./campaigns";
@@ -53,8 +67,34 @@ import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
+import { visitRoutes } from "./visits";
+import { dispatchMapRoutes } from "./dispatch-map";
+import { dispatchDaysRoutes } from "./dispatch-days";
+import { locationRoutes } from "./location";
+import { acquisitionRoutes } from "./acquisition";
+import { customerTagRoutes } from "./customer-tags";
+import { contactRoutes } from "./contacts";
+import { priceBookBulkRoutes } from "./pricebook-bulk";
+import { taskRuleRoutes } from "./task-rules";
+import { customerPortalRoutes } from "./customer-portal";
+import { portalAccessRoutes } from "./portal-access";
+import { setupRoutes } from "./setup";
+import { branchRoutes } from "./branches";
+import { phoneMenuRoutes } from "./phone-menus";
+import { callHandlingRoutes } from "./call-handling";
+import { safetyRoutes } from "./safety";
+import { retentionRoutes } from "./retention";
+import { stockTrackingRoutes } from "./stock-tracking";
+import { purchasingRoutes } from "./purchasing";
+import { rentalBillingRoutes } from "./rental-billing";
+import { peopleRecordRoutes } from "./people-records";
+import { selfServiceRoutes } from "./self-service";
+import { customObjectRoutes } from "./custom-objects";
+import { proposalTemplateRoutes } from "./proposal-templates";
+import { sandboxRoutes } from "./sandbox";
 
 export * from "./common";
+export * from "./visits";
 export * from "./customers";
 export * from "./properties";
 export * from "./jobs";
@@ -64,19 +104,25 @@ export * from "./estimates";
 export * from "./portal";
 export * from "./booking";
 export * from "./field";
+export * from "./field-sales";
 export * from "./telephony";
 export * from "./inventory";
 export * from "./labor";
 export * from "./obligations";
 export * from "./files";
 export * from "./marketing";
+export * from "./acquisition";
 export * from "./connectors";
 export * from "./reviews";
 export * from "./recurring";
 export * from "./people";
 export * from "./contracts";
+export * from "./commercial-billing";
 export * from "./webhooks";
 export * from "./custom-fields";
+export * from "./custom-objects";
+export * from "./proposal-templates";
+export * from "./sandbox";
 export * from "./payments";
 export * from "./email";
 export * from "./accounting";
@@ -85,21 +131,54 @@ export * from "./conversations";
 export * from "./lead-connectors";
 export * from "./invoice-delivery";
 export * from "./profitability";
+export * from "./finance";
 export * from "./crews";
 export * from "./payroll";
+export * from "./pay-rules";
 export * from "./ai";
+export * from "./agents";
 export * from "./assets";
 export * from "./compliance";
 export * from "./projects";
+export * from "./project-documents";
 export * from "./calendar";
 export * from "./call-tracking";
+export * from "./tracking";
 export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
+export * from "./reports";
+export * from "./safety";
+export * from "./retention";
 export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
 export * from "./credit-notes";
+export * from "./statements";
+export * from "./dispatch-map";
+export * from "./dispatch-days";
+export * from "./location";
+export * from "./agreements";
+export * from "./visit-changes";
+export * from "./customer-tags";
+export * from "./contacts";
+export * from "./pricebook-bulk";
+export * from "./task-rules";
+export * from "./customer-portal";
+export * from "./portal-access";
+export * from "./setup";
+export * from "./branches";
+export * from "./phone-menus";
+export * from "./call-handling";
+export * from "./tasks";
+export * from "./ads";
+export * from "./marketplaces";
+export * from "./direct-mail";
+export * from "./stock-tracking";
+export * from "./purchasing";
+export * from "./rental-billing";
+export * from "./people-records";
+export * from "./self-service";
 
 /**
  * Every route in the product, and the only description of them.
@@ -126,21 +205,25 @@ export const routes = {
   ...priceBookRoutes,
   ...billingRoutes,
   ...creditNoteRoutes,
+  ...statementRoutes,
   ...estimateRoutes,
   ...portalRoutes,
   ...bookingRoutes,
   ...fieldRoutes,
+  ...fieldSalesRoutes,
   ...telephonyRoutes,
   ...inventoryRoutes,
   ...laborRoutes,
   ...obligationRoutes,
   ...fileRoutes,
   ...marketingRoutes,
+  ...acquisitionRoutes,
   ...connectorRoutes,
   ...reviewRoutes,
   ...recurringRoutes,
   ...peopleRoutes,
   ...contractRoutes,
+  ...commercialBillingRoutes,
   ...webhookRoutes,
   ...customFieldRoutes,
   ...paymentRoutes,
@@ -151,14 +234,21 @@ export const routes = {
   ...leadConnectorRoutes,
   ...invoiceDeliveryRoutes,
   ...profitabilityRoutes,
+  ...financeRoutes,
   ...crewRoutes,
   ...payrollRoutes,
+  ...payRuleRoutes,
   ...aiRoutes,
+  ...agentRoutes,
   ...assetRoutes,
   ...complianceRoutes,
   ...projectRoutes,
+  ...projectDocumentRoutes,
   ...calendarRoutes,
   ...callTrackingRoutes,
+  ...trackingRoutes,
+  ...phoneMenuRoutes,
+  ...callHandlingRoutes,
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,
@@ -166,6 +256,8 @@ export const routes = {
   ...equipmentRoutes,
   ...taskRoutes,
   ...workflowRoutes,
+  ...agreementRoutes,
+  ...visitChangeRoutes,
   ...inspectionRoutes,
   ...pricingAuthorityRoutes,
   ...fieldAssetRoutes,
@@ -175,6 +267,32 @@ export const routes = {
   ...exportRoutes,
   ...externalWorkRoutes,
   ...kpiRoutes,
+  ...visitRoutes,
+  ...dispatchMapRoutes,
+  ...dispatchDaysRoutes,
+  ...locationRoutes,
+  ...reportRoutes,
+  ...customerTagRoutes,
+  ...contactRoutes,
+  ...priceBookBulkRoutes,
+  ...taskRuleRoutes,
+  ...customerPortalRoutes,
+  ...portalAccessRoutes,
+  ...setupRoutes,
+  ...branchRoutes,
+  ...adsRoutes,
+  ...marketplaceRoutes,
+  ...directMailRoutes,
+  ...safetyRoutes,
+  ...retentionRoutes,
+  ...stockTrackingRoutes,
+  ...purchasingRoutes,
+  ...rentalBillingRoutes,
+  ...peopleRecordRoutes,
+  ...selfServiceRoutes,
+  ...customObjectRoutes,
+  ...proposalTemplateRoutes,
+  ...sandboxRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

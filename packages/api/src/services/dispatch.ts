@@ -3,16 +3,23 @@ import { schema, type Database } from "@opentradesos/db";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit
+  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit, scopeOf,
 } from "./context";
+import { jobVisibility, technicianScopeFilter } from "./scope";
+import { announce, sideOf } from "./visit-notices";
 import { inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
-import { time } from "@opentradesos/core";
+import { can, money as m, time } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
 import type {
-  getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
+  getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot, VisitForField,
 } from "../contracts/field";
+import { templateFor } from "./field";
 import { portalBase } from "../lib/portal-base";
+import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
+import { priorityWithin } from "./agreements";
+import * as location from "./location";
+import * as fieldSales from "./field-sales";
 
 
 /**
@@ -38,10 +45,19 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       time.dayBoundsIn(input.date, await timezoneOf(tx, ctx.actor.organizationId));
     const now = new Date();
 
+    /**
+     * SCOPED LIKE EVERY OTHER READ OF WORK. A branch manager's board is their
+     * branch's: its jobs' visits, its people's columns, and anybody else only
+     * where they are on one of those visits. A scope this cannot satisfy shows
+     * an empty board rather than the company's (`services/scope.ts`).
+     */
+    const scope = scopeOf(ctx, "visit");
+    const people = technicianScopeFilter(scope, ctx.actor);
     const technicians = await tx.select({
       id: schema.technician.id,
       displayName: schema.technician.displayName,
       color: schema.technician.color,
+      inScope: people ? sql<boolean>`${people}` : sql<boolean>`true`,
     }).from(schema.technician)
       .where(and(
         eq(schema.technician.organizationId, ctx.actor.organizationId),
@@ -54,15 +70,19 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       jobNumber: schema.job.number,
       summary: schema.job.summary,
       customerName: schema.customer.name,
+      customerId: schema.job.customerId,
+      propertyId: schema.job.propertyId,
       addressLine1: schema.property.addressLine1,
       postalCode: schema.property.postalCode,
       technicianId: schema.visitAssignment.technicianId,
+      routeName: schema.route.name,
     })
       .from(schema.visit)
       .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
       .innerJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
       .innerJoin(schema.property, eq(schema.property.id, schema.job.propertyId))
       .leftJoin(schema.visitAssignment, eq(schema.visitAssignment.visitId, schema.visit.id))
+      .leftJoin(schema.route, eq(schema.route.id, schema.visit.routeId))
       .where(and(
         gte(schema.visit.windowStart, dayStart),
         lte(schema.visit.windowStart, dayEnd),
@@ -70,8 +90,14 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         // Territory is a property of the job, not of the visit: every visit on
         // a job is at the same address.
         input.territoryId ? eq(schema.job.territoryId, input.territoryId) : undefined,
+        jobVisibility(scope, ctx.actor, sql`${schema.job.id}`),
       ))
       .orderBy(asc(schema.visit.routeOrder), asc(schema.visit.windowStart));
+
+    /** The people on the board: those in scope, and anybody on a visit this person can see. */
+    const onVisibleWork = new Set(rows.map((r) => r.technicianId).filter((id): id is string => id !== null));
+    const shown = technicians.filter((t) => t.inScope || onVisibleWork.has(t.id));
+    const shownIds = new Set(shown.map((t) => t.id));
 
     /**
      * Approved time off, so an empty column says why it is empty. A board that
@@ -112,29 +138,138 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       customerName: r.customerName,
       addressLine1: r.addressLine1,
       isLate: isLate(r.visit),
+      routeName: r.routeName ?? null,
+      locked: r.visit.dispatchLocked,
     });
 
     const assigned = new Map<string, ReturnType<typeof shape>[]>();
     const unassigned: Array<ReturnType<typeof shape> & { postalCode: string }> = [];
+    /**
+     * CREW WORK IS NOT UNASSIGNED. A visit sent to a crew is on
+     * `visit.crew_id` with nobody in `visit_assignment`, and the board used to
+     * file it in the unassigned pile, where a dispatcher would give it to
+     * somebody else. It has its own lane now.
+     */
+    const byCrew = new Map<string, ReturnType<typeof shape>[]>();
 
     for (const r of rows) {
       if (r.technicianId) {
         assigned.set(r.technicianId, [...(assigned.get(r.technicianId) ?? []), shape(r)]);
+      } else if (r.visit.crewId) {
+        byCrew.set(r.visit.crewId, [...(byCrew.get(r.visit.crewId) ?? []), shape(r)]);
       } else {
         unassigned.push({ ...shape(r), postalCode: r.postalCode });
       }
     }
 
+    /**
+     * MEMBERS WHOSE PLAN PROMISED PRIORITY GO TO THE TOP OF THE PILE.
+     *
+     * `priority_dispatch` sat on the plan from the first migration, sold to
+     * customers as "members are seen first", and the board never read it, so
+     * the promise was kept only when a dispatcher happened to remember who
+     * was on which plan. Sorting the unassigned pile is the whole of it: the
+     * pile is what a dispatcher works down, and the first card is the one
+     * that gets the next free technician. Nothing is moved, booked or
+     * reassigned for them, and the order within each half is the order it
+     * already had.
+     *
+     * Whether the plan covers this job is the same rule the member discount
+     * uses (active on the day, at this address or sold with none), in core.
+     */
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const byVisit = new Map(rows.map((r) => [r.visit.id, r]));
+    const priority = await priorityWithin(tx, unassigned.map((v) => {
+      const row = byVisit.get(v.id)!;
+      return {
+        key: v.id,
+        customerId: row.customerId,
+        propertyId: row.propertyId,
+        on: row.visit.windowStart ? time.dateIn(row.visit.windowStart, zone) : input.date,
+      };
+    }));
+    const ranked = unassigned
+      .map((v, index) => ({ v, index, plan: priority.get(v.id) ?? null }))
+      .sort((a, b) => Number(b.plan !== null) - Number(a.plan !== null) || a.index - b.index);
+
+    /** The crews with work today, their people, and who leads. */
+    const crewIds = [...byCrew.keys()];
+    const crewRows = crewIds.length === 0 ? [] : await tx.select({
+      id: schema.crew.id, name: schema.crew.name, color: schema.crew.color,
+    }).from(schema.crew).where(inArray(schema.crew.id, crewIds)).orderBy(asc(schema.crew.name));
+    const crewPeople = crewIds.length === 0 ? [] : await tx.select({
+      crewId: schema.crewMember.crewId, isLead: schema.crewMember.isLead, name: schema.technician.displayName,
+    }).from(schema.crewMember)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+      .where(inArray(schema.crewMember.crewId, crewIds));
+
+    /**
+     * The route businesses' days: every route with stops today, how many,
+     * and whose they are, so a pool company watching the board sees its
+     * Tuesday routes rather than forty unrelated cards.
+     */
+    const routeStops = new Map<string, { name: string; stops: number; done: number }>();
+    for (const r of rows) {
+      if (!r.visit.routeId || !r.routeName) continue;
+      const entry = routeStops.get(r.visit.routeId) ?? { name: r.routeName, stops: 0, done: 0 };
+      entry.stops += 1;
+      if (["completed", "completed_after_cancellation"].includes(r.visit.status)) entry.done += 1;
+      routeStops.set(r.visit.routeId, entry);
+    }
+    const routeOwners = routeStops.size === 0 ? [] : await tx.select({
+      id: schema.route.id, technicianName: schema.technician.displayName, crewName: schema.crew.name,
+    }).from(schema.route)
+      .leftJoin(schema.technician, eq(schema.technician.id, schema.route.technicianId))
+      .leftJoin(schema.crew, eq(schema.crew.id, schema.route.crewId))
+      .where(inArray(schema.route.id, [...routeStops.keys()]));
+
+    /**
+     * The rota for the day: every on call shift that overlaps it, so the
+     * board says who has the phone tonight, and says so in words when
+     * nobody does.
+     */
+    const rota = await tx.select({
+      technicianId: schema.onCallRotation.technicianId,
+      technicianName: schema.technician.displayName,
+      startsAt: schema.onCallRotation.startsAt,
+      endsAt: schema.onCallRotation.endsAt,
+    }).from(schema.onCallRotation)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.onCallRotation.technicianId))
+      .where(and(
+        eq(schema.onCallRotation.organizationId, ctx.actor.organizationId),
+        lte(schema.onCallRotation.startsAt, dayEnd),
+        gte(schema.onCallRotation.endsAt, dayStart),
+      ))
+      .orderBy(asc(schema.onCallRotation.startsAt));
+
     return {
       date: input.date,
-      technicians: technicians.map((t) => ({
+      crews: crewRows.map((c) => {
+        const people = crewPeople.filter((p) => p.crewId === c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          color: c.color,
+          leadName: people.find((p) => p.isLead)?.name ?? null,
+          memberNames: people.map((p) => p.name).sort(),
+          visits: byCrew.get(c.id) ?? [],
+        };
+      }),
+      routes: [...routeStops.entries()].map(([id, r]) => {
+        const owner = routeOwners.find((o) => o.id === id);
+        return { id, name: r.name, stops: r.stops, done: r.done, runBy: owner?.technicianName ?? owner?.crewName ?? null };
+      }).sort((a, b) => a.name.localeCompare(b.name)),
+      onCall: rota.filter((r) => shownIds.has(r.technicianId)).map((r) => ({
+        technicianName: r.technicianName, startsAt: r.startsAt.toISOString(), endsAt: r.endsAt.toISOString(),
+      })),
+      technicians: shown.map((t) => ({
         id: t.id,
         displayName: t.displayName,
         color: t.color,
         timeOff: offToday.has(t.id),
         visits: assigned.get(t.id) ?? [],
       })),
-      unassigned: unassigned.map(({ isLate: _late, ...rest }) => rest),
+      unassigned: ranked.map(({ v: { isLate: _late, ...rest }, plan }) => ({ ...rest, priorityPlan: plan })),
     };
   });
 }
@@ -148,13 +283,24 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
  */
 export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVisit.input>) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
+    /**
+     * Only a visit this person can see on their board. Another branch's
+     * visit reads as not found, for the reason the job page gives: "you may
+     * not" confirms there is something there.
+     */
     const [visit] = await tx.select().from(schema.visit)
-      .where(eq(schema.visit.id, input.id)).limit(1);
+      .where(and(
+        eq(schema.visit.id, input.id),
+        jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.visit.jobId}`),
+      )).limit(1);
     if (!visit) throw new NotFoundError("Visit");
 
     if (["completed", "cancelled", "completed_after_cancellation"].includes(visit.status)) {
       throw new ConflictError(`This visit is ${visit.status} and cannot be reassigned.`);
     }
+
+    /** Who was on it before, so the people added and the people taken off each hear about it. */
+    const before = (await sideOf(tx, input.id))!;
 
     const technicians = await tx.select({ id: schema.technician.id })
       .from(schema.technician)
@@ -169,6 +315,25 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
         "One of those technicians is not active in this company.",
       );
     }
+
+    /**
+     * QUALIFIED FOR THE WORK, ONE PERSON AT A TIME.
+     *
+     * The job type's required skills were checked for a crew and never for
+     * a technician, so the commonest way work goes out had no check at all.
+     * Refused here with a sentence naming the person and the skill, and the
+     * board shows that sentence where the card was dropped. Overriding needs
+     * its own permission and a reason, and the audit entry below keeps both
+     * beside what was refused.
+     */
+    const work = await requiredSkillsOf(tx, input.id);
+    const qualified = await qualificationGate(ctx, tx, {
+      technicianIds: input.technicianIds,
+      skills: work.skills,
+      windowStart: work.windowStart,
+      windowEnd: work.windowEnd,
+      override: input.overrideQualification,
+    });
 
     await tx.delete(schema.visitAssignment)
       .where(eq(schema.visitAssignment.visitId, input.id));
@@ -200,8 +365,15 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
 
     await audit(tx, ctx, "visit.assigned", "visit", input.id,
       { status: visit.status }, { status, technicianIds: input.technicianIds });
+    await announce(tx, ctx, input.id, before);
 
-    return { ok: true as const, status };
+    if (qualified.overridden) {
+      await audit(tx, ctx, "visit.assigned_unqualified", "visit", input.id,
+        { refusals: qualified.refusals },
+        { technicianIds: input.technicianIds, reason: input.overrideQualification!.reason });
+    }
+
+    return { ok: true as const, status, overridden: qualified.overridden, unknownSkills: qualified.unknown };
   });
 }
 
@@ -347,6 +519,7 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
           sentByUserId: ctx.actor.userId,
           body: await arrivalBody(tx, ctx.actor.organizationId, {
             company: await companyName(tx, ctx.actor.organizationId),
+            technician: await technicianFirstName(tx, ctx, input.id),
             etaMinutes: input.etaMinutes ?? null,
             trackingUrl,
           }),
@@ -442,6 +615,33 @@ async function notifiableAddress(
   return fallback === "" ? null : fallback;
 }
 
+/**
+ * The first name the customer is told to expect at the door: the lead on the
+ * visit, or failing that whoever is sending it, if they are a technician here.
+ * A first name only, the same rule the tracking page keeps, because a last
+ * name is not the customer's to have.
+ */
+async function technicianFirstName(tx: Database, ctx: ServiceContext, visitId: string): Promise<string | null> {
+  const [lead] = await tx.select({ name: schema.technician.displayName })
+    .from(schema.visitAssignment)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+    .where(eq(schema.visitAssignment.visitId, visitId))
+    .orderBy(sql`${schema.visitAssignment.isLead} desc`).limit(1);
+  let name = lead?.name ?? null;
+  if (!name) {
+    const [own] = await tx.select({ name: schema.technician.displayName })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(
+        eq(schema.technician.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.userId, ctx.actor.userId),
+      )).limit(1);
+    name = own?.name ?? null;
+  }
+  const first = name?.trim().split(/\s+/)[0] ?? "";
+  return first === "" ? null : first;
+}
+
 /** The name the text signs off with. */
 async function companyName(tx: Database, organizationId: string): Promise<string> {
   const [org] = await tx.select({ name: schema.organization.name })
@@ -479,10 +679,11 @@ async function companyName(tx: Database, organizationId: string): Promise<string
 async function arrivalBody(
   tx: Database,
   organizationId: string,
-  input: { company: string; etaMinutes: number | null; trackingUrl: string | null },
+  input: { company: string; technician: string | null; etaMinutes: number | null; trackingUrl: string | null },
 ): Promise<string> {
   const rendered = await renderWithin(tx, organizationId, "arrival_notice", {
     company: input.company,
+    technician: input.technician,
     eta: input.etaMinutes === null ? "on the way" : `about ${input.etaMinutes} minutes away`,
     etaMinutes: input.etaMinutes,
     trackingUrl: input.trackingUrl,
@@ -491,13 +692,14 @@ async function arrivalBody(
 }
 
 function noticeBody(input: {
-  company: string; etaMinutes: number | null; trackingUrl: string | null;
+  company: string; technician: string | null; etaMinutes: number | null; trackingUrl: string | null;
 }): string {
   const eta = input.etaMinutes
     ? `about ${input.etaMinutes} minutes away`
     : "on the way";
-  const line = `${input.company}: your technician is ${eta}.`;
-  return input.trackingUrl ? `${line} Track them here: ${input.trackingUrl}` : line;
+  const who = input.technician ? `your technician, ${input.technician},` : "your technician";
+  const line = `${input.company}: ${who} is ${eta}.`;
+  return input.trackingUrl ? `${line} See where they are: ${input.trackingUrl}` : line;
 }
 
 /**
@@ -517,14 +719,16 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     // Whole local days, for the same reason the board is. A phone syncing
     // "today and tomorrow" at eight in the evening was being handed a window
     // that had already ended.
-    const { start: from, end: to } =
-      time.daysFrom(input.from, input.days, await timezoneOf(tx, ctx.actor.organizationId));
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const { start: from, end: to } = time.daysFrom(input.from, input.days, zone);
 
     const rows = await tx.select({
       visit: schema.visit,
       jobId: schema.job.id,
       jobNumber: schema.job.number,
+      jobTypeId: schema.job.jobTypeId,
       summary: schema.job.summary,
+      description: schema.job.description,
       customerComplaint: schema.job.customerComplaint,
       customerId: schema.customer.id,
       customerName: schema.customer.name,
@@ -548,19 +752,29 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      * asks "is there anything new" far more often than it asks for the data,
      * and comparing one integer beats diffing a day of visits.
      */
-    const revision = await computeRevision(tx, rows.map((r) => r.visit.id));
+    const revision = await computeRevision(
+      tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId), rows.map((r) => r.customerId),
+    );
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
-      return { revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null };
+      return {
+        revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [],
+        locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
+        tasks: [], abilities: await fieldSales.abilitiesFor(tx, ctx),
+      };
     }
 
-    const priceBook = await tx.select({
+    const book = await tx.select({
       id: schema.priceBookItem.id,
       versionId: schema.priceBookItemVersion.id,
       code: schema.priceBookItem.code,
       name: schema.priceBookItemVersion.name,
       unitPrice: schema.priceBookItemVersion.price,
       taxable: schema.priceBookItemVersion.taxable,
+      description: schema.priceBookItemVersion.description,
+      kind: schema.priceBookItem.kind,
+      feeRole: schema.priceBookItem.feeRole,
+      components: schema.priceBookItemVersion.components,
     })
       .from(schema.priceBookItemVersion)
       .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -573,8 +787,19 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
            * invisible. The reasoning is on `inForceAt`.
            */
           inForceAt(),
+        /** Only what can still be sold: a retired item is history, not a choice. */
+        eq(schema.priceBookItem.active, true),
       ))
       .limit(2000);
+    /**
+     * A kit is one line at its own price, and the technician says what it
+     * covers, so each one carries its parts by name.
+     */
+    const bookNames = new Map(book.map((item) => [item.id, item.name]));
+    const priceBook = book.map(({ components, ...item }) => ({
+      ...item,
+      components: components.map((c) => ({ name: bookNames.get(c.itemId) ?? "A part", quantity: c.quantity })),
+    }));
 
     // Somebody always forgets to clock out, and the phone needs to know it is
     // still on the clock before it offers to punch in again.
@@ -589,11 +814,19 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       ))
       .orderBy(asc(schema.timeclockEntry.startedAt)).limit(1);
 
+    const extras = await visitExtras(tx, ctx, rows.map((r) => ({
+      visitId: r.visit.id, jobId: r.jobId, jobTypeId: r.jobTypeId,
+    })));
+    const sales = await fieldSales.salesFor(tx, ctx, rows.map((r) => ({
+      visitId: r.visit.id, jobId: r.jobId, customerId: r.customerId, propertyId: r.property.id,
+    })), new Date());
+
     await tx.insert(schema.deviceSnapshot).values({
       organizationId: ctx.actor.organizationId,
       deviceId: device.id,
       fromDate: input.from,
-      toDate: to.toISOString().slice(0, 10),
+      /** The company's date of the window's end. Read as UTC, a zone east of Greenwich got the day before. */
+      toDate: time.dateIn(to, zone),
       revision,
       visitCount: rows.length,
     });
@@ -608,7 +841,10 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         sequence: r.visit.sequence,
         status: r.visit.status,
         summary: r.summary,
+        description: r.description,
         customerComplaint: r.customerComplaint,
+        technicianNotes: r.visit.technicianNotes,
+        arrivedAt: r.visit.arrivedAt?.toISOString() ?? null,
         windowStart: r.visit.windowStart?.toISOString() ?? null,
         windowEnd: r.visit.windowEnd?.toISOString() ?? null,
         routeOrder: r.visit.routeOrder,
@@ -629,28 +865,246 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
           hasDog: r.property.hasDog,
         },
         checklist: r.visit.checklist,
+        ...extras.get(r.visit.id)!,
+        ...sales.get(r.visit.id)!,
       })),
       priceBook,
       openTimeEntry: open
         ? { id: open.id, kind: open.kind, startedAt: open.startedAt.toISOString() }
         : null,
+      inspectionPrograms: await programsForField(tx, ctx),
+      locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
+      tasks: await fieldSales.tasksFor(tx, ctx),
+      abilities: await fieldSales.abilitiesFor(tx, ctx),
     };
   });
 }
 
 /**
+ * The programmes this person can run on the phone. Only for somebody who
+ * may file an inspection: offering a programme the server would refuse to
+ * file is offering a technician twenty minutes of work that goes nowhere.
+ */
+async function programsForField(tx: Database, ctx: ServiceContext) {
+  if (!can(ctx.actor, "compliance:write")) return [];
+  const rows = await tx.select().from(schema.inspectionProgram)
+    .where(and(
+      eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId),
+      eq(schema.inspectionProgram.active, true),
+    ))
+    .orderBy(asc(schema.inspectionProgram.name));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    standard: row.standard,
+    version: row.version,
+    checkpoints: row.checkpoints.map((c) => ({
+      key: c.key,
+      label: c.label,
+      requiresReading: c.requiresReading === true,
+      unit: c.unit ?? null,
+      min: c.range?.min ?? null,
+      max: c.range?.max ?? null,
+    })),
+  }));
+}
+
+/**
  * A number that changes whenever the device's slice does.
  *
- * Derived from the visits' own update times rather than kept as a counter,
- * because a counter has to be bumped by every path that touches a visit and
- * the one that forgets is the one that leaves a technician driving to an
- * address the office moved an hour ago.
+ * Derived from the update times of what the phone shows rather than kept as a
+ * counter, because a counter has to be bumped by every path that touches a
+ * visit and the one that forgets is the one that leaves a technician driving
+ * to an address the office moved an hour ago.
+ *
+ * The visits, and since the phone shows them, the job's invoices (so a card
+ * paid through the link shows as paid), the visit's service report and its
+ * fields, and the parts on it. A part the office added, or a reading taken on
+ * another phone, would otherwise be invisible until something about the visit
+ * itself changed.
  */
-async function computeRevision(tx: Database, visitIds: string[]): Promise<number> {
-  if (visitIds.length === 0) return 0;
+async function computeRevision(tx: Database, visitIds: string[], jobIds: string[], customerIds: string[]): Promise<number> {
+  if (visitIds.length === 0) {
+    /**
+     * A day with no visits still carries the office queue, so a task raised
+     * for somebody with nothing booked reaches their phone.
+     */
+    const [row] = await tx.execute(sql`
+      select coalesce(extract(epoch from (select max(updated_at) from public.task))::bigint, 0)
+        + (select count(*) from public.task where status in ('open', 'in_progress')) as revision`);
+    return Number((row as { revision: number }).revision);
+  }
+  const visits = sql.raw(`('${visitIds.join("','")}')`);
+  const jobs = sql.raw(`('${[...new Set(jobIds)].join("','")}')`);
+  const customers = sql.raw(`('${[...new Set(customerIds)].join("','")}')`);
   const [row] = await tx.execute(sql`
-    select coalesce(extract(epoch from max(updated_at))::bigint, 0) + count(*) as revision
-    from public.visit where id in ${sql.raw(`('${visitIds.join("','")}')`)}
+    select coalesce(extract(epoch from greatest(
+      (select max(updated_at) from public.visit where id in ${visits}),
+      (select max(updated_at) from public.invoice where job_id in ${jobs}),
+      (select max(updated_at) from public.estimate where job_id in ${jobs} or customer_id in ${customers}),
+      (select max(updated_at) from public.job_line where job_id in ${jobs}),
+      (select max(updated_at) from public.task),
+      (select max(updated_at) from public.service_report where visit_id in ${visits}),
+      (select max(f.updated_at) from public.service_report_field f
+         join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}),
+      (select max(updated_at) from public.job_line where visit_id in ${visits}),
+      (select max(updated_at) from public.inspection where visit_id in ${visits}),
+      (select max(updated_at) from public.inspection_program)
+    ))::bigint, 0)
+    + (select count(*) from public.inspection where visit_id in ${visits})
+    + (select count(*) from public.estimate where job_id in ${jobs} or customer_id in ${customers})
+    + (select count(*) from public.job_line where job_id in ${jobs})
+    + (select count(*) from public.task where status in ('open', 'in_progress'))
+    + (select count(*) from public.visit where id in ${visits})
+    + (select count(*) from public.job_line where visit_id in ${visits})
+    + (select count(*) from public.service_report_field f
+         join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}) as revision
   `);
   return Number((row as { revision: number }).revision);
+}
+
+type VisitExtras = Pick<z.infer<typeof VisitForField>, "amountDue" | "report" | "parts" | "inspections">;
+
+/**
+ * What the phone needs on each visit beyond the visit itself: what is owed,
+ * the service report as it stands, and the parts already on it. One query
+ * each for the whole day rather than one per visit, because the day is the
+ * request and a phone on one bar waits for the slowest part of it.
+ */
+async function visitExtras(
+  tx: Database,
+  ctx: ServiceContext,
+  visits: Array<{ visitId: string; jobId: string; jobTypeId: string | null }>,
+): Promise<Map<string, VisitExtras>> {
+  const out = new Map<string, VisitExtras>();
+  if (visits.length === 0) return out;
+  const visitIds = visits.map((v) => v.visitId);
+  const jobIds = [...new Set(visits.map((v) => v.jobId))];
+
+  /**
+   * What is owed, only for a caller who may read invoices. A company can
+   * take `invoice:read` away from a role, and the phone must not become the
+   * way round that.
+   */
+  const owed = new Map<string, m.Money>();
+  if (can(ctx.actor, "invoice:read")) {
+    const invoices = await tx.select({ jobId: schema.invoice.jobId, balance: schema.invoice.balance })
+      .from(schema.invoice)
+      .where(and(
+        inArray(schema.invoice.jobId, jobIds),
+        inArray(schema.invoice.status, ["open", "partially_paid", "paid"]),
+      ));
+    for (const invoice of invoices) {
+      if (!invoice.jobId) continue;
+      owed.set(invoice.jobId, m.add(owed.get(invoice.jobId) ?? m.zero(), m.money(invoice.balance)));
+    }
+  }
+
+  const reports = await tx.select({
+    id: schema.serviceReport.id,
+    visitId: schema.serviceReport.visitId,
+    submittedAt: schema.serviceReport.submittedAt,
+  }).from(schema.serviceReport)
+    .where(inArray(schema.serviceReport.visitId, visitIds))
+    .orderBy(asc(schema.serviceReport.createdAt));
+  const reportOf = new Map(reports.map((r) => [r.visitId, r]));
+
+  const values = reports.length === 0 ? [] : await tx.select({
+    reportId: schema.serviceReportField.reportId,
+    key: schema.serviceReportField.key,
+    label: schema.serviceReportField.label,
+    kind: schema.serviceReportField.kind,
+    unit: schema.serviceReportField.unit,
+    valueNumeric: schema.serviceReportField.valueNumeric,
+    valueText: schema.serviceReportField.valueText,
+    valueBoolean: schema.serviceReportField.valueBoolean,
+    productName: schema.serviceReportField.productName,
+    recordedAt: schema.serviceReportField.recordedAt,
+  }).from(schema.serviceReportField)
+    .where(inArray(schema.serviceReportField.reportId, reports.map((r) => r.id)))
+    .orderBy(asc(schema.serviceReportField.recordedAt));
+
+  const templates = new Map<string, Awaited<ReturnType<typeof templateFor>>>();
+  for (const jobTypeId of new Set(visits.map((v) => v.jobTypeId).filter((id): id is string => id !== null))) {
+    templates.set(jobTypeId, await templateFor(tx, jobTypeId));
+  }
+
+  const parts = await tx.select({
+    id: schema.jobLine.id,
+    visitId: schema.jobLine.visitId,
+    name: schema.jobLine.name,
+    quantity: schema.jobLine.quantity,
+  }).from(schema.jobLine)
+    .where(and(inArray(schema.jobLine.visitId, visitIds), eq(schema.jobLine.kind, "part")))
+    .orderBy(asc(schema.jobLine.occurredAt));
+
+  const filed = can(ctx.actor, "compliance:read") ? await tx.select({
+    id: schema.inspection.id,
+    visitId: schema.inspection.visitId,
+    programId: schema.inspection.programId,
+    programName: schema.inspectionProgram.name,
+    result: schema.inspection.result,
+    performedOn: schema.inspection.performedOn,
+  }).from(schema.inspection)
+    .leftJoin(schema.inspectionProgram, eq(schema.inspectionProgram.id, schema.inspection.programId))
+    .where(inArray(schema.inspection.visitId, visitIds))
+    .orderBy(asc(schema.inspection.createdAt)) : [];
+
+  for (const visit of visits) {
+    const report = reportOf.get(visit.visitId);
+    const template = visit.jobTypeId ? templates.get(visit.jobTypeId) ?? null : null;
+
+    /** The newest value per key: the rows are oldest first, so the last one written wins. */
+    const latest = new Map<string, (typeof values)[number]>();
+    for (const value of values) if (report && value.reportId === report.id) latest.set(value.key, value);
+
+    /**
+     * Only what a phone can fill in with a keyboard. A photo or a signature
+     * on a template is taken with the camera and the signature pad, which
+     * the visit already has.
+     */
+    const fillable = (template?.fields ?? []).filter((f) => f.kind !== "photo" && f.kind !== "signature");
+    const fields = fillable.map((f) => ({
+      key: f.key,
+      label: f.label,
+      kind: f.kind,
+      unit: f.unit ?? null,
+      options: f.options ?? [],
+      required: f.required ?? false,
+      min: f.min ?? null,
+      max: f.max ?? null,
+      value: valueText(latest.get(f.key)),
+    }));
+    /** And anything recorded that the template does not name, so nothing written is hidden. */
+    for (const [key, value] of latest) {
+      if (fields.some((f) => f.key === key)) continue;
+      fields.push({
+        key, label: value.label, kind: value.kind, unit: value.unit, options: [], required: false,
+        min: null, max: null, value: valueText(value),
+      });
+    }
+
+    const due = owed.get(visit.jobId);
+    out.set(visit.visitId, {
+      amountDue: due ? m.toString(due) : null,
+      report: { id: report?.id ?? null, submitted: report?.submittedAt != null, fields },
+      parts: parts.filter((p) => p.visitId === visit.visitId).map((p) => ({
+        id: p.id, name: p.name, quantity: p.quantity,
+      })),
+      inspections: filed.filter((i) => i.visitId === visit.visitId).map((i) => ({
+        id: i.id, programId: i.programId, programName: i.programName ?? "Inspection",
+        result: i.result, performedOn: i.performedOn,
+      })),
+    });
+  }
+  return out;
+}
+
+function valueText(row: {
+  valueNumeric: string | null; valueText: string | null; valueBoolean: boolean | null; productName: string | null;
+} | undefined): string | null {
+  if (!row) return null;
+  if (row.valueNumeric !== null) return String(Number(row.valueNumeric));
+  if (row.valueBoolean !== null) return row.valueBoolean ? "yes" : "no";
+  return row.valueText ?? row.productName ?? null;
 }

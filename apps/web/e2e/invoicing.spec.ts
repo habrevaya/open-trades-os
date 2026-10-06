@@ -172,3 +172,45 @@ test("an invoice that asked for too much is credited, and a goodwill credit is u
   await owner.goto("/invoices/credit-notes");
   await expect(owner.getByRole("table", { name: "Credit notes" }).getByRole("row").filter({ hasText: `Cormac Lindqvist ${run}` })).toHaveCount(2);
 });
+
+test("a customer's statement runs from what was owed to what is owed, and the period can be changed", async ({ owner }) => {
+  const customer = { id: await newCustomer(owner, { name: `Saoirse Albrecht ${run}` }) };
+
+  await owner.goto(`/customers/${customer.id}`);
+  await owner.getByRole("link", { name: "New invoice" }).click();
+  await owner.getByLabel("Line 1 description").fill("Drain clearing");
+  await owner.getByLabel("Line 1 unit price").fill("300.00");
+  await owner.getByRole("button", { name: "Create invoice" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  const number = (await owner.getByRole("heading", { level: 1 }).textContent())!.replace(/\D/g, "");
+  const total = (await owner.locator('dt:text-is("Total") + dd').first().textContent())!;
+
+  // Part paid by cheque.
+  await owner.getByRole("link", { name: "Record a payment" }).click();
+  await owner.getByLabel("How it was paid").selectOption("check");
+  await owner.getByLabel("Amount received").fill("100.00");
+  await owner.getByLabel(`Apply to invoice ${number}`).fill("100.00");
+  await owner.getByLabel("Cheque number").fill("3104");
+  await owner.getByRole("button", { name: "Record payment" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  await expect(owner.locator('dt:text-is("Paid") + dd').first()).toHaveText("$100.00");
+
+  await owner.goto(`/customers/${customer.id}`);
+  await owner.getByRole("region", { name: "Invoices" }).getByRole("link", { name: "Statement" }).click();
+  await expect(owner).toHaveURL(new RegExp(`/customers/${customer.id}/statement$`));
+  const statement = owner.getByRole("article", { name: "Statement" });
+  const activity = statement.getByRole("region", { name: "Activity" });
+  await expect(activity.getByRole("row").filter({ hasText: `Invoice ${number}` })).toContainText(total);
+  await expect(activity.getByRole("row").filter({ hasText: "Payment, cheque 3104" })).toContainText("$100.00");
+  const owed = `$${(Number(total.replace(/[$,]/g, "")) - 100).toFixed(2)}`;
+  await expect(statement.locator('dt:text-is("Owed at the end") + dd')).toHaveText(owed);
+  await expect(statement.getByRole("region", { name: "Still open" })).toContainText(owed);
+
+  // A period that ends before today's activity starts shows nothing in it, and owes nothing at its end.
+  await owner.getByLabel("From", { exact: true }).fill("2020-01-01");
+  await owner.getByLabel("To", { exact: true }).fill("2020-01-31");
+  await owner.getByRole("button", { name: "Show" }).click();
+  await expect(owner).toHaveURL(/from=2020-01-01&to=2020-01-31/);
+  await expect(activity).toContainText("Nothing charged, paid or credited in this period.");
+  await expect(statement.locator('dt:text-is("Owed at the end") + dd')).toHaveText("$0.00");
+});

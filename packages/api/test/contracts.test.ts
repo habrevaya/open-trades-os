@@ -61,7 +61,27 @@ describe("permissions", () => {
       .sort();
 
     expect(open).toEqual([
+      /**
+       * A signed in customer's account and saved cards. The token is a
+       * customer scope grant opened by a code sent to the address on the
+       * customer's own record, reaching that customer and nobody else. The
+       * cards route answers a sign in only, never an account link, and
+       * returns the brand, last four and expiry, which is all that is kept.
+       */
+      "GET /v1/portal/account",
+      /**
+       * A signed in customer asking for a visit: what they can book, the
+       * windows open (with the technician who came before, by first name,
+       * and only one who has been to them), and the request. Sign in only;
+       * the property and technician are checked against the customer the
+       * sign in names, and the request is one the office still books.
+       */
+      "GET /v1/portal/booking",
+      "GET /v1/portal/booking/availability",
+      "GET /v1/portal/cards",
       "GET /v1/portal/estimate",
+      /** A change order on a project, read and signed from its own link, as an estimate is. */
+      "GET /v1/portal/change-order",
       /**
        * An invoice a customer opens from the link in the email, and the pay
        * action on the same page. Grant reachable rather than public: the
@@ -77,13 +97,97 @@ describe("permissions", () => {
        */
       "GET /v1/portal/invoice",
       "GET /v1/portal/job",
+    "GET /v1/portal/job/live",
+      /** A payer's own invoices, through a link of the `payer` scope. */
+      "GET /v1/portal/payer",
+      /**
+       * The customer's own referral link, from their account link. The grant
+       * names the customer; the answer is their code and the first names of
+       * people they sent, nothing about anybody else's account.
+       */
+      "GET /v1/portal/referral",
       "GET /v1/portal/session",
+      /**
+       * A customer asking to move or cancel a visit from the link they were
+       * sent. The grant decides which visits it reaches; a visit id in the
+       * request only narrows inside that. Asking writes a request and a task
+       * and moves nothing: the office approves, behind `visit:reschedule`.
+       */
+      "GET /v1/portal/visit-change",
       "GET /v1/public/availability",
+      /**
+       * The website snippet's two calls and the hosted form's read. All three
+       * take a company's public key (its slug) and return nothing about
+       * anybody: a pool number to show, and a form's fields. The snippet's
+       * touch keeps attribution parameters only, and all of them are counted
+       * per key and refused past a ceiling.
+       */
+      "GET /v1/public/dni",
+      "GET /v1/public/hosted-forms/{key}",
+      /**
+       * The sign in page's brand, by the company's public key: its name,
+       * colour and whether it has a logo, which is what goes on its van.
+       */
+      "GET /v1/public/portal/{organizationSlug}/branding",
       "GET /v1/public/services",
+      /**
+       * The phone app signing in. Open because nobody is signed in yet, and
+       * it is the one entry on this list that is not customer facing, so the
+       * reason is worth stating: it is the sign in form in another shape. It
+       * runs the form's own password check and lockout, and hands out nothing
+       * but a session for somebody who is a technician. Like the forms, it
+       * has no rate limit by address in this product; the per account lockout
+       * is what stops guessing.
+       */
+      "POST /v1/field/sign-in",
+      /**
+       * What a signed in customer does with their own account: open one of
+       * their records as a narrower link (sign in only), pay an invoice
+       * with a tip, save, remove and pay with a card (sign in only). Every
+       * id in these requests is checked against the customer the token
+       * names; another customer's is the same not found as one that does
+       * not exist. A card's number never reaches the server, and no payment
+       * is recorded here: the processor's signed webhook still decides.
+       */
+      "POST /v1/portal/account/open",
+      "POST /v1/portal/account/pay",
+      "POST /v1/portal/booking",
+      "POST /v1/portal/card-setup",
+      "POST /v1/portal/card-setup/confirm",
+      "POST /v1/portal/cards/{cardId}/pay",
+      "POST /v1/portal/cards/{cardId}/remove",
+      /**
+       * The same sign in with a code instead of a password. Asking for a code
+       * answers one sentence whether or not the address belongs to anybody,
+       * so it is not a way to learn who works where; it is limited per
+       * address per minute and per person to three codes in fifteen minutes,
+       * and it sends only to the number or address the company holds, never
+       * one the asker chose. Trying a code is limited per address too, and a
+       * code dies after five wrong guesses, ten minutes, or one use.
+       */
+      "POST /v1/field/sign-in/code",
+      "POST /v1/field/sign-in/verify",
+      "POST /v1/portal/change-order/approve",
+      "POST /v1/portal/change-order/decline",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",
+      "POST /v1/portal/sign-out",
+      "POST /v1/portal/visit-change",
       "POST /v1/public/bookings",
+      /**
+       * A third party asking to be installed, and coming back for its
+       * credential. Open because the app has no credential yet, which is the
+       * point of asking. Asking grants nothing: the row is `pending`, which
+       * resolves no token and can be issued none, until somebody at the
+       * company approves the exact list through the same authority check as
+       * an install. Both are counted per network address, a company holds at
+       * most twenty requests waiting, and collecting needs the claim secret
+       * handed to the asker, stored only as a hash; a wrong one is the same
+       * not found as an id that does not exist.
+       */
+      "POST /v1/public/app-requests",
+      "POST /v1/public/app-requests/{id}/claim",
       /**
        * A lead form on a company's own website, filled in by a homeowner
        * with no account. Public by necessity, like the booking endpoint
@@ -97,6 +201,16 @@ describe("permissions", () => {
        * in front of it, the same as for the booking endpoint.
        */
       "POST /v1/public/forms/{formSlug}",
+      /**
+       * A customer signing in: ask for a code, then trade it for a session.
+       * Open because nobody is signed in yet. Neither says whether an
+       * address belongs to anybody. Asking is counted per address and per
+       * network address before anything is sent; a code lives ten minutes,
+       * works once, dies after five wrong tries, and only its hash is kept.
+       */
+      "POST /v1/public/portal/{organizationSlug}/codes",
+      "POST /v1/public/portal/{organizationSlug}/sign-in",
+      "POST /v1/public/touches",
       /**
        * UNSUBSCRIBE, AND IT HAS TO BE OPEN. A recipient pressing the
        * unsubscribe control in Gmail has no account, and the mailbox provider
@@ -120,6 +234,21 @@ describe("permissions", () => {
        */
       "GET /v1/public/unsubscribe/{token}",
       "POST /v1/public/unsubscribe/{token}",
+      /**
+       * The website chat, which a visitor with no account opens on the
+       * company's own site. Whether it is on takes the company's public key
+       * and says nothing about anybody. A chat is reached only with the token
+       * its opening returned, of which only the hash is kept, sent in the body
+       * rather than an address a proxy logs; one chat's token reads that chat
+       * and no other. All four are counted per address, the chat's messages
+       * per chat as well, and the answers come from the facts the company
+       * chose to publish. The assistant acts as the person the company chose,
+       * and what it can make is a booking REQUEST the office confirms.
+       */
+      "GET /v1/public/chat",
+      "POST /v1/public/chat/messages",
+      "POST /v1/public/chat/sessions",
+      "POST /v1/public/chat/transcript",
     ].sort());
   });
 });
@@ -157,10 +286,54 @@ describe("money routes are idempotent", () => {
    * whole module is built to avoid.
    */
   const NOT_REPLAYABLE: Record<string, string> = {
+    "/v1/public/portal/{organizationSlug}/sign-in":
+      "The response is the customer's session token and only its hash is "
+      + "stored, so a replay has nothing to return. The code is spent by the "
+      + "first request, so a retry is refused and the customer asks for a new "
+      + "code, which is the same thing that happens when a code expires.",
+    "/v1/portal/account/open":
+      "The response is a new link for one record and only its hash is "
+      + "stored, so a replay has nothing to return. A retry leaves a second "
+      + "link to the same record, for the same customer, which expires in a day.",
+    "/v1/public/app-requests":
+      "The response carries the claim secret and only its hash is stored, so "
+      + "a replay has nothing to return. A retry leaves a second request "
+      + "waiting, which the company sees beside the first and refuses or lets "
+      + "expire after seven days.",
+    "/v1/public/app-requests/{id}/claim":
+      "The response is the app's token, handed over once and stored only as "
+      + "a hash. A second collection answers that it was already collected "
+      + "and hands nothing over, because a claim that could mint tokens on "
+      + "every call would be a credential of its own.",
     "/v1/apps/{appId}/tokens":
       "The response is a secret and only its hash is stored, so a replay has "
       + "nothing to return. A retry leaves a second token, visible in the list "
       + "by its label and revocable.",
+    "/v1/field/sign-in":
+      "The response is the phone's token and only its hash is stored, so a "
+      + "replay has nothing to return. A retry leaves a second token, and the "
+      + "phone registering with whichever one it received ends the other, so a "
+      + "handset never holds more than one that works.",
+    "/v1/field/sign-in/verify":
+      "The same token as the password sign in, for the same reason, and the "
+      + "code it spends is single use: a replay of a request that worked finds "
+      + "the code already spent and is refused, so it cannot mint a second token.",
+    "/v1/public/chat/sessions":
+      "The response is the website chat's token and only its hash is stored, "
+      + "so a replay has nothing to return. A retry opens a second, empty chat "
+      + "that nobody writes in; it is counted against the visitor's address like "
+      + "the first, and the widget keeps whichever token it received.",
+    "/v1/softphone/token":
+      "The response is a pass the carrier's browser library signs in with, "
+      + "minted for the person asking and stored nowhere, so a replay has "
+      + "nothing to return. A retry mints a second pass for the same person "
+      + "that expires within the hour, and every call either places is checked "
+      + "again when it is made.",
+    "/v1/field/sign-in/code":
+      "The effect is a text or an email with a fresh code, which replaces the "
+      + "one before it. A replay sends another and the newest is the one that "
+      + "works, which is what a person pressing send again expects; the window "
+      + "allows three in fifteen minutes, so a retry costs one of them.",
   };
 
   it("every POST is idempotent, because clients on bad connections retry", () => {

@@ -22,6 +22,13 @@ const ORDER = [
    * tripping on a foreign key, and the whole block is here rather than beside
    * the timeclock because it is the most child-like thing in the schema.
    */
+  /**
+   * A tip's share points at the payment it came with, the technician it is
+   * for and the pay period that paid it, so it goes before all three.
+   */
+  "tip_share",
+  /** A cash tip a technician kept points at the technician, the job and the visit. */
+  "cash_tip",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
   "commission_event", "commission_plan", "pay_period",
   /**
@@ -29,23 +36,82 @@ const ORDER = [
    * the invoices they became. Nothing points at a project but these, so the
    * project itself follows its own children.
    */
+  "project_lien_record", "project_application_line", "project_application",
+  "project_change_order_line", "project_change_order",
   "project_draw", "project_job", "project_phase", "project",
+  /**
+   * A loan application points at the payment its funding became, the invoice
+   * or estimate it was for, the customer and the lender's connection, so it
+   * goes before all of them. The costing rates, the budget and the journal
+   * headers point only at the company, and sit here with the money they are
+   * about.
+   */
+  "financing_application", "costing_rate", "budget_line", "budget", "journal_entry",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_application", "credit_note_line", "credit_note",
+  /** An estimate's send points at the estimate, the message it became and the link it carried. */
+  "estimate_delivery",
+  /** A claim points at the invoice it is about, the job and the payer. */
+  "coverage_claim",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
+  /** A layout an estimate points at, after the estimates that copied it. */
+  "proposal_template",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
+  /**
+   * Safety records point at a job, an address and the technicians on them,
+   * so they go before all three; a person on a report and a line on a sign in
+   * sheet go before the report and the talk they belong to.
+   */
+  "incident_person", "incident_report", "safety_meeting_attendee", "safety_meeting",
   // Then work.
+  /**
+   * What each ad platform was told about a job, and each customer's answer
+   * about their details and advertising. Both point at the job or the
+   * customer below.
+   */
+  "ad_conversion_adjustment", "ad_conversion_send", "advertising_consent",
+  /**
+   * A mailing's pieces point at the customer and the property they were
+   * posted to, so they go before both; the mailing itself before the tracking
+   * campaign it is credited to, further down.
+   */
+  "mail_piece", "mail_campaign",
   "delivery",
   "obligation", "authorization", "external_work_order",
+  /**
+   * A customer's request to move or cancel a visit points at the visit, the
+   * job, the customer and the online booking rules it was checked against,
+   * so it goes before all four.
+   */
+  "visit_change_request",
+  /**
+   * A company's own records (a permit, an inspection) point at a customer,
+   * an address, a job and a unit, so they go before all four.
+   */
+  "custom_object_record",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
-  "visit", "entitlement", "job_party", "job", "job_type",
+  "visit", "entitlement", "job_party", "job",
+  /** A card's labour rate points at the job type it is for and at its card, so it goes before both. */
+  "rate_card_labour_rate",
+  "job_type",
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",
   "equipment_move", "equipment",
+  "customer_not_duplicate",
+  /**
+   * A referral reward points at the two customers and the first job, so it
+   * goes before all three.
+   */
+  "referral_reward",
+  /** A customer's tags, one row each, written by a trigger from the customer's own list. */
+  "customer_tag",
   "customer_property", "contact", "property", "customer",
+  /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
+  "vendor_item",
+  "price_change_line", "price_change_batch",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
@@ -55,34 +121,69 @@ const ORDER = [
    * anything.
    */
   "discount_policy",
-  "field_upload", "field_operation", "device_snapshot", "device",
+  "technician_position", "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.
   // Tasks before runs: a task points at the run that raised it.
   // Inventory, in dependency order: movements reference orders and lines,
   // lines reference an order, and a reorder policy references a vendor.
-  "stock_movement", "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
+  // A movement points at the serial or lot it moved and the delivery it came
+  // on; a delivery's charges, an order's approvals and its sends point at
+  // the order; truck minimums point at the item and the truck.
+  "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
+  "purchase_order_receipt_charge", "purchase_order_receipt",
+  "purchase_order_approval", "purchase_order_send", "purchase_approval_rule",
+  "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
+  /**
+   * A delivery points at its schedule, a schedule at a saved report, and a
+   * statement delivery at the customer and the message it went as.
+   */
+  "statement_delivery", "report_delivery", "delivery_schedule",
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",
+  /**
+   * What the setup wizard remembers: the steps marked done, and each time a
+   * trade pack was applied with what it seeded. Nothing points at either.
+   */
+  "setup_step", "trade_pack_application",
+  "task_escalation", "task_checklist_item",
   "task",
+  "task_escalation_rule", "task_template",
+  "knowledge_note",
   "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",
   // Communications, in dependency order: a message points at a conversation
   // and a consent row, a call points at a number, a number points at a
   // campaign, a campaign points at a brand.
-  "message", "call", "conversation",
+  /** What the phone assistant did on a call points at the call and the booking request it took. */
+  "voice_agent_session",
+  "message_attachment", "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
   // Nothing points at a recording policy: it is matched by jurisdiction
   // string, never by id, which is why a party's jurisdiction can name a
   // place the operator has not declared.
   "recording_policy",
-  "phone_number", "messaging_campaign", "messaging_brand",
-  "portal_event", "portal_grant",
+  /** A website visitor's lease on a pool number points at the number. */
+  "dni_session",
+  "phone_number",
+  /**
+   * A number points at the menu that answers it; menus and groups point at each other only by id in their options.
+   * A waiting line points at the ring group that answers it, and a call at the line it waited in.
+   */
+  "phone_menu", "call_queue", "ring_group", "answering_phone", "softphone_presence",
+  "messaging_campaign", "messaging_brand",
+  /**
+   * A saved card points at the customer's processor profile and at the sign
+   * in that saved it, and a sign in's session is a grant naming the code
+   * that opened it, so the cards go first and the codes last.
+   */
+  "saved_payment_method", "payment_profile",
+  "portal_event", "portal_grant", "portal_sign_in",
   "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",
   /**
@@ -93,8 +194,11 @@ const ORDER = [
    * exactly the leftover this list exists to prevent.
    */
   "compliance_document",
+  "retention_hold", "retention_purge_run",
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
+  /** A charge found on a haul points at the hire and at the fee it was priced from. */
+  "rental_charge",
   "rental", "rentable_asset", "territory", "business_hours",
   /**
    * The company's own tools, children first. Every one of these cascades
@@ -106,7 +210,11 @@ const ORDER = [
    */
   "asset_cost", "asset_compliance", "asset_maintenance_plan",
   "asset_meter_reading", "asset_custody", "company_asset",
+  /** A lead's messages and the inbox's emails point at the offer; the offer at its connector. */
+  "lead_offer_message", "lead_email", "lead_inbox",
   "lead_offer", "lead_source_connector", "sync_run",
+  /** What Search Console and Analytics reported, per connection. */
+  "search_query_day", "analytics_session_day",
   /**
    * Calendar feeds, before the technician they point at and before the
    * organization. A feed is a credential rather than a record of work, so it
@@ -122,17 +230,26 @@ const ORDER = [
    */
   "accounting_entity_link", "account_mapping", "accounting_period",
   /**
-   * Model spend, before the connection every row of it cascades from. The
+   * The agents' log, drafts, chats and settings first, because a draft points
+   * at the usage row it came from. Then model spend, before the connection
+   * every row of it cascades from. The
    * budget points at no connection at all, which is deliberate: a company's
    * monthly ceiling outlives whichever vendor's key it was holding when the
    * ceiling was set.
    */
+  "ai_agent_activity", "ai_agent_proposal", "ai_chat_session", "ai_agent_setting",
   "ai_usage", "ai_budget",
+  /**
+   * A sign in in flight, the sealed grant it left and the platform's
+   * campaigns, all before the connection each cascades from.
+   */
+  "oauth_authorization", "sealed_credential", "ad_platform_campaign",
   "integration_connection",
   // A company's encrypted provider secrets. Nothing points at them.
   "integration_secret",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
+  "oauth_refresh_token", "oauth_code",
   "app_token", "connected_app",
   /**
    * Attachments before the files they point at. The key is a string rather
@@ -155,20 +272,48 @@ const ORDER = [
    */
   "campaign_recipient", "unsubscribe_link", "marketing_campaign",
   /**
+   * The company's channels and tracking campaigns, after everything that
+   * points at them: touches, spend, calls, numbers, jobs, customers and lead
+   * connectors all carry one or both, and a campaign points at its channel.
+   */
+  "acquisition_campaign", "marketing_channel",
+  /**
    * Reviews: a request points at a job and a customer, a review at both
    * plus a technician. The policy and the platform list point at nothing,
    * which is why a company can declare them before it has any reviews.
    */
   "review_request", "review", "review_platform", "review_policy",
   "attachment", "stored_file",
-  "audit_log", "integration_event", "webhook_endpoint",
+  "audit_log", "integration_event", "travel_time",
+  /**
+   * A delivery attempt points at its endpoint and at the replay that sent
+   * it, and a replay at its endpoint, so the attempts go first.
+   */
+  "webhook_delivery", "webhook_replay", "webhook_endpoint",
   /**
    * A held certification points at a technician and at the type it is an
    * instance of, so both go before the technician below and the type goes
    * after the holdings of it.
    */
-  "person_certification", "certification_type",
-  "custom_field_definition", "time_off", "on_call_rotation", "technician",
+  "person_certification",
+  /**
+   * The rest of what the office keeps about a person: continuing education
+   * and skills point at the technician (and the hours at a certification
+   * type), the others at the membership, and a person's onboarding line at
+   * the template line it was copied from and the asset handed over.
+   */
+  "continuing_education", "technician_skill",
+  "onboarding_item", "onboarding_template_item",
+  /**
+   * A request to sign points at the document and the person, and an onboarding
+   * line at the document, so the lines and the requests go before it. An
+   * invite points at the person, and the email it went as points at the
+   * invite; the email is gone with the other messages above.
+   */
+  "staff_document_request", "staff_document", "membership_invite",
+  "emergency_contact", "employment_record",
+  "certification_type",
+  "custom_field_definition", "custom_object_type", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",
   /**
    * Roles before memberships. The foreign key is ON DELETE SET NULL so the
@@ -269,6 +414,18 @@ export const TEARDOWN_ORDER: readonly string[] = ORDER;
  * Deriving the id from a name makes a collision require picking the same name,
  * which is visible rather than arithmetic.
  */
+/**
+ * A date as the seeded company counts days, `offset` days from today.
+ *
+ * Not `new Date().toISOString().slice(0, 10)`: that is UTC's date, and for
+ * the hours after midnight UTC it is already tomorrow where the company is
+ * (America/Chicago, the column's default), so a visit made "now" falls
+ * outside a day asked for by it and a date "today" is refused as the future.
+ */
+export function companyToday(offset = 0, timeZone = "America/Chicago"): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(Date.now() + offset * 86_400_000));
+}
+
 export function fixtureId(name: string): string {
   const h = createHash("sha256").update(name).digest("hex");
   return [
@@ -298,4 +455,9 @@ let shared: Database | undefined;
 export function testDb(url: string): Database {
   shared ??= createClient(url);
   return shared;
+}
+
+/** A string as a regular expression that matches it literally, every metacharacter and the backslash included. */
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

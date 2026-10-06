@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { commercial, entitlements, jobs, ConflictError } from "@opentradesos/api/services";
-import type { coverage } from "@opentradesos/core";
+import { commercial, entitlements, files, jobs, jobBilling, visitChanges, ConflictError } from "@opentradesos/api/services";
+import { money, type coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
+import { sourceFrom } from "@/lib/lead-source";
 import { PART_ROWS } from "./parts";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -54,6 +55,12 @@ export async function setCoverage(_previous: unknown, form: FormData) {
         source: source as coverage.CoverageSource,
         ...(String(form.get("coverageReference") ?? "").trim()
           ? { externalReference: String(form.get("coverageReference")).trim() } : {}),
+        /**
+         * The deductible or trade call fee: what the customer pays whatever
+         * the coverage. Taken out of the covered amount once per visit.
+         */
+        ...(String(form.get("customerResponsibility") ?? "").trim()
+          ? { customerResponsibility: String(form.get("customerResponsibility")).replace(/[$,\s]/g, "") } : {}),
       });
     }
   } catch (error) {
@@ -146,6 +153,111 @@ export async function setJobStatus(_previous: FormState, form: FormData): Promis
   if (status !== "completed" && status !== "in_progress") return refused(form, "Nothing to do.");
   const result = await attempt(form, async () => {
     await jobs.update(await ctx(), { id: jobId, status });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}
+
+/**
+ * Answering a customer's request to move or cancel a visit, from the job or
+ * from the office queue. The service moves the visit, closes the task and
+ * tells the customer; this only reports what it said.
+ */
+export async function approveVisitChange(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const answered = await visitChanges.approve(await ctx(), { id: field(form, "id") ?? "" });
+    return {
+      message: answered.notified === "queued"
+        ? "Done, and the customer has been told."
+        : `Done. The customer could not be told: ${answered.notified ?? "no way to reach them"}`,
+    };
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
+  return result;
+}
+
+export async function declineVisitChange(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const answered = await visitChanges.decline(await ctx(), {
+      id: field(form, "id") ?? "", response: field(form, "response"),
+    });
+    return {
+      message: answered.notified === "queued"
+        ? "Declined, and the customer has been told."
+        : `Declined. The customer could not be told: ${answered.notified ?? "no way to reach them"}`,
+    };
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
+  return result;
+}
+
+/**
+ * The office corrects where a job came from. Recorded as a declared touch on
+ * the job and written to its columns as chosen; choosing nothing clears it.
+ */
+export async function setJobSource(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const picked = sourceFrom(form);
+  const result = await attempt(form, async () => {
+    await jobs.update(await ctx(), {
+      id: jobId,
+      ...(picked.campaignId ? { campaignId: picked.campaignId }
+        : picked.channelId ? { channelId: picked.channelId }
+          : { leadSource: null, channelId: null, campaignId: null }),
+    });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}
+
+/**
+ * Show one job photograph on the customer's job link, or stop showing it.
+ * Every photograph starts private; this is the decision to share one.
+ */
+export async function shareJobPhoto(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  return attempt(form, async () => {
+    await files.shareWithCustomer(await ctx(), {
+      attachmentId: field(form, "attachmentId") ?? "",
+      shared: field(form, "shared") === "yes",
+    });
+    revalidatePath(`/jobs/${jobId}`);
+  });
+}
+
+/** Read who is paying from the unit's warranty dates, and say so when it was out of warranty. */
+export async function coverageFromUnit(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const result = await attempt(form, async () => {
+    const found = await jobBilling.coverageFromEquipment(await ctx(), { jobId });
+    return { message: found.resolved ? found.note : found.reason };
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}
+
+/** The contract the job runs under, or none. Its cards price the job and its clocks start. */
+export async function setJobContract(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const result = await attempt(form, async () => jobBilling.setContract(await ctx(), {
+    jobId, contractId: field(form, "contractId") ?? null,
+  }));
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}
+
+/** Bill the job as the plan on the page says: one invoice per payer, all or none. */
+export async function billThisJob(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const result = await attempt(form, async () => {
+    const billed = await jobBilling.bill(await ctx(), { jobId });
+    return {
+      message: billed.invoices.length === 1
+        ? `Invoice ${billed.invoices[0]!.number} raised.`
+        : `Invoices ${billed.invoices.map((i) => i.number).join(" and ")} raised, ${money.edit(money.money(billed.invoicedTotal))} in all.`,
+    };
   });
   revalidatePath(`/jobs/${jobId}`);
   return result;

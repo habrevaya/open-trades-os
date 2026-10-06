@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, connectors } from "@opentradesos/core";
+import { assertCan, connectors, marketing as mk } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { FALLBACKS, type LeadFieldMap } from "../marketing/lead-webhook";
 import { secretStore } from "../secrets/store";
+import * as acquisition from "./acquisition";
 
 /**
  * SETTING UP A LEAD SOURCE, WHICH NOTHING COULD DO
@@ -199,10 +200,65 @@ const newToken = () => randomBytes(24).toString("base64url");
  */
 const refFor = (connectorId: string) => `OTOS_LEAD_WEBHOOK_${connectorId.replace(/-/g, "_").toUpperCase()}`;
 
+/**
+ * WHICH CHANNEL A SENDER'S LEADS ARE CREDITED TO.
+ *
+ * `source` on a connector is the sender's own name, free text because the
+ * senders are not a closed set: "angi", "thumbtack", "our_website". It was
+ * also handed to the touch as if it were a catalogue key, the touch refused
+ * it, and the documented example connector, "angi", could not receive a lead.
+ *
+ * So the name is resolved to one of the company's channels, in order:
+ *
+ *   1. The channel chosen when the connector was set up.
+ *   2. A live channel whose name is the source, ignoring case and spacing,
+ *      so a company that added "Angi" as a channel has its Angi leads there.
+ *   3. The catalogue's alias list, which knows angi, thumbtack, homeadvisor
+ *      and the rest are marketplaces, landing on that key's channel.
+ *   4. The marketplace channel. A lead webhook is a marketplace until
+ *      somebody says otherwise, and a lead credited to the wrong kind of
+ *      marketplace is fixable on a screen where a lead lost to a refusal is
+ *      not.
+ *
+ * `guessed` is true for the last, so the setup screen can say so.
+ */
+export async function resolveConnectorChannel(
+  tx: Database,
+  organizationId: string,
+  input: { source: string; channelId?: string | null | undefined },
+): Promise<{ channelId: string | null; sourceKey: string; guessed: boolean }> {
+  if (input.channelId) {
+    const channel = await acquisition.loadChannel(tx, organizationId, input.channelId);
+    return { channelId: channel.id, sourceKey: channel.sourceKey, guessed: false };
+  }
+  await acquisition.ensureChannels(tx, organizationId);
+  const squashed = input.source.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const [named] = await tx.select({ id: schema.marketingChannel.id, sourceKey: schema.marketingChannel.sourceKey })
+    .from(schema.marketingChannel)
+    .where(and(
+      eq(schema.marketingChannel.organizationId, organizationId),
+      isNull(schema.marketingChannel.archivedAt),
+      sql`regexp_replace(lower(${schema.marketingChannel.name}), '[^a-z0-9]', '', 'g') = ${squashed}`,
+    )).limit(1);
+  if (named) return { channelId: named.id, sourceKey: named.sourceKey, guessed: false };
+
+  const resolved = mk.resolveSource(input.source);
+  const key = resolved.ok ? resolved.source : "marketplace";
+  return {
+    channelId: await acquisition.channelForSource(tx, organizationId, key),
+    sourceKey: key,
+    guessed: !resolved.ok,
+  };
+}
+
 function shape(row: typeof schema.leadSourceConnector.$inferSelect) {
   return {
     id: row.id,
     source: row.source,
+    /** How its leads arrive: the signed webhook, a marketplace's own post, or forwarded emails. */
+    kind: row.kind,
+    channelId: row.channelId,
+    campaignId: row.acquisitionCampaignId,
     displayName: row.displayName,
     active: row.active,
     /** The half of the URL this product knows. The host is the deployment's own. */
@@ -238,6 +294,18 @@ async function keepIfStoreCan(tx: Database, organizationId: string, name: string
 export interface ConnectorInput {
   /** "angi", "thumbtack", "our_website". Free text: the senders are not a closed set. */
   source: string;
+  /**
+   * The channel its leads are credited to. Optional: left out, it is
+   * resolved from `source` by `resolveConnectorChannel`, and stored, so the
+   * answer does not change under the company later.
+   */
+  channelId?: string | null | undefined;
+  /**
+   * The tracking campaign its leads are credited to. Optional; when given,
+   * it decides the channel too, and a channel chosen as well has to be the
+   * campaign's own.
+   */
+  campaignId?: string | null | undefined;
   displayName: string;
   fieldMap?: Record<string, unknown> | undefined;
   commissionRate?: string | null | undefined;
@@ -271,11 +339,27 @@ export async function create(ctx: ServiceContext, input: ConnectorInput) {
     }
 
     const fieldMap = checkFieldMap(input.fieldMap ?? {});
+    const declared = input.campaignId
+      ? await acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+        campaignId: input.campaignId, channelId: input.channelId ?? null,
+      })
+      : null;
+    const channel = await resolveConnectorChannel(tx, ctx.actor.organizationId, {
+      source, channelId: declared?.channelId ?? input.channelId ?? null,
+    });
+    if (!channel.channelId) {
+      throw new ConflictError(
+        `Every channel for ${mk.leadSourceLabel(channel.sourceKey)} is archived, so leads from this sender `
+        + "would be credited to nothing. Choose a channel for it, or bring one back.",
+      );
+    }
     const secret = newSecret();
 
     const [row] = await tx.insert(schema.leadSourceConnector).values({
       organizationId: ctx.actor.organizationId,
       source,
+      channelId: channel.channelId,
+      acquisitionCampaignId: declared?.campaignId ?? null,
       displayName,
       webhookToken: newToken(),
       fieldMap,
@@ -317,6 +401,8 @@ export async function create(ctx: ServiceContext, input: ConnectorInput) {
 
     return {
       ...shape(linked!),
+      /** True when nothing placed the source and the leads default to the marketplace channel. */
+      channelGuessed: channel.guessed,
       /**
        * Shown once. Put it in the deployment's secret store under `secretRef`
        * and give the same value to whoever is sending the leads.
@@ -345,6 +431,8 @@ export async function update(
   input: {
     id: string;
     displayName?: string | undefined;
+    channelId?: string | undefined;
+    campaignId?: string | null | undefined;
     fieldMap?: Record<string, unknown> | undefined;
     active?: boolean | undefined;
     commissionRate?: string | null | undefined;
@@ -353,9 +441,22 @@ export async function update(
 ) {
   return guardedWrite(ctx, "integration:write", async (tx) => {
     const before = await load(tx, ctx.actor.organizationId, input.id);
+    if (input.channelId !== undefined) {
+      const channel = await acquisition.loadChannel(tx, ctx.actor.organizationId, input.channelId);
+      if (channel.archivedAt) throw new ConflictError(`${channel.name} is archived.`);
+    }
+    /** A campaign brings its own channel, and a channel chosen with it has to be that one. */
+    const declared = input.campaignId
+      ? await acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+        campaignId: input.campaignId, channelId: input.channelId ?? null,
+      })
+      : null;
 
     const [after] = await tx.update(schema.leadSourceConnector).set({
       ...(input.displayName !== undefined ? { displayName: input.displayName.trim() } : {}),
+      ...(input.channelId !== undefined ? { channelId: input.channelId } : {}),
+      ...(declared ? { channelId: declared.channelId, acquisitionCampaignId: declared.campaignId } : {}),
+      ...(input.campaignId === null ? { acquisitionCampaignId: null } : {}),
       ...(input.fieldMap !== undefined ? { fieldMap: checkFieldMap(input.fieldMap) } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
@@ -518,7 +619,8 @@ export const handlers = {
   updateLeadConnector: (
     ctx: ServiceContext,
     input: {
-      id: string; displayName?: string | undefined;
+      id: string; displayName?: string | undefined; channelId?: string | undefined;
+      campaignId?: string | null | undefined;
       fieldMap?: Record<string, unknown> | undefined; active?: boolean | undefined;
       commissionRate?: string | null | undefined; leadFee?: string | null | undefined;
     },

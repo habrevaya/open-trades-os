@@ -2,19 +2,21 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
-  telephony as telephonyService, phoneNumbers as numberService,
-  people as peopleService,
+  telephony as telephonyService, phoneNumbers as numberService, acquisition,
+  people as peopleService, setup as setupService,
 } from "@opentradesos/api/services";
-import { can, ROLE_PRESETS, marketing as mk } from "@opentradesos/core";
+import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq, isNull } from "drizzle-orm";
 import { Chip, Phone } from "@opentradesos/ui";
 import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Branding } from "./Branding";
+import { CompanyDetails } from "./CompanyDetails";
 import { Timezone } from "./Timezone";
 import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
+import { Buy } from "./Buy";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,7 @@ export default async function SettingsPage() {
 
   const writes = can(user.actor, "settings:write");
   const brand = await brandingService.current(ctx).catch(() => null);
+  const details = writes ? await setupService.details(ctx) : null;
 
   /**
    * Through the service rather than the raw table, so the row knows which
@@ -43,6 +46,8 @@ export default async function SettingsPage() {
    * and age, and the page was reading three columns and showing none of it.
    */
   const numbers = await numberService.list(ctx, {});
+  /** The channels and their tracking campaigns, for what a tracking number is credited to. */
+  const credits = writes ? await acquisition.channelOptions(ctx) : [];
 
   const data = await inTenant(ctx, async (tx) => ({
     numbers: await tx.select().from(schema.phoneNumber)
@@ -70,9 +75,11 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Settings" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        {user.organizationName}. The look of the product is editable here.
-        Everything below it is read only in this build and changes go through
-        the API.
+        {user.organizationName}. The company's details, the look, the time zone, call recording
+        and phone numbers are changed here. People are invited and given roles on{" "}
+        <a href="/settings/team" className="underline underline-offset-4">Team</a>, and the setup list
+        is still at <a href="/setup" className="underline underline-offset-4">Setup</a>, with what is
+        done ticked off.
       </p>
 
       {/*
@@ -80,6 +87,8 @@ export default async function SettingsPage() {
         actually change, and a page that opens on four read only tables
         teaches people it is not worth visiting.
       */}
+      {details && <CompanyDetails details={details} />}
+
       {writes && brand && (
         <Branding
           color={brand.color} on={brand.on} text={brand.text}
@@ -106,10 +115,25 @@ export default async function SettingsPage() {
           number attributes to, and whether a number has been handed back.
         */}
         {writes ? (
-          <Numbers
-            numbers={numbers}
-            sources={mk.LEAD_SOURCES.map((source) => ({ key: source.key, label: source.label }))}
-          />
+          <>
+            <Numbers
+              numbers={numbers}
+              credits={credits}
+            />
+            {/*
+              Only when a Twilio account is connected, which is where the
+              numbers are bought from. Without one, the form above is the way
+              to record a number bought somewhere else.
+            */}
+            {data.connections.some((c) => c.provider === "twilio" && c.status === "connected")
+              ? <Buy credits={credits} />
+              : (
+                <p className="mt-3 text-sm text-ink-700">
+                  Connect Twilio under <a href="/settings/integrations" className="underline underline-offset-4">Integrations</a> to
+                  buy tracking numbers here and have their calls routed, whispered and recorded by this product.
+                </p>
+              )}
+          </>
         ) : numbers.length === 0 ? (
           <Empty title="No numbers connected">
             Connect a carrier and add a number to send appointment reminders

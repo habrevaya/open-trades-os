@@ -62,6 +62,8 @@ export const StockMovement = z.object({
   jobId: Uuid.nullable(),
   transferId: Uuid.nullable(),
   reasonCode: z.string().nullable(),
+  /** The serial number or lot this movement moved, for a tracked item. One serial to a movement. */
+  lotId: Uuid.nullable(),
   /** The database's total order. A client reconciling a history sorts on this, never on a timestamp. */
   sequence: z.number().int(),
   occurredAt: z.string().datetime(),
@@ -78,6 +80,32 @@ export const StockLevel = z.object({
   committed: QuantityString,
   /** On hand minus committed. The only number a dispatcher should read. */
   available: QuantityString,
+});
+
+/**
+ * WHICH UNITS, for an item tracked by serial or lot.
+ *
+ * Required on every receipt, transfer and issue of a tracked item and
+ * refused on one that is not tracked, so nobody believes they recorded a
+ * serial that went nowhere. A serial is one unit and leaves `quantity` out;
+ * a lot says how much of it moved, or leaves it out when one lot covers the
+ * whole movement.
+ */
+export const StockUnitInput = z.object({
+  number: z.string().min(1).max(100),
+  quantity: QuantityString.optional(),
+  /** A lot's use by date, on a receipt. */
+  expiresOn: z.string().date().optional(),
+  /** On an issue: the customer's equipment record at the job's address this serial is, or went into. */
+  equipmentId: Uuid.optional(),
+  /** On an issue: record the serial as new equipment at the job's address. Needs `equipment:write`. */
+  installAs: z.object({
+    category: z.string().min(1).max(100),
+    tag: z.string().max(100).optional(),
+    manufacturer: z.string().max(100).optional(),
+    model: z.string().max(100).optional(),
+    location: z.string().max(200).optional(),
+  }).optional(),
 });
 
 export const listStockLevels = defineRoute({
@@ -154,7 +182,7 @@ export const issueStock = defineRoute({
   path: "/v1/stock/issues",
   summary: "Stock onto a job",
   description:
-    "A job is required. Stock leaving the shelf for nobody is an ADJUSTMENT, not an issue, and the difference is whether anybody can be told later what the part was for.",
+    "A job is required. Stock leaving the shelf for nobody is an ADJUSTMENT, not an issue, and the difference is whether anybody can be told later what the part was for. A tracked item names its serials or lots in `units`, each of which must be at this location, and a serial can say which of the customer's units it is (`equipmentId`) or be recorded as new equipment at the job's address (`installAs`), which is the trace from the shelf to the customer.",
   module: "M16",
   permissions: ["inventory:adjust"],
   idempotent: true,
@@ -163,6 +191,7 @@ export const issueStock = defineRoute({
     locationId: Uuid,
     jobId: Uuid,
     quantity: QuantityString,
+    units: z.array(StockUnitInput).max(500).optional(),
   }),
   output: z.object({ movements: z.array(StockMovement) }),
 });
@@ -181,6 +210,8 @@ export const receiveStock = defineRoute({
     locationId: Uuid,
     quantity: QuantityString,
     totalCost: MoneyString,
+    /** The serial numbers or lots arriving, for a tracked item. The cost is allocated across them. */
+    units: z.array(StockUnitInput).max(500).optional(),
   }),
   output: z.object({ movements: z.array(StockMovement) }),
 });
@@ -190,7 +221,7 @@ export const countStock = defineRoute({
   path: "/v1/stock/counts",
   summary: "Record a physical count",
   description:
-    "The counted number is not written anywhere. What is written is the DIFFERENCE, as an adjustment with a reason, so the history still explains every number it produces. foundAtCost is required when the count found MORE than the history expected: stock that appeared has no receipt behind it, and valuing it at nothing makes every later issue look free.",
+    "The counted number is not written anywhere. What is written is the DIFFERENCE, as an adjustment with a reason, so the history still explains every number it produces. foundAtCost is required when the count found MORE than the history expected: stock that appeared has no receipt behind it, and valuing it at nothing makes every later issue look free. Refused for an item tracked by serial or lot, whose missing units are written off by number.",
   module: "M16",
   permissions: ["inventory:adjust"],
   idempotent: true,
@@ -209,7 +240,7 @@ export const transferStock = defineRoute({
   path: "/v1/stock/transfers",
   summary: "Move stock between two locations",
   description:
-    "Both legs or neither. One leg of a transfer is stock that left a van and arrived nowhere.",
+    "Both legs or neither. One leg of a transfer is stock that left a van and arrived nowhere. A tracked item names the serials or lots that moved, each of which must be at the location it leaves.",
   module: "M16",
   permissions: ["inventory:adjust"],
   idempotent: true,
@@ -218,6 +249,7 @@ export const transferStock = defineRoute({
     fromLocationId: Uuid,
     toLocationId: Uuid,
     quantity: QuantityString,
+    units: z.array(StockUnitInput).max(500).optional(),
   }),
   output: z.object({ movements: z.array(StockMovement) }),
 });
@@ -353,32 +385,262 @@ export const createPurchaseOrder = defineRoute({
     expectedAt: z.string().datetime().optional(),
     notes: z.string().max(2000).optional(),
     lines: z.array(z.object({
-      itemId: Uuid,
+      /** Our item. Either this or `partNumber`. */
+      itemId: Uuid.optional(),
+      /** The vendor's own part number, or our item code, looked up for this vendor. */
+      partNumber: z.string().min(1).max(100).optional(),
       locationId: Uuid.optional(),
       quantity: QuantityString,
-      unitPrice: MoneyString,
+      /** What the vendor charges for one. Their price on record when left out; refused when there is none. */
+      unitPrice: MoneyString.optional(),
+    }).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
+      message: "Name the part: our item, or the vendor's part number",
     })).min(1),
   }),
   output: z.object({ id: Uuid, number: z.number().int(), status: PurchaseOrderStatus }),
 });
 
+/** Where an order stands against the company's approval steps. */
+export const PurchaseOrderApprovalState = z.object({
+  /** `not_needed` means no step applies to an order this size, and the sender's own `po:approve` is the approval. */
+  state: z.enum(["not_needed", "waiting", "approved", "rejected"]),
+  sentence: z.string(),
+  steps: z.array(z.object({
+    step: z.number().int(),
+    minimumTotal: MoneyString,
+    roleLabel: z.string(),
+    state: z.enum(["approved", "rejected", "waiting", "later"]),
+    decidedBy: z.string().nullable(),
+    decidedAt: z.string().datetime().nullable(),
+    note: z.string().nullable(),
+  })),
+});
+
+export const PurchaseOrderSend = z.object({
+  id: Uuid,
+  destination: z.string().nullable(),
+  /** `queued` is in the outbox, not delivered. */
+  state: z.string(),
+  explanation: z.string().nullable(),
+  sentAt: z.string().datetime(),
+  sentBy: z.string().nullable(),
+  linkExpiresAt: z.string().datetime().nullable(),
+});
+
+export const getPurchaseOrder = defineRoute({
+  method: "get",
+  path: "/v1/purchase-orders/{id}",
+  summary: "One purchase order, line by line",
+  description: "Each line with the vendor's part number as it was when the order was written, our item, how many, at what, where it is going and how much has arrived.",
+  module: "M16",
+  permissions: ["po:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    number: z.number().int(),
+    status: PurchaseOrderStatus,
+    vendorId: Uuid,
+    vendorName: z.string(),
+    vendorAccount: z.string().nullable(),
+    expectedAt: z.string().datetime().nullable(),
+    submittedAt: z.string().datetime().nullable(),
+    notes: z.string().nullable(),
+    total: MoneyString,
+    lines: z.array(z.object({
+      id: Uuid,
+      itemId: Uuid,
+      itemCode: z.string(),
+      itemName: z.string(),
+      vendorPartNumber: z.string().nullable(),
+      locationId: Uuid,
+      locationName: z.string(),
+      quantityOrdered: QuantityString,
+      quantityReceived: QuantityString,
+      unitPrice: MoneyString,
+      /** How the item is tracked, when it is: a receipt of this line has to name its serials or lots. */
+      tracking: z.enum(["serial", "lot"]).nullable(),
+      /** Freight and fees spread onto this line across every delivery so far. */
+      landedCost: MoneyString,
+      /** The serials or lots received on this line. */
+      units: z.array(z.object({ id: Uuid, number: z.string() })),
+    })),
+    /** Each delivery, with the charges that came on it. */
+    receipts: z.array(z.object({
+      id: Uuid,
+      receivedAt: z.string().datetime(),
+      basis: z.enum(["value", "quantity"]),
+      chargesTotal: MoneyString,
+      charges: z.array(z.object({ description: z.string(), amount: MoneyString })),
+    })),
+    approval: PurchaseOrderApprovalState,
+    /** Every time it was emailed, whether it went or not, newest first. */
+    sends: z.array(PurchaseOrderSend),
+  }),
+});
+
+/* ------------------------------------------- vendor part numbers and catalogues */
+
+export const VendorItem = z.object({
+  id: Uuid,
+  vendorId: Uuid,
+  vendorName: z.string(),
+  itemId: Uuid,
+  itemCode: z.string(),
+  itemName: z.string().nullable(),
+  /** The vendor's own number for the part, as their catalogue prints it. */
+  partNumber: z.string(),
+  description: z.string().nullable(),
+  /** What one costs from this vendor. Null when nobody has said. */
+  cost: MoneyString.nullable(),
+  costUpdatedAt: z.string().datetime().nullable(),
+});
+
+export const listVendorItems = defineRoute({
+  method: "get",
+  path: "/v1/vendor-items",
+  summary: "Vendors' part numbers for our items",
+  description: "For one item (`itemId`), every vendor's number and price for it; for one vendor (`vendorId`), their whole catalogue as linked to ours.",
+  module: "M16",
+  permissions: ["vendor:read"],
+  input: z.object({ itemId: Uuid.optional(), vendorId: Uuid.optional() }),
+  output: z.object({ links: z.array(VendorItem) }),
+});
+
+export const setVendorItem = defineRoute({
+  method: "put",
+  path: "/v1/vendor-items",
+  summary: "Say what a vendor calls one of our items, and what they charge",
+  description: "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record.",
+  module: "M16",
+  permissions: ["vendor:write"],
+  idempotent: true,
+  input: z.object({
+    vendorId: Uuid,
+    itemId: Uuid,
+    partNumber: z.string().min(1).max(100),
+    description: z.string().max(500).nullable().optional(),
+    cost: z.string().max(20).nullable().optional(),
+  }),
+  output: VendorItem,
+});
+
+export const removeVendorItem = defineRoute({
+  method: "post",
+  path: "/v1/vendor-items/{id}/remove",
+  summary: "Forget a vendor's number for an item",
+  description: "Orders already written keep the number they were sent with, because each line copied it.",
+  module: "M16",
+  permissions: ["vendor:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, removed: z.boolean() }),
+});
+
+const CatalogueOptions = {
+  /** The file, as text: a header line naming sku, description, cost and vendor columns, then a row per part. */
+  csv: z.string().min(1).max(2_000_000),
+  /** The vendor for rows that name none, or for a file with no vendor column. */
+  vendorId: Uuid.nullable().optional(),
+  /** The margin a new item is priced at over its cost, as a fraction: 0.4 is forty per cent. Without one, new parts are skipped rather than sold at cost. */
+  margin: z.string().max(12).nullable().optional(),
+  /** Round new items' prices up to this ending of cents, like 95 or 99. */
+  ending: z.string().regex(/^\d{2}$/).nullable().optional(),
+  /** Whether each matched item's own cost (the one job costing reads) follows the vendor's, as a new version. */
+  updateItemCost: z.boolean().default(false),
+  /** The category new items are put in. */
+  categoryId: Uuid.nullable().optional(),
+};
+
+const CatalogueRow = z.object({
+  action: z.enum(["create", "link", "update", "unchanged", "skip"]),
+  line: z.number().int(),
+  sku: z.string(),
+  vendorId: Uuid.optional(),
+  vendorName: z.string().optional(),
+  itemId: Uuid.optional(),
+  itemCode: z.string().optional(),
+  itemName: z.string().optional(),
+  /** For a new item: its code, name and the price the margin gives it. */
+  code: z.string().optional(),
+  name: z.string().optional(),
+  price: MoneyString.optional(),
+  /** The vendor's cost from the file. */
+  cost: MoneyString.optional(),
+  /** What the link said before, for an update. */
+  partNumberBefore: z.string().optional(),
+  costBefore: MoneyString.nullable().optional(),
+  /** The item's own cost before and after, when it follows the vendor's. Before is null for a reader who may not see cost. */
+  itemCostBefore: MoneyString.nullable().optional(),
+  itemCostAfter: MoneyString.nullable().optional(),
+  /** The item's cost would have followed, and a scheduled price change is in the way. */
+  costHeldBack: z.boolean().optional(),
+  /** Why a skipped row was skipped. */
+  reason: z.string().optional(),
+});
+
+const CatalogueResult = z.object({
+  /** Lines the file could not be read at, with why. */
+  problems: z.array(z.object({ line: z.number().int(), message: z.string() })),
+  rows: z.array(CatalogueRow),
+  counts: z.object({
+    create: z.number().int(), link: z.number().int(), update: z.number().int(),
+    unchanged: z.number().int(), skip: z.number().int(),
+  }),
+});
+
+export const previewVendorCatalogue = defineRoute({
+  method: "post",
+  path: "/v1/vendor-catalogue/preview",
+  summary: "What a supplier's catalogue file would do, with nothing written",
+  description:
+    "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor, a cost that is not an amount, a part number twice, a new part with no margin to price it. A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.",
+  module: "M16",
+  permissions: ["vendor:write", "pricebook:write"],
+  idempotent: true,
+  input: z.object(CatalogueOptions),
+  output: CatalogueResult,
+});
+
+export const applyVendorCatalogue = defineRoute({
+  method: "post",
+  path: "/v1/vendor-catalogue/apply",
+  summary: "Apply a supplier's catalogue file",
+  description:
+    "Recomputed from the file inside the write rather than trusted from a preview, and written exactly as the plan says, less any `skipLines`. New items are materials at the margin asked for. An item's own cost that follows the vendor's is a new version, so every document already priced keeps its cost; one with a price change already scheduled is left alone and said so.",
+  module: "M16",
+  permissions: ["vendor:write", "pricebook:write"],
+  idempotent: true,
+  dryRun: true,
+  input: z.object({
+    ...CatalogueOptions,
+    /** Lines of the file to leave out, as the preview numbered them. */
+    skipLines: z.array(z.number().int().min(1)).max(5000).optional(),
+  }),
+  output: CatalogueResult.extend({
+    created: z.number().int(),
+    linked: z.number().int(),
+    updated: z.number().int(),
+    itemCostsRevised: z.number().int(),
+  }),
+});
+
 /**
- * `po:write` here, and SUBMITTING ALSO NEEDS `po:approve`.
+ * `po:write` here, and SUBMITTING MAY ALSO NEED `po:approve`.
  *
  * Declared as the one it always needs rather than as both, because both would
  * tell a reader and an agent that moving an order to `draft` needs approval
- * authority, which it does not. The service picks `po:approve` for the submit
- * transition and `po:write` for every other one, and its comment says why the
- * two are separate powers: guarding the whole transition on approval stops a
- * buyer doing their own work, and guarding all of it on writing lets anybody who
- * can raise an order approve it.
+ * authority, which it does not. Submitting an order none of the company's
+ * approval steps applies to needs `po:approve` from the sender; an order the
+ * steps apply to needs every step approved first, by the people the steps
+ * name, and then the buyer may send it. A holder of `po:approve` without
+ * `po:write` may still submit, which is how a finance role sends an order.
  */
 export const setPurchaseOrderStatus = defineRoute({
   method: "post",
   path: "/v1/purchase-orders/{id}/status",
   summary: "Move an order along",
   description:
-    "A received order cannot go back to draft and a cancelled one is finished. Both are absorbing states, and reopening one is how stock gets received twice against the same promise.",
+    "A received order cannot go back to draft and a cancelled one is finished. Both are absorbing states, and reopening one is how stock gets received twice against the same promise. Submitting (sending to the vendor) is where approval is checked: an order the company's approval steps apply to goes once every step has approved it and is refused while one is waiting or after one rejected it; an order no step applies to needs `po:approve` from whoever sends it.",
   module: "M16",
   permissions: ["po:write"],
   idempotent: true,
@@ -391,7 +653,7 @@ export const receivePurchaseOrder = defineRoute({
   path: "/v1/purchase-orders/{id}/receipts",
   summary: "Receive against an order",
   description:
-    "Partial receipts are the case that goes wrong: three of five arrive, two are still owed, and a system that closes the order on any receipt loses the other two forever. The received totals and the resulting status are computed, never accumulated by the caller.",
+    "Partial receipts are the case that goes wrong: three of five arrive, two are still owed, and a system that closes the order on any receipt loses the other two forever. The received totals and the resulting status are computed, never accumulated by the caller. LANDED COST: freight and fees that came with this delivery (`charges`) are spread over the lines that arrived on it, by value or by quantity (`basis`), allocated to the cent and folded into each line's cost, so the parts are issued to jobs at what they really cost. A tracked line names its serials or lots in `units`.",
   module: "M16",
   permissions: ["po:write"],
   idempotent: true,
@@ -400,9 +662,15 @@ export const receivePurchaseOrder = defineRoute({
     lines: z.array(z.object({
       lineId: Uuid,
       quantity: QuantityString,
+      units: z.array(StockUnitInput).max(500).optional(),
     })).min(1),
+    charges: z.array(z.object({
+      description: z.string().min(1).max(200),
+      amount: MoneyString,
+    })).max(20).optional(),
+    basis: z.enum(["value", "quantity"]).optional(),
   }),
-  output: z.object({ status: PurchaseOrderStatus }),
+  output: z.object({ status: PurchaseOrderStatus, receiptId: Uuid, chargesTotal: MoneyString }),
 });
 
 export const inventoryRoutes = {
@@ -410,5 +678,6 @@ export const inventoryRoutes = {
   reserveStock, releaseStock, issueStock, receiveStock, countStock, transferStock,
   listReorderSuggestions, getJobMaterialCost,
   listVendors, createVendor,
-  listPurchaseOrders, createPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  listVendorItems, setVendorItem, removeVendorItem, previewVendorCatalogue, applyVendorCatalogue,
 } as const;

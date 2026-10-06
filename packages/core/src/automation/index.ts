@@ -1,5 +1,6 @@
 import type { Permission } from "../access/permissions.js";
 export * from "./schedule.js";
+export * from "./templates.js";
 
 /**
  * THE WORKFLOW ENGINE'S DECISIONS
@@ -240,7 +241,14 @@ export type PublishDecision = { ok: true; required: Permission[] } | PublishRefu
  */
 export const STEP_PERMISSIONS: Record<string, Permission[]> = {
   send_message: ["message:send"],
-  send_estimate: ["estimate:send"],
+  /**
+   * The estimate's own link, sent again. Three permissions because it is
+   * three acts: deciding the estimate goes back out, minting a link to it,
+   * and messaging the customer. A role holding the first and not the last
+   * (an estimator who may not text customers) must not be able to publish a
+   * workflow that texts them.
+   */
+  send_estimate: ["estimate:send", "portal:grant", "message:send"],
   send_invoice: ["invoice:send"],
   create_job: ["job:write"],
   update_job: ["job:write"],
@@ -256,9 +264,81 @@ export const STEP_PERMISSIONS: Record<string, Permission[]> = {
    */
   create_task: ["task:write"],
   call_webhook: ["settings:write"],
+  /**
+   * Run a report and email it. The report itself is run as whoever published
+   * the version, re-checked against what they hold on the day it runs, so the
+   * two permissions here are only the step's own: may it read reports at all,
+   * and may it put an email in the outbox. A run that could email a report its
+   * publisher can no longer see would be a way to keep access after losing it.
+   */
+  email_report: ["report:read", "message:send"],
   wait: [],
   branch: [],
+  /**
+   * Ends the run quietly when something is no longer true. Reads one fact the
+   * catalogue below names and changes nothing, so it needs nothing.
+   */
+  stop_unless: [],
+  /**
+   * Asking for a review is the reviews module's decision, made by its own
+   * rules, and sending the ask is a message. Separate kinds because the
+   * decision can say "not until nine tomorrow" and the run has to wait
+   * between the two.
+   */
+  request_review: ["review:respond"],
+  send_review_request: ["review:respond", "message:send"],
+  /**
+   * Text back the number that rang. Not `send_message`, which texts the
+   * customer an event is about: a missed caller usually has no customer
+   * record, and waiting for one is waiting for the office to ring them back,
+   * which is the thing this step exists to cover for. It sends through the
+   * same consent checked sender, so a STOP is honoured, and from the same
+   * number every other conversational text comes from, never a tracking one.
+   */
+  text_caller: ["message:send"],
 };
+
+/* ------------------------------------------------------------------ re-checks */
+
+/**
+ * WHAT A RUN CAN ASK AGAIN AFTER A WAIT
+ *
+ * A branch reads the event, deliberately, so its answer cannot change between
+ * being taken and the run resuming. That is right for "was the invoice over a
+ * thousand" and wrong for the question every follow up turns on: three days
+ * later, has the customer answered yet? The event says the estimate was sent.
+ * It cannot say what happened next.
+ *
+ * So `stop_unless` asks the database, and only one of these questions. The
+ * questions are declared here and answered in the service, the same as a
+ * dwell shape: a workflow names a check, it never writes a query.
+ *
+ * WHAT IT DOES WHEN THE ANSWER IS NO is end the run as finished, with every
+ * step after it written down as skipped. Not a failure: a customer who
+ * approved the estimate on day two is the follow up working, and a red run
+ * on the screen would teach somebody to turn it off.
+ */
+export const CHECKS = {
+  estimate_undecided: {
+    label: "The estimate is still waiting for an answer",
+    entity: "estimate",
+  },
+  /**
+   * Nobody has spoken to the caller since the missed call: they have not
+   * rung back and been answered, and nobody here has rung them. A text back
+   * two minutes after somebody already returned the call reads as a machine
+   * that does not know what the office is doing.
+   */
+  caller_not_reached: {
+    label: "Nobody has spoken to the caller since",
+    entity: "call",
+  },
+} as const;
+
+export type CheckKey = keyof typeof CHECKS;
+
+export const isCheck = (value: unknown): value is CheckKey =>
+  typeof value === "string" && Object.prototype.hasOwnProperty.call(CHECKS, value);
 
 /**
  * Whether this author may publish this definition.

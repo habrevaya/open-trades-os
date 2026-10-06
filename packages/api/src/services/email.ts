@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms, SYSTEM_USER_ID, type Actor, type Permission } from "@opentradesos/core";
@@ -6,6 +7,7 @@ import {
 } from "./context";
 import { claim } from "./comms-outbox";
 import { readerFor } from "../secrets/store";
+import * as invites from "./invites";
 import {
   createEmailProvider, EmailProviderNotConfiguredError,
   type EmailEvent, type EmailProvider, type ProviderSecrets, type WebhookRequest,
@@ -102,6 +104,13 @@ export interface EmailSender {
   verifiedDomains: string[];
   credentialRef: string | null;
   settings: Record<string, unknown>;
+  /**
+   * The domain replies come back on, when the operator set one up with
+   * their provider: every email then carries `reply+TOKEN@` this as its
+   * Reply-To, and a reply lands in the thread it answers. Null otherwise,
+   * and a reply goes wherever the From address goes, as it always did.
+   */
+  replyDomain: string | null;
 }
 
 function stringSetting(settings: Record<string, unknown>, key: string): string | null {
@@ -154,7 +163,36 @@ export async function senderFor(
       : [],
     credentialRef: connection.credentialRef,
     settings: connection.settings,
+    replyDomain: replyDomainOf(connection.settings),
   };
+}
+
+/**
+ * The reply domain, when it is one. A typed value that is not a domain is
+ * ignored rather than used, because a Reply-To on a domain nothing receives
+ * for bounces every reply back to the customer.
+ */
+export function replyDomainOf(settings: Record<string, unknown>): string | null {
+  const typed = stringSetting(settings, "replyDomain");
+  if (!typed) return null;
+  const checked = comms.checkReplyDomain(typed);
+  return checked.ok ? checked.domain : null;
+}
+
+/**
+ * The thread's reply token, minted the first time anything is sent on it.
+ *
+ * Minted rather than derived from the conversation id, so it can be
+ * replaced if it ever leaks (a customer forwarding the email to a stranger
+ * hands them a way into the thread) without changing the thread.
+ */
+export async function replyTokenFor(tx: Database, conversationId: string): Promise<string> {
+  const minted = randomBytes(24).toString("base64url");
+  const [row] = await tx.update(schema.conversation)
+    .set({ replyToken: sql`coalesce(${schema.conversation.replyToken}, ${minted})` })
+    .where(eq(schema.conversation.id, conversationId))
+    .returning({ token: schema.conversation.replyToken });
+  return row?.token ?? minted;
 }
 
 const domainOf = (address: string): string => (address.split("@")[1] ?? "").toLowerCase();
@@ -303,7 +341,29 @@ export interface QueueEmailInput {
    */
   unsubscribeUrl?: string | undefined;
   headers?: Record<string, string> | undefined;
+  /**
+   * Files that go with it, kept beside the message so a retry sends the same
+   * file the first attempt would have. A few hundred kilobytes at most: this
+   * is a report's CSV, not a photograph library.
+   */
+  attachments?: { filename: string; contentType: string; content: Buffer }[] | undefined;
+  /**
+   * An invite to work here, whose sign in link the outbox puts into the body
+   * at the moment of sending, in place of `invites.INVITE_LINK_PLACEHOLDER`.
+   * The link is never stored: `services/invites.ts` says why.
+   */
+  sealedInviteId?: string | undefined;
 }
+
+/**
+ * A ceiling on what one email carries, well under what every provider takes.
+ *
+ * Resend refuses a message over 40MB and most receiving servers refuse far
+ * less; a spreadsheet of a thousand report rows is tens of kilobytes. Anything
+ * near this is a mistake in the calling code, and saying so here is better
+ * than a provider refusing it at three in the morning.
+ */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 export type QueueOutcome =
   | { queued: true; messageId: string; conversationId: string }
@@ -323,119 +383,159 @@ export type QueueOutcome =
  * until a provider has accepted it.
  */
 export function queue(ctx: ServiceContext, input: QueueEmailInput): Promise<QueueOutcome> {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const purpose: EmailPurpose = input.purpose ?? "transactional";
-    const to = normalizeAddress(input.to);
-    const subject = input.subject.trim();
-    const text = input.text?.trim() ?? "";
-    const html = input.html?.trim() ?? "";
+  return guardedWrite(ctx, "message:send", (tx) => queueIn(tx, ctx, input));
+}
 
-    if (to === "" || !to.includes("@")) {
-      throw new ConflictError("That is not an email address.");
-    }
-    if (subject === "") {
-      /**
-       * A blank subject line is one of the oldest spam signatures there is
-       * and several filters score on it directly. Refusing costs a caller one
-       * line; sending it costs the whole domain a little reputation each time.
-       */
-      throw new ConflictError("An email needs a subject. A blank one is scored as spam.");
-    }
-    if (text === "" && html === "") {
-      throw new ConflictError("An email needs a body.");
-    }
-    if (html !== "" && text === "") {
-      /**
-       * HTML with no plain text alternative is the single strongest content
-       * signal a spam filter has short of the words themselves, and it is
-       * also what a screen reader and a watch face fall back to. Generating
-       * the text part by stripping tags would produce something unreadable
-       * and claim it was an alternative, so the caller writes it.
-       */
-      throw new ConflictError(
-        "An HTML email needs a plain text alternative. Sending HTML alone is scored as spam "
-        + "and is what anyone reading in plain text receives.",
-      );
-    }
-    if (purpose === "marketing" && !input.unsubscribeUrl) {
-      /**
-       * Not a style rule. CAN-SPAM requires a working opt out on commercial
-       * email, and Gmail and Yahoo both require one click unsubscribe from
-       * bulk senders. A marketing send without one is a compliance breach at
-       * the moment it leaves, and the only place that can be stopped is here.
-       */
-      throw new ConflictError(
-        "A marketing email needs an unsubscribe URL. Sending commercial email without a working "
-        + "opt out breaks CAN-SPAM and the bulk sender rules at Gmail and Yahoo.",
-      );
-    }
+/**
+ * The same, inside a transaction somebody else opened: the inbox replying to
+ * an email thread, which checks its own scope and idempotency around it.
+ * The caller must already have passed a `message:send` guard.
+ */
+export async function queueIn(tx: Database, ctx: ServiceContext, input: QueueEmailInput): Promise<QueueOutcome> {
+  const purpose: EmailPurpose = input.purpose ?? "transactional";
+  const to = normalizeAddress(input.to);
+  const subject = input.subject.trim();
+  const text = input.text?.trim() ?? "";
+  const html = input.html?.trim() ?? "";
 
-    const decision = await emailability(tx, ctx.actor.organizationId, to, purpose);
-    if (!decision.allowed || !decision.sender) {
-      const reason = decision.allowed ? "channel_not_registered" : decision.reason;
-      return { queued: false, reason, explanation: refusal(reason) };
-    }
+  if (to === "" || !to.includes("@")) {
+    throw new ConflictError("That is not an email address.");
+  }
+  if (subject === "") {
+    /**
+     * A blank subject line is one of the oldest spam signatures there is
+     * and several filters score on it directly. Refusing costs a caller one
+     * line; sending it costs the whole domain a little reputation each time.
+     */
+    throw new ConflictError("An email needs a subject. A blank one is scored as spam.");
+  }
+  if (text === "" && html === "") {
+    throw new ConflictError("An email needs a body.");
+  }
+  if (html !== "" && text === "") {
+    /**
+     * HTML with no plain text alternative is the single strongest content
+     * signal a spam filter has short of the words themselves, and it is
+     * also what a screen reader and a watch face fall back to. Generating
+     * the text part by stripping tags would produce something unreadable
+     * and claim it was an alternative, so the caller writes it.
+     */
+    throw new ConflictError(
+      "An HTML email needs a plain text alternative. Sending HTML alone is scored as spam "
+      + "and is what anyone reading in plain text receives.",
+    );
+  }
+  const files = input.attachments ?? [];
+  const bytes = files.reduce((total, file) => total + file.content.length, 0);
+  if (bytes > MAX_ATTACHMENT_BYTES) {
+    throw new ConflictError("The files on this email are too large to send. Keep them under 5MB together.");
+  }
+  if (files.some((file) => file.filename.trim() === "" || /[\\/]/.test(file.filename))) {
+    // A path in a filename is a file somebody's mail client saves somewhere it should not.
+    throw new ConflictError("An attachment needs a plain file name.");
+  }
 
-    const sender = decision.sender;
-    const headers: Record<string, string> = { ...(input.headers ?? {}) };
-    if (input.replyTo) headers["Reply-To"] = input.replyTo;
-    if (purpose === "marketing" && input.unsubscribeUrl) {
-      headers["List-Unsubscribe"] = `<${input.unsubscribeUrl}>`;
-      /**
-       * The second header is what makes the first one count. Without
-       * `List-Unsubscribe-Post`, Gmail shows no unsubscribe control and the
-       * recipient's only way out is the spam button, which is the outcome the
-       * header exists to avoid.
-       */
-      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
-    }
+  if (purpose === "marketing" && !input.unsubscribeUrl) {
+    /**
+     * Not a style rule. CAN-SPAM requires a working opt out on commercial
+     * email, and Gmail and Yahoo both require one click unsubscribe from
+     * bulk senders. A marketing send without one is a compliance breach at
+     * the moment it leaves, and the only place that can be stopped is here.
+     */
+    throw new ConflictError(
+      "A marketing email needs an unsubscribe URL. Sending commercial email without a working "
+      + "opt out breaks CAN-SPAM and the bulk sender rules at Gmail and Yahoo.",
+    );
+  }
 
-    const conversationId = await threadFor(tx, {
-      organizationId: ctx.actor.organizationId,
-      address: to,
-      internalAddress: sender.fromAddress,
-      subject,
-      customerId: input.customerId ?? null,
-    });
+  const decision = await emailability(tx, ctx.actor.organizationId, to, purpose);
+  if (!decision.allowed || !decision.sender) {
+    const reason = decision.allowed ? "channel_not_registered" : decision.reason;
+    return { queued: false, reason, explanation: refusal(reason) };
+  }
 
-    const [row] = await tx.insert(schema.message).values({
-      organizationId: ctx.actor.organizationId,
-      conversationId,
-      direction: "outbound",
-      channel: CHANNEL,
-      purpose,
-      fromAddress: sender.fromAddress,
-      toAddress: to,
-      subject,
-      body: text === "" ? null : text,
-      bodyHtml: html === "" ? null : html,
-      headers,
-      status: "queued",
-      /**
-       * Which consent row permitted this. Null when the send rests on
-       * transactional implication, and that nullability is the point: a
-       * marketing message with no consent id is exactly what an audit needs
-       * to be able to find.
-       */
-      consentId: decision.allowed && decision.consent ? consentIdFor(decision.consent) : null,
-      sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
-    }).returning({ id: schema.message.id });
+  const sender = decision.sender;
+  const headers: Record<string, string> = { ...(input.headers ?? {}) };
+  if (input.replyTo) headers["Reply-To"] = input.replyTo;
+  if (purpose === "marketing" && input.unsubscribeUrl) {
+    headers["List-Unsubscribe"] = `<${input.unsubscribeUrl}>`;
+    /**
+     * The second header is what makes the first one count. Without
+     * `List-Unsubscribe-Post`, Gmail shows no unsubscribe control and the
+     * recipient's only way out is the spam button, which is the outcome the
+     * header exists to avoid.
+     */
+    headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+  }
 
-    const message = row!;
-
-    await tx.update(schema.conversation).set({
-      lastMessageAt: new Date(),
-      lastMessagePreview: subject.slice(0, 200),
-      status: "open",
-      updatedAt: new Date(),
-    }).where(eq(schema.conversation.id, conversationId));
-
-    await audit(tx, ctx, "email.queued", "message", message.id, null, {
-      to, subject, purpose, from: sender.fromAddress,
-    });
-
-    return { queued: true, messageId: message.id, conversationId };
+  const conversationId = await threadFor(tx, {
+    organizationId: ctx.actor.organizationId,
+    address: to,
+    internalAddress: sender.fromAddress,
+    subject,
+    customerId: input.customerId ?? null,
   });
+
+  /**
+   * WHERE A REPLY GOES. A caller that named a Reply-To chose it, and it
+   * stands. Otherwise, when the company has a reply domain, the reply
+   * address carries this thread's token, so the customer pressing reply
+   * puts their answer in this thread in the inbox rather than in a
+   * mailbox nobody here reads.
+   */
+  if (!input.replyTo && sender.replyDomain) {
+    headers["Reply-To"] = comms.replyAddress(await replyTokenFor(tx, conversationId), sender.replyDomain);
+  }
+
+  const [row] = await tx.insert(schema.message).values({
+    organizationId: ctx.actor.organizationId,
+    conversationId,
+    direction: "outbound",
+    channel: CHANNEL,
+    purpose,
+    fromAddress: sender.fromAddress,
+    toAddress: to,
+    subject,
+    body: text === "" ? null : text,
+    bodyHtml: html === "" ? null : html,
+    headers,
+    status: "queued",
+    /**
+     * Which consent row permitted this. Null when the send rests on
+     * transactional implication, and that nullability is the point: a
+     * marketing message with no consent id is exactly what an audit needs
+     * to be able to find.
+     */
+    consentId: decision.allowed && decision.consent ? consentIdFor(decision.consent) : null,
+    sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+    sealedInviteId: input.sealedInviteId ?? null,
+  }).returning({ id: schema.message.id });
+
+  const message = row!;
+
+  if (files.length > 0) {
+    await tx.insert(schema.messageAttachment).values(files.map((file) => ({
+      organizationId: ctx.actor.organizationId,
+      messageId: message.id,
+      fileName: file.filename.trim(),
+      contentType: file.contentType,
+      content: file.content,
+      sizeBytes: file.content.length,
+    })));
+  }
+
+  await tx.update(schema.conversation).set({
+    lastMessageAt: new Date(),
+    lastMessagePreview: subject.slice(0, 200),
+    status: "open",
+    updatedAt: new Date(),
+  }).where(eq(schema.conversation.id, conversationId));
+
+  await audit(tx, ctx, "email.queued", "message", message.id, null, {
+    to, subject, purpose, from: sender.fromAddress,
+  });
+
+  return { queued: true, messageId: message.id, conversationId };
 }
 
 /**
@@ -548,6 +648,7 @@ export async function flush(
       body: schema.message.body,
       bodyHtml: schema.message.bodyHtml,
       headers: schema.message.headers,
+      sealedInviteId: schema.message.sealedInviteId,
     })
       .from(schema.message)
       .where(and(
@@ -583,14 +684,49 @@ export async function flush(
     const replyTo = stored["Reply-To"];
     delete stored["Reply-To"];
 
+    /**
+     * AN INVITE'S LINK, MADE NOW AND KEPT NOWHERE. The stored body says where
+     * it goes; the copy handed to the provider carries it. An invite that ran
+     * out, was replaced, or whose person signed in or was turned off while
+     * this waited gets no link, and the email fails saying so rather than
+     * going out with a link that does not work.
+     */
+    let body = row.body;
+    let bodyHtml = row.bodyHtml;
+    if (row.sealedInviteId) {
+      const link = await invites.sealedLink(db, organizationId, row.sealedInviteId);
+      if (!link) {
+        await guardedWrite(ctx, "message:send", async (tx) => tx.update(schema.message).set({
+          status: "failed",
+          errorCode: "invite_unavailable",
+          errorMessage: "the invite ran out or was replaced before it could be sent",
+          updatedAt: new Date(),
+        }).where(eq(schema.message.id, row.id)));
+        outcomes.push({ messageId: row.id, status: "failed", reason: "invite_unavailable" });
+        continue;
+      }
+      body = invites.withLink(body, link);
+      bodyHtml = invites.withLink(bodyHtml, link);
+    }
+
+    const files = await guardedRead(ctx, "message:read", async (tx) =>
+      tx.select({
+        filename: schema.messageAttachment.fileName,
+        contentType: schema.messageAttachment.contentType,
+        content: schema.messageAttachment.content,
+      }).from(schema.messageAttachment)
+        .where(eq(schema.messageAttachment.messageId, row.id))
+        .orderBy(asc(schema.messageAttachment.createdAt)));
+
     const result = await deps.provider.send({
       to: row.to,
       from: row.from,
       subject: row.subject ?? "",
-      ...(row.body ? { text: row.body } : {}),
-      ...(row.bodyHtml ? { html: row.bodyHtml } : {}),
+      ...(body ? { text: body } : {}),
+      ...(bodyHtml ? { html: bodyHtml } : {}),
       ...(replyTo ? { replyTo } : {}),
       ...(Object.keys(stored).length > 0 ? { headers: stored } : {}),
+      ...(files.length > 0 ? { attachments: files } : {}),
       reference: row.id,
     });
 
@@ -988,6 +1124,8 @@ export interface WebhookConnection {
   connectionId: string;
   organizationId: string;
   provider: EmailProvider;
+  /** The connection's settings, for what the provider does not hold: the reply domain. */
+  settings?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -1087,6 +1225,7 @@ export async function resolveWebhook(
       row.provider, row.settings, secret,
       await secretsFor(row.connection_id, row.settings, read),
     ),
+    settings: row.settings ?? {},
   };
 }
 

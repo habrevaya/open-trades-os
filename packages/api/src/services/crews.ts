@@ -6,6 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { skillStanding } from "./people";
+import { workSkills } from "./qualification";
 
 /**
  * CREWS: THE SECOND CAPACITY MODEL
@@ -880,6 +881,7 @@ async function loadJob(tx: Database, organizationId: string, id: string): Promis
     jobTypeId: schema.job.jobTypeId,
     requiredAssetIds: schema.jobType.requiredAssetIds,
     requiredSkills: schema.jobType.requiredSkills,
+    jobSkills: schema.job.requiredSkills,
   }).from(schema.job)
     .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
     .where(and(
@@ -894,7 +896,8 @@ async function loadJob(tx: Database, organizationId: string, id: string): Promis
     businessUnitId: row.businessUnitId,
     jobTypeId: row.jobTypeId,
     requiredAssetIds: row.requiredAssetIds ?? [],
-    requiredSkills: row.requiredSkills ?? [],
+    /** The type's skills and the job's own, checked together like everywhere else. */
+    requiredSkills: workSkills(row.requiredSkills, row.jobSkills),
   };
 }
 

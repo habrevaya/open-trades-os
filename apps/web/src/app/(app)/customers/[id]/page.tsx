@@ -1,8 +1,12 @@
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, acquisition, customFields, NotFoundError } from "@opentradesos/api/services";
+import { can, marketing as mk } from "@opentradesos/core";
+import { LeadSourceSelect } from "@/components/LeadSourceSelect";
+import { sourceValue } from "@/lib/lead-source";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -11,11 +15,18 @@ import { Money } from "@opentradesos/ui";
 import { Consent } from "./Consent";
 import { Contacts } from "./Contacts";
 import { Lifecycle } from "./Lifecycle";
+import { Tags } from "./Tags";
+import { customerTags } from "@opentradesos/api/services";
 import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
+import { Referral } from "./Referral";
+import { PortalSignIns } from "./PortalSignIns";
+import { AdData } from "./AdData";
+import { PreferredDays } from "./PreferredDays";
+import { dispatchDays } from "@opentradesos/api/services";
 import { applyHeld, refund } from "../../payments/actions";
-import { accountLink, removeCustomer, mergeCustomer } from "./actions";
+import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
 import { formatDay, todayIn } from "@/lib/dates";
 import { CREDIT_STATUS, CREDIT_TONE } from "../../invoices/credit-notes/labels";
@@ -45,6 +56,9 @@ export default async function CustomerPage({
 
   const work = await jobs.list(ctx, { limit: 20, customerId: id });
   const seesMoney = can(user.actor, "customer.financials:read");
+  const sources = await acquisition.channelOptions(ctx);
+  const sourceChannel = sources.find((c) => c.id === customer.channelId);
+  const sourceCampaign = sourceChannel?.campaigns.find((k) => k.id === customer.acquisitionCampaignId);
 
   /**
    * Whether this number may be texted about offers, asked of the same
@@ -144,7 +158,18 @@ export default async function CustomerPage({
             ? "Due on receipt"
             : `Net ${customer.paymentTermsDays}`}
         </Fact>
-        <Fact label="Lead source">{customer.leadSource}</Fact>
+        <Fact label="Lead source">
+          {/*
+            The company's channel name when there is one, the catalogue's label
+            otherwise, and whether somebody chose it or the touches implied it:
+            "Google Ads" the CSR typed and "Google Ads" the tracking number said
+            are different evidence.
+          */}
+          {customer.leadSource
+            ? `${[sourceChannel?.name ?? mk.leadSourceLabel(customer.leadSource), sourceCampaign?.name].filter(Boolean).join(", ")}`
+              + (customer.leadSourceOrigin === "derived" ? " (worked out from what they did)" : "")
+            : null}
+        </Fact>
         {/*
           The discount rate is stripped by the service for anyone without
           customer.financials:read, so this check is not the guard: it is what
@@ -167,6 +192,22 @@ export default async function CustomerPage({
           ? <Fact label="Balance"><Money value={customer.balance} /></Fact>
           : null}
       </Facts>
+
+      {can(user.actor, "customer:write") ? (
+        <ActionForm action={setCustomerSource} submit="Save where they came from" tone="quiet"
+                    hidden={{ customerId: id }} className="mt-4 flex max-w-xl flex-wrap items-end gap-3">
+          <div className="min-w-64 flex-1">
+            <LeadSourceSelect options={sources} label="Where they came from" defaultValue={sourceValue(customer)} />
+          </div>
+        </ActionForm>
+      ) : null}
+      <Tags
+        customerId={id}
+        tags={customer.tags}
+        known={can(user.actor, "customer:write") ? (await customerTags.list(ctx)).map((t) => t.tag) : []}
+        canWrite={can(user.actor, "customer:write")}
+      />
+      <PreferredDays customerId={id} days={await dispatchDays.preferredDays(ctx, { id })} canWrite={can(user.actor, "customer:write")} />
 
       {addresses.length > 0 && (
         <div className="mt-10">
@@ -198,11 +239,15 @@ export default async function CustomerPage({
       <Contacts
         customerId={id}
         contacts={people}
+        portalControl={can(user.actor, "customer:write") && can(user.actor, "portal:revoke")}
         properties={addresses.map((property) => ({
           id: property.id,
           label: [property.addressLine1, property.city].filter(Boolean).join(", "),
         }))}
       />
+
+      <Referral ctx={ctx} customerId={id} />
+      <AdData ctx={ctx} customerId={id} zone={user.organizationTimezone} />
 
       {(removable || mergeable.length > 0) && (
         <Lifecycle
@@ -281,6 +326,8 @@ export default async function CustomerPage({
                       hidden={{ customerId: id }} className="mt-2 space-y-2" />
         </section>
       )}
+
+      <PortalSignIns ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
 
       {quotes && (
         <section aria-label="Estimates">
@@ -367,12 +414,18 @@ export default async function CustomerPage({
         <section aria-label="Invoices">
           <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-base font-semibold">Invoices</h2>
-            {can(user.actor, "invoice:write") && (
-              <a href={`/invoices/new?customer=${id}`}
+            <div className="flex gap-2">
+              <a href={`/customers/${id}/statement`}
                  className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
-                New invoice
+                Statement
               </a>
-            )}
+              {can(user.actor, "invoice:write") && (
+                <a href={`/invoices/new?customer=${id}`}
+                   className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                  New invoice
+                </a>
+              )}
+            </div>
           </div>
           {invoices.length === 0 ? (
             <p className="mt-2 text-sm text-ink-500">None yet.</p>
@@ -392,6 +445,14 @@ export default async function CustomerPage({
           )}
         </section>
       )}
+
+      <CustomFieldsPanel
+        entityType="customer" id={id}
+        definitions={await customFields.formFields(ctx, "customer")}
+        values={(customer.customFields ?? {}) as Record<string, unknown>}
+        canWrite={can(user.actor, "customer:write")}
+      />
+      <RecordsPanel ctx={ctx} link="customer" id={id} back={`/customers/${id}`} />
     </div>
   );
 }

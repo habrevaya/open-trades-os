@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reports } from "@opentradesos/api/services";
+import { reports, branches } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
-import { queryFor } from "@/lib/report-params";
-import { RunView } from "../../RunView";
+import { queryFor, rangeQuery } from "@/lib/report-params";
+import { RunView, PrintLink, printHref } from "../../RunView";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export default async function BuiltInReportPage({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string }>;
 }) {
   const user = await requireSetupUser();
   const { slug } = await params;
@@ -45,7 +45,10 @@ export default async function BuiltInReportPage({
     ...report.definition,
     ...(range.from ? { from: range.from } : {}),
     ...(range.to ? { to: range.to } : {}),
+    ...(range.branch ? { branchId: range.branch } : {}),
   };
+  const view = { chart: range.chart, measure: range.measure };
+  const branchOptions = await branches.options(ctx);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -53,14 +56,29 @@ export default async function BuiltInReportPage({
       <div className="mt-2">
         <PageHeader
           title={report.name}
-          action={can(user.actor, "report:build") ? (
-            <a
-              href={`/reports/new?${queryFor(definition)}`}
-              className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
-            >
-              Edit a copy
-            </a>
-          ) : null}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <PrintLink href={printHref(queryFor(definition), report.name, view, `/reports/built-in/${slug}${rangeQuery(definition)}`)} />
+              {can(user.actor, "report:build") ? (<>
+              {/*
+                Beside the report it sends, because "send me this every
+                Monday" is a thought somebody has while looking at it.
+              */}
+              <a
+                href={`/reports/schedules/new?report=${encodeURIComponent(`builtIn:${slug}`)}`}
+                className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
+              >
+                Email on a schedule
+              </a>
+              <a
+                href={`/reports/new?${queryFor(definition)}`}
+                className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
+              >
+                Edit a copy
+              </a>
+              </>) : null}
+            </div>
+          }
         />
       </div>
       <p className="mt-1 text-sm text-ink-700">{report.question}</p>
@@ -70,6 +88,10 @@ export default async function BuiltInReportPage({
         definition={definition}
         action={`/reports/built-in/${slug}`}
         timezone={user.organizationTimezone}
+        title={report.name}
+        back={`/reports/built-in/${slug}${rangeQuery(definition)}`}
+        view={view}
+        branchOptions={branchOptions}
       />
     </div>
   );

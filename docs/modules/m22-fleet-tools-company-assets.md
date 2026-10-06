@@ -145,6 +145,92 @@ refuses while the container is still on site, because an open hire's overage
 changes every midnight and a number that does that on a screen beside an
 invoice is one somebody will put on the invoice.
 
+### Collections on the board
+
+`POST /v1/rental-collections` puts every open hire due back by a day
+(tomorrow when none is given) on the board as a collection. Due back is the
+last calendar day the price covers, in the company's timezone, so a seven day
+hire delivered on the first is due on the seventh. The stop goes on the day
+it is due, or today when it is already late, inside the working day, marked
+as the pickup leg of that hire so the driver arrives with an empty truck. A
+hire that came with a job gets the stop as a visit on that job; one with no
+job gets a job of its own at the address, of the company's `pickup` job type
+when it has one. A hire already given a collection is left alone, so running
+it twice books nothing twice, and one whose collection was cancelled on the
+board is offered again. A standing hire with no included period and no
+agreed time is skipped with the reason: it goes back when the customer says
+so. It needs `asset:write` and `job:write`. On the containers screen it is one
+button with a date.
+
+The worker runs the same booking on its own, on every pass, for each company
+with a hire coming due, as many days ahead as the company says (the day
+before, unless changed), so nobody has to remember the button. A company
+turns it off, sets how far ahead, and says how many containers a truck
+carries and how long the yard takes under "Collections and the truck" on
+`/fleet/containers` (`GET /v1/rental-dispatch`, and
+`PUT /v1/rental-dispatch` with `settings:write`). It is on unless turned off.
+
+### A collection time agreed with the customer
+
+`PUT /v1/rentals/{id}/collection-time` records the window the customer
+agreed for the collection, or clears it, on each hire's row on
+`/fleet/containers`. It beats the day the price runs out, early or late: a
+customer who finished early has the can collected on the day they asked, and
+one who asked for two more days is not collected on the seventh. The worker
+and the button book the collection into that window on that day. A
+collection already on the board and not under way moves with it: kept with
+its driver when the day is the same, back on the board for the dispatcher
+when the day changes, and the driver hears either through the visit's
+notices. An agreed time that has passed is collected today in the working
+day, and counted late from the agreed day.
+
+### The driver's day, by what is on the truck
+
+"Optimise route" on the board orders a driver's day with drops, collections
+and swaps on it by what is on the truck: a drop needs an empty container on
+board, a collection needs room, a swap needs an empty and leaves with a full
+one, and the runs to the yard between are drive and time like any other
+(M09). The proposal lists each run: after which stop, before which, what is
+tipped and what is loaded. The leg comes from the hire's own record on the
+stop, or from the pack's job type (delivery, final pickup, swap, dump and
+return) before the hire exists.
+
+### Charges found on a haul
+
+`POST /v1/rentals/{id}/charges` records a contaminated load, a prohibited
+item, an overweight or overfilled can against the haul it was found on,
+priced from the pack's own fees (`FEE-CONTAM`, `FEE-PROH-TIRE` and the rest)
+at today's price unless another is given, or priced by hand. A charge with no
+price is refused rather than recorded at nothing. `GET /v1/rental-charges`
+lists them and `POST /v1/rental-charges/{id}/remove` takes back one recorded in
+error, refused once it is on an invoice.
+
+### Invoicing a hire
+
+`POST /v1/rentals/{id}/invoice` raises a draft invoice to the customer at the
+address from a collected hire: the rental period when the hire is priced by the
+day (days inside the included period at the day rate), each meter that went
+over (extra days at the overage rate, tonnage over the included at the per ton
+rate) and every charge found on the haul. Refused while the can is on site,
+refused with the meter's own sentence when a meter went over with no rate,
+and refused when the hire is already on an invoice that has not been voided,
+so the same extra days cannot reach two invoices. A hire priced by a flat line
+on its job has no period line here, so the period is not billed twice. It
+needs `invoice:write`, and the draft is checked and issued on Invoices like
+any other.
+
+### A facility's scale tickets
+
+`POST /v1/scale-tickets/preview` reads the file a landfill or transfer station
+sends and matches each ticket to the haul that collected or swapped out that
+can on the ticket's date or the day before. Net tons, net pounds, or gross and
+tare in pounds are all read, and the common spellings of each header. A
+ticket is skipped with the reason when no haul matches, when the haul already
+carries another ticket, or when a weight typed on the haul disagrees with the
+file: nothing typed is ever overwritten. `POST /v1/scale-tickets/apply` works
+it out again inside the write and fills only empty fields. The screen is
+`/fleet/containers/tickets`.
+
 ### The fleet report
 
 `GET /v1/fleet-report` computes four of the pack's eight KPIs, with every
@@ -263,18 +349,23 @@ this product's own board first.
 
 ## What is not built
 
-- **No scheduler for a collection.** A hire that is due back shows as over its
-  included period; nothing puts it on tomorrow's route.
-- **No scale ticket ingestion.** The ticket number, facility, material and
-  tonnage are recorded; nothing reads a file the facility sends or a
-  photograph of the ticket.
-- **No routing on what is on the truck.** The pack's own note says the order
-  of a driver's day is decided by what is on the truck and what has to come
-  back on it. Dispatch does not know that yet.
-- **No invoice lines raised from a hire.** `GET .../overage` says what the
-  meters read; somebody still raises the invoice.
-- **No contamination or prohibited item charge.** The pack prices them and
-  nothing records an occurrence against a haul.
+- **Collections are booked on a clock, not by a route planner.** The worker
+  books each collection on its day, at the agreed time or in the working
+  day, unassigned; who drives it is the dispatcher's, and the day is ordered
+  by "Optimise route". A collection the customer moves after it is under way
+  is the office's to rearrange by hand.
+- **Scale tickets come from a file.** A photograph of a ticket is not read.
+- **The truck is one kind for the whole company.** How many containers a
+  truck carries and how long the yard takes are company wide; a fleet with a
+  hook lift and roll off trucks is planned as if every truck were the same.
+  The yard is where the driver's day starts: a disposal facility apart from
+  the yard is not a place the plan knows. The load in the morning is not
+  recorded; for a day already under way it is worked out from the stops done.
+  The rebalance across people leaves a driver's day with containers on it
+  alone (M09).
+- **A hire is invoiced one haul at a time.** A swap chain is several hauls and
+  each is invoiced from its own row; the facility's disposal fee on a haul is
+  its cost, and is not passed through.
 - **Four of the eight KPIs**, listed above with what each one needs.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
   good as what somebody enters.

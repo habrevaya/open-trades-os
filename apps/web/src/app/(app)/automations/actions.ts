@@ -1,6 +1,6 @@
 "use server";
 
-import { refused } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
@@ -54,6 +54,8 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
   switch (kind) {
     case "send_message":
       return { channel: "sms", purpose: "transactional", body: text("body") };
+    case "text_caller":
+      return { body: text("body") };
     case "create_task":
       return {
         title: text("title"),
@@ -62,6 +64,39 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
       };
     case "wait":
       return { days: numeric(raw["days"]), hours: numeric(raw["hours"]) };
+    case "email_report": {
+      /**
+       * Which report, to whom, and over which days. People are user ids from the
+       * ticked boxes; outside addresses are one box, split the way people paste
+       * a list. The service checks every one of them against the publisher.
+       */
+      const ids = Array.isArray(raw["userIds"]) ? raw["userIds"] : [];
+      return {
+        report: text("report"),
+        userIds: ids.map((id) => String(id).trim()).filter((id) => id !== ""),
+        addresses: text("addresses").split(/[\s,;]+/).filter((a) => a !== ""),
+        period: text("period") || "all",
+      };
+    }
+    case "stop_unless":
+      return { check: text("check") };
+    case "send_estimate":
+    case "send_review_request": {
+      /**
+       * Text or email, and an email has a subject. The body is the company's
+       * own words; the step refuses at run time an estimate message that has
+       * lost its `{{ link }}`, so a careless edit shows up as a failed step
+       * rather than a text telling somebody there is a link.
+       */
+      const channel = text("channel") === "email" ? "email" : "sms";
+      return {
+        channel,
+        body: text("body"),
+        ...(channel === "email" && text("subject") ? { subject: text("subject") } : {}),
+      };
+    }
+    case "request_review":
+      return { platform: text("platform") };
     case "branch": {
       /**
        * The conditions, rebuilt condition by condition. `all` only, which is what
@@ -186,4 +221,29 @@ export async function deleteAutomation(_previous: unknown, form: FormData) {
   }
   revalidatePath("/automations");
   redirect("/automations");
+}
+
+/**
+ * Turn a recommended automation on.
+ *
+ * The values come from boxes named for the template's own parameters and
+ * nothing else, so a form cannot slip a key into the definition that the
+ * template does not declare. The service builds the definition, checks it the
+ * way it checks one drawn on the canvas, and installs it switched on.
+ */
+export async function installRecommended(_previous: FormState, form: FormData): Promise<FormState> {
+  const key = field(form, "key") ?? "";
+  const template = automation.templateByKey(key);
+  const values: Record<string, string> = {};
+  for (const parameter of template?.parameters ?? []) {
+    const value = field(form, `value.${parameter.key}`);
+    if (value !== undefined) values[parameter.key] = value;
+  }
+  let installedId: string | null = null;
+  const result = await attempt(form, async () => {
+    installedId = (await workflows.installTemplate(await ctx(), { key, values })).id;
+  });
+  revalidatePath("/automations");
+  if (!installedId) return result;
+  return { done: true, message: "On. It is an ordinary automation now: open it to change the wording or the wait." };
 }

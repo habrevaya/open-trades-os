@@ -420,87 +420,119 @@ export interface RequestOutcome {
  * nobody closed, a callback still running, an opt out from three years ago.
  */
 export async function requestFor(ctx: ServiceContext, input: { jobId: string; platform?: string }) {
-  return guardedWrite(ctx, "review:respond", async (tx): Promise<RequestOutcome> => {
-    const policyRow = await policyFor(tx, ctx.actor.organizationId);
-    const facts = await factsFor(tx, ctx.actor.organizationId, input.jobId);
-    const decision = rv.decideRequest(facts, requestPolicy(policyRow), new Date());
+  return guardedWrite(ctx, "review:respond", (tx) =>
+    requestWithin(tx, ctx.actor.organizationId, input));
+}
 
-    /**
-     * The platform's own rules are checked BEFORE anything is queued, not
-     * before it is sent. A queued request that will be refused at send time
-     * is a row somebody sees on a screen as pending, and pending is a
-     * promise.
-     */
-    if (decision.ask && input.platform) {
-      const catalogue = rv.checkPlatformPolicies(await platforms(tx, ctx.actor.organizationId));
-      if (!catalogue.ok) throw new ConflictError(catalogue.reason);
+/**
+ * The decision and its row, inside a transaction the caller holds.
+ *
+ * Split out so the automation step that asks for a review uses this exact
+ * function rather than a copy of it. A second implementation of "may we ask"
+ * is the one that eventually forgets the cooldown or the open complaint, and
+ * the step is the one that would send without a person looking.
+ */
+export async function requestWithin(
+  tx: Database,
+  organizationId: string,
+  input: { jobId: string; platform?: string | undefined },
+  now: Date = new Date(),
+): Promise<RequestOutcome> {
+  const policyRow = await policyFor(tx, organizationId);
+  const facts = await factsFor(tx, organizationId, input.jobId);
+  const decision = rv.decideRequest(facts, requestPolicy(policyRow), now);
 
-      const verdict = rv.checkPlannedRequest({
-        platform: input.platform,
-        /**
-         * All four declared as false, and none of them is a field somebody
-         * can set. This product does not offer an incentive, does not send
-         * in bulk, does not ask on site, and sends under the company's own
-         * identity. They are passed explicitly rather than omitted so that
-         * a future feature which changed one of them has to come here and
-         * say so.
-         */
-        offersIncentive: false,
-        isBulkSend: false,
-        askedOnSite: false,
-        sentByThirdParty: false,
-      }, catalogue.byPlatform);
+  /**
+   * The platform's own rules are checked BEFORE anything is queued, not
+   * before it is sent. A queued request that will be refused at send time
+   * is a row somebody sees on a screen as pending, and pending is a
+   * promise.
+   */
+  if (decision.ask && input.platform) {
+    const catalogue = rv.checkPlatformPolicies(await platforms(tx, organizationId));
+    if (!catalogue.ok) throw new ConflictError(catalogue.reason);
 
-      if (!verdict.ok) throw new ConflictError(verdict.reason);
-    }
+    const verdict = rv.checkPlannedRequest({
+      platform: input.platform,
+      /**
+       * All four declared as false, and none of them is a field somebody
+       * can set. This product does not offer an incentive, does not send
+       * in bulk, does not ask on site, and sends under the company's own
+       * identity. They are passed explicitly rather than omitted so that
+       * a future feature which changed one of them has to come here and
+       * say so.
+       */
+      offersIncentive: false,
+      isBulkSend: false,
+      askedOnSite: false,
+      sentByThirdParty: false,
+    }, catalogue.byPlatform);
 
-    const values = decision.ask
-      ? {
-          organizationId: ctx.actor.organizationId,
-          jobId: facts.jobId,
-          customerId: facts.customerId,
-          platform: input.platform ?? null,
-          state: "queued" as const,
-          sendAt: decision.sendAt,
-          withheldReason: null,
-          withheldDetail: null,
-        }
-      : {
-          organizationId: ctx.actor.organizationId,
-          jobId: facts.jobId,
-          customerId: facts.customerId,
-          platform: input.platform ?? null,
-          state: "withheld" as const,
-          sendAt: null,
-          withheldReason: decision.withheld,
-          withheldDetail: decision.explanation,
-        };
+    if (!verdict.ok) throw new ConflictError(verdict.reason);
+  }
 
-    const [row] = await tx.insert(schema.reviewRequest).values(values)
-      .onConflictDoUpdate({
-        /**
-         * One request per job, and re-deciding updates it. A job whose
-         * invoice has since been paid should stop reading "withheld:
-         * unpaid" the moment somebody asks again.
-         */
-        target: [schema.reviewRequest.jobId],
-        targetWhere: isNull(schema.reviewRequest.deletedAt),
-        set: { ...values, updatedAt: new Date() },
-      }).returning();
+  const values = decision.ask
+    ? {
+        organizationId: organizationId,
+        jobId: facts.jobId,
+        customerId: facts.customerId,
+        platform: input.platform ?? null,
+        state: "queued" as const,
+        sendAt: decision.sendAt,
+        withheldReason: null,
+        withheldDetail: null,
+      }
+    : {
+        organizationId: organizationId,
+        jobId: facts.jobId,
+        customerId: facts.customerId,
+        platform: input.platform ?? null,
+        state: "withheld" as const,
+        sendAt: null,
+        withheldReason: decision.withheld,
+        withheldDetail: decision.explanation,
+      };
 
-    return decision.ask
-      ? {
-          jobId: facts.jobId, asked: true, requestId: row!.id,
-          sendAt: decision.sendAt, readyNow: decision.readyNow,
-          withheld: null, explanation: null, clearsOnItsOwn: null,
-        }
-      : {
-          jobId: facts.jobId, asked: false, requestId: row!.id,
-          sendAt: null, readyNow: false,
-          withheld: decision.withheld, explanation: decision.explanation,
-          clearsOnItsOwn: decision.clearsOnItsOwn,
-        };
-  });
+  const [row] = await tx.insert(schema.reviewRequest).values(values)
+    .onConflictDoUpdate({
+      /**
+       * One request per job, and re-deciding updates it. A job whose
+       * invoice has since been paid should stop reading "withheld:
+       * unpaid" the moment somebody asks again.
+       */
+      target: [schema.reviewRequest.jobId],
+      targetWhere: isNull(schema.reviewRequest.deletedAt),
+      set: { ...values, updatedAt: new Date() },
+    }).returning();
+
+  return decision.ask
+    ? {
+        jobId: facts.jobId, asked: true, requestId: row!.id,
+        sendAt: decision.sendAt, readyNow: decision.readyNow,
+        withheld: null, explanation: null, clearsOnItsOwn: null,
+      }
+    : {
+        jobId: facts.jobId, asked: false, requestId: row!.id,
+        sendAt: null, readyNow: false,
+        withheld: decision.withheld, explanation: decision.explanation,
+        clearsOnItsOwn: decision.clearsOnItsOwn,
+      };
+}
+
+/**
+ * The link a request sends somebody to, for one platform the operator
+ * declared. Null when the platform is not declared, is switched off, or was
+ * declared without a link, which are three ways of having nowhere to send them.
+ */
+export async function reviewUrlFor(tx: Database, platform: string): Promise<string | null> {
+  const [row] = await tx.select({ reviewUrl: schema.reviewPlatform.reviewUrl })
+    .from(schema.reviewPlatform)
+    .where(and(
+      eq(schema.reviewPlatform.platform, platform),
+      eq(schema.reviewPlatform.active, true),
+      isNull(schema.reviewPlatform.deletedAt),
+    )).limit(1);
+  return row?.reviewUrl ?? null;
 }
 
 /** Requests whose send window has arrived. What a worker drains. */
@@ -589,10 +621,11 @@ export interface ReviewInput {
 /**
  * Record a review that exists in the world.
  *
- * Entered by hand today, because no review platform connector is built and
- * the catalogue says so. That is not a placeholder: a company with forty
- * reviews and a work list telling them which three are owed a reply is
- * better off than one waiting for an API.
+ * Entered by hand, or read from a Google Business Profile listing by the
+ * review sync, which calls this so both arrive the same way. The hand path
+ * is not a placeholder: every platform without a connector is typed in, and
+ * a company with forty reviews and a work list telling them which three are
+ * owed a reply is better off than one waiting for an API.
  *
  * The recovery clock is set HERE, on the way in, rather than computed on
  * every read. It is the one derived value in this file that is stored, and
@@ -768,6 +801,12 @@ export async function respond(ctx: ServiceContext, input: { id: string; body: st
       respondedAt: new Date(),
       responseBody: body,
       respondedByUserId: ctx.actor.userId,
+      /**
+       * A review read from a connected listing has its reply posted back to
+       * the listing by the review sync, which this marks it as waiting for.
+       * One typed in by hand is still answered on the platform by hand.
+       */
+      ...(existing.connectionId && existing.externalId ? { replyState: "pending", replyError: null } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.review.id, input.id)).returning();
 

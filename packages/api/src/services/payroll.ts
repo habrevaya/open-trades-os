@@ -8,6 +8,7 @@ import {
 } from "./context";
 import { policyFor } from "./labor";
 import { writePosting } from "./ledger";
+import * as tips from "./tips";
 
 /**
  * PAYROLL EXPORT
@@ -563,6 +564,161 @@ export async function payCommissions(ctx: ServiceContext, input: { periodId: str
   });
 }
 
+/* ------------------------------------------------------- passing tips on */
+
+/**
+ * PAY OUT THE TIPS, which discharges what was held for the technicians.
+ *
+ * The other half of `postPayment`'s tip leg: that credited Tips payable when
+ * the customer paid, and this debits it against cash when the money is passed
+ * on. Nothing is expensed, because a tip was never the company's to spend,
+ * and nothing is netted against anything: a commission reversal carried
+ * forward is not taken out of a tip (see `labor.buildStatement`).
+ *
+ * Everything owed that arrived before the end of the period, not only inside
+ * it, for the reason commissions are paid that way. Marked with the period
+ * that paid it, in the same transaction as the posting, so running this twice
+ * pays nothing twice.
+ */
+export async function payTips(ctx: ServiceContext, input: { periodId: string }) {
+  return guardedWrite(ctx, "payroll:export", async (tx) => {
+    const { period, bounds } = await loadPeriod(tx, ctx, input.periodId);
+    const close = await liveClose(tx, period.id);
+    if (!close) {
+      throw new ConflictError(
+        `${period.label} is not closed. Paying out of an open period pays an amount that can still change.`,
+      );
+    }
+
+    const owed = (await tips.unpaidBefore(tx, ctx.actor.organizationId, bounds.end))
+      .filter((person) => m.isPositive(person.amount));
+    const total = m.sum(owed.map((person) => person.amount), "USD");
+    const paidAt = new Date();
+    let transactionId: string | null = null;
+
+    if (m.isPositive(total)) {
+      transactionId = await writePosting(tx, ctx, ledger.postTipPayout({
+        payrollRunId: period.id,
+        occurredAt: paidAt,
+        amount: total,
+      }));
+      await tips.markPaid(tx, owed.flatMap((person) => person.ids), paidAt, period.id);
+      await audit(tx, ctx, "tips.paid", "pay_period", period.id, null, {
+        total: m.toString(total), people: owed.length, ledgerTransactionId: transactionId,
+      });
+    }
+
+    return {
+      periodId: period.id,
+      paidAt,
+      total: m.toString(total),
+      ledgerTransactionId: transactionId,
+      people: owed.map((person) => ({
+        technicianId: person.technicianId,
+        amount: m.toString(person.amount),
+        includesEarlierPeriods: person.earliest < bounds.start,
+      })),
+    };
+  });
+}
+
+/* ------------------------------------------------------- one's own pay */
+
+export interface OwnStatement {
+  periodId: string;
+  label: string;
+  periodStart: Date;
+  periodEnd: Date;
+  closedAt: Date;
+  /** Their lines on the register, exactly as the export carried them. Null when they had nothing that period. */
+  statement: Pick<RegisterRow, "classification" | "lines" | "gross" | "carriedForward" | "warnings"> | null;
+  /** Why their statement could not be worked out, when it could not, for them to ask the office about. */
+  problems: string[];
+  /** The commission behind the commission lines: which invoice, how it was worked out, and whether it is paid. */
+  commissions: {
+    id: string; invoiceNumber: number; kind: string; amount: string; explanation: string;
+    occurredAt: Date; paidAt: Date | null;
+  }[];
+}
+
+/** How many closed periods somebody's own pay goes back: a year of fortnights. */
+const OWN_PERIODS = 26;
+
+/**
+ * A PERSON'S OWN PAY STATEMENTS, for the periods payroll has closed.
+ *
+ * Built by the same `assemble` the register and the export are, at the
+ * instant the period was closed, narrowed to them: so the statement somebody
+ * reads is the one the bureau was sent, line for line, and not a second
+ * calculation that could disagree with it. Only closed periods, because an
+ * open one is still being corrected and a figure read on Tuesday that has
+ * moved by Friday is a dispute, not a statement.
+ *
+ * `payroll:own`, resolved from the session to the person's own technician
+ * record. There is no way to ask for somebody else's: the call takes no
+ * person. Somebody with no technician record has no punches, commission or
+ * tips here to show, and is told so rather than shown an empty table.
+ */
+export async function ownStatements(ctx: ServiceContext): Promise<{ technician: boolean; statements: OwnStatement[] }> {
+  return guardedRead(ctx, "payroll:own", async (tx) => {
+    const [own] = await tx.select({ id: schema.technician.id })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.userId, ctx.actor.userId),
+        eq(schema.membership.active, true),
+      )).limit(1);
+    if (!own) return { technician: false, statements: [] };
+
+    const rows = await tx.select().from(schema.payPeriod)
+      .where(eq(schema.payPeriod.organizationId, ctx.actor.organizationId))
+      .orderBy(desc(schema.payPeriod.startDate));
+
+    const statements: OwnStatement[] = [];
+    for (const row of rows) {
+      if (statements.length >= OWN_PERIODS) break;
+      const close = await liveClose(tx, row.id);
+      if (!close) continue;
+      const { period, policy, bounds, corePeriod } = await loadPeriod(tx, ctx, row.id);
+      const assembled = await assemble(tx, ctx, corePeriod, policy, bounds, close.closedAt, own.id);
+      const mine = assembled.rows.find((r) => r.technicianId === own.id) ?? null;
+      const commissions = await tx.select({
+        entry: schema.commissionEntry,
+        invoiceNumber: schema.invoice.number,
+      }).from(schema.commissionEntry)
+        .innerJoin(schema.commissionEvent, eq(schema.commissionEvent.id, schema.commissionEntry.eventId))
+        .innerJoin(schema.invoice, eq(schema.invoice.id, schema.commissionEvent.invoiceId))
+        .where(and(
+          eq(schema.commissionEntry.organizationId, ctx.actor.organizationId),
+          eq(schema.commissionEntry.technicianId, own.id),
+          gte(schema.commissionEntry.occurredAt, bounds.start),
+          lt(schema.commissionEntry.occurredAt, bounds.end),
+        ))
+        .orderBy(asc(schema.commissionEntry.occurredAt));
+      statements.push({
+        periodId: period.id,
+        label: period.label,
+        periodStart: bounds.start,
+        periodEnd: bounds.end,
+        closedAt: close.closedAt,
+        statement: mine
+          ? {
+            classification: mine.classification, lines: mine.lines, gross: mine.gross,
+            carriedForward: mine.carriedForward, warnings: mine.warnings,
+          }
+          : null,
+        problems: assembled.problems.filter((p) => p.technicianId === own.id).flatMap((p) => p.messages),
+        commissions: commissions.map(({ entry, invoiceNumber }) => ({
+          id: entry.id, invoiceNumber, kind: entry.kind, amount: entry.amount, explanation: entry.explanation,
+          occurredAt: entry.occurredAt, paidAt: entry.paidAt,
+        })),
+      });
+    }
+    return { technician: true, statements };
+  });
+}
+
 /* ------------------------------------------------------------- internals */
 
 async function loadPeriod(tx: Database, ctx: ServiceContext, periodId: string) {
@@ -673,9 +829,33 @@ async function fingerprintOf(
       lt(schema.commissionEntry.occurredAt, bounds.end),
     ));
 
+  /**
+   * Tips too, because they are on the file. A tip arriving inside a closed
+   * period (a payment backdated into it) would otherwise change what the
+   * export says without the export noticing.
+   */
+  const tipped = await tx.select({ id: schema.tipShare.id, amount: schema.tipShare.amount })
+    .from(schema.tipShare)
+    .where(and(
+      eq(schema.tipShare.organizationId, organizationId),
+      gte(schema.tipShare.occurredAt, bounds.start),
+      lt(schema.tipShare.occurredAt, bounds.end),
+    ));
+
+  /** And the cash tips people kept, which are on the file as `cash_tip`. */
+  const kept = await tx.select({ id: schema.cashTip.id, amount: schema.cashTip.amount })
+    .from(schema.cashTip)
+    .where(and(
+      eq(schema.cashTip.organizationId, organizationId),
+      gte(schema.cashTip.receivedAt, bounds.start),
+      lt(schema.cashTip.receivedAt, bounds.end),
+    ));
+
   const lines = [
     ...punches.map((row) => `t:${row.id}:${row.updatedAt.toISOString()}`),
     ...commissions.map((row) => `c:${row.id}:${row.amount}`),
+    ...tipped.map((row) => `p:${row.id}:${row.amount}`),
+    ...kept.map((row) => `k:${row.id}:${row.amount}`),
   ].sort();
 
   return createHash("sha256").update(lines.join("\n"), "utf8").digest("hex");
@@ -751,6 +931,8 @@ async function assemble(
   tx: Database, ctx: ServiceContext,
   period: labor.PayPeriod, policy: labor.OvertimePolicy,
   bounds: { start: Date; end: Date }, now: Date,
+  /** One person only, for their own statement. Everybody when absent. */
+  only?: string,
 ): Promise<Assembled> {
   const punches = await tx.select({
     entry: schema.timeclockEntry,
@@ -761,6 +943,7 @@ async function assemble(
       eq(schema.timeclockEntry.organizationId, ctx.actor.organizationId),
       gte(schema.timeclockEntry.startedAt, bounds.start),
       lt(schema.timeclockEntry.startedAt, bounds.end),
+      ...(only ? [eq(schema.timeclockEntry.technicianId, only)] : []),
     ))
     .orderBy(asc(schema.timeclockEntry.startedAt));
 
@@ -776,12 +959,52 @@ async function assemble(
       eq(schema.commissionEntry.organizationId, ctx.actor.organizationId),
       gte(schema.commissionEntry.occurredAt, bounds.start),
       lt(schema.commissionEntry.occurredAt, bounds.end),
+      ...(only ? [eq(schema.commissionEntry.technicianId, only)] : []),
     ))
     .orderBy(asc(schema.commissionEntry.occurredAt));
+
+  /** Tips that arrived inside the period, with the invoice they came with for the line's label. */
+  const tipRows = await tx.select({
+    share: schema.tipShare,
+    technicianName: schema.technician.displayName,
+    invoiceNumber: schema.invoice.number,
+  }).from(schema.tipShare)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.tipShare.technicianId))
+    .leftJoin(schema.invoice, eq(schema.invoice.id, schema.tipShare.invoiceId))
+    .where(and(
+      eq(schema.tipShare.organizationId, ctx.actor.organizationId),
+      gte(schema.tipShare.occurredAt, bounds.start),
+      lt(schema.tipShare.occurredAt, bounds.end),
+      ...(only ? [eq(schema.tipShare.technicianId, only)] : []),
+    ))
+    .orderBy(asc(schema.tipShare.occurredAt), asc(schema.tipShare.id));
+
+  /**
+   * Cash tips people kept and recorded on the phone, for the `cash_tip` line:
+   * reported pay the company never held, so it is on the statement and paid
+   * by nobody.
+   */
+  const cashRows = await tx.select({
+    tip: schema.cashTip,
+    technicianName: schema.technician.displayName,
+    jobNumber: schema.job.number,
+  }).from(schema.cashTip)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.cashTip.technicianId))
+    .leftJoin(schema.job, eq(schema.job.id, schema.cashTip.jobId))
+    .where(and(
+      eq(schema.cashTip.organizationId, ctx.actor.organizationId),
+      gte(schema.cashTip.receivedAt, bounds.start),
+      lt(schema.cashTip.receivedAt, bounds.end),
+      ...(only ? [eq(schema.cashTip.technicianId, only)] : []),
+    ))
+    .orderBy(asc(schema.cashTip.receivedAt), asc(schema.cashTip.id));
 
   const names = new Map<string, string>();
   for (const row of punches) names.set(row.entry.technicianId, row.technicianName);
   for (const row of commissionRows) names.set(row.entry.technicianId, row.technicianName);
+  /** Somebody tipped and not on the clock this period is still somebody to pay. */
+  for (const row of tipRows) names.set(row.share.technicianId, row.technicianName);
+  for (const row of cashRows) names.set(row.tip.technicianId, row.technicianName);
 
   const rows: RegisterRow[] = [];
   const problems: Assembled["problems"] = [];
@@ -864,6 +1087,24 @@ async function assemble(
       entries,
       commissions,
       clawbacks,
+      tips: tipRows
+        .filter((row) => row.share.technicianId === technicianId)
+        .map((row) => ({
+          tipId: row.share.id,
+          personId: technicianId,
+          amount: usd(row.share.amount),
+          label: row.invoiceNumber ? `Tip, invoice ${row.invoiceNumber}` : "Tip",
+          occurredAt: row.share.occurredAt,
+        })),
+      cashTips: cashRows
+        .filter((row) => row.tip.technicianId === technicianId)
+        .map((row) => ({
+          tipId: row.tip.id,
+          personId: technicianId,
+          amount: usd(row.tip.amount),
+          label: row.jobNumber ? `Cash tip kept, job ${row.jobNumber}` : "Cash tip kept",
+          occurredAt: row.tip.receivedAt,
+        })),
       currency: "USD",
       now,
     });
@@ -994,4 +1235,8 @@ export const handlers = {
 
   payCommissions: (ctx: ServiceContext, input: { periodId: string }) =>
     payCommissions(ctx, input),
+
+  payTips: (ctx: ServiceContext, input: { periodId: string }) => payTips(ctx, input),
+
+  getMyPayStatements: (ctx: ServiceContext) => ownStatements(ctx),
 } as const;

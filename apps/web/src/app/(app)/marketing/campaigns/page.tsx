@@ -1,10 +1,10 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { campaigns } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { campaigns, messageTemplates } from "@opentradesos/api/services";
+import { can, campaign as cp } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { Campaigns, Audience, Recipients } from "./CampaignView";
-import { RULES } from "./rules";
+import { RuleBoxes } from "./RuleBoxes";
 import { ActionForm } from "./ActionForm";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +58,10 @@ export default async function CampaignsPage(
 
   const list = await campaigns.list(ctx, { limit: 100 });
   const writes = can(user.actor, "campaign:write");
+  /** The company's message templates, for "start from a template". Settings permission, so best effort. */
+  const templates = writes && can(user.actor, "settings:read")
+    ? (await messageTemplates.list(ctx)).filter((t) => t.active)
+    : [];
 
   /**
    * The preview of a saved campaign, only when asked for. It runs the audience
@@ -78,8 +82,9 @@ export default async function CampaignsPage(
       <PageHeader title="Campaigns" count={list.data.length} />
 
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        To the list you already own, by text or email. Nothing is scheduled: a send is one press,
-        and a carrier's daily cap leaves the rest for tomorrow and another press.
+        To the list you already own, by text or email. Send a batch now, or give it a time and it
+        goes then. A carrier's daily cap leaves the rest for the next day, and the rest goes out on
+        its own outside quiet hours.
       </p>
 
       <Campaigns
@@ -106,6 +111,13 @@ export default async function CampaignsPage(
                   written are not re-selected.
                 */}
                 <ActionForm op="send" label="Send a batch" quiet hidden={{ id: campaign.id }} />
+                {campaign.state !== "sending" && (
+                  <ActionForm op="schedule" label={campaign.scheduledFor ? "Move the time" : "Send later"} quiet
+                              hidden={{ id: campaign.id }}>
+                    <input name="scheduledFor" type="datetime-local" required className={input}
+                           aria-label="When it goes" />
+                  </ActionForm>
+                )}
                 <ActionForm op="cancel" label="Cancel" quiet hidden={{ id: campaign.id }}>
                   <input name="reason" placeholder="Why" className={`${input} w-32`}
                          aria-label="Why it was cancelled" />
@@ -169,35 +181,24 @@ export default async function CampaignsPage(
               </label>
             </div>
 
-            <fieldset className="rounded-md border border-steel-200 p-3">
-              <legend className="px-1 text-sm font-medium">Who</legend>
-              <p className="text-xs text-ink-500">
-                Combined with AND. Every rule you tick narrows the audience, and an audience with no
-                rules at all is refused rather than sent to everybody.
-              </p>
-              <ul className="mt-2 space-y-2 text-sm">
-                {RULES.map((rule) => (
-                  <li key={rule.kind} className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" name="rule" value={rule.kind} />
-                      <span>{rule.label}</span>
-                    </label>
-                    {rule.fields?.map((box) => (
-                      <input key={box.name} name={box.name} placeholder={box.placeholder}
-                             aria-label={box.label}
-                             inputMode={box.numeric ? "numeric" : undefined}
-                             className={`${input} ${box.wide ? "w-56" : "w-24"}`} />
-                    ))}
-                  </li>
-                ))}
-              </ul>
-            </fieldset>
+            <RuleBoxes />
 
             <div className="space-y-2">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-ink-700">Subject, for an email</span>
                 <input name="subject" className={`${input} w-full max-w-xl`} />
               </label>
+              {templates.length > 0 && (
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-ink-700">Start from a message template</span>
+                  <select name="templateCode" className={`${input} w-full max-w-xl`}>
+                    <option value="">No, use the message below</option>
+                    {templates.map((t) => (
+                      <option key={t.code} value={t.code}>{t.name} ({t.channel === "sms" ? "text" : "email"})</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-ink-700">Message</span>
                 {/*
@@ -205,7 +206,7 @@ export default async function CampaignsPage(
                   checked in core, which refuses with the real number rather than
                   a count this screen would have to keep in step with it.
                 */}
-                <textarea name="body" required rows={4}
+                <textarea name="body" rows={4}
                           className="w-full max-w-xl rounded border border-steel-300 p-2 text-sm"
                           placeholder="Comfort Co here: $89 tune ups this month. Reply STOP to opt out." />
               </label>
@@ -213,6 +214,18 @@ export default async function CampaignsPage(
                 A text needs an opt out in it and an email gets a one-click unsubscribe this product
                 serves itself, which stops the promotions and leaves the invoices alone.
               </p>
+              <p className="max-w-xl text-xs text-ink-500">
+                To call people by name, put any of these in the message and each person gets their own:{" "}
+                {cp.MERGE_FIELDS.map((f, i) => (
+                  <span key={f.key}>
+                    {i > 0 ? ", " : ""}<code className="font-mono">{`{{ ${f.key} }}`}</code> ({f.label.toLowerCase()})
+                  </span>
+                ))}. Anything else is refused, because it would arrive as a gap in the sentence.
+              </p>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-ink-700">Send it at, if not now</span>
+                <input name="scheduledFor" type="datetime-local" className={`${input} w-56`} />
+              </label>
             </div>
           </ActionForm>
         </section>

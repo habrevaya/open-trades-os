@@ -1,10 +1,12 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { events, isSystem, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { events, isSystem, SYSTEM_USER_ID, webhooks as rules, type Actor } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, ConflictError, NotFoundError, type ServiceContext,
+  guardedRead, guardedWrite, audit, ConflictError, NotFoundError, decodeCursor, encodeCursor,
+  type ServiceContext,
 } from "./context";
+import { within } from "./workflow-schedule";
 
 /**
  * OUTBOUND WEBHOOKS, WHICH THE SCHEMA HAS PROMISED SINCE THE FIRST MIGRATION
@@ -67,14 +69,14 @@ import {
  * absent from the row, and pretending otherwise by hashing it would simply
  * mean no endpoint could ever be signed.
  *
- * What that buys the rest of the file is a rule with no exceptions: the
- * secret is returned exactly once, in the return value of `register`, and
- * `shape` below is the only way a row leaves this file. `shape` does not
- * take `secretRef` from the row and there is no code path that does, so a
- * list, a read or an update cannot leak it even by accident. An operator who
- * loses it is in the same position as one who loses an app token: they
- * register a new endpoint, which is the same action they would take if it
- * leaked.
+ * What that buys the rest of the file is a rule with no exceptions: a
+ * secret is returned exactly once, when it is made, by `register` or by
+ * `rotateSecret`, and `shape` below is the only way a row leaves this file.
+ * `shape` takes neither secret column from the row and there is no code path
+ * that does, so a list, a read or an update cannot leak one even by accident.
+ * An operator who loses it rotates, which is the same action they would take
+ * if it leaked: with no overlap when it leaked, and with one when it was
+ * merely lost and the receiver still holds it.
  *
  * The column comment says "stored encrypted", which is a deployment
  * property rather than something this file can assert. It is stated here so
@@ -94,6 +96,13 @@ export const TIMESTAMP_HEADER = "x-otos-timestamp";
 export const EVENT_HEADER = "x-otos-event";
 /** Stable across retries of the same event, so a receiver can deduplicate. */
 export const DELIVERY_HEADER = "x-otos-delivery";
+/**
+ * Present only on a replay, carrying the replay's id. The delivery header is
+ * the same as the original's, so a receiver deduplicating on it treats a
+ * replay of something it already processed as the repeat it is; this one is
+ * for a receiver that wants to log that a person asked for it again.
+ */
+export const REPLAY_HEADER = "x-otos-replay";
 
 /**
  * The signature a receiver has to reproduce.
@@ -119,6 +128,46 @@ export function signDelivery(input: {
       .update(`${timestamp}.${input.body}`).digest("hex"),
     timestamp,
   };
+}
+
+/**
+ * THE SIGNATURE HEADER, WHILE A ROTATION OVERLAPS.
+ *
+ * Outside a rotation the header holds one signature, exactly as it always
+ * has. During the overlap an operator chose when rotating, it holds two,
+ * separated by a comma, newest first: one made with the new secret and one
+ * with the old. A receiver accepts the delivery when any one of them matches
+ * the secret it holds, which is what lets the person who runs the receiver
+ * switch to the new secret on their own day rather than at the moment of the
+ * rotation.
+ *
+ * A comma, because a hex signature never contains one and the format is the
+ * one Stripe receivers already know. A receiver comparing the whole header
+ * against one value will refuse deliveries for the length of the overlap, and
+ * the rotation screen says so before anybody presses the button.
+ */
+export function signatureHeader(input: {
+  secrets: readonly string[]; body: string; timestamp: number;
+}): { signature: string; timestamp: string } {
+  const timestamp = String(input.timestamp);
+  const signature = input.secrets
+    .map((secret) => signDelivery({ secret, body: input.body, timestamp: input.timestamp }).signature)
+    .join(",");
+  return { signature, timestamp };
+}
+
+/**
+ * The secrets that sign a delivery made at `at`: the current one, and the one
+ * before it while its overlap lasts.
+ */
+export function signingSecrets(
+  endpoint: { secretRef: string; previousSecretRef: string | null; previousSecretExpiresAt: Date | null },
+  at: Date,
+): string[] {
+  const overlap = endpoint.previousSecretRef !== null
+    && endpoint.previousSecretExpiresAt !== null
+    && endpoint.previousSecretExpiresAt.getTime() > at.getTime();
+  return overlap ? [endpoint.secretRef, endpoint.previousSecretRef!] : [endpoint.secretRef];
 }
 
 /**
@@ -150,9 +199,19 @@ export function verifyDelivery(input: {
     createHmac("sha256", input.secret).update(`${input.timestamp}.${input.body}`).digest("hex"),
     "utf8",
   );
-  const provided = Buffer.from(input.signature, "utf8");
-  if (expected.length !== provided.length) return false;
-  return timingSafeEqual(expected, provided);
+  /**
+   * Any one of the signatures in the header, because during a rotation's
+   * overlap there are two and the receiver holds one of the two secrets.
+   * Every candidate is compared, rather than stopping at the first match, so
+   * the time taken does not say which position matched.
+   */
+  let matched = false;
+  for (const candidate of input.signature.split(",")) {
+    const provided = Buffer.from(candidate.trim(), "utf8");
+    if (expected.length !== provided.length) continue;
+    if (timingSafeEqual(expected, provided)) matched = true;
+  }
+  return matched;
 }
 
 /* --------------------------------------------------------------- the rows */
@@ -181,6 +240,13 @@ export interface Endpoint {
   active: boolean;
   /** Consecutive failures. Reset to zero by a delivery that succeeds. */
   failureCount: number;
+  /** When the current signing secret was made, by registration or by rotation. */
+  secretRotatedAt: string | null;
+  /**
+   * Until when the secret before the last rotation still signs as well, or
+   * null when only the current one does. Never the secret itself.
+   */
+  previousSecretExpiresAt: string | null;
   /**
    * The last time a delivery was ATTEMPTED, successful or not.
    *
@@ -203,6 +269,12 @@ function shape(row: typeof schema.webhookEndpoint.$inferSelect): Endpoint {
     events: row.events ?? [],
     active: row.active,
     failureCount: row.failureCount,
+    secretRotatedAt: (row.secretRotatedAt ?? row.createdAt).toISOString(),
+    previousSecretExpiresAt:
+      row.previousSecretRef !== null && row.previousSecretExpiresAt !== null
+        && row.previousSecretExpiresAt.getTime() > Date.now()
+        ? row.previousSecretExpiresAt.toISOString()
+        : null,
     lastDeliveryAt: row.lastDeliveryAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -403,6 +475,7 @@ export async function register(
       organizationId: ctx.actor.organizationId,
       url,
       secretRef: secret,
+      secretRotatedAt: new Date(),
       events: names,
       active: input.active ?? true,
     }).returning();
@@ -489,6 +562,91 @@ export async function update(
       tx, ctx, "webhook.updated", "webhook_endpoint", input.id, shape(before), shape(after!),
     );
     return shape(after!);
+  });
+}
+
+/**
+ * The longest an old secret may go on signing after a rotation. A week covers
+ * the person who runs the receiver being on holiday; longer, and the old
+ * secret is not being retired, it is being kept.
+ */
+export const MAX_OVERLAP_HOURS = 168;
+
+/**
+ * Give an endpoint a new signing secret, and hand it back once.
+ *
+ * WITH AN OVERLAP, because the person rotating and the person who updates the
+ * receiver are usually not the same person and rarely act in the same minute.
+ * For `overlapHours` every delivery is signed with both secrets, so the
+ * receiver keeps accepting deliveries whichever one it holds, and moves to the
+ * new one whenever its owner gets to it. Zero means the old secret stops
+ * signing now, which is the right answer when the old one leaked.
+ *
+ * A second rotation during an overlap replaces the old secret with the one
+ * that was current, so the one before that stops signing at once: two secrets
+ * sign at most, never three.
+ *
+ * A REPLAY RETURNS THE SAME SECRET rather than rotating twice. The secret is
+ * stored in plaintext for signing (see the top of this file), so a retry
+ * after a lost response can be handed the value the first call made, which
+ * is the one an operator then pastes into their receiver. If the endpoint has
+ * been rotated again since, the replay is refused rather than handing out a
+ * secret the original call did not make.
+ */
+export async function rotateSecret(
+  ctx: ServiceContext, input: { id: string; overlapHours?: number | undefined },
+): Promise<Endpoint & { secret: string }> {
+  const overlapHours = input.overlapHours ?? 24;
+  if (!Number.isInteger(overlapHours) || overlapHours < 0 || overlapHours > MAX_OVERLAP_HOURS) {
+    throw new ConflictError(`The overlap is a whole number of hours from 0 to ${MAX_OVERLAP_HOURS}.`);
+  }
+  return guardedWrite(ctx, "integration:write", async (tx) => {
+    const before = await load(tx, ctx.actor.organizationId, input.id);
+
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ response: schema.integrationEvent.responsePayload })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.eventType, "webhook.secret_rotated"),
+          eq(schema.integrationEvent.entityId, input.id),
+        )).limit(1);
+      if (seen) {
+        const rotatedAt = String((seen.response ?? {})["rotatedAt"] ?? "");
+        if (before.secretRotatedAt?.toISOString() === rotatedAt) {
+          return { ...shape(before), secret: before.secretRef };
+        }
+        throw new ConflictError(
+          "This endpoint has been given another secret since that request, so its secret cannot be shown again.",
+        );
+      }
+    }
+
+    const now = new Date();
+    const secret = newSecret();
+    const [after] = await tx.update(schema.webhookEndpoint).set({
+      secretRef: secret,
+      previousSecretRef: overlapHours > 0 ? before.secretRef : null,
+      previousSecretExpiresAt: overlapHours > 0 ? new Date(now.getTime() + overlapHours * 3_600_000) : null,
+      secretRotatedAt: now,
+      updatedAt: now,
+    }).where(eq(schema.webhookEndpoint.id, input.id)).returning();
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "outbound", provider: "api", eventType: "webhook.secret_rotated",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "webhook_endpoint", entityId: input.id,
+        responsePayload: { rotatedAt: now.toISOString() },
+      });
+    }
+
+    /** Neither secret is in the audit line, for the reason `register` gives. */
+    await audit(tx, ctx, "webhook.secret_rotated", "webhook_endpoint", input.id, shape(before), {
+      ...shape(after!), overlapHours,
+    });
+    return { ...shape(after!), secret };
   });
 }
 
@@ -635,6 +793,12 @@ export interface DeliveryRequest {
 export interface DeliveryResponse {
   status: number;
   ok: boolean;
+  /**
+   * What the receiver said, or the start of it. Optional so a transport that
+   * cannot read a body still satisfies the type; what is kept of it is cut
+   * to `EXCERPT_LIMIT` before it is stored either way.
+   */
+  body?: string | null | undefined;
 }
 
 /**
@@ -660,8 +824,37 @@ const httpTransport: Transport = async (request) => {
      */
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  return { status: response.status, ok: response.ok };
+  return { status: response.status, ok: response.ok, body: await readBounded(response) };
 };
+
+/**
+ * The first part of a response body, and never more.
+ *
+ * Read from the stream and cancelled once enough has arrived, rather than
+ * `response.text()` and then cut. A receiver answering with a fifty megabyte
+ * error page would otherwise be read into memory in full, inside the
+ * delivery pass, for the sake of keeping two thousand characters of it.
+ * A body that cannot be read is not a failed delivery: the status already
+ * said how it went.
+ */
+async function readBounded(response: Response): Promise<string | null> {
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (text.length <= rules.EXCERPT_LIMIT) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch {
+    return text === "" ? null : text;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return text;
+}
 
 export interface DeliveryAttempt {
   endpointId: string;
@@ -673,6 +866,8 @@ export interface DeliveryAttempt {
   error: string | null;
   /** True when this attempt is the one that took the endpoint over the limit. */
   disabled: boolean;
+  /** Set when this attempt was a replay rather than the live stream. */
+  replayId: string | null;
 }
 
 export interface DeliveryPass {
@@ -770,63 +965,335 @@ export async function deliver(
         continue;
       }
 
-      const at = clock();
-      const body = JSON.stringify(envelope(organizationId, event));
-      const { signature, timestamp } = signDelivery({
-        secret: endpoint.secretRef, body, timestamp: at.getTime(),
-      });
-
-      let result: DeliveryResponse | null = null;
-      let error: string | null = null;
-      try {
-        result = await send({
-          url: endpoint.url,
-          body,
-          headers: {
-            "content-type": "application/json",
-            [SIGNATURE_HEADER]: signature,
-            [TIMESTAMP_HEADER]: timestamp,
-            [EVENT_HEADER]: event.name,
-            /**
-             * Stable across every retry of this event to this endpoint, so a
-             * receiver that got the delivery and failed to answer in time
-             * can recognise the repeat instead of processing it twice.
-             */
-            [DELIVERY_HEADER]: `${endpoint.id}:${event.id}`,
-          },
-        });
-      } catch (thrown) {
-        error = (thrown as Error).message;
-      }
-
-      const ok = result?.ok === true;
+      const sent = await sendOne(organizationId, endpoint, event, send, clock, null);
       const disabled = await settle(ctx, {
         endpointId: endpoint.id,
-        ok,
-        at,
+        ok: sent.ok,
+        at: sent.at,
         /** Recorded on the audit entry when this is the failure that disables it. */
-        reason: error ?? (result ? `HTTP ${result.status}` : "no response"),
+        reason: sent.error ?? `HTTP ${sent.status}`,
         url: endpoint.url,
+        attempt: { event, sent, replayId: null },
       });
 
       attempts.push({
         endpointId: endpoint.id,
         eventId: event.id,
         eventName: event.name,
-        ok,
-        status: result?.status ?? null,
-        error: ok ? null : (error ?? `HTTP ${result?.status}`),
+        ok: sent.ok,
+        status: sent.status,
+        error: sent.ok ? null : (sent.error ?? `HTTP ${sent.status}`),
         disabled,
+        replayId: null,
       });
 
-      if (!ok) break;
+      if (!sent.ok) break;
       reached = event.sequence;
     }
 
     if (reached > 0) await commit(ctx, endpoint.id, reached);
+
+    /**
+     * REPLAYS AFTER THE LIVE STREAM, and only for an endpoint that is not
+     * backing off: a receiver failing its live deliveries is the receiver a
+     * replay would fail against too, and sending it history while its
+     * present is stuck is how the history arrives in the wrong order.
+     */
+    attempts.push(...await replay(ctx, endpoint, send, clock, limit));
+
+    await prune(ctx, endpoint.id, clock());
   }
 
   return { organizationId, attempts, backingOff };
+}
+
+/**
+ * Deliver for the companies that owe a webhook something and produced no
+ * event this pass: a replay somebody asked for, or a retry a failing
+ * receiver is waiting on.
+ *
+ * The worker's ordinary delivery runs after a company's events are drained,
+ * so without this a replay asked for on a quiet afternoon would wait for the
+ * next job to be booked. `skip` is the companies the drain already visited,
+ * so nobody is delivered to twice in one pass.
+ */
+export async function deliverOwed(
+  db: Database,
+  options: DeliveryOptions & { skip?: ReadonlySet<string>; shouldStop?: () => boolean; only?: readonly string[] } = {},
+): Promise<DeliveryPass[]> {
+  const rows = within(options.only, await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.webhook_work_organizations(100)`,
+  ));
+  const passes: DeliveryPass[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    if (options.skip?.has(row.organization_id)) continue;
+    try {
+      passes.push(await deliver(db, row.organization_id, options));
+    } catch (error) {
+      /** One company's receiver must not stop the loop for everybody else's. */
+      console.error(`[worker] webhooks ${row.organization_id}:`, (error as Error).message);
+    }
+  }
+  return passes;
+}
+
+type Event = Awaited<ReturnType<typeof unsent>>[number];
+type EndpointRow = typeof schema.webhookEndpoint.$inferSelect;
+
+interface Sent {
+  ok: boolean;
+  status: number | null;
+  error: string | null;
+  body: string | null;
+  at: Date;
+  durationMs: number;
+}
+
+/**
+ * One request, signed now, timed, with nothing held open.
+ *
+ * Shared by the live stream and replays so the two cannot drift: the body is
+ * the same envelope, built from the same event, so a replay is byte for byte
+ * what the original was apart from the signature, which is made fresh. A
+ * signature carrying the original timestamp would be refused by every
+ * receiver checking the skew, which is the point of putting the timestamp
+ * inside it.
+ */
+async function sendOne(
+  organizationId: string,
+  endpoint: EndpointRow,
+  event: Event,
+  send: Transport,
+  clock: () => Date,
+  replayId: string | null,
+): Promise<Sent> {
+  const at = clock();
+  const body = JSON.stringify(envelope(organizationId, event));
+  const { signature, timestamp } = signatureHeader({
+    secrets: signingSecrets(endpoint, at), body, timestamp: at.getTime(),
+  });
+
+  const started = performance.now();
+  let result: DeliveryResponse | null = null;
+  let error: string | null = null;
+  try {
+    result = await send({
+      url: endpoint.url,
+      body,
+      headers: {
+        "content-type": "application/json",
+        [SIGNATURE_HEADER]: signature,
+        [TIMESTAMP_HEADER]: timestamp,
+        [EVENT_HEADER]: event.name,
+        /**
+         * Stable across every retry and every replay of this event to this
+         * endpoint, so a receiver that got the delivery and failed to answer
+         * in time can recognise the repeat instead of processing it twice.
+         */
+        [DELIVERY_HEADER]: `${endpoint.id}:${event.id}`,
+        ...(replayId ? { [REPLAY_HEADER]: replayId } : {}),
+      },
+    });
+  } catch (thrown) {
+    error = (thrown as Error).message;
+  }
+
+  return {
+    ok: result?.ok === true,
+    status: result?.status ?? null,
+    error: result ? null : (error ?? "no response"),
+    body: result?.body ?? null,
+    at,
+    durationMs: Math.max(0, Math.round(performance.now() - started)),
+  };
+}
+
+/**
+ * Write one attempt down. Called inside the transaction that settles it, so
+ * an attempt and the failure count it moved are one fact, never two.
+ *
+ * The attempt number counts every earlier try of this event at this
+ * endpoint, replays included, so "attempt 4" on a replay says it was the
+ * fourth time the receiver saw it.
+ */
+async function recordAttempt(
+  tx: Database,
+  organizationId: string,
+  endpointId: string,
+  input: { event: Event; sent: Sent; replayId: string | null },
+): Promise<void> {
+  const [row] = await tx.select({
+    last: sql<number>`coalesce(max(${schema.webhookDelivery.attempt}), 0)::int`,
+  })
+    .from(schema.webhookDelivery)
+    .where(and(
+      eq(schema.webhookDelivery.endpointId, endpointId),
+      eq(schema.webhookDelivery.eventId, input.event.id),
+    ));
+
+  await tx.insert(schema.webhookDelivery).values({
+    organizationId,
+    endpointId,
+    eventId: input.event.id,
+    eventSequence: input.event.sequence,
+    eventName: input.event.name,
+    attempt: Number(row?.last ?? 0) + 1,
+    replayId: input.replayId,
+    requestedAt: input.sent.at,
+    durationMs: input.sent.durationMs,
+    responseStatus: input.sent.status,
+    responseExcerpt: rules.excerpt(input.sent.body),
+    error: input.sent.ok ? null : (input.sent.error ?? `HTTP ${input.sent.status}`),
+    ok: input.sent.ok,
+  });
+}
+
+/**
+ * KEEP THE HISTORY BOUNDED, once per endpoint per pass.
+ *
+ * By age and by count, whichever cuts first; see `KEEP_PER_ENDPOINT` in
+ * core for why both. Run here rather than on a schedule of its own, because
+ * the only thing that grows the table is this pass, so the table cannot
+ * outgrow the thing that trims it.
+ */
+async function prune(ctx: ServiceContext, endpointId: string, now: Date): Promise<void> {
+  await guardedWrite(ctx, "integration:write", async (tx) => {
+    await tx.delete(schema.webhookDelivery).where(and(
+      eq(schema.webhookDelivery.endpointId, endpointId),
+      lt(schema.webhookDelivery.requestedAt, rules.retentionCutoff(now)),
+    ));
+    await tx.execute(sql`
+      delete from public.webhook_delivery
+      where endpoint_id = ${endpointId}
+        and id in (
+          select id from public.webhook_delivery
+          where endpoint_id = ${endpointId}
+          order by requested_at desc, id desc
+          offset ${rules.KEEP_PER_ENDPOINT}
+        )`);
+  });
+}
+
+/**
+ * Send what replays are waiting for this endpoint, oldest request first.
+ *
+ * A replay that fails stops where it failed and waits out the same backoff
+ * as live delivery, against its own count. It does NOT move the endpoint's
+ * failure count, because a receiver refusing an old event it no longer
+ * knows how to read is not a receiver that is down, and switching the live
+ * stream off for it would turn one bad replay into an outage.
+ */
+async function replay(
+  ctx: ServiceContext,
+  endpoint: EndpointRow,
+  send: Transport,
+  clock: () => Date,
+  limit: number,
+): Promise<DeliveryAttempt[]> {
+  const attempts: DeliveryAttempt[] = [];
+  const pending = await guardedRead(ctx, "integration:read", (tx) =>
+    tx.select().from(schema.webhookReplay)
+      .where(and(
+        eq(schema.webhookReplay.endpointId, endpoint.id),
+        eq(schema.webhookReplay.status, "pending"),
+      ))
+      .orderBy(asc(schema.webhookReplay.createdAt)));
+
+  let budget = limit;
+  for (const request of pending) {
+    if (budget <= 0) break;
+    if (request.failureCount > 0 && request.lastAttemptAt
+        && clock().getTime() - request.lastAttemptAt.getTime() < backoffMs(request.failureCount)) {
+      continue;
+    }
+
+    const queue = await guardedRead(ctx, "integration:read", (tx) =>
+      tx.select({
+        id: schema.domainEvent.id,
+        name: schema.domainEvent.name,
+        sequence: schema.domainEvent.sequence,
+        entityType: schema.domainEvent.entityType,
+        entityId: schema.domainEvent.entityId,
+        payload: schema.domainEvent.payload,
+        occurredAt: schema.domainEvent.occurredAt,
+      })
+        .from(schema.domainEvent)
+        .where(and(
+          gt(schema.domainEvent.sequence, request.position),
+          lte(schema.domainEvent.sequence, request.throughSequence),
+          request.eventId
+            ? eq(schema.domainEvent.id, request.eventId)
+            : inArray(schema.domainEvent.name, endpoint.events ?? []),
+        ))
+        .orderBy(asc(schema.domainEvent.sequence))
+        .limit(budget));
+
+    let failed = false;
+    let reached = request.position;
+    for (const event of queue) {
+      budget -= 1;
+      const sent = await sendOne(ctx.actor.organizationId, endpoint, event, send, clock, request.id);
+      await guardedWrite(ctx, "integration:write", async (tx) => {
+        await recordAttempt(tx, ctx.actor.organizationId, endpoint.id, { event, sent, replayId: request.id });
+        if (sent.ok) {
+          await tx.update(schema.webhookReplay).set({
+            position: sql`greatest(${schema.webhookReplay.position}, ${event.sequence})`,
+            failureCount: 0, lastAttemptAt: sent.at, lastError: null, updatedAt: sent.at,
+          }).where(eq(schema.webhookReplay.id, request.id));
+          return;
+        }
+        const failures = request.failureCount + 1;
+        await tx.update(schema.webhookReplay).set({
+          failureCount: failures,
+          lastAttemptAt: sent.at,
+          lastError: sent.error ?? `HTTP ${sent.status}`,
+          ...(failures >= FAILURE_LIMIT ? { status: "failed" as const, finishedAt: sent.at } : {}),
+          updatedAt: sent.at,
+        }).where(eq(schema.webhookReplay.id, request.id));
+      });
+
+      attempts.push({
+        endpointId: endpoint.id,
+        eventId: event.id,
+        eventName: event.name,
+        ok: sent.ok,
+        status: sent.status,
+        error: sent.ok ? null : (sent.error ?? `HTTP ${sent.status}`),
+        disabled: false,
+        replayId: request.id,
+      });
+      if (!sent.ok) { failed = true; break; }
+      reached = Math.max(reached, event.sequence);
+    }
+
+    /**
+     * Finished when nothing in the range is left to send: either the last
+     * event went, or the events left in the range are ones this endpoint no
+     * longer subscribes to, which are not anybody's to send.
+     */
+    if (!failed) {
+      await guardedWrite(ctx, "integration:write", async (tx) => {
+        const [left] = await tx.select({ n: sql<number>`count(*)::int` })
+          .from(schema.domainEvent)
+          .where(and(
+            gt(schema.domainEvent.sequence, reached),
+            lte(schema.domainEvent.sequence, request.throughSequence),
+            request.eventId
+              ? eq(schema.domainEvent.id, request.eventId)
+              : inArray(schema.domainEvent.name, endpoint.events ?? []),
+          ));
+        if (Number(left?.n ?? 0) === 0) {
+          const now = clock();
+          await tx.update(schema.webhookReplay).set({
+            status: "done", position: request.throughSequence, finishedAt: now, updatedAt: now,
+          }).where(and(eq(schema.webhookReplay.id, request.id), eq(schema.webhookReplay.status, "pending")));
+        }
+      });
+    }
+    if (failed) break;
+  }
+  return attempts;
 }
 
 /**
@@ -918,8 +1385,10 @@ async function unsent(ctx: ServiceContext, endpointId: string, limit: number) {
  */
 async function settle(ctx: ServiceContext, input: {
   endpointId: string; ok: boolean; at: Date; reason: string; url: string;
+  attempt: { event: Event; sent: Sent; replayId: string | null };
 }): Promise<boolean> {
   return guardedWrite(ctx, "integration:write", async (tx) => {
+    await recordAttempt(tx, ctx.actor.organizationId, input.endpointId, input.attempt);
     if (input.ok) {
       await tx.update(schema.webhookEndpoint)
         .set({ failureCount: 0, lastDeliveryAt: input.at, updatedAt: input.at })
@@ -1024,6 +1493,292 @@ export async function position(
   });
 }
 
+/* ------------------------------------------------- the history, and replay */
+
+export interface DeliveryRecord {
+  id: string;
+  endpointId: string;
+  eventId: string;
+  eventSequence: number;
+  eventName: string;
+  attempt: number;
+  replayId: string | null;
+  requestedAt: string;
+  durationMs: number;
+  responseStatus: number | null;
+  responseExcerpt: string | null;
+  error: string | null;
+  status: rules.DeliveryStatus;
+}
+
+function shapeDelivery(row: typeof schema.webhookDelivery.$inferSelect): DeliveryRecord {
+  return {
+    id: row.id,
+    endpointId: row.endpointId,
+    eventId: row.eventId,
+    eventSequence: row.eventSequence,
+    eventName: row.eventName,
+    attempt: row.attempt,
+    replayId: row.replayId,
+    requestedAt: row.requestedAt.toISOString(),
+    durationMs: row.durationMs,
+    responseStatus: row.responseStatus,
+    responseExcerpt: row.responseExcerpt,
+    error: row.error,
+    status: rules.statusOf(row),
+  };
+}
+
+/** The filter a status means, in the columns that decide it. */
+function statusIs(status: rules.DeliveryStatus) {
+  switch (status) {
+    case "delivered": return eq(schema.webhookDelivery.ok, true);
+    case "refused": return and(
+      eq(schema.webhookDelivery.ok, false), sql`${schema.webhookDelivery.responseStatus} is not null`,
+    );
+    case "unreachable": return and(
+      eq(schema.webhookDelivery.ok, false), isNull(schema.webhookDelivery.responseStatus),
+    );
+  }
+}
+
+/**
+ * One endpoint's attempts, newest first, as far back as they are kept.
+ *
+ * Keyset paged on the attempt time with the id as the tie break, because a
+ * pass sends a batch inside one second and an offset would skip or repeat
+ * rows while the pass that is writing them is still running.
+ */
+export async function history(
+  ctx: ServiceContext,
+  input: {
+    id: string; status?: rules.DeliveryStatus | undefined; eventId?: string | undefined;
+    limit?: number | undefined; cursor?: string | undefined;
+  },
+) {
+  return guardedRead(ctx, "integration:read", async (tx) => {
+    const endpoint = await load(tx, ctx.actor.organizationId, input.id);
+    const limit = Math.min(input.limit ?? 50, 200);
+    const cursor = decodeCursor(input.cursor);
+    const [at, afterId] = cursor ? cursor.split("|") : [];
+
+    const rows = await tx.select().from(schema.webhookDelivery)
+      .where(and(
+        eq(schema.webhookDelivery.endpointId, endpoint.id),
+        input.status ? statusIs(input.status) : undefined,
+        input.eventId ? eq(schema.webhookDelivery.eventId, input.eventId) : undefined,
+        at && afterId
+          ? sql`(${schema.webhookDelivery.requestedAt}, ${schema.webhookDelivery.id}) < (${at}::timestamptz, ${afterId}::uuid)`
+          : undefined,
+      ))
+      .orderBy(desc(schema.webhookDelivery.requestedAt), desc(schema.webhookDelivery.id))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+    const last = data[data.length - 1];
+    return {
+      data: data.map(shapeDelivery),
+      hasMore,
+      nextCursor: hasMore && last ? encodeCursor(`${last.requestedAt.toISOString()}|${last.id}`) : null,
+    };
+  });
+}
+
+/**
+ * Every attempt to deliver one event, to every endpoint, oldest first.
+ *
+ * The question an integrator asks from the other end: "job 1042 was
+ * completed at ten past three and our system never heard about it, what
+ * happened". Removed endpoints are included, because the answer may be that
+ * it went to an address nobody uses any more.
+ */
+export async function eventHistory(ctx: ServiceContext, input: { eventId: string }) {
+  return guardedRead(ctx, "integration:read", async (tx) => {
+    const [event] = await tx.select({
+      id: schema.domainEvent.id,
+      name: schema.domainEvent.name,
+      sequence: schema.domainEvent.sequence,
+      occurredAt: schema.domainEvent.occurredAt,
+    }).from(schema.domainEvent).where(eq(schema.domainEvent.id, input.eventId)).limit(1);
+    if (!event) throw new NotFoundError("Event");
+
+    const rows = await tx.select({ delivery: schema.webhookDelivery, url: schema.webhookEndpoint.url })
+      .from(schema.webhookDelivery)
+      .innerJoin(schema.webhookEndpoint, eq(schema.webhookEndpoint.id, schema.webhookDelivery.endpointId))
+      .where(eq(schema.webhookDelivery.eventId, event.id))
+      .orderBy(asc(schema.webhookDelivery.requestedAt), asc(schema.webhookDelivery.attempt));
+
+    return {
+      event: { ...event, occurredAt: event.occurredAt.toISOString() },
+      deliveries: rows.map((row) => ({ ...shapeDelivery(row.delivery), endpointUrl: row.url })),
+    };
+  });
+}
+
+export interface Replay {
+  id: string;
+  endpointId: string;
+  eventId: string | null;
+  fromSequence: number;
+  throughSequence: number;
+  position: number;
+  status: "pending" | "done" | "failed";
+  failureCount: number;
+  lastError: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+function shapeReplay(row: typeof schema.webhookReplay.$inferSelect): Replay {
+  return {
+    id: row.id,
+    endpointId: row.endpointId,
+    eventId: row.eventId,
+    fromSequence: row.fromSequence,
+    throughSequence: row.throughSequence,
+    position: row.position,
+    status: row.status,
+    failureCount: row.failureCount,
+    lastError: row.lastError,
+    createdAt: row.createdAt.toISOString(),
+    finishedAt: row.finishedAt?.toISOString() ?? null,
+  };
+}
+
+export interface ReplayInput {
+  id: string;
+  /** One event again. */
+  eventId?: string | undefined;
+  /** The event a delivery in the history was for, again. */
+  deliveryId?: string | undefined;
+  /** Everything this endpoint subscribes to from here, through `throughSequence` or the newest. */
+  fromSequence?: number | undefined;
+  throughSequence?: number | undefined;
+}
+
+/**
+ * Ask for an event, or a run of the log, to be sent to an endpoint again.
+ *
+ * QUEUED, NOT SENT HERE. The worker sends it on its next pass, in order,
+ * after the endpoint's live deliveries, signed afresh and carrying the same
+ * delivery header as the original so a receiver deduplicating on it is not
+ * made to process anything twice.
+ *
+ * IDEMPOTENT TWICE OVER. A retried request with the same idempotency key
+ * gets the replay it already made, and a request for exactly a replay that
+ * is still waiting gets that one rather than a second copy of it, because
+ * somebody pressing the button twice did not mean "send it twice".
+ */
+export async function requestReplay(ctx: ServiceContext, input: ReplayInput): Promise<Replay> {
+  return guardedWrite(ctx, "integration:write", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "webhook_replay"),
+        )).limit(1);
+      if (seen?.entityId) {
+        const [row] = await tx.select().from(schema.webhookReplay)
+          .where(eq(schema.webhookReplay.id, seen.entityId)).limit(1);
+        if (row) return shapeReplay(row);
+      }
+    }
+
+    const endpoint = await load(tx, ctx.actor.organizationId, input.id);
+    if (!endpoint.active) {
+      throw new ConflictError(
+        "This endpoint is switched off, so a replay would sit waiting. Turn it back on first.",
+      );
+    }
+
+    const asked = [input.eventId, input.deliveryId, input.fromSequence].filter((v) => v !== undefined);
+    if (asked.length !== 1) {
+      throw new ConflictError(
+        "Say what to send again: one event, one delivery from the history, or a point in the log to replay from.",
+      );
+    }
+
+    let eventId = input.eventId;
+    if (input.deliveryId) {
+      const [delivery] = await tx.select({ eventId: schema.webhookDelivery.eventId })
+        .from(schema.webhookDelivery)
+        .where(and(
+          eq(schema.webhookDelivery.id, input.deliveryId),
+          eq(schema.webhookDelivery.endpointId, endpoint.id),
+        )).limit(1);
+      if (!delivery) throw new NotFoundError("Delivery");
+      eventId = delivery.eventId;
+    }
+
+    let range: { fromSequence: number; throughSequence: number; position: number };
+    if (eventId) {
+      const [event] = await tx.select({ sequence: schema.domainEvent.sequence, name: schema.domainEvent.name })
+        .from(schema.domainEvent).where(eq(schema.domainEvent.id, eventId)).limit(1);
+      if (!event) throw new NotFoundError("Event");
+      if (!(endpoint.events ?? []).includes(event.name)) {
+        throw new ConflictError(
+          `This endpoint does not subscribe to ${event.name}, so it was never sent there and has nothing to send again.`,
+        );
+      }
+      range = { fromSequence: event.sequence, throughSequence: event.sequence, position: event.sequence - 1 };
+    } else {
+      const planned = rules.replayRange({
+        from: input.fromSequence!,
+        through: input.throughSequence,
+        newest: await currentSequence(tx, ctx.actor.organizationId),
+      });
+      if (!planned.ok) throw new ConflictError(planned.reason);
+      range = planned;
+    }
+
+    const [waiting] = await tx.select().from(schema.webhookReplay)
+      .where(and(
+        eq(schema.webhookReplay.endpointId, endpoint.id),
+        eq(schema.webhookReplay.status, "pending"),
+        eq(schema.webhookReplay.fromSequence, range.fromSequence),
+        eq(schema.webhookReplay.throughSequence, range.throughSequence),
+        eventId ? eq(schema.webhookReplay.eventId, eventId) : isNull(schema.webhookReplay.eventId),
+      )).limit(1);
+
+    const row = waiting ?? (await tx.insert(schema.webhookReplay).values({
+      organizationId: ctx.actor.organizationId,
+      endpointId: endpoint.id,
+      eventId: eventId ?? null,
+      fromSequence: range.fromSequence,
+      throughSequence: range.throughSequence,
+      position: range.position,
+      requestedByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId,
+    }).returning())[0]!;
+
+    if (!waiting) {
+      await audit(tx, ctx, "webhook.replay_requested", "webhook_endpoint", endpoint.id, null, shapeReplay(row) as unknown as Record<string, unknown>);
+    }
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "webhook.replay",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "webhook_replay", entityId: row.id,
+      });
+    }
+    return shapeReplay(row);
+  });
+}
+
+/** The replays asked for on one endpoint, newest first. */
+export async function replays(ctx: ServiceContext, input: { id: string }): Promise<Replay[]> {
+  return guardedRead(ctx, "integration:read", async (tx) => {
+    const endpoint = await load(tx, ctx.actor.organizationId, input.id);
+    const rows = await tx.select().from(schema.webhookReplay)
+      .where(eq(schema.webhookReplay.endpointId, endpoint.id))
+      .orderBy(desc(schema.webhookReplay.createdAt))
+      .limit(50);
+    return rows.map(shapeReplay);
+  });
+}
+
 /* ------------------------------------------------------------- the routes */
 
 /**
@@ -1041,6 +1796,9 @@ export const handlers = {
 
   listWebhookEndpoints: async (ctx: ServiceContext): Promise<{ endpoints: Endpoint[] }> =>
     ({ endpoints: await list(ctx) }),
+
+  rotateWebhookSecret: (ctx: ServiceContext, input: { id: string; overlapHours?: number | undefined }) =>
+    rotateSecret(ctx, input),
 
   updateWebhookEndpoint: (
     ctx: ServiceContext,
@@ -1069,4 +1827,19 @@ export const handlers = {
     ctx: ServiceContext,
   ): Promise<{ events: { name: string; summary: string | null }[] }> =>
     ({ events: await catalogue(ctx) }),
+
+  listWebhookDeliveries: (
+    ctx: ServiceContext,
+    input: {
+      id: string; status?: rules.DeliveryStatus | undefined; eventId?: string | undefined;
+      limit?: number | undefined; cursor?: string | undefined;
+    },
+  ) => history(ctx, input),
+
+  listWebhookEventDeliveries: (ctx: ServiceContext, input: { eventId: string }) => eventHistory(ctx, input),
+
+  replayWebhookDeliveries: (ctx: ServiceContext, input: ReplayInput) => requestReplay(ctx, input),
+
+  listWebhookReplays: async (ctx: ServiceContext, input: { id: string }): Promise<{ replays: Replay[] }> =>
+    ({ replays: await replays(ctx, input) }),
 } as const;

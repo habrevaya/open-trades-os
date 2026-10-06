@@ -379,14 +379,21 @@ run("what to do about a review that arrived", () => {
      * relative lateness flips.
      */
     await setPolicy();
-    const hours = (n: number) => new Date(Date.now() - n * 3600_000);
+    /**
+     * A fixed Wednesday afternoon, not the moment the suite happens to run.
+     * The one star's clock only runs while the office is open, so on a
+     * Saturday or Sunday no open hour had passed since it was posted and it
+     * was not late at all, which failed this on weekends.
+     */
+    const now = new Date("2026-10-07T19:00:00Z");
+    const hours = (n: number) => new Date(now.getTime() - n * 3600_000);
 
     /** Two days past a four hour clock. */
     await reviews.record(owner(), { platform: "google", rating: 1, postedAt: hours(48) });
     /** Two hours past a one week clock. */
     await reviews.record(owner(), { platform: "google", rating: 5, postedAt: hours(170) });
 
-    const list = await reviews.workList(owner());
+    const list = await reviews.workList(owner(), now);
     expect(list).toHaveLength(2);
     expect(list.every((item) => item.overdue)).toBe(true);
     expect(list[0]!.rating).toBe(1);

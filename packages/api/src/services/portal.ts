@@ -1,21 +1,23 @@
-import { and, asc, eq, desc, sql, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, branding as brand } from "@opentradesos/core";
+import { money as m, branding as brand, customerPortal as cp, SYSTEM_USER_ID } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError, InvalidGrantError,
+  audit, contactOf, type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError, InvalidGrantError,
   DemoReadOnlyError,
 } from "./context";
 
 /** Re-exported so existing importers of this module keep working. */
 export { InvalidGrantError };
-import { decide, loadEstimate } from "./estimates";
+import { decide, emitDeclined, loadEstimate } from "./estimates";
 import type {
   openPortalLink, viewPortalEstimate, approvePortalEstimate,
   declinePortalEstimate, viewPortalJob, issuePortalGrant, revokePortalGrant,
 } from "../contracts/portal";
 import { portalBase } from "../lib/portal-base";
+import { settingsWithin as portalSettingsWithin } from "./portal-settings";
+import { companyFor } from "./website-tracking";
 
 /**
  * THE CUSTOMER SIDE
@@ -42,9 +44,11 @@ export interface ResolvedGrant {
   grantId: string;
   organizationId: string;
   customerId: string | null;
-  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit";
+  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer";
   subjectId: string | null;
   usesRemaining: number | null;
+  /** The contact this grant acts for, when a contact signed in as the customer. */
+  contactId: string | null;
 }
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -101,6 +105,7 @@ function normalize(row: Record<string, unknown>): ResolvedGrant {
     scope: (row["scope"] ?? "customer") as ResolvedGrant["scope"],
     subjectId: (row["subject_id"] ?? row["subjectId"] ?? null) as string | null,
     usesRemaining: (row["uses_remaining"] ?? row["usesRemaining"] ?? null) as number | null,
+    contactId: (row["contact_id"] ?? row["contactId"] ?? null) as string | null,
   };
 }
 
@@ -123,7 +128,7 @@ function portalActor(grant: ResolvedGrant): ServiceContext["actor"] {
 }
 
 function portalContext(db: Database, grant: ResolvedGrant): ServiceContext {
-  return { actor: portalActor(grant), db, portalGrantId: grant.grantId };
+  return { actor: portalActor(grant), db, portalGrantId: grant.grantId, portalContactId: grant.contactId };
 }
 
 /**
@@ -192,36 +197,98 @@ function customerOf(grant: ResolvedGrant): string {
  * Derived colours are computed here rather than stored, exactly as in
  * `branding.current`, because two places computing it is one place fewer than
  * two places storing it and being asked which is right.
+ *
+ * With how to reach the company, which the page's header prints under the
+ * logo. Here and not on the sign in page's branding by slug: the person
+ * holding a link is the company's customer, and the slug is on fridge magnets.
  */
-export async function brandingFor(db: Database, token: string) {
+export async function brandingFor(db: Database, token: string): Promise<PublicBrand & { contact: brand.CompanyContact }> {
   const grant = await peek(db, token);
-  return inGrant(db, grant, async (tx) => {
-    const [org] = await tx.select({
-      name: schema.organization.name,
-      color: schema.organization.brandColor,
-      updatedAt: schema.organization.updatedAt,
-    }).from(schema.organization)
-      .where(eq(schema.organization.id, grant.organizationId)).limit(1);
+  return inGrant(db, grant, async (tx) => ({
+    ...await brandWithin(tx, grant.organizationId),
+    contact: await contactOf(tx, grant.organizationId),
+  }));
+}
 
-    const assets = await tx.select({
-      kind: schema.brandAsset.kind,
-      updatedAt: schema.brandAsset.updatedAt,
-    }).from(schema.brandAsset);
+/**
+ * The public face of a company: its name, its colour and whether it has a
+ * logo. Nothing else, ever, because the slug that reaches this is printed on
+ * fridge magnets.
+ */
+export interface PublicBrand {
+  organizationName: string;
+  color: string | null;
+  on: string | null;
+  text: string | null;
+  hasLogo: boolean;
+  version: number;
+}
 
-    const color = org?.color ? brand.parseColor(org.color) : null;
-    const latest = [org?.updatedAt, ...assets.map((a) => a.updatedAt)]
-      .filter((at) => at !== null && at !== undefined)
-      .reduce((max, at) => (at! > max ? at! : max), new Date(0));
+async function brandWithin(tx: Database, organizationId: string): Promise<PublicBrand> {
+  const [org] = await tx.select({
+    name: schema.organization.name,
+    color: schema.organization.brandColor,
+    updatedAt: schema.organization.updatedAt,
+  }).from(schema.organization)
+    .where(eq(schema.organization.id, organizationId)).limit(1);
 
-    return {
-      organizationName: org?.name ?? "",
-      color,
-      on: color ? brand.readableOn(color) : null,
-      text: color ? brand.textSafe(color) : null,
-      hasLogo: assets.some((a) => a.kind === "logo"),
-      version: Math.floor(latest.getTime() / 1000),
-    };
+  /** Row level security scopes this to the company, as the grant's comment above explains. */
+  const assets = await tx.select({
+    kind: schema.brandAsset.kind,
+    updatedAt: schema.brandAsset.updatedAt,
+  }).from(schema.brandAsset);
+
+  const color = org?.color ? brand.parseColor(org.color) : null;
+  const latest = [org?.updatedAt, ...assets.map((a) => a.updatedAt)]
+    .filter((at) => at !== null && at !== undefined)
+    .reduce((max, at) => (at! > max ? at! : max), new Date(0));
+
+  return {
+    organizationName: org?.name ?? "",
+    color,
+    on: color ? brand.readableOn(color) : null,
+    text: color ? brand.textSafe(color) : null,
+    hasLogo: assets.some((a) => a.kind === "logo"),
+    version: Math.floor(latest.getTime() / 1000),
+  };
+}
+
+/**
+ * A company's look by its public key, for the page somebody signs in on.
+ *
+ * Every other portal page is branded from the token it was opened with, and
+ * the sign in page has no token: that is the page you go to get one. So it
+ * is served from the slug, which the booking page already shows to anybody,
+ * and it returns only what a company puts on its van: the name, the colour
+ * and the logo. Read inside the company's own tenant boundary as an actor
+ * with no permissions, like a link, so nothing else of the company's is
+ * reachable from here even by a bug.
+ */
+export async function publicBrandingAt(db: Database, slug: string): Promise<PublicBrand> {
+  const org = await companyFor(db, slug);
+  return inTenant(publicActor(db, org.id), (tx) => brandWithin(tx, org.id));
+}
+
+/** The logo's bytes by the company's public key, or nothing. Only the logo. */
+export async function publicLogoAt(
+  db: Database, slug: string,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const org = await companyFor(db, slug);
+  return inTenant(publicActor(db, org.id), async (tx) => {
+    const [found] = await tx.select({
+      bytes: schema.brandAsset.bytes,
+      contentType: schema.brandAsset.contentType,
+    }).from(schema.brandAsset)
+      .where(eq(schema.brandAsset.kind, "logo")).limit(1);
+    return found ?? null;
   });
+}
+
+function publicActor(db: Database, organizationId: string): ServiceContext {
+  return {
+    actor: { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: [], agentId: "portal-brand" },
+    db,
+  };
 }
 
 /**
@@ -348,7 +415,7 @@ export async function declineEstimate(db: Database, input: z.infer<typeof declin
   const grant = await consume(db, input.token);
   const estimateId = requireScope(grant, "estimate");
 
-  return inGrant(db, grant, async (tx) => {
+  return inGrant(db, grant, async (tx, ctx) => {
     const [current] = await tx.select({
       number: schema.estimate.number,
       status: schema.estimate.status,
@@ -374,6 +441,11 @@ export async function declineEstimate(db: Database, input: z.infer<typeof declin
       headline: `Estimate #${current.number} declined by the customer`,
       detail: input.reason ?? null,
       isCustomerVisible: false,
+    });
+
+    /** The same event the office's decline emits, saying it was the customer. */
+    await emitDeclined(tx, ctx, {
+      estimateId, previousStatus: current.status, reason: input.reason ?? null, by: "customer",
     });
 
     return { ok: true as const };
@@ -513,7 +585,69 @@ export async function viewJob(
         detail: e.detail,
         occurredAt: e.occurredAt.toISOString(),
       })),
+      photos: (await photosOf(tx, grant.organizationId, jobId)).map((p) => ({
+        id: p.id, phase: p.phase, takenAt: p.createdAt.toISOString(),
+      })),
     };
+  });
+}
+
+/**
+ * THE PHOTOGRAPHS OF A JOB, AS THE CUSTOMER MAY SEE THEM.
+ *
+ * The token that already lets somebody see this job is what lets them see
+ * its photographs, and nothing else does: the same treatment the company's
+ * logo has, a token that grants sight of the record the file is on. The
+ * bytes are served by id through the job link (`/j/{token}/photos/{id}`),
+ * never by storage key, because a content addressed key is the same for
+ * anybody who has the same file and is not a capability.
+ *
+ * Only photographs (a signature is the customer's own and is not shown back
+ * as a picture), only the ones the company chose or all of them when it
+ * says so (`customerPortal.photoShown`), oldest first so a before and an
+ * after read in order.
+ */
+async function photosOf(tx: Database, organizationId: string, jobId: string) {
+  const settings = await portalSettingsWithin(tx, organizationId);
+  const visitIds = (await tx.select({ id: schema.visit.id }).from(schema.visit)
+    .where(eq(schema.visit.jobId, jobId))).map((v) => v.id);
+  const rows = await tx.select().from(schema.attachment)
+    .where(and(
+      isNull(schema.attachment.deletedAt),
+      visitIds.length > 0
+        ? or(
+          and(eq(schema.attachment.entityType, "job"), eq(schema.attachment.entityId, jobId)),
+          and(eq(schema.attachment.entityType, "visit"), inArray(schema.attachment.entityId, visitIds)),
+        )
+        : and(eq(schema.attachment.entityType, "job"), eq(schema.attachment.entityId, jobId)),
+    ))
+    .orderBy(asc(schema.attachment.createdAt));
+  return rows.filter((row) => row.contentType?.startsWith("image/")
+    && cp.photoShown(settings.jobPhotos, { kind: row.kind, sharedAt: row.sharedWithCustomerAt }));
+}
+
+/**
+ * The bytes of one photograph, through a job link.
+ *
+ * The photograph has to be on THIS link's job and shown to the customer,
+ * checked here rather than trusted from the id: an attachment id from
+ * another job, a private photograph and an id that does not exist all come
+ * back as nothing.
+ */
+export async function jobPhotoFor(
+  db: Database, token: string, attachmentId: string,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const grant = await peek(db, token);
+  const jobId = requireScope(grant, "job");
+  return inGrant(db, grant, async (tx) => {
+    const shown = await photosOf(tx, grant.organizationId, jobId);
+    const photo = shown.find((p) => p.id === attachmentId);
+    if (!photo) return null;
+    const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+      .from(schema.storedFile)
+      .where(and(eq(schema.storedFile.storageKey, photo.storageKey), isNull(schema.storedFile.deletedAt)))
+      .limit(1);
+    return file ?? null;
   });
 }
 
@@ -540,6 +674,10 @@ export async function mintGrant(tx: Database, input: {
   subjectId?: string | null | undefined;
   expiresInDays: number;
   maxUses?: number | null | undefined;
+  /** The code a customer signed in with, when this grant is their session rather than a link. */
+  signInId?: string | null | undefined;
+  /** The contact it acts for, when a contact signed in as the customer. */
+  contactId?: string | null | undefined;
 }): Promise<{ row: typeof schema.portalGrant.$inferSelect; token: string; url: string }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + input.expiresInDays * 864e5);
@@ -552,6 +690,8 @@ export async function mintGrant(tx: Database, input: {
     tokenHash: hash(token),
     expiresAt,
     maxUses: input.maxUses ?? null,
+    signInId: input.signInId ?? null,
+    contactId: input.contactId ?? null,
   }).returning();
 
   return { row: row!, token, url: `${portalBase()}/${pathFor(input.scope)}/${token}` };
@@ -600,7 +740,7 @@ export async function revokeGrant(ctx: ServiceContext, input: z.infer<typeof rev
  * pay opened a 404.
  */
 export const PORTAL_PATHS = {
-  estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b", deposit: "pay",
+  estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b", deposit: "pay", change_order: "co", payer: "p",
 } as const satisfies Record<ResolvedGrant["scope"], string>;
 
 const pathFor = (scope: ResolvedGrant["scope"]) => PORTAL_PATHS[scope];
@@ -682,7 +822,8 @@ async function shapeForCustomer(
     propertyAddress: [property?.line1, property?.city, property?.state].filter(Boolean).join(", "),
     options,
     depositRequired: null,
-    termsText: null,
+    /** The terms copied onto this estimate when it was written, which the approval hash covers. */
+    termsText: (full.terms ?? null) as string | null,
   };
 }
 

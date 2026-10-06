@@ -916,7 +916,9 @@ export type RoutingCondition =
   | { kind: "dialled_number"; oneOf: readonly string[] }
   | { kind: "emergency_selected"; is: boolean };
 
-export const DESTINATION_KINDS = ["ring_group", "queue", "voicemail", "forward", "ivr", "on_call_rota"] as const;
+export const DESTINATION_KINDS = [
+  "ring_group", "queue", "voicemail", "forward", "ivr", "on_call_rota", "person", "agent",
+] as const;
 export type DestinationKind = (typeof DESTINATION_KINDS)[number];
 
 export type RoutingDestination =
@@ -926,7 +928,22 @@ export type RoutingDestination =
   /** An external number. The answering service, or the owner's mobile. */
   | { kind: "forward"; e164: string }
   | { kind: "ivr"; menu: string }
-  | { kind: "on_call_rota"; id: string };
+  | { kind: "on_call_rota"; id: string }
+  /**
+   * One person at the company, rung on the phone number their account
+   * holds. A destination of its own rather than a forward to a typed
+   * number, because the number belongs to the person: when they change
+   * phones the menu follows them, and when they leave the company the
+   * option stops ringing a stranger.
+   */
+  | { kind: "person"; userId: string }
+  /**
+   * The company's phone assistant: the voice agent, answering the call
+   * itself. No id, because a company has one, set up on the agents screen;
+   * when it is off or cannot be reached the call goes where the assistant
+   * hands calls over to, so this is never a dead end.
+   */
+  | { kind: "agent" };
 
 export interface RoutingRule {
   id: string;
@@ -1096,6 +1113,8 @@ export function describeDestination(destination: RoutingDestination): string {
     case "forward": return `${destination.e164}`;
     case "ivr": return `the ${destination.menu} menu`;
     case "on_call_rota": return `whoever is on the ${destination.id} rota`;
+    case "person": return `the person ${destination.userId}`;
+    case "agent": return "the phone assistant";
     default: return "an unrecognised destination";
   }
 }
@@ -1145,7 +1164,17 @@ function conditionHolds(condition: RoutingCondition, facts: CallFacts): boolean 
  * rows above the one everybody is looking at. A router that returns only a
  * destination turns that into an afternoon of reading rules and guessing.
  */
-export function route(table: RoutingTable, facts: CallFacts): RoutingResult {
+export function route(
+  table: RoutingTable,
+  facts: CallFacts,
+  /**
+   * How a destination is named in the sentence. The default names it by its
+   * id, which is all this file knows; a caller holding the names the owner
+   * typed passes a describer that uses them, so the call screen says "the
+   * Service team ring group" rather than a uuid.
+   */
+  describe: (destination: RoutingDestination) => string = describeDestination,
+): RoutingResult {
   const trace: RoutingStep[] = [];
 
   for (const rule of table.rules) {
@@ -1163,7 +1192,7 @@ export function route(table: RoutingTable, facts: CallFacts): RoutingResult {
     return {
       destination: rule.to,
       matchedRuleId: rule.id,
-      why: `"${rule.label}" matched because ${because}. Sent to ${describeDestination(rule.to)}.`,
+      why: `"${rule.label}" matched because ${because}. Sent to ${describe(rule.to)}.`,
       trace,
     };
   }
@@ -1175,7 +1204,7 @@ export function route(table: RoutingTable, facts: CallFacts): RoutingResult {
   return {
     destination: table.fallback,
     matchedRuleId: null,
-    why: `${tried}, so this call went to the fallback: ${describeDestination(table.fallback)}. ${facts.hours.why}`,
+    why: `${tried}, so this call went to the fallback: ${describe(table.fallback)}. ${facts.hours.why}`,
     trace,
   };
 }

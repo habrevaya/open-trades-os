@@ -124,7 +124,9 @@ export default async function ScorecardPage(
             <ul className="mt-6 grid gap-3 sm:grid-cols-2">
               {card.computed.map((kpi) => (
                 <li key={kpi.key} className="rounded-md border border-steel-200 bg-canvas p-4">
-                  <Figure kpi={kpi} />
+                  <Figure kpi={kpi} records={(half) => `/reports/scorecard/records?${new URLSearchParams({
+                    key: kpi.key, half, from, to,
+                  }).toString()}`} />
                 </li>
               ))}
             </ul>

@@ -44,6 +44,17 @@ their id as the key, their status verbatim, and a push queue for what they have
 not yet been told. The adapters that talk to those networks are NOT here; what
 is here is everything that does not depend on them.
 
+**The price.** A client's rate card, a warranty network's schedule or a
+manufacturer's allowance prices the work that payer pays for, with our price
+book as the fallback, and every invoice line says which priced it.
+
+**The clocks.** Response times, the invoicing window and the claim deadline
+come from the contract, run on every job under it, and raise a task before
+they breach.
+
+**The split.** One job billed to two payers, by coverage or by share, as two
+invoices that add up to the work.
+
 ## Key concepts
 
 **The invoice goes to whoever is being billed, not to whoever is on site.** An
@@ -201,14 +212,157 @@ has one. Deciding what job an order becomes needs the client's trade, site and
 scope mapped to ours, and guessing it would put the wrong job type on the
 board.
 
-**No rate card.** A facilities network's schedule is the other half of "our
-price book is not the price authority", and the tables for it still have no
-reader.
+**No automatic pricing from the order.** A work order that arrives here
+carries the client's own codes in its payload; mapping them to lines on the
+job is not done, so the job's work is recorded the ordinary way and priced by
+the client's card when it is billed (see Rate cards below).
+
+## Rate cards: whose price governs
+
+A rate card is a price authority that is not ours: a client contract, a
+warranty network schedule, a manufacturer labour allowance, an insurance
+price list. A card belongs to a contract, and a contract to a customer, so a
+card applies to the work that customer pays for and to nothing else. On a
+home warranty job the network's schedule prices the covered work and the
+homeowner's part is priced by our book.
+
+### What a card says
+
+A card is mostly rules, and each line of work is priced by the most specific
+one that applies, in this order:
+
+1. **A listed price** for the exact item, matched on our item first and their
+   code second (`PUT /v1/rate-cards/{rateCardId}/lines`). A line may say how
+   many minutes the card allows, which is what a manufacturer labour
+   allowance is.
+2. **An hourly rate** for labour, by trade and time band
+   (`PUT /v1/rate-cards/{rateCardId}/terms`). The trade is the job type the
+   work is booked under, or every kind of work. The bands are standard, after
+   hours, weekend and holiday, read from the client's own standard hours,
+   days and holidays on the card rather than the office's, and from when the
+   visit started rather than when the paperwork was written. A card with no
+   rate for a band charges its next lower band, never a higher one. A minimum
+   and a billing step ("one hour minimum, then quarter hours") apply.
+3. **A markup on our cost** for materials, by cost band.
+4. **A trip charge** per visit made, when the card has one.
+
+Anything none of these prices falls back to our price book and is marked out
+of scope, both on the billing preview and as a deadline on the invoice, so it
+is agreed with the client before it goes out. With no card at all the price
+book is simply the authority and nothing is flagged.
+
+**Every invoice line records who priced it**: the authority, how (listed
+price, hourly rate, markup, trip charge, price book, typed in, or a payer's
+share of a split line) and the working in a sentence ("Standard hours rate:
+90 min at 95.00 an hour"). It is written when the line is priced and never
+worked out again, and it is on the invoice screen, the payer's page and the
+export file. Cost is never taken from a card, so margin stays true on work we
+did not price.
+
+### The limit
+
+A contract's not to exceed (its default, or a site's own) is checked when an
+invoice is raised or a draft issued, counting what earlier invoices on the
+job already billed to that payer. The contract says whether going over
+**holds** the invoice, with the limit, what is billed and what would fit in
+the refusal, or **warns**: it goes through and a deadline on the invoice says
+it is over. A job's own authorisation, when the client gave one, governs
+instead of the contract's limit.
+
+### Screens
+
+`Contracts` lists every contract. `/contracts/new` sets one up. Each
+contract's page carries its terms and clocks, its sites, every card with its
+price list and its rules, and what the payer owes.
+
+## Contract clocks
+
+Response times, the invoicing window and the claim deadline are one
+primitive, the obligation, computed from the contract. A contract states
+`respond` (book a visit), `arrive` and `complete` in minutes from when the
+work arrived, optionally per job priority, so an emergency can run on an hour
+while everything else runs on four. It states how many days after finishing
+an invoice is accepted, and a claim can be filed.
+
+The job runs under the contract named on it (`PUT /v1/jobs/{id}/contract`),
+or failing that the contract of whoever pays: the third party for covered
+work, then the party billed, then the customer. Its clocks are reconciled
+from what has happened rather than triggered from a dozen places: raised
+once, satisfied by the fact that met them at the time it happened, moved when
+the job's priority or contract changes, cancelled when the job is called off.
+The worker reconciles every pass, and every write in this module does too.
+`GET /v1/jobs/{id}/deadlines` and the job's page show each clock and how it
+stands.
+
+**About to breach becomes a task.** A quarter of the window before a clock
+runs out (never less than fifteen minutes), a high priority task is raised in
+the office queue, due when the clock is, and from there the company's own
+escalation rules act on it like any late task. A clock met before then takes
+its task out of the queue with it.
+
+`Contracts > Deadlines` (`/contracts/deadlines`) is the queue of what is past
+due, what is due within a day, and what is later. A clock already met since
+the worker last went round is not shown, because the read checks the facts
+itself rather than waiting for the record.
+
+## Billing a job in parts
+
+`GET /v1/jobs/{id}/billing` prices every unbilled line on the job, plus a
+card's trip charge per visit made, by the authority of whoever pays for that
+line, and says who pays what. `POST /v1/jobs/{id}/billing` writes exactly
+that, one invoice per payer, in one transaction. Three shapes are read from
+the job rather than chosen:
+
+- **One payer**: whoever the job is billed to.
+- **By coverage**: a third party covers part of the work (a home warranty, a
+  manufacturer, a carrier), named under Pays on the job. They pay the covered
+  work less the deductible; the customer pays the deductible and whatever is
+  not covered. The split comes from `quote`'s own arithmetic.
+- **By shares**: payers named with a share (a fraction or an amount) pay
+  their shares, and whoever is billed pays the rest.
+
+Coverage nobody is invoiced for (a plan, our own warranty) is absorbed and
+shown on the customer's invoice at nothing.
+
+**The invoices add up to the work, to the cent.** Every line is priced once
+and cut between payers by arithmetic on those prices, so a line two payers
+share appears on both invoices, each with its part and a sentence saying
+where the rest went. The total is checked again after the invoices are
+written, and a mismatch keeps nothing. Each invoice is posted to the ledger
+on its own payer's receivable by the same path as any invoice. The job's
+authorisation applies to the payer it belongs to, and each payer's contract
+limit to theirs.
+
+Billing is refused while the preview lists a problem, with the problem as the
+reason: covered work with nobody named to pay it, a payer with no customer
+record, shares that do not add up, a limit that holds.
+
+## Delivering invoices to a payer
+
+A commercial payer rarely wants an email per invoice.
+
+- **A link per payer** (`POST /v1/payers/{customerId}/portal-link`) opens a
+  page of everything addressed to them or naming them as payer: open
+  invoices first, then what they paid this year, each with its lines and who
+  priced them, and a CSV download. It is recorded against each open invoice
+  as a link handed over.
+- **A file** (`POST /v1/payers/{customerId}/invoice-export`) of their open
+  invoices, CSV (one row per line) or XML (this product's own plain shape),
+  in the format their contract names. Each invoice in it is recorded as
+  delivered, so it leaves the undelivered list.
 
 ## Permissions
 
 The cast and the ceiling are decisions about the job, so both need
-`job:write`. Reading either needs `job:read`.
+`job:write`. Reading either needs `job:read`. So does naming the job's
+contract, and reading its deadlines.
+
+A card's prices and rules are the price book's business: `pricebook:write`
+to set, `pricebook:read` to see. A contract's terms and clocks need
+`contract:write`. Previewing how a job would be billed needs `invoice:read`,
+and billing it `invoice:write`. Exporting a payer's invoices needs
+`invoice:send`, and a payer link `portal:grant`. The deadline queue needs
+`task:read`, like the task queue it feeds.
 
 A mirrored work order needs `contract:write` to receive, move or sync, and
 `contract:read` to look at. It is the commercial arrangement rather than the
@@ -252,15 +406,29 @@ An order is posted through the API rather than created on the screen, because th
 is how one arrives. The browser test does the same, which is also the honest shape
 of the test: there is no adapter for any network, so the API is the only way in.
 
-## Not built
+## What is not built
 
-Rate cards, which are the other half of "our price book is not the price
-authority": a client contract, a warranty network schedule, a manufacturer
-labour allowance. The tables exist and nothing reads them, so a commercial job
-is still priced from our own book.
+**No EDI, cXML or network submission.** The file export is for a person to
+upload to the payer's system. Nothing here connects to an EDI network, an
+Ariba or Coupa punchout, or a facilities network's invoice API, and the
+`cxml`, `edi` and `fm_network_api` delivery channels stay unused rather than
+being claimed by a file somebody downloaded. The XML is this product's own
+shape, not any standard's.
 
-Obligations, which are SLA clocks, invoicing windows and claim deadlines as
-one primitive. Invoice delivery beyond email: a portal, a cXML or EDI
-submission, an FM network API. Service contracts and their site lists.
-Splitting one invoice across two payers by share, which the party rows can
-express and nothing computes.
+**No annual escalation.** A contract's escalation rate is stored and nothing
+applies it to the card; next year's rates are loaded as next year's card.
+
+**Tax on a split.** Sales tax is not yet resolved by jurisdiction anywhere in
+the product, so a split is cut before tax and each payer's invoice carries
+its own (zero) tax. A taxable split will need the tax worked out on each part.
+
+**Member pricing on a job billed in parts.** The plan discount is applied to
+an invoice raised the ordinary way, and not when a job is billed by payer:
+there, every line is priced once by the payer's authority before it is cut.
+
+**Labour beyond an allowance.** A manufacturer's allowance pays the card's
+listed price for the repair; the minutes it allows are shown, and time worked
+beyond them is not charged to anybody automatically.
+
+**Service contracts on a schedule.** A contract billed monthly whether or not
+anybody visited is not built.

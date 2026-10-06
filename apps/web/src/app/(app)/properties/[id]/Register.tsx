@@ -9,6 +9,14 @@ const BUTTON =
   "inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm hover:bg-steel-100 disabled:opacity-60";
 const FIELD = "h-8 w-full rounded border border-steel-300 px-2 text-sm";
 
+interface SerialMatchShown {
+  id: string;
+  propertyId: string;
+  address: string;
+  retired: boolean;
+  what: string;
+}
+
 export interface Unit {
   id: string;
   tag: string | null;
@@ -54,6 +62,12 @@ export function Register({
   const error = [addState, retireState]
     .map((state) => (state && "error" in state ? state.error : null))
     .find(Boolean);
+  /**
+   * Where this serial is already on file, when the add was refused for it.
+   * Each one links to its page, where moving it here is the usual right
+   * answer; the box under them is for the rare second unit with the same plate.
+   */
+  const matches = addState && "matches" in addState ? (addState.matches as SerialMatchShown[]) : [];
 
   const total = count(units);
 
@@ -119,6 +133,24 @@ export function Register({
             </span>
             <input name="serialNumber" className={`mt-1 ${FIELD}`} />
           </label>
+          {matches.length > 0 && (
+            <div className="sm:col-span-3 rounded border border-amber-700 bg-amber-tint p-3 text-sm" role="alert">
+              <p className="font-medium">This serial is already on file</p>
+              <ul className="mt-1 space-y-1">
+                {matches.map((m) => (
+                  <li key={m.id}>
+                    <a href={`/equipment/${m.id}`} className="underline underline-offset-4">{m.what}</a>
+                    {" at "}{m.propertyId === propertyId ? "this address" : m.address}
+                    {m.retired ? ", taken off the register" : ""}
+                  </li>
+                ))}
+              </ul>
+              <label className="mt-2 flex items-center gap-2">
+                <input type="checkbox" name="serialElsewhereConfirmed" />
+                It is a different unit with the same serial. Add it anyway.
+              </label>
+            </div>
+          )}
           <label className="block">
             <span className="block text-xs text-ink-500">Installed</span>
             <input name="installedOn" type="date" className={`mt-1 ${FIELD}`} />
@@ -139,7 +171,7 @@ export function Register({
         </form>
       )}
 
-      {error ? <p role="alert" className="mt-2 text-sm text-red-600">{error}</p> : null}
+      {error && matches.length === 0 ? <p role="alert" className="mt-2 text-sm text-red-600">{error}</p> : null}
     </div>
   );
 }
@@ -160,8 +192,10 @@ function Row({
     <>
       <li className="bg-canvas p-3" style={{ paddingLeft: `${0.75 + depth * 1.5}rem` }}>
         <div className="flex flex-wrap items-baseline gap-2">
-          {unit.tag && <span className="font-medium text-ink-900">{unit.tag}</span>}
-          <span className="text-sm text-ink-900">{unit.category}</span>
+          <a href={`/equipment/${unit.id}`} className="hover:underline">
+            {unit.tag && <span className="font-medium text-ink-900">{unit.tag} </span>}
+            <span className="text-sm text-ink-900">{unit.category}</span>
+          </a>
           {(unit.manufacturer || unit.model) && (
             <span className="text-sm text-ink-700">
               {[unit.manufacturer, unit.model].filter(Boolean).join(" ")}

@@ -6,6 +6,8 @@ import { Chip } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Empty, PageHeader } from "@/components/Table";
 import { EnableSwitch } from "./EnableSwitch";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
+import { installRecommended } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +49,7 @@ export default async function AutomationsPage() {
     );
   }
 
-  const list = await workflows.list(ctx);
+  const [list, recommended] = await Promise.all([workflows.list(ctx), workflows.recommended(ctx)]);
   const writes = can(user.actor, "workflow:write");
 
   return (
@@ -70,6 +72,81 @@ export default async function AutomationsPage() {
         with yours and not with the owner&apos;s.
       </p>
 
+      {/*
+        RECOMMENDED. The two automations nearly every office wants and almost
+        none builds. Turning one on installs an ordinary automation, listed
+        below with everything else and edited on the same canvas; nothing
+        about it is hidden or special once it is on.
+      */}
+      <section aria-labelledby="recommended" className="mt-6">
+        <h2 id="recommended" className="text-base font-semibold">Recommended automations</h2>
+        <ul className="mt-3 space-y-3">
+          {recommended.map((template) => (
+            <li key={template.key} className="rounded-md border border-steel-200 bg-canvas p-4">
+              <section aria-label={template.name}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="font-medium">{template.name}</h3>
+                  {template.installed ? (
+                    <span className="flex items-center gap-2 text-sm">
+                      <Chip tone={template.installed.enabled ? "success" : "neutral"}>
+                        {template.installed.enabled ? "On" : "Installed, off"}
+                      </Chip>
+                      <a href={`/automations/${template.installed.id}`} className="text-ink-700 hover:underline">
+                        Open it
+                      </a>
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-sm text-ink-700">{template.summary}</p>
+                <p className="mt-1 text-xs text-ink-500">{template.needs}</p>
+                {template.onForNewCompanies ? (
+                  <p className="mt-1 text-xs text-ink-500">
+                    On from the start for a new company. Turn it off in the list below if you would rather not.
+                  </p>
+                ) : null}
+                {!template.installed && template.blockedBy ? (
+                  <p className="mt-2 text-sm text-amber-700">{template.blockedBy}</p>
+                ) : null}
+                {!template.installed && !template.blockedBy && writes ? (
+                  <ActionForm
+                    action={installRecommended}
+                    submit="Turn on"
+                    hidden={{ key: template.key }}
+                    className="mt-3 flex flex-wrap items-end gap-3"
+                  >
+                    {template.parameters.map((parameter) => parameter.kind === "platform" ? (
+                      <Select
+                        key={parameter.key}
+                        label={parameter.label}
+                        name={`value.${parameter.key}`}
+                        options={template.platforms.map((p) => ({ value: p.platform, label: p.displayName }))}
+                        className="block w-56"
+                      />
+                    ) : (
+                      <TextField
+                        key={parameter.key}
+                        label={parameter.label}
+                        name={`value.${parameter.key}`}
+                        type="number"
+                        min={parameter.min}
+                        max={parameter.max}
+                        defaultValue={parameter.default}
+                        title={parameter.help}
+                        className="block w-48"
+                      />
+                    ))}
+                  </ActionForm>
+                ) : null}
+                {!template.installed && !template.blockedBy && writes ? (
+                  <p className="mt-2 text-xs text-ink-500">{template.parameters.map((p) => p.help).join(" ")}</p>
+                ) : null}
+              </section>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <h2 className="mt-8 text-base font-semibold">Your automations</h2>
       {list.length === 0 ? (
         <Empty title="Nothing is automated yet">
           The useful first one is usually the estimate nobody answered: wait

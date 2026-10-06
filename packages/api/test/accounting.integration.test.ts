@@ -3,11 +3,13 @@ import postgres from "postgres";
 import { PermissionError, ledger, type Actor } from "@opentradesos/core";
 import * as accounting from "../src/services/accounting";
 import * as billing from "../src/services/billing";
+import * as creditNotes from "../src/services/credit-notes";
 import { ConflictError, NotFoundError, inTenant, type ServiceContext } from "../src/services/context";
 import {
   AccountingNotConfiguredError, createProvider, registeredProviders,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalRef, type ExternalRefund, type ExternalCredit,
+  type ExternalCreditApplication, type ExternalCreditNote, type ExternalInvoice,
   type HttpResponse, type PushResult, type ReadResult,
 } from "../src/accounting/provider";
 import {
@@ -15,7 +17,10 @@ import {
 } from "../src/accounting/quickbooks";
 import { createXeroProvider } from "../src/accounting/xero";
 import "../src/accounting";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
+
+/** The token endpoint, by its parsed origin rather than by how the address happens to begin. */
+const isTokenUrl = (address: string): boolean => new URL(address).origin === "https://token.test";
 
 /**
  * THE ACCOUNTING BRIDGE
@@ -104,6 +109,10 @@ interface Fake extends AccountingProvider {
   /** Every refund it was handed, as handed. */
   refunds: ExternalRefund[];
   credits: ExternalCredit[];
+  /** Every invoice, credit note and application handed over, as handed. */
+  invoices: ExternalInvoice[];
+  creditNotes: ExternalCreditNote[];
+  applications: ExternalCreditApplication[];
   options: FakeOptions;
 }
 
@@ -112,6 +121,9 @@ function fakeProvider(options: FakeOptions = {}): Fake {
   const lookups: { kind: AccountingEntityKind; key: string }[] = [];
   const refunds: ExternalRefund[] = [];
   const credits: ExternalCredit[] = [];
+  const invoices: ExternalInvoice[] = [];
+  const creditNotes: ExternalCreditNote[] = [];
+  const applications: ExternalCreditApplication[] = [];
   let next = 1;
   let readsLeft = options.readsAllowed ?? Number.MAX_SAFE_INTEGER;
   const affordable = () => {
@@ -146,13 +158,26 @@ function fakeProvider(options: FakeOptions = {}): Fake {
     lookups,
     options,
     async pushCustomer(c) { return push("customer", c.idempotencyKey); },
-    async pushInvoice(i) { return push("invoice", i.idempotencyKey); },
+    async pushInvoice(i) { invoices.push(i); return push("invoice", i.idempotencyKey); },
     async pushPayment(p) { return push("payment", p.idempotencyKey); },
     async pushCredit(c) { credits.push(c); return push("credit_memo", c.idempotencyKey); },
     async pushRefund(r) { refunds.push(r); return push("refund", r.idempotencyKey); },
+    async pushCreditNote(n) { creditNotes.push(n); return push("credit_note", n.idempotencyKey); },
+    async pushCreditApplication(a) {
+      applications.push(a);
+      return push("credit_note_application", a.idempotencyKey);
+    },
+    async findCreditApplication(a) {
+      if (!affordable()) return blocked<ExternalRef | null>();
+      lookups.push({ kind: "credit_note_application", key: a.idempotencyKey });
+      return { ok: true, value: options.existing?.get(`credit_note_application:${a.idempotencyKey}`) ?? null };
+    },
     heldMoneyReachesBooks: true,
     refunds,
     credits,
+    invoices,
+    creditNotes,
+    applications,
     async findPushed(kind, key) {
       if (!affordable()) return blocked<ExternalRef | null>();
       lookups.push({ kind, key });
@@ -258,6 +283,9 @@ beforeEach(async () => {
   await raw.unsafe("set session_replication_role = replica");
   try {
     await raw`delete from public.ledger_entry where organization_id = ${ORG}`;
+    await raw`delete from public.credit_note_application where organization_id = ${ORG}`;
+    await raw`delete from public.credit_note_line where organization_id = ${ORG}`;
+    await raw`delete from public.credit_note where organization_id = ${ORG}`;
     await raw`delete from public.invoice where organization_id = ${ORG}`;
   } finally {
     await raw.unsafe("set session_replication_role = origin");
@@ -826,7 +854,7 @@ run("a refunded payment, into each book", () => {
     const calls: Call[] = [];
     const real = createQuickBooksProvider(
       { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : { status: 200, body: { Payment: { Id: `p-${calls.length}`, SyncToken: "0" } } })], calls),
     );
@@ -854,7 +882,7 @@ run("a refunded payment, into each book", () => {
     const calls: Call[] = [];
     const real = createXeroProvider(
       { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : { status: 200, body: { BatchPayments: [{ BatchPaymentID: `bp-${calls.length}` }] } })], calls),
     );
@@ -926,7 +954,8 @@ run("a refund after the payment reached the books", () => {
     expect(sent.paymentExternalId).toMatch(/^payment-/);
     expect(sent.bankAccountExternalId).toBe(`qbo-${ledger.ACCOUNTS.CASH}`);
     expect(sent.receivableAccountExternalId).toBe(`qbo-${ledger.ACCOUNTS.AR}`);
-    expect(sent.refundedOn).toBe(new Date().toISOString().slice(0, 10));
+    /** The company's day, which is what its books date a refund by. */
+    expect(sent.refundedOn).toBe(companyToday());
     const links = (await linkRows()).filter((l) => l.kind === "refund");
     expect(links).toHaveLength(1);
     expect(links[0]!.state).toBe("linked");
@@ -984,7 +1013,7 @@ run("a refund after the payment reached the books", () => {
     const calls: Call[] = [];
     const real = createQuickBooksProvider(
       { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : { status: 200, body: { Purchase: { Id: "77", SyncToken: "0" } } })], calls),
     );
@@ -1004,7 +1033,7 @@ run("a refund after the payment reached the books", () => {
     expect(body["AccountRef"]).toEqual({ value: `qbo-${ledger.ACCOUNTS.CASH}` });
     expect(body["EntityRef"]).toMatchObject({ type: "Customer" });
     expect(body["DocNumber"]).toMatch(/^OR[0-9a-f]{16}$/);
-    expect(body["TxnDate"]).toBe(new Date().toISOString().slice(0, 10));
+    expect(body["TxnDate"]).toBe(companyToday());
     expect(body.Line).toHaveLength(1);
     expect(body.Line[0]!.Amount).toBe(150);
     expect(body.Line[0]!.DetailType).toBe("AccountBasedExpenseLineDetail");
@@ -1019,7 +1048,7 @@ run("a refund after the payment reached the books", () => {
     const calls: Call[] = [];
     const real = createXeroProvider(
       { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
-      transportFor([(call) => (call.url.startsWith("https://token.test")
+      transportFor([(call) => (isTokenUrl(call.url)
         ? tokenOk
         : call.url.includes("/Invoices")
           ? { status: 200, body: { Invoices: [{ InvoiceID: "inv-r" }] } }
@@ -1032,7 +1061,7 @@ run("a refund after the payment reached the books", () => {
       provider: { ...provider, pushRefund: (r) => real.pushRefund(r), heldMoneyReachesBooks: real.heldMoneyReachesBooks },
     });
 
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
     expect(sent.map((c) => new URL(c.url).pathname)).toEqual(["/Invoices", "/BankTransactions"]);
     const invoice = (JSON.parse(sent[0]!.body!) as { Invoices: Record<string, unknown>[] }).Invoices[0]!;
     expect(invoice["Type"]).toBe("ACCREC");
@@ -1685,5 +1714,398 @@ run("the status screen", () => {
 
   it("needs accounting:sync to read", async () => {
     await expect(accounting.status(withoutSync())).rejects.toThrow(PermissionError);
+  });
+});
+
+/* ----------------------------------------------------------- credit notes */
+
+/**
+ * Credit notes reached the books nowhere: a company that credited an invoice
+ * and synced its books had to raise the matching credit memo over there by
+ * hand, and an accountant reconciling AR found the difference.
+ *
+ * Every test here is one of the four documents a credit note becomes, or one
+ * of the rules every other push already follows: once, after the close, by
+ * the mapping, and never past a read it could not afford.
+ */
+async function aCreditNote(input: {
+  invoiceId?: string; amount?: string; apply?: boolean; draft?: boolean;
+}) {
+  return creditNotes.create(owner(), {
+    ...(input.invoiceId ? { invoiceId: input.invoiceId } : { customerId }),
+    reason: "billing_error",
+    lines: [{ name: "Overcharged for the trip", quantity: "1", unitPrice: input.amount ?? "100.00" }],
+    draft: input.draft ?? false,
+    apply: input.apply ?? false,
+  });
+}
+
+/** The company's today: a void is dated in the books on the company's day. */
+const today = () => companyToday();
+
+run("credit notes into the books", () => {
+  it("sends an issued credit note once, with its own lines on the revenue account the ledger debited", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    const note = await aCreditNote({ invoiceId });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.creditNotes).toHaveLength(1);
+    const sent = provider.creditNotes[0]!;
+    expect(sent.idempotencyKey).toBe(`CN${note.number}`);
+    expect(sent.documentNumber).toBe(`CN${note.number}`);
+    expect(sent.issuedOn).toBe(note.issuedOn);
+    expect(sent.lines).toEqual([expect.objectContaining({
+      description: "Overcharged for the trip",
+      amount: { amount: "100.0000", currency: "USD" },
+      accountExternalId: `qbo-${ledger.ACCOUNTS.REVENUE}`,
+    })]);
+    expect(sent.tax).toBeNull();
+    const links = (await linkRows()).filter((l) => l.kind === "credit_note");
+    expect(links).toEqual([expect.objectContaining({ state: "linked", entity_id: note.id, external_id: "credit_note-3" })]);
+  });
+
+  it("does not send a draft", async () => {
+    await mapEverything();
+    await aCreditNote({ draft: true });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.creditNotes).toHaveLength(0);
+  });
+
+  it("refuses a credit note whose revenue account is not mapped, and names the account", async () => {
+    const invoiceId = await anInvoice("400.00");
+    await aCreditNote({ invoiceId });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.creditNotes).toHaveLength(0);
+    const link = (await linkRows()).find((l) => l.kind === "credit_note")!;
+    expect(link.state).toBe("failed");
+    expect(link.last_error).toMatch(/4000 is not mapped/);
+  });
+
+  it("applies it to the invoice as a dated document of its own, after both are over there, once", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    const note = await aCreditNote({ invoiceId, apply: true });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.creates.map((c) => c.kind))
+      .toEqual(["customer", "invoice", "credit_note", "credit_note_application"]);
+    expect(provider.applications).toHaveLength(1);
+    const links = await linkRows();
+    const invoiceLink = links.find((l) => l.kind === "invoice")!;
+    const noteLink = links.find((l) => l.kind === "credit_note")!;
+    expect(provider.applications[0]).toMatchObject({
+      creditNoteExternalId: noteLink.external_id,
+      invoiceExternalId: invoiceLink.external_id,
+      amount: { amount: "100.0000", currency: "USD" },
+      appliedOn: note.applications[0]!.appliedOn,
+    });
+    expect(provider.applications[0]!.idempotencyKey).toBe(accounting.creditApplicationKey(note.applications[0]!.id));
+  });
+
+  it("holds an application back until the invoice it settles is in the books", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    await aCreditNote({ invoiceId, apply: true });
+    const provider = fakeProvider({
+      failKind: "invoice",
+      pushFailure: { code: "6000", message: "line item is invalid", retryable: false, duplicate: false },
+    });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.creditNotes).toHaveLength(1);
+    expect(provider.applications).toHaveLength(0);
+  });
+
+  it("sends credit held on the account when it is used, and not before", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    const note = await aCreditNote({ amount: "50.00" });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.applications).toHaveLength(0);
+
+    await creditNotes.apply(owner(), { id: note.id, applications: [{ invoiceId, amount: "50.00" }] });
+    await accounting.sync(owner(), { provider });
+    expect(provider.applications.map((a) => a.amount.amount)).toEqual(["50.0000"]);
+  });
+
+  it("takes a void back as an invoice for the same lines settled against the credit note, never as an edit", async () => {
+    await mapEverything();
+    await anInvoice("400.00");
+    const note = await aCreditNote({ amount: "75.00" });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+
+    await creditNotes.voidNote(owner(), { id: note.id, reason: "Raised against the wrong customer" });
+    await accounting.sync(owner(), { provider });
+    await accounting.sync(owner(), { provider });
+
+    const reversal = provider.invoices.find((i) => i.idempotencyKey === `CNV${note.number}`)!;
+    expect(reversal).toBeDefined();
+    expect(reversal.documentNumber).toBe(`CNV${note.number}`);
+    expect(reversal.issuedOn).toBe(today());
+    expect(reversal.lines).toEqual([expect.objectContaining({
+      amount: { amount: "75.0000", currency: "USD" },
+      accountExternalId: `qbo-${ledger.ACCOUNTS.REVENUE}`,
+    })]);
+
+    const links = await linkRows();
+    const noteLink = links.find((l) => l.kind === "credit_note")!;
+    const voidLink = links.find((l) => l.kind === "credit_note_void")!;
+    expect(voidLink).toMatchObject({ state: "linked", entity_id: note.id });
+    expect(provider.applications).toEqual([expect.objectContaining({
+      creditNoteExternalId: noteLink.external_id,
+      invoiceExternalId: voidLink.external_id,
+      amount: { amount: "75.0000", currency: "USD" },
+      appliedOn: today(),
+    })]);
+    expect(links.find((l) => l.kind === "credit_note_application")).toMatchObject({
+      state: "linked", entity_id: note.id,
+    });
+    /** Exactly the four documents, once each, however many passes run. */
+    expect(provider.creates.map((c) => c.kind).sort()).toEqual(
+      ["credit_note", "credit_note_application", "customer", "invoice", "invoice"].sort(),
+    );
+  });
+
+  it("never sends a credit note voided before it reached the books", async () => {
+    await mapEverything();
+    const note = await aCreditNote({});
+    await creditNotes.voidNote(owner(), { id: note.id, reason: "Typed in error" });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.creditNotes).toHaveLength(0);
+    expect(provider.invoices).toHaveLength(0);
+    expect(provider.applications).toHaveLength(0);
+  });
+
+  it("holds a credit note dated inside a closed period back without burning its attempts", async () => {
+    await mapEverything();
+    await aCreditNote({});
+    await accounting.closePeriod(owner(), { periodEnd: today() });
+    for (let pass = 0; pass < 6; pass += 1) await accounting.sync(owner(), { provider: fakeProvider() });
+    expect((await linkRows()).filter((l) => l.kind === "credit_note")).toHaveLength(0);
+
+    await accounting.reopenPeriod(owner(), { periodEnd: today(), reason: "Closed the wrong month." });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.creditNotes).toHaveLength(1);
+  });
+
+  it("sends the void of a credit note from a closed quarter into the open period", async () => {
+    await mapEverything();
+    const note = await aCreditNote({});
+    await accounting.sync(owner(), { provider: fakeProvider() });
+    await raw`update public.credit_note set issued_on = '2026-01-15' where id = ${note.id}`;
+    await creditNotes.voidNote(owner(), { id: note.id, reason: "Raised twice" });
+    await accounting.closePeriod(owner(), { periodEnd: "2026-01-31", note: "Q1 filed." });
+
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.invoices.map((i) => i.idempotencyKey)).toEqual([`CNV${note.number}`]);
+    expect(provider.applications).toHaveLength(1);
+  });
+
+  it("finds an application whose answer was lost rather than sending a second one", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    const note = await aCreditNote({ invoiceId, apply: true });
+    await accounting.sync(owner(), { provider: fakeProvider({ failKind: "credit_note_application",
+      pushFailure: { code: "5020", message: "try again", retryable: true, duplicate: false } }) });
+
+    /** As a process that died between the create and recording it: pending, and old. */
+    const key = accounting.creditApplicationKey(note.applications[0]!.id);
+    await raw`update public.accounting_entity_link set state = 'pending', updated_at = now() - interval '1 hour'
+              where organization_id = ${ORG} and kind = 'credit_note_application'`;
+    const existing = new Map<string, ExternalRef>([[`credit_note_application:${key}`, { externalId: "alloc-9", version: null }]]);
+    const provider = fakeProvider({ existing });
+    const outcome = await accounting.sync(owner(), { provider });
+
+    expect(provider.creates.filter((c) => c.kind === "credit_note_application")).toHaveLength(0);
+    expect(provider.lookups).toContainEqual({ kind: "credit_note_application", key });
+    expect(outcome.adopted).toBe(1);
+    expect((await linkRows()).find((l) => l.kind === "credit_note_application"))
+      .toMatchObject({ state: "linked", external_id: "alloc-9" });
+  });
+
+  it("does not send an application it could not check for when the reads have run out", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    await aCreditNote({ invoiceId, apply: true });
+    await accounting.sync(owner(), { provider: fakeProvider({ failKind: "credit_note_application",
+      pushFailure: { code: "5020", message: "try again", retryable: true, duplicate: false } }) });
+    await raw`update public.accounting_entity_link set state = 'pending', updated_at = now() - interval '1 hour'
+              where organization_id = ${ORG} and kind = 'credit_note_application'`;
+
+    const provider = fakeProvider({ readBudgetExhausted: true });
+    const outcome = await accounting.sync(owner(), { provider });
+    expect(provider.creates.filter((c) => c.kind === "credit_note_application")).toHaveLength(0);
+    expect(outcome.blockedReason).toBe(accounting.READ_BUDGET_EXHAUSTED);
+  });
+
+  it("writes off what a credit left owing, not what the credit already took", async () => {
+    await mapEverything();
+    const invoiceId = await anInvoice("400.00");
+    await aCreditNote({ invoiceId, amount: "100.00", apply: true });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await billing.writeOff(owner(), { id: invoiceId, reason: "Uncollectable" });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.credits.map((c) => c.amount.amount)).toEqual(["300.0000"]);
+  });
+
+  it("stops believing a credit note exists once it is deleted over there", async () => {
+    await mapEverything();
+    await aCreditNote({});
+    await accounting.sync(owner(), { provider: fakeProvider() });
+    const noteLink = (await linkRows()).find((l) => l.kind === "credit_note")!;
+
+    /** The feed calls it a credit memo, because over there that is what it is. */
+    await accounting.sync(owner(), {
+      provider: fakeProvider({
+        changes: [{ kind: "credit_memo", externalId: noteLink.external_id!, version: "2", deleted: true, changedAt: new Date() }],
+      }),
+    });
+    expect((await linkRows()).find((l) => l.kind === "credit_note")).toMatchObject({ state: "deleted" });
+  });
+});
+
+run("credit notes, as each book is sent them", () => {
+  const qbo = (calls: Call[], reply: (call: Call) => unknown) => createQuickBooksProvider(
+    { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+    transportFor([(call) => (isTokenUrl(call.url)
+      ? tokenOk
+      : { status: 200, body: reply(call) })], calls),
+  );
+  const xero = (calls: Call[], reply: (call: Call) => unknown) => createXeroProvider(
+    { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+    transportFor([(call) => (isTokenUrl(call.url)
+      ? tokenOk
+      : { status: 200, body: reply(call) })], calls),
+  );
+
+  const note: ExternalCreditNote = {
+    idempotencyKey: "CN7",
+    customerExternalId: "c-1",
+    documentNumber: "CN7",
+    issuedOn: "2026-10-01",
+    currency: "USD",
+    lines: [{
+      description: "Overcharged for the trip", quantity: "1",
+      unitPrice: { amount: "100.0000", currency: "USD" }, amount: { amount: "100.0000", currency: "USD" },
+      accountExternalId: "item-4000", accountExternalKind: "Item",
+    }],
+    tax: { amount: { amount: "8.2500", currency: "USD" }, accountExternalId: "tax-2200" },
+    memo: null,
+  };
+  const application: ExternalCreditApplication = {
+    idempotencyKey: "OA0123456789abcdef",
+    customerExternalId: "c-1",
+    creditNoteExternalId: "cm-1",
+    invoiceExternalId: "inv-1",
+    appliedOn: "2026-10-02",
+    amount: { amount: "108.2500", currency: "USD" },
+  };
+
+  it("goes to QuickBooks as a CreditMemo with the lines and tax an invoice would carry", async () => {
+    const calls: Call[] = [];
+    const result = await qbo(calls, () => ({ CreditMemo: { Id: "cm-1", SyncToken: "0" } })).pushCreditNote(note);
+    expect(result).toMatchObject({ ok: true, externalId: "cm-1" });
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
+    expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/creditmemo");
+    const body = JSON.parse(sent[0]!.body!) as Record<string, unknown> & { Line: Record<string, unknown>[] };
+    expect(body["DocNumber"]).toBe("CN7");
+    expect(body["TxnDate"]).toBe("2026-10-01");
+    expect(body.Line).toEqual([
+      expect.objectContaining({ Amount: 100, SalesItemLineDetail: expect.objectContaining({ ItemRef: { value: "item-4000" } }) }),
+      expect.objectContaining({ Amount: 8.25, Description: "Sales tax" }),
+    ]);
+  });
+
+  it("applies in QuickBooks through a zero payment linking the invoice and the credit memo", async () => {
+    const calls: Call[] = [];
+    const result = await qbo(calls, () => ({ Payment: { Id: "p-7", SyncToken: "0" } })).pushCreditApplication(application);
+    expect(result).toMatchObject({ ok: true, externalId: "p-7" });
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
+    expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/payment");
+    const body = JSON.parse(sent[0]!.body!) as Record<string, unknown>;
+    expect(body["TotalAmt"]).toBe(0);
+    expect(body["PaymentRefNum"]).toBe(application.idempotencyKey);
+    expect(body["DepositToAccountRef"]).toBeUndefined();
+    expect(body["Line"]).toEqual([
+      { Amount: 108.25, LinkedTxn: [{ TxnId: "inv-1", TxnType: "Invoice" }] },
+      { Amount: 108.25, LinkedTxn: [{ TxnId: "cm-1", TxnType: "CreditMemo" }] },
+    ]);
+  });
+
+  it("finds a lost QuickBooks application by the reference on its zero payment", async () => {
+    const calls: Call[] = [];
+    const found = await qbo(calls, () => ({ QueryResponse: { Payment: [{ Id: "p-7", SyncToken: "1" }] } }))
+      .findCreditApplication(application, []);
+    expect(found).toEqual({ ok: true, value: { externalId: "p-7", version: "1" } });
+    const query = decodeURIComponent(new URL(calls.at(-1)!.url).searchParams.get("query") ?? "");
+    expect(query).toContain(`from Payment where PaymentRefNum = '${application.idempotencyKey}'`);
+  });
+
+  it("goes to Xero as an authorised ACCRECCREDIT credit note with tax on its own line", async () => {
+    const calls: Call[] = [];
+    const result = await xero(calls, () => ({ CreditNotes: [{ CreditNoteID: "xcn-1" }] })).pushCreditNote(note);
+    expect(result).toMatchObject({ ok: true, externalId: "xcn-1" });
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
+    expect(sent[0]!.method).toBe("PUT");
+    expect(new URL(sent[0]!.url).pathname).toBe("/CreditNotes");
+    const body = (JSON.parse(sent[0]!.body!) as { CreditNotes: Record<string, unknown>[] }).CreditNotes[0]!;
+    expect(body).toMatchObject({ Type: "ACCRECCREDIT", Status: "AUTHORISED", CreditNoteNumber: "CN7" });
+    expect(body["LineItems"]).toEqual([
+      expect.objectContaining({ LineAmount: 100, ItemCode: "item-4000", TaxType: "NONE" }),
+      expect.objectContaining({ LineAmount: 8.25, AccountID: "tax-2200" }),
+    ]);
+    expect(sent[0]!.headers["Idempotency-Key"]).toBe("CN7");
+  });
+
+  it("applies in Xero as an Allocation on the credit note", async () => {
+    const calls: Call[] = [];
+    const result = await xero(calls, () => ({ Allocations: [{ AllocationID: "al-1", Amount: 108.25 }] }))
+      .pushCreditApplication(application);
+    expect(result).toMatchObject({ ok: true, externalId: "al-1" });
+    const sent = calls.filter((c) => !isTokenUrl(c.url));
+    expect(sent[0]!.method).toBe("PUT");
+    expect(new URL(sent[0]!.url).pathname).toBe("/CreditNotes/cm-1/Allocations");
+    expect(JSON.parse(sent[0]!.body!)).toEqual({
+      Allocations: [{ Invoice: { InvoiceID: "inv-1" }, Amount: 108.25, Date: "2026-10-02" }],
+    });
+  });
+
+  it("finds a lost Xero allocation by invoice, amount and date, and not one already claimed", async () => {
+    const reply = () => ({
+      CreditNotes: [{
+        CreditNoteID: "cm-1",
+        Allocations: [
+          { AllocationID: "al-1", Amount: 108.25, Date: "/Date(1790899200000+0000)/", Invoice: { InvoiceID: "inv-1" } },
+          { AllocationID: "al-2", Amount: 108.25, Date: "/Date(1790899200000+0000)/", Invoice: { InvoiceID: "inv-1" } },
+          { AllocationID: "al-3", Amount: 50, Date: "/Date(1790899200000+0000)/", Invoice: { InvoiceID: "inv-1" } },
+        ],
+      }],
+    });
+    const found = await xero([], reply).findCreditApplication(application, ["al-1"]);
+    expect(found).toEqual({ ok: true, value: { externalId: "al-2", version: null } });
+
+    const none = await xero([], reply).findCreditApplication(application, ["al-1", "al-2"]);
+    expect(none).toEqual({ ok: true, value: null });
+  });
+
+  it("refuses to answer for a Xero allocation by key, rather than saying it is not there", async () => {
+    const found = await xero([], () => ({})).findPushed("credit_note_application", "OA1");
+    expect(found.ok).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   registerProvider,
-  type DeliveryReport, type InboundMessage, type MessagingProvider,
+  type DeliveryReport, type InboundMessage, type MediaResult, type MessagingProvider,
   type OutboundMessage, type SendResult, type WebhookRequest,
 } from "./provider";
 
@@ -46,9 +46,7 @@ export function twilioSignature(authToken: string, url: string, params: Record<s
 }
 
 function formToObject(body: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of new URLSearchParams(body)) out[key] = value;
-  return out;
+  return Object.fromEntries(new URLSearchParams(body));
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
@@ -174,6 +172,40 @@ export function createTwilioProvider(
         media,
         providerMessageId: form["MessageSid"],
       };
+    },
+
+    /**
+     * A picture a customer texted, with the account's credentials, because
+     * Twilio can be set to require them for media. Only from Twilio's own
+     * API host: the URL arrives in a webhook, and a signed webhook is still
+     * a body somebody wrote, so an address anywhere else is refused rather
+     * than fetched with the account's credentials attached.
+     */
+    async fetchMedia(url: string): Promise<MediaResult> {
+      if (!url.startsWith(`${base.replace(/\/$/, "")}/`)) {
+        return { ok: false, code: "foreign_url", retryable: false, message: "That picture is not on the carrier's API." };
+      }
+      try {
+        const response = await fetch(url, {
+          headers: { Authorization: `Basic ${Buffer.from(`${config.accountSid}:${authToken}`).toString("base64")}` },
+        });
+        if (!response.ok) {
+          return {
+            ok: false, code: String(response.status), retryable: response.status >= 500 || response.status === 429,
+            message: `Twilio answered ${response.status} for the picture.`,
+          };
+        }
+        return {
+          ok: true,
+          bytes: new Uint8Array(await response.arrayBuffer()),
+          contentType: response.headers.get("content-type") ?? "application/octet-stream",
+        };
+      } catch (error) {
+        return {
+          ok: false, code: "network", retryable: true,
+          message: `Twilio could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
     },
 
     parseDelivery(request: WebhookRequest): DeliveryReport | null {

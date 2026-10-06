@@ -5,6 +5,10 @@ import { ConflictError, InvalidGrantError, NotFoundError } from "./context";
 import * as payments from "./payments";
 import { consume, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { payerContext, processorConnected, type PortalPaymentStart } from "./invoice-delivery";
+import { buildStatement } from "./statements";
+import * as tips from "./tips";
+import { accountExtras, customerPhotoBytes, type AccountExtras } from "./portal-blocks";
+import { pendingFor as pendingBookingsFor } from "./portal-booking";
 
 /**
  * THE TWO PORTAL LINKS THAT HAD NO PAGE
@@ -34,6 +38,14 @@ const payableStatus = (status: string) => status === "open" || status === "parti
 export interface PortalAccount {
   organizationName: string;
   customerName: string;
+  /** The homes and buildings this customer has with the company, service address first. */
+  properties: { id: string; line1: string; line2: string | null; city: string; state: string; postalCode: string }[];
+  /**
+   * Work done and under way, newest first, cancelled left out. A job is
+   * what a customer remembers ("the water heater in March"), where a visit
+   * is one trip of it.
+   */
+  jobs: { id: string; number: number; summary: string; status: string; completedAt: string | null }[];
   visits: {
     id: string;
     jobNumber: number;
@@ -53,12 +65,25 @@ export interface PortalAccount {
     total: string;
     balance: string;
     payable: boolean;
+    /** A bank payment for it is on its way, so it is not offered for payment again. */
+    bankPaymentPending: boolean;
+    /** What the pay control offers as a tip on this one, when the company takes them. */
+    tipping: tips.TipOffer;
   }[];
   estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null }[];
   agreements: { id: string; planName: string; status: string; startedOn: string; endsOn: string | null }[];
   deposits: { id: string; status: string; amountRequested: string; amountReceived: string; currency: string }[];
   /** Whether a pay button would lead anywhere. */
   onlinePaymentAvailable: boolean;
+  /** Visits they asked for from their account that the office has not booked yet. */
+  requested: { id: string; serviceName: string; requestedDate: string; windowName: string | null; technicianName: string | null }[];
+  /** Bank payments on their way, and the ones that failed in the last month and why. */
+  bankPayments: (Omit<payments.BankPaymentView, "invoiceIds"> & { invoiceNumbers: number[] })[];
+  /**
+   * The work itself: service history with what the office shared, reports,
+   * equipment, readings and the blocks the company's trade pack lays out.
+   */
+  extras: AccountExtras;
 }
 
 /**
@@ -157,16 +182,61 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       .where(eq(schema.deposit.customerId, customerId))
       .orderBy(desc(schema.deposit.createdAt));
 
-    const invoices = invoiceRows
-      .filter((i) => i.status !== "draft")
-      .map((i) => ({
+    const NO_TIP: tips.TipOffer = { available: false, presets: [], for: [] };
+    /**
+     * An invoice a bank payment is already paying is not offered again. The
+     * balance stays on it until the bank says the money arrived, and a second
+     * payment in the meantime is a refund somebody has to arrange.
+     */
+    const bank = await payments.bankPaymentsWithin(tx, { customerId });
+    const onItsWay = new Set(bank.filter((b) => b.status === "pending").flatMap((b) => b.invoiceIds));
+    const invoices = [];
+    for (const i of invoiceRows.filter((row) => row.status !== "draft")) {
+      const payable = payableStatus(i.status) && m.isPositive(m.money(i.balance, i.currency)) && !onItsWay.has(i.id);
+      invoices.push({
         ...i,
-        payable: payableStatus(i.status) && m.isPositive(m.money(i.balance, i.currency)),
-      }));
+        bankPaymentPending: onItsWay.has(i.id),
+        payable,
+        tipping: payable ? await tips.offerFor(tx, grant.organizationId, i.id, m.money(i.balance, i.currency)) : NO_TIP,
+      });
+    }
+
+    const propertyRows = await tx.select({
+      id: schema.property.id,
+      line1: schema.property.addressLine1,
+      line2: schema.property.addressLine2,
+      city: schema.property.city,
+      state: schema.property.state,
+      postalCode: schema.property.postalCode,
+    })
+      .from(schema.customerProperty)
+      .innerJoin(schema.property, eq(schema.property.id, schema.customerProperty.propertyId))
+      .where(and(eq(schema.customerProperty.customerId, customerId), isNull(schema.customerProperty.endedOn)))
+      .orderBy(desc(schema.customerProperty.isPrimary), schema.property.addressLine1);
+
+    const jobRows = await tx.select({
+      id: schema.job.id,
+      number: schema.job.number,
+      summary: schema.job.summary,
+      status: schema.job.status,
+      completedAt: schema.job.completedAt,
+    })
+      .from(schema.job)
+      .where(and(eq(schema.job.customerId, customerId), isNull(schema.job.deletedAt)))
+      .orderBy(desc(schema.job.number))
+      .limit(50);
 
     return {
       organizationName: org?.name ?? "",
       customerName: customer.name,
+      properties: propertyRows,
+      jobs: jobRows
+        /**
+         * A lead or an estimate in progress is not work the customer has
+         * had done, and a cancelled job is not one they need to find again.
+         */
+        .filter((j) => j.status !== "cancelled" && j.status !== "lead" && j.status !== "estimating")
+        .map((j) => ({ ...j, completedAt: j.completedAt?.toISOString() ?? null })),
       visits: visitRows.map((v) => ({
         id: v.id,
         jobNumber: v.jobNumber,
@@ -183,8 +253,29 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       agreements: agreementRows,
       deposits: depositRows,
       onlinePaymentAvailable: invoices.some((i) => i.payable) && await processorConnected(tx),
+      bankPayments: bank.map(({ invoiceIds, ...payment }) => ({
+        ...payment,
+        invoiceNumbers: invoiceIds
+          .map((id) => invoiceRows.find((row) => row.id === id)?.number)
+          .filter((n): n is number => n !== undefined),
+      })),
+      extras: await accountExtras(tx, grant.organizationId, customerId),
+      requested: await pendingBookingsFor(tx, customerId),
     };
   });
+}
+
+/**
+ * One photograph from the customer's account, by id: one of theirs, and one
+ * the company shows them, or nothing. The same rule the job link applies,
+ * over every job they have.
+ */
+export async function accountPhotoFor(
+  db: Database, token: string, attachmentId: string,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const grant = await peek(db, token);
+  const customerId = requireCustomer(grant);
+  return inGrant(db, grant, (tx) => customerPhotoBytes(tx, grant.organizationId, customerId, attachmentId));
 }
 
 /**
@@ -197,7 +288,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
  */
 export async function startInvoicePayment(
   db: Database,
-  input: { token: string; invoiceId: string },
+  input: { token: string; invoiceId: string; tip?: string | undefined },
   meta?: { ip?: string | undefined } | undefined,
   deps?: payments.PaymentDeps | undefined,
 ): Promise<PortalPaymentStart> {
@@ -233,6 +324,7 @@ export async function startInvoicePayment(
     customerId: invoice.payerCustomerId ?? invoice.customerId,
     invoiceIds: [invoice.id],
     description: `Invoice ${invoice.number}`,
+    ...(input.tip !== undefined ? { tip: input.tip } : {}),
   }, deps);
 
   return {
@@ -240,6 +332,7 @@ export async function startInvoicePayment(
     clientSecret: result.clientSecret,
     publishableKey: result.publishableKey,
     amount: result.amount,
+    tip: result.tip,
     currency: result.currency,
   };
 }
@@ -328,6 +421,22 @@ export async function startDepositPayment(
     clientSecret: result.clientSecret,
     publishableKey: result.publishableKey,
     amount: result.amount,
+    tip: result.tip,
     currency: result.currency,
   };
+}
+
+/**
+ * The customer's statement, from their own account link.
+ *
+ * The same document the office prints, built by the same function, inside the
+ * grant's tenant boundary and for the customer the grant names only. A
+ * customer asking "what do I owe in total" can answer it themselves.
+ */
+export async function viewStatement(
+  db: Database, input: { token: string; from?: string | undefined; to?: string | undefined },
+) {
+  const grant = await peek(db, input.token);
+  const customerId = requireCustomer(grant);
+  return inGrant(db, grant, (tx) => buildStatement(tx, grant.organizationId, customerId, input));
 }

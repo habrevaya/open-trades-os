@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reports } from "@opentradesos/api/services";
+import { reports, branches } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { PageHeader, Empty } from "@/components/Table";
 import { definitionFrom, queryFor, type Params } from "@/lib/report-params";
-import { RunView } from "../RunView";
+import { RunView, PrintLink, printHref } from "../RunView";
 import { Builder } from "./Builder";
 import { SaveReport } from "./SaveReport";
 
@@ -35,7 +35,7 @@ export default async function NewReportPage({
 
   if (!can(user.actor, "report:build")) notFound();
 
-  const datasets = reports.available(ctx);
+  const datasets = await reports.available(ctx);
   const definition = definitionFrom(params);
   const dataset = datasets.find((d) => d.key === definition?.dataset);
 
@@ -45,6 +45,11 @@ export default async function NewReportPage({
    * which teaches them the builder is broken.
    */
   const runnable = definition && dataset && definition.measures.length > 0;
+  const view = {
+    chart: typeof params.chart === "string" ? params.chart : undefined,
+    measure: typeof params.measure === "string" ? params.measure : undefined,
+  };
+  const branchOptions = await branches.options(ctx);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -60,7 +65,11 @@ export default async function NewReportPage({
         </Empty>
       ) : (
         <>
-          <Builder datasets={datasets} definition={definition} />
+          <Builder
+            datasets={datasets}
+            definition={definition}
+            branches={branchOptions.narrowed ? [] : branchOptions.branches}
+          />
 
           {runnable ? (
             <>
@@ -70,7 +79,13 @@ export default async function NewReportPage({
                 action="/reports/new"
                 timezone={user.organizationTimezone}
                 hideRange
+                title="The report you are building"
+                back={`/reports/new?${queryFor(definition)}`}
+                view={view}
               />
+              <div className="mt-4">
+                <PrintLink href={printHref(queryFor(definition), "The report you are building", view, `/reports/new?${queryFor(definition)}`)} />
+              </div>
               <SaveReport query={queryFor(definition)} />
             </>
           ) : (

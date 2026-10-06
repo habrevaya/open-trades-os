@@ -2,14 +2,18 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { setJobParties } from "./actions";
-import { fieldNames } from "@/lib/job-parties";
+import { fieldNames, ACCOUNT } from "@/lib/job-parties";
 
 export interface PartyRow {
   key: string;
   label: string;
   meaning: string;
   /** What is already recorded for this role, if anything. */
-  current: { isCustomer: boolean; name: string; reference: string } | null;
+  current: {
+    isCustomer: boolean; name: string; reference: string;
+    /** The record held, when it is not the job's own customer: a payer account. */
+    accountId?: string | null; share?: string;
+  } | null;
 }
 
 /**
@@ -24,12 +28,18 @@ export interface PartyRow {
  * the role when somebody meant to change it.
  */
 export function Parties({
-  jobId, customerId, customerName, roles,
+  jobId, customerId, customerName, roles, accounts = [],
 }: {
   jobId: string;
   customerId: string;
   customerName: string;
   roles: PartyRow[];
+  /**
+   * Customers who pay for other people's work: a warranty company, a client
+   * with a contract. Offered by name, so the payer is their record and
+   * their invoices age against them.
+   */
+  accounts?: { id: string; name: string }[];
 }) {
   const [state, submitForm, pending] = useKeptAction(setJobParties, null);
 
@@ -45,7 +55,7 @@ export function Parties({
           // silently posts nothing the day one of them is renamed.
           const field = fieldNames(role.key);
           return (
-          <div key={role.key} className="grid gap-2 sm:grid-cols-[14rem_1fr_10rem] sm:items-start">
+          <div key={role.key} className="grid gap-2 sm:grid-cols-[14rem_1fr_18rem] sm:items-start">
             <div>
               <span className="text-sm text-ink-700">{role.label}</span>
               {/*
@@ -59,11 +69,17 @@ export function Parties({
             <div className="flex gap-2">
               <select
                 name={field.who}
-                defaultValue={role.current ? (role.current.isCustomer ? "customer" : "external") : ""}
+                aria-label={role.label}
+                defaultValue={role.current
+                  ? (role.current.accountId ? `${ACCOUNT}${role.current.accountId}` : role.current.isCustomer ? "customer" : "external")
+                  : ""}
                 className="h-9 rounded border border-steel-300 px-2 text-sm"
               >
                 <option value="">Nobody</option>
                 <option value="customer">{customerName}</option>
+                {accounts.filter((a) => a.id !== customerId).map((account) => (
+                  <option key={account.id} value={`${ACCOUNT}${account.id}`}>{account.name}</option>
+                ))}
                 <option value="external">Someone else</option>
               </select>
               <input
@@ -73,12 +89,28 @@ export function Parties({
                 className="h-9 min-w-0 flex-1 rounded border border-steel-300 px-2 text-sm"
               />
             </div>
-            <input
-              name={field.reference}
-              placeholder="Their reference"
-              defaultValue={role.current?.reference ?? ""}
-              className="h-9 rounded border border-steel-300 px-2 text-sm"
-            />
+            <div className="flex gap-2">
+              <input
+                name={field.reference}
+                placeholder="Their reference"
+                defaultValue={role.current?.reference ?? ""}
+                className="h-9 min-w-0 flex-1 rounded border border-steel-300 px-2 text-sm"
+              />
+              {/*
+                Only the payer has a share: they pay it, and whoever the job
+                is billed to pays the rest. Empty for a payer who pays it all,
+                or for covered work, where the coverage decides the split.
+              */}
+              {role.key === "payer" && (
+                <input
+                  name={field.share}
+                  aria-label="Their share"
+                  placeholder="Share: 70% or 150.00"
+                  defaultValue={role.current?.share ?? ""}
+                  className="h-9 w-40 rounded border border-steel-300 px-2 text-sm"
+                />
+              )}
+            </div>
           </div>
           );
         })}

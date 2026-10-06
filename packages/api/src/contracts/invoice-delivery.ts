@@ -42,6 +42,8 @@ export const DeliveryState = z.enum([
   "refused",
   /** A link was minted and handed to the operator. Nothing more is knowable. */
   "link_issued",
+  /** It went out in a CSV or XML file for the payer's own system. */
+  "exported",
   /** In the outbox. No provider has seen it. */
   "queued",
   /** A provider accepted it. Through a plain SMTP relay this is the last word. */
@@ -234,10 +236,24 @@ export const viewPortalInvoice = defineRoute({
     balance: MoneyString,
     propertyAddress: z.string(),
     lines: z.array(PortalInvoiceLine),
+    /** The money already on this invoice, netted per payment. */
+    payments: z.array(z.object({
+      receivedAt: z.string().datetime(),
+      method: z.string(),
+      amount: MoneyString,
+    })),
+    /** Tips added for the technicians, which are not money on the invoice. */
+    tips: z.array(z.object({ receivedAt: z.string().datetime(), amount: MoneyString })),
     /** Whether there is anything left to pay. */
     payable: z.boolean(),
     /** False when the company has connected no processor. Nothing to click. */
     onlinePaymentAvailable: z.boolean(),
+    /** What a tip would be, when the company takes them and somebody is recorded on the job. */
+    tipping: z.object({
+      available: z.boolean(),
+      presets: z.array(z.object({ percent: z.number().int(), amount: MoneyString })),
+      for: z.array(z.string()),
+    }),
   }),
 });
 
@@ -251,13 +267,23 @@ export const payPortalInvoice = defineRoute({
   permissions: [],
   authorization: "grant",
   idempotent: true,
-  input: z.object({ token: z.string().min(20).max(200) }),
+  input: z.object({
+    token: z.string().min(20).max(200),
+    /**
+     * A tip for the technicians, in dollars and cents as the customer typed
+     * it. Refused when the company does not take tips, when it is more than
+     * the balance, and when nobody is recorded on the job to receive it.
+     */
+    tip: z.string().max(20).optional(),
+  }),
   output: z.object({
     intentId: z.string(),
     /** Opaque. What the payment form needs to finish the charge. */
     clientSecret: z.string(),
     publishableKey: z.string().nullable(),
+    /** The whole charge: the balance, and the tip when there is one. */
     amount: MoneyString,
+    tip: MoneyString,
     currency: z.string(),
   }),
 });

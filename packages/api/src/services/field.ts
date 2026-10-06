@@ -1,12 +1,19 @@
-import { and, eq, inArray, sql, desc, isNull, max } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { field } from "@opentradesos/core";
-import type { z } from "zod";
+import { can, field, money as m } from "@opentradesos/core";
+import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
+import * as billing from "./billing";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
+import { bindToken } from "./field-devices";
+import * as inspections from "./inspections";
+import * as location from "./location";
+import * as fieldSales from "./field-sales";
+import * as equipment from "./equipment";
+import { RecordedAnswer } from "../contracts/inspections";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
 } from "../contracts/field";
@@ -27,6 +34,15 @@ import type {
 export async function register(ctx: ServiceContext, input: z.infer<typeof registerDevice.input>) {
   return guardedWrite(ctx, "field:sync", async (tx) => {
     const technicianId = await technicianFor(tx, ctx);
+
+    /**
+     * A push token is checked before it is kept. Anything that is not one
+     * would be sent to the push service on every change to this person's day
+     * and refused every time.
+     */
+    if (input.pushToken !== undefined && !field.isExpoPushToken(input.pushToken)) {
+      throw new ConflictError("That is not a push token this server can send notices to.");
+    }
 
     /**
      * Keyed on the installation id, so a reinstall that kept it picks up its
@@ -53,6 +69,11 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
         updatedAt: new Date(),
       }).where(eq(schema.device.id, existing.id));
 
+      if (ctx.deviceTokenHash) {
+        await bindToken(tx, existing.id, existing.sessionTokenHash, ctx.deviceTokenHash);
+      }
+      if (input.pushToken) await releasePushToken(tx, existing.id, input.pushToken);
+
       return { deviceId: existing.id, lastSequence: existing.lastSequence };
     }
 
@@ -66,13 +87,35 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
       osVersion: input.osVersion ?? null,
       pushToken: input.pushToken ?? null,
       lastSeenAt: new Date(),
+      /**
+       * The phone app's token, when that is what registered it, so revoking
+       * this device ends the sign in too. A browser registers with a cookie
+       * and leaves this empty.
+       */
+      sessionTokenHash: ctx.deviceTokenHash ?? null,
     }).returning();
 
     await audit(tx, ctx, "device.registered", "device", created!.id, null,
       { installationId: input.installationId, platform: input.platform ?? null });
+    if (input.pushToken) await releasePushToken(tx, created!.id, input.pushToken);
 
     return { deviceId: created!.id, lastSequence: 0 };
   });
+}
+
+/**
+ * ONE HANDSET, ONE PERSON'S NOTICES.
+ *
+ * Two technicians sharing a phone each get a device row of their own, and the
+ * push token is the handset's, so it can sit on both rows. Whoever registered
+ * it last is the one signed in there now; the other row lets go of it, or the
+ * first person's changes would keep arriving on a phone in the second
+ * person's pocket.
+ */
+async function releasePushToken(tx: Database, deviceId: string, pushToken: string): Promise<void> {
+  await tx.update(schema.device)
+    .set({ pushToken: null, updatedAt: new Date() })
+    .where(and(eq(schema.device.pushToken, pushToken), ne(schema.device.id, deviceId)));
 }
 
 /**
@@ -94,7 +137,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
     // Already seen, in one query rather than one per operation. A resend of a
     // whole day is the common case, not the exceptional one.
     const clientIds = input.operations.map((o) => o.clientId);
-    const seen = await tx.select({
+    const seen = clientIds.length === 0 ? [] : await tx.select({
       clientId: schema.fieldOperation.clientId,
       status: schema.fieldOperation.status,
       conflict: schema.fieldOperation.conflict,
@@ -106,9 +149,28 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
         eq(schema.fieldOperation.organizationId, ctx.actor.organizationId),
         inArray(schema.fieldOperation.clientId, clientIds),
       ));
-    const alreadyApplied = new Map(seen.map((s) => [s.clientId, s]));
+    /**
+     * HELD IS NOT SETTLED.
+     *
+     * A held operation was recorded and not applied, because something before
+     * it was missing. It used to be treated like any other replay, reported
+     * as held again and never looked at, so once an operation was held it was
+     * held for ever, however many times the phone sent it after the gap was
+     * filled. Its row is replaced now and it is judged again with the rest of
+     * the batch: applied if its turn has come, held again if not.
+     */
+    const heldBefore = seen.filter((s) => s.status === "held").map((s) => s.clientId);
+    if (heldBefore.length > 0) {
+      await tx.delete(schema.fieldOperation).where(and(
+        eq(schema.fieldOperation.organizationId, ctx.actor.organizationId),
+        eq(schema.fieldOperation.status, "held"),
+        inArray(schema.fieldOperation.clientId, heldBefore),
+      ));
+    }
+    const alreadyApplied = new Map(seen.filter((s) => s.status !== "held").map((s) => [s.clientId, s]));
 
     const fresh = input.operations.filter((o) => !alreadyApplied.has(o.clientId));
+    const skipped = { [device.id]: (input.skipped ?? []).filter((n) => n > device.lastSequence) };
 
     /**
      * Clock resolution happens before ordering, because ordering across
@@ -141,7 +203,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
 
     const { applicable, held } = field.applicablePrefix(asOperations, {
       [device.id]: device.lastSequence,
-    });
+    }, skipped);
 
     const heldIds = new Set(held.map((h) => h.clientId));
     const byClientId = new Map(resolved.map((r) => [r.input.clientId, r]));
@@ -189,7 +251,13 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
       updatedAt: receivedAt,
     }).where(eq(schema.device.id, device.id));
 
-    const gaps = field.findSequenceGaps(asOperations, { [device.id]: device.lastSequence });
+    /**
+     * Positions after the operations, so a punch in sent with the day's first
+     * fixes is on the record when those fixes are judged.
+     */
+    const positions = await location.ingest(tx, ctx, device, input.positions ?? [], receivedAt);
+
+    const gaps = field.findSequenceGaps(asOperations, { [device.id]: device.lastSequence }, skipped);
     const [snapshot] = await tx.select({ revision: schema.deviceSnapshot.revision })
       .from(schema.deviceSnapshot)
       .where(eq(schema.deviceSnapshot.deviceId, device.id))
@@ -199,6 +267,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
       results,
       awaiting: gaps.flatMap((g) => g.missing),
       snapshotRevision: snapshot?.revision ?? 0,
+      positions,
     };
   });
 }
@@ -264,23 +333,33 @@ async function applyOne(
    * that is actually there. Both can refuse and they refuse for different
    * reasons, so the log records which.
    */
-  const failure = verdict.apply
+  const outcome = verdict.apply
     ? await effect(tx, ctx, op, subjectState, row.id)
     : null;
 
-  const status = failure ? "rejected" as const : verdictStatus;
+  /**
+   * AND WHAT IT LANDED AS. A refusal is a sentence and the operation is
+   * rejected; a conflict is applied work the office has to look at (an
+   * invoice kept as a draft because the customer was shown another figure),
+   * recorded as conflicted so it reaches the office's list and the phone
+   * says "recorded, and the office has been told".
+   */
+  const failure = typeof outcome === "string" ? outcome : null;
+  const raised = outcome !== null && typeof outcome === "object" ? outcome.conflict : null;
+  const status = failure ? "rejected" as const : raised ? "conflicted" as const : verdictStatus;
   const rejection = failure ?? (verdict.apply ? null : verdict.conflict);
+  const conflict = raised ?? verdict.conflict;
 
-  if (failure) {
+  if (failure || raised) {
     await tx.update(schema.fieldOperation)
-      .set({ status, rejection, updatedAt: new Date() })
+      .set({ status, rejection, conflict, updatedAt: new Date() })
       .where(eq(schema.fieldOperation.id, row.id));
   }
 
   return {
     clientId: op.clientId,
     status,
-    conflict: verdict.conflict,
+    conflict,
     rejection,
     occurredAt: op.occurredAt.toISOString(),
     clamped: meta.clamped,
@@ -360,6 +439,7 @@ async function ensureReport(
   const [visit] = await tx.select({
     id: schema.visit.id,
     jobId: schema.visit.jobId,
+    jobTypeId: schema.job.jobTypeId,
     customerId: schema.job.customerId,
     propertyId: schema.job.propertyId,
   }).from(schema.visit)
@@ -368,6 +448,14 @@ async function ensureReport(
     .limit(1);
   if (!visit) return "That visit is not here.";
 
+  /**
+   * The template the phone filled it in against: the job type's, as the
+   * snapshot offered it. Recorded with its version so the office reads the
+   * report against the fields the technician was actually asked for, not
+   * whatever the template says after somebody edits it next month.
+   */
+  const template = await templateFor(tx, visit.jobTypeId);
+
   await tx.insert(schema.serviceReport).values({
     id: reportId,
     organizationId: org,
@@ -375,6 +463,8 @@ async function ensureReport(
     jobId: visit.jobId,
     customerId: visit.customerId,
     propertyId: visit.propertyId,
+    templateId: template?.id ?? null,
+    templateVersion: template?.version ?? null,
   /**
    * For the race this function cannot see, and NOT for an ordinary replay:
    * the existence check at the top already returns before reaching here on
@@ -390,13 +480,234 @@ async function ensureReport(
   return null;
 }
 
+/**
+ * The active report template for a job type, newest version first. Exported
+ * because the snapshot offers the same template's fields to the phone, and
+ * the two must name the same one.
+ */
+export async function templateFor(tx: Database, jobTypeId: string | null) {
+  if (!jobTypeId) return null;
+  const [template] = await tx.select({
+    id: schema.serviceReportTemplate.id,
+    version: schema.serviceReportTemplate.version,
+    fields: schema.serviceReportTemplate.fields,
+  }).from(schema.serviceReportTemplate)
+    .where(and(
+      eq(schema.serviceReportTemplate.jobTypeId, jobTypeId),
+      eq(schema.serviceReportTemplate.active, true),
+    ))
+    .orderBy(desc(schema.serviceReportTemplate.version), desc(schema.serviceReportTemplate.createdAt))
+    .limit(1);
+  return template ?? null;
+}
+
+/**
+ * MONEY TAKEN IN A DRIVEWAY
+ *
+ * Cash or a check, recorded on the phone when it is handed over, which may be
+ * in a basement with no signal, and sent with everything else. Through the
+ * same `billing.pay` the office uses, so it lands in the books the same way:
+ * dated by when the money changed hands rather than when the phone found a
+ * signal, posted to the ledger, and refused for the same reasons (a closed
+ * period, a date too far back) in the same words.
+ *
+ * Applied to THIS job's open invoices first, oldest first, because that is
+ * what the customer was paying for, and not to whatever else they owe: the
+ * office decides about an old balance, the technician does not. Whatever is
+ * left, all of it when nothing has been invoiced yet, is held for the
+ * customer, where the office applies it later.
+ *
+ * Idempotent twice over, and both matter: the operation's client id makes a
+ * resent operation a replay that never reaches here, and the payment's own
+ * idempotency key is derived from it, so even a replay that did would find
+ * the payment it already made.
+ */
+/** The billing service's refusals, each already a sentence for a person. */
+const REFUSALS = new Set(["ConflictError", "UnprocessableError", "NotFoundError", "PeriodClosedError"]);
+
+async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<string | null> {
+  if (!op.subjectId) return "That payment names no visit.";
+  const method = op.payload["method"];
+  if (method !== "cash" && method !== "check") {
+    return "Only cash and checks are recorded from the phone. A card goes through the payment link.";
+  }
+
+  const raw = String(op.payload["amount"] ?? "");
+  let amount: m.Money;
+  try {
+    amount = m.money(raw);
+  } catch {
+    return `${raw || "That"} is not an amount of money.`;
+  }
+  if (!m.isPositive(amount)) return "A payment has to be more than nothing.";
+
+  const [visit] = await tx.select({ jobId: schema.visit.jobId, customerId: schema.job.customerId, jobNumber: schema.job.number })
+    .from(schema.visit)
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(eq(schema.visit.id, op.subjectId)).limit(1);
+  if (!visit) return "That visit is not here.";
+
+  const open = await tx.select({ id: schema.invoice.id, balance: schema.invoice.balance, payer: schema.invoice.payerCustomerId })
+    .from(schema.invoice)
+    .where(and(
+      eq(schema.invoice.jobId, visit.jobId),
+      inArray(schema.invoice.status, ["open", "partially_paid"]),
+    ))
+    .orderBy(asc(schema.invoice.issuedOn), asc(schema.invoice.number));
+
+  /**
+   * The invoice raised on site with this payment, first, when the phone
+   * names it: the customer is paying the bill they just signed for, and an
+   * older one on the same job is the office's to chase.
+   */
+  const named = typeof op.payload["invoiceId"] === "string" ? op.payload["invoiceId"] : null;
+  if (named) open.sort((a, b) => Number(b.id === named) - Number(a.id === named));
+
+  const allocations: Array<{ invoiceId: string; amount: string }> = [];
+  let remaining = amount;
+  for (const invoice of open) {
+    /** An invoice somebody else pays (a warranty company) is not what the homeowner handed over cash for. */
+    if (invoice.payer && invoice.payer !== visit.customerId) continue;
+    if (!m.isPositive(remaining)) break;
+    const balance = m.money(invoice.balance);
+    if (!m.isPositive(balance)) continue;
+    const applied = m.min(remaining, balance);
+    allocations.push({ invoiceId: invoice.id, amount: m.toString(applied) });
+    remaining = m.subtract(remaining, applied);
+  }
+
+  const checkNumber = typeof op.payload["checkNumber"] === "string" && op.payload["checkNumber"].trim() !== ""
+    ? op.payload["checkNumber"].trim().slice(0, 50)
+    : undefined;
+  if (method === "check" && !checkNumber) return "A check needs its number, so the office can match it to the bank.";
+  const note = typeof op.payload["note"] === "string" ? op.payload["note"].trim().slice(0, 500) : "";
+
+  /**
+   * A tip handed over with the payment, on top of it: the company's money
+   * to pass on, held in Tips payable and split between everybody on the
+   * job's visits, exactly as a tip added on the portal is.
+   */
+  const tip = await fieldSales.tipFor(tx, ctx, { typed: op.payload["tipAmount"], paying: amount });
+  if (!tip.ok) return tip.reason;
+
+  try {
+    const paid = await billing.pay({ ...ctx, db: tx, idempotencyKey: `field-payment:${op.clientId}` }, {
+      customerId: visit.customerId,
+      method,
+      amount: m.toString(amount),
+      tipAmount: m.toString(tip.tip),
+      receivedAt: op.occurredAt.toISOString(),
+      ...(checkNumber ? { checkNumber } : {}),
+      notes: [`Taken on site, job ${visit.jobNumber}.`, note].filter(Boolean).join(" ").slice(0, 1000),
+      allocations,
+    });
+    if (m.isPositive(tip.tip)) {
+      await fieldSales.writeTipShares(tx, ctx, {
+        paymentId: paid.id, invoiceId: allocations[0]?.invoiceId ?? null, jobId: visit.jobId,
+        tip: tip.tip, occurredAt: op.occurredAt,
+      });
+    }
+    return null;
+  } catch (error) {
+    /**
+     * The office's own refusal, said to the technician: a closed period, a
+     * date too far back, a role that may not take payments. Anything else is
+     * a fault, and thrown, so the whole batch is retried rather than the
+     * payment being marked refused for a reason nobody can act on.
+     */
+    const name = error instanceof Error ? error.name : "";
+    if (name === "PermissionError") return "Your account may not take payments. The office will need to record it.";
+    if (REFUSALS.has(name)) return (error as Error).message;
+    throw error;
+  }
+}
+
+/**
+ * AN INSPECTION, RUN ON THE PHONE AND FILED WHOLE.
+ *
+ * The technician walks the programme's checkpoints at the visit, offline if
+ * need be, and the phone sends the answers, who signed it off and the id it
+ * gave the inspection, in one operation. It goes through the same
+ * `inspections.recordIn` the office and the API file through, so the verdict
+ * is core's and never the phone's: the phone sends what was seen and the
+ * server decides whether that is a pass, which is the one rule the
+ * inspection module exists to keep.
+ *
+ * The customer, the property and the job come off the VISIT, not the
+ * payload, so an inspection filed from a visit cannot land on somebody
+ * else's address. `compliance:write` is checked here, because the sync
+ * itself only needs `field:sync`, and a refusal comes back to the phone in
+ * words rather than as a failed batch.
+ *
+ * In a savepoint, so a refusal halfway through (equipment that is not at
+ * this address) leaves nothing half filed in a batch that otherwise lands.
+ */
+async function fileInspection(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<string | null> {
+  if (!can(ctx.actor, "compliance:write")) {
+    return "Your account may not file inspections. Ask the office to give you inspection access, and it will send again.";
+  }
+  if (!op.subjectId) return "That inspection has no id.";
+  const visitId = typeof op.payload["visitId"] === "string" ? op.payload["visitId"] : null;
+  const programId = typeof op.payload["programId"] === "string" ? op.payload["programId"] : null;
+  if (!visitId || !programId) return "That inspection names no visit or no programme.";
+
+  const [visit] = await tx.select({
+    jobId: schema.visit.jobId, customerId: schema.job.customerId, propertyId: schema.job.propertyId,
+  }).from(schema.visit)
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(eq(schema.visit.id, visitId)).limit(1);
+  if (!visit) return "That visit is not here.";
+
+  const answers = RecordedAnswerList.safeParse(op.payload["answers"]);
+  if (!answers.success) return "Some of the answers on that inspection could not be read.";
+  if (answers.data.length === 0) return "That inspection has no answers on it.";
+  const text = (key: string) => typeof op.payload[key] === "string" && (op.payload[key] as string).trim() !== ""
+    ? (op.payload[key] as string).trim().slice(0, 200) : null;
+
+  try {
+    await tx.transaction(async (savepoint) => {
+      await inspections.recordIn(savepoint as unknown as Database, ctx, {
+        id: op.subjectId,
+        programId,
+        propertyId: visit.propertyId,
+        customerId: visit.customerId,
+        jobId: visit.jobId,
+        visitId,
+        answers: answers.data.map((answer) => ({
+          itemKey: answer.itemKey,
+          value: answer.value,
+          at: new Date(answer.at),
+          by: answer.by,
+          ...(answer.note !== undefined ? { note: answer.note } : {}),
+          ...(answer.photoIds !== undefined ? { photoIds: answer.photoIds } : {}),
+          ...(answer.equipmentId !== undefined ? { equipmentId: answer.equipmentId } : {}),
+        })),
+        inspectorName: text("inspectorName"),
+        inspectorLicense: text("inspectorLicense"),
+        signedByName: text("signedByName"),
+        signedAt: op.occurredAt,
+        signatureUploadId: text("signatureUploadId"),
+      });
+    });
+    return null;
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (REFUSALS.has(name)) return (error as Error).message;
+    throw error;
+  }
+}
+
+const RecordedAnswerList = z.array(RecordedAnswer);
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function effect(
   tx: Database,
   ctx: ServiceContext,
   op: field.FieldOperation,
   currentState: string | null,
   operationId: string,
-): Promise<string | null> {
+): Promise<fieldSales.Outcome> {
   const org = ctx.actor.organizationId;
   const nextState = field.stateAfter(op.kind, (currentState ?? undefined) as field.VisitState | undefined);
 
@@ -683,7 +994,14 @@ async function effect(
 
       const technicianId = await technicianForDevice(tx, op.deviceId);
 
-      await tx.insert(schema.jobLine).values({
+      /**
+       * The line's id when the phone made one, so an invoice raised on the
+       * same phone before it found a signal can name the part it bills.
+       */
+      const lineId = typeof op.payload["lineId"] === "string" && UUID.test(op.payload["lineId"])
+        ? op.payload["lineId"] : undefined;
+      const [written] = await tx.insert(schema.jobLine).values({
+        ...(lineId ? { id: lineId } : {}),
         organizationId: org,
         jobId: visit.jobId,
         visitId: op.subjectId,
@@ -699,7 +1017,13 @@ async function effect(
         technicianId,
         nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
         occurredAt: op.occurredAt,
-      });
+      }).onConflictDoNothing().returning({ id: schema.jobLine.id });
+      if (!written && lineId) {
+        /** Only a replay of the same line may find its id taken; anything else is somebody else's row. */
+        const [mine] = await tx.select({ jobId: schema.jobLine.jobId }).from(schema.jobLine)
+          .where(eq(schema.jobLine.id, lineId)).limit(1);
+        if (mine?.jobId !== visit.jobId) return "That part's id is already in use, so it was not recorded.";
+      }
       return null;
     }
 
@@ -711,30 +1035,38 @@ async function effect(
        * identifier that survives a customer moving out and the next owner
        * calling. Matching on anything softer produces a second record for the
        * same furnace and splits ten years of history down the middle.
+       *
+       * ACROSS THE WHOLE COMPANY, with the office's rules (`field.decideSerial`
+       * in core): the same unit live at this address is updated; the serial
+       * on file anywhere else, or taken off a register, is a question only a
+       * person can answer, so the record is held for the office with the
+       * matches named rather than added as a second unit nobody chose. The
+       * phone says so, and the office answers it with a move or an add.
        */
       const propertyId = op.payload["propertyId"] as string | undefined;
       if (!propertyId) return "That equipment record names no property.";
+      const [property] = await tx.select({ id: schema.property.id }).from(schema.property)
+        .where(and(eq(schema.property.id, propertyId), eq(schema.property.organizationId, org))).limit(1);
+      if (!property) return "That address is not here.";
 
-      const serial = (op.payload["serialNumber"] as string) ?? null;
+      const typed = typeof op.payload["serialNumber"] === "string" ? op.payload["serialNumber"].trim() : "";
+      const serial = typed === "" ? null : typed;
+      const matches = serial ? await equipment.serialMatchesWithin(tx, org, serial) : [];
+      const decision = field.decideSerial({
+        serial, propertyId, matches, confirmedDifferent: op.payload["serialElsewhereConfirmed"] === true,
+      });
 
-      if (serial) {
-        const [existing] = await tx.select({ id: schema.equipment.id })
-          .from(schema.equipment)
-          .where(and(
-            eq(schema.equipment.organizationId, org),
-            eq(schema.equipment.propertyId, propertyId),
-            eq(schema.equipment.serialNumber, serial),
-          )).limit(1);
-
-        if (existing) {
-          await tx.update(schema.equipment).set({
-            manufacturer: (op.payload["manufacturer"] as string) ?? undefined,
-            model: (op.payload["model"] as string) ?? undefined,
-            location: (op.payload["location"] as string) ?? undefined,
-            updatedAt: new Date(),
-          }).where(eq(schema.equipment.id, existing.id));
-          return null;
-        }
+      if (decision.action === "update") {
+        await tx.update(schema.equipment).set({
+          manufacturer: (op.payload["manufacturer"] as string) ?? undefined,
+          model: (op.payload["model"] as string) ?? undefined,
+          location: (op.payload["location"] as string) ?? undefined,
+          updatedAt: new Date(),
+        }).where(eq(schema.equipment.id, decision.equipmentId));
+        return null;
+      }
+      if (decision.action === "ask") {
+        return { conflict: `Not added from the phone. ${equipment.describeMatches(serial!, matches)}` };
       }
 
       await tx.insert(schema.equipment).values({
@@ -749,6 +1081,31 @@ async function effect(
       });
       return null;
     }
+
+    case "payment.collect":
+      return collect(tx, ctx, op);
+
+    case "inspection.record":
+      return fileInspection(tx, ctx, op);
+
+    case "estimate.create":
+      return fieldSales.writeEstimate(tx, ctx, op);
+
+    case "estimate.approve":
+      return fieldSales.approveEstimate(tx, ctx, op);
+
+    case "estimate.decline":
+      return fieldSales.declineEstimate(tx, ctx, op);
+
+    case "invoice.raise":
+      return fieldSales.raiseInvoice(tx, ctx, op);
+
+    case "task.claim":
+    case "task.close":
+      return fieldSales.taskOperation(tx, ctx, op);
+
+    case "tip.record":
+      return fieldSales.recordCashTip(tx, ctx, op);
 
     default:
       /**

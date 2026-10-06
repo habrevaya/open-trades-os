@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  can, canAll, permissionsFor, redact, effectiveScope, assertCan,
-  PermissionError, ROLE_PRESETS, ALL_PERMISSIONS, SENSITIVE_PERMISSIONS,
+  can, canAll, permissionsFor, redact, effectiveScope, assertCan, canDefineRole,
+  PermissionError, ROLE_PRESETS, ALL_PERMISSIONS, SENSITIVE_PERMISSIONS, SCOPED_RESOURCES, presetDefinition,
   isReadPermission, type Actor,
 } from "../src/access/index.js";
 
@@ -121,6 +121,41 @@ describe("the three roles the business actually names", () => {
   });
 });
 
+describe("the branch manager preset", () => {
+  const manager = actor(["branch_manager"], { businessUnitId: "houston" });
+
+  it("holds exactly what the office manager holds", () => {
+    expect([...permissionsFor(manager)].sort()).toEqual([...permissionsFor(actor(["office_manager"]))].sort());
+  });
+
+  it("sees every scoped record through their branch, and nothing wider", () => {
+    for (const resource of SCOPED_RESOURCES) {
+      expect(effectiveScope(manager, resource), resource).toBe("business_unit");
+    }
+  });
+
+  it("can be handed out by an office manager, who sees more, and not the other way round", () => {
+    expect(canDefineRole(actor(["office_manager"]), presetDefinition("branch_manager")).ok).toBe(true);
+    expect(canDefineRole(manager, presetDefinition("office_manager"))).toMatchObject({ ok: false, reason: "widens_scope" });
+    expect(canDefineRole(manager, presetDefinition("branch_manager")).ok).toBe(true);
+  });
+});
+
+describe("everybody sees their own record", () => {
+  it("is in every preset, so nobody has to be granted their own emergency contacts", () => {
+    for (const [id, preset] of Object.entries(ROLE_PRESETS)) {
+      expect(preset.permissions, id).toContain("profile:own");
+      expect(preset.permissions, id).toContain("payroll:own");
+    }
+  });
+
+  it("is not anybody else's record or pay", () => {
+    const tech = actor(["technician"]);
+    expect(can(tech, "user:read")).toBe(false);
+    expect(can(tech, "payroll:read")).toBe(false);
+  });
+});
+
 describe("grants and revocations", () => {
   it("a grant adds to the preset", () => {
     const t = actor(["technician"], { grants: ["job.cost:read"] });
@@ -164,10 +199,13 @@ describe("assertCan", () => {
 });
 
 describe("a read only actor (the public demo)", () => {
-  it("the readonly preset is reads and nothing else, so read only loses it nothing", () => {
+  it("the readonly preset is reads and a person's own profile and pay, and read only keeps only the reads", () => {
     const preset = ROLE_PRESETS.readonly.permissions;
-    expect(preset.filter((p) => !isReadPermission(p))).toEqual([]);
-    expect(permissionsFor(actor(["readonly"], { readOnly: true }))).toEqual(permissionsFor(actor(["readonly"])));
+    // Every preset carries the self service pair; for the demo's shared user
+    // they would be editing a profile every visitor shares, so they go.
+    expect(preset.filter((p) => !isReadPermission(p)).sort()).toEqual(["payroll:own", "profile:own"]);
+    const demo = permissionsFor(actor(["readonly"], { readOnly: true }));
+    expect([...demo].sort()).toEqual(preset.filter(isReadPermission).sort());
   });
 
   it("keeps only reads, whatever its roles and grants say", () => {

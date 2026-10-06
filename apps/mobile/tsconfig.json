@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    /*
+      DOM because the field client is compiled from source and its browser
+      storage names `window`; React Native's own types supply the rest.
+    */
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "declaration": false,
+    "customConditions": ["react-native"]
+  },
+  "include": ["index.ts", "src/**/*.ts", "src/**/*.tsx", "test/**/*.ts"]
+}

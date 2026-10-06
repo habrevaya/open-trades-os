@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { Database } from "@opentradesos/db";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * A LINK TO SET A FIRST PASSWORD
@@ -30,7 +31,7 @@ const hash = (token: string): string => createHash("sha256").update(token).diges
  */
 export function publicBaseUrl(env: Record<string, string | undefined> = process.env): string | undefined {
   const value = env["PUBLIC_URL"] || env["AUTH_URL"];
-  return value ? value.replace(/\/+$/, "") : undefined;
+  return value ? trimTrailingSlashes(value) : undefined;
 }
 
 /**

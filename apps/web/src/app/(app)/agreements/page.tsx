@@ -52,7 +52,17 @@ export default async function AgreementsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
-      <PageHeader title="Agreements" count={book.length} />
+      <PageHeader
+        title="Agreements"
+        count={book.length}
+        action={(
+          <div className="flex gap-4 text-sm text-ink-700">
+            {can(user.actor, "membership:write") ? <a href="/agreements/new" className="hover:underline">Sell one</a> : null}
+            <a href="/agreements/plans" className="hover:underline">Plans</a>
+            <a href="/agreements/renewals" className="hover:underline">Ending soon</a>
+          </div>
+        )}
+      />
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-md border border-steel-200 bg-canvas p-4">

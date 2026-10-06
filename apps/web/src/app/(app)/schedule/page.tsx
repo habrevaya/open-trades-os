@@ -1,9 +1,10 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { todayIn } from "@/lib/dates";
-import { dispatch } from "@opentradesos/api/services";
+import { dispatch, dispatchMap } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
-import { Board } from "./Board";
+import { tileSource } from "@/lib/map-tiles";
+import { Board, type BoardView } from "./Board";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; view?: string }>;
 }) {
   const user = await requireSetupUser();
   const params = await searchParams;
@@ -30,15 +31,25 @@ export default async function SchedulePage({
   const today = todayIn(user.organizationTimezone);
   const date = params.date ?? today;
 
-  const board = await dispatch.board(
-    { actor: user.actor, db: getDb() },
-    { date },
-  );
+  /**
+   * The map beside the board, or instead of it. Read only when it is shown:
+   * a dispatcher who never opens the map does not pay for a second query.
+   */
+  const view: BoardView = params.view === "map" || params.view === "split" ? params.view : "board";
+  const ctx = { actor: user.actor, db: getDb() };
+
+  const [board, map] = await Promise.all([
+    dispatch.board(ctx, { date }),
+    view === "board" ? Promise.resolve(null) : dispatchMap.map(ctx, { date }),
+  ]);
 
   return (
     <Board
       board={board}
       date={date}
+      view={view}
+      map={map}
+      tiles={tileSource()}
       canDispatch={can(user.actor, "visit:dispatch")}
       canReorder={can(user.actor, "visit:reschedule")}
       today={today}

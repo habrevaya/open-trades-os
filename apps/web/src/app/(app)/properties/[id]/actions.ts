@@ -1,20 +1,31 @@
 "use server";
 
-import { refused } from "@/lib/actions";
+import { attempt, refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { equipment, geocoding, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
 const text = (form: FormData, name: string): string | null =>
   String(form.get(name) ?? "").trim() || null;
 
+/**
+ * Add a unit, or say where its serial is already on file.
+ *
+ * The service refuses a serial on file anywhere else in the company until the
+ * person adding it says it is a different unit; the refusal comes back with
+ * the units it matched, so the form can show each one with a link to it and
+ * the box to tick. Moving the existing unit is the usual right answer and is
+ * one click away on its page.
+ */
 export async function registerUnit(_previous: unknown, form: FormData) {
   const propertyId = String(form.get("propertyId") ?? "");
+  const serial = text(form, "serialNumber");
   try {
     await equipment.register(await ctx(), {
+      serialElsewhereConfirmed: form.get("serialElsewhereConfirmed") === "on",
       propertyId,
       category: String(form.get("category") ?? ""),
       tag: text(form, "tag"),
@@ -28,7 +39,12 @@ export async function registerUnit(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return refused(form, error.message);
+      const matches = serial && error instanceof ConflictError
+        ? (await equipment.matchSerial(await ctx(), { serialNumber: serial }))
+            .map((m) => ({ id: m.id, propertyId: m.propertyId, address: m.address, retired: m.retired,
+              what: [m.tag, m.manufacturer, m.model].filter(Boolean).join(" ") || m.category }))
+        : [];
+      return { ...refused(form, error.message), matches };
     }
     throw error;
   }
@@ -58,4 +74,27 @@ export async function retireUnit(_previous: unknown, form: FormData) {
   }
   revalidatePath(`/properties/${propertyId}`);
   return { done: true };
+}
+
+/**
+ * Place the property on the map by hand. From then on the geocoder leaves it
+ * alone, which is the point: the office knows the gate is round the back.
+ */
+export async function placePropertyPin(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const result = await attempt(form, async () => geocoding.placePin(await ctx(), {
+    entity: "property", id,
+    latitude: Number(String(form.get("latitude") ?? "").trim() || "NaN"),
+    longitude: Number(String(form.get("longitude") ?? "").trim() || "NaN"),
+  }).then(() => ({ message: "Pin saved. The geocoder will not move it." })));
+  revalidatePath(`/properties/${id}`);
+  return result;
+}
+
+/** Take the hand placed pin off and let the geocoder find it again. */
+export async function clearPropertyPin(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const result = await attempt(form, async () => geocoding.clearPin(await ctx(), { entity: "property", id }));
+  revalidatePath(`/properties/${id}`);
+  return result;
 }

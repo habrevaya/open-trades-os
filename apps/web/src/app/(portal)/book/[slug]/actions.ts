@@ -3,6 +3,7 @@
 import { getDb } from "@/lib/db";
 import { booking } from "@opentradesos/api/services";
 import { ConflictError } from "@opentradesos/api/services";
+import { utmOf } from "@/lib/utm";
 
 export type Slot = {
   date: string;
@@ -17,18 +18,29 @@ export async function loadSlots(input: {
   slug: string;
   serviceId: string;
 }): Promise<Slot[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  /** No `from`: the service starts at today where the company is, which this server does not know. */
   const { slots } = await booking.availability(getDb(), {
     organizationSlug: input.slug,
     bookableServiceId: input.serviceId,
-    from: today,
     days: 21,
   });
   return slots;
 }
 
+/** How the visitor arrived, read by the page in their browser. Every part optional. */
+export type Arrival = {
+  landingQuery?: string | undefined;
+  referrer?: string | undefined;
+  sourceUrl?: string | undefined;
+  visitorId?: string | undefined;
+};
+
+const clip = (value: string | undefined, max: number) =>
+  value ? value.slice(0, max) : undefined;
+
 export async function submitBooking(input: {
   slug: string;
+  arrival?: Arrival;
   serviceId: string;
   date: string;
   arrivalWindowId: string;
@@ -59,7 +71,11 @@ export async function submitBooking(input: {
       postalCode: input.postalCode,
       ...(input.notes ? { notes: input.notes } : {}),
       intakeAnswers: {},
-      utm: {},
+      utm: utmOf(input.arrival?.landingQuery),
+      ...(clip(input.arrival?.landingQuery, 4000) ? { landingQuery: clip(input.arrival?.landingQuery, 4000)! } : {}),
+      ...(clip(input.arrival?.referrer, 2000) ? { referrer: clip(input.arrival?.referrer, 2000)! } : {}),
+      ...(clip(input.arrival?.sourceUrl, 2000) ? { sourceUrl: clip(input.arrival?.sourceUrl, 2000)! } : {}),
+      ...(clip(input.arrival?.visitorId, 200) ? { visitorId: clip(input.arrival?.visitorId, 200)! } : {}),
     });
     return { ok: true, trackingUrl: result.trackingUrl };
   } catch (error) {

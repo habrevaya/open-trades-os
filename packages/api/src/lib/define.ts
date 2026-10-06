@@ -84,6 +84,19 @@ export interface RouteDefinition<
    * call's arguments are in the agent's transcript, on the vendor's side.
    */
   agentTool?: false;
+  /**
+   * A bulk operation that can be asked what it WOULD change.
+   *
+   * Sent with `x-otos-dry-run: true`, the route runs exactly as it would, in
+   * a transaction that is then rolled back, and answers with what it would
+   * have returned and the rows it would have written, by table, and the audit
+   * lines it would have left. Declared per route rather than offered
+   * everywhere, because rolling back only undoes the database: a route that
+   * calls a payment processor or sends a text cannot be tried and taken back,
+   * and a dry run that charged a card would be worse than none. Every route
+   * marked here writes only to the database.
+   */
+  dryRun?: boolean;
 }
 
 export function defineRoute<

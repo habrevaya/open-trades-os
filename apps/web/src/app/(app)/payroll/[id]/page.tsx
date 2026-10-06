@@ -7,7 +7,7 @@ import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { formatIn } from "@/lib/dates";
 import { Register } from "../Register";
-import { ClosePeriod, ExportCsv, PayCommissions, ReopenPeriod } from "../Forms";
+import { ClosePeriod, ExportCsv, PayCommissions, PayTips, ReopenPeriod } from "../Forms";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +52,7 @@ export default async function PayPeriodPage({ params }: { params: Promise<{ id: 
             <>
               <ExportCsv periodId={id} label={register.label} />
               <PayCommissions periodId={id} />
+              <PayTips periodId={id} />
               <ReopenPeriod periodId={id} />
             </>
           ) : (

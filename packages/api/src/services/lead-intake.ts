@@ -1,12 +1,16 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { connectors as cat } from "@opentradesos/core";
+import { connectors as cat, marketing as mk, money as m, time, assertCan } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, NotFoundError, ConflictError,
+  audit, guardedRead, guardedWrite, timezoneOf, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
+import * as acquisition from "./acquisition";
+import { resolveConnectorChannel } from "./lead-connectors";
+import { afterConnect, forgetGrant } from "./ad-platforms";
+import { nextNumber } from "./jobs";
 import {
   createLeadSource, createSpendSource, registeredLeadSources, registeredSpendSources,
   type InboundLead, type WebhookRequest,
@@ -110,6 +114,8 @@ export function legacySecretNotice(provider: string, settings: Record<string, un
 function webhookPathOf(row: typeof schema.integrationConnection.$inferSelect): string | null {
   const token = (row.settings as Record<string, unknown> | null)?.["webhookToken"];
   if (row.capability === "payments") return `/api/webhooks/payments/${row.id}`;
+  /** A lender verifies with its signing secret, like a card processor, so it routes on the connection too. */
+  if (row.capability === "financing") return `/api/webhooks/financing/${row.id}`;
   if (typeof token !== "string" || token === "") return null;
   if (row.capability === "messaging") return `/api/webhooks/messaging/${token}`;
   if (row.capability === "email") return `/api/webhooks/email/${token}`;
@@ -293,6 +299,13 @@ export async function connect(
       }).where(eq(schema.integrationConnection.id, connected.id)).returning() as [typeof connected];
     }
 
+    /**
+     * An ad platform that signs in through OAuth waits in `pending` until
+     * somebody has, rather than reading "connected" with nothing able to
+     * pull. Its settings are checked there too.
+     */
+    connected = await afterConnect(tx, connected);
+
     await audit(tx, ctx, "connector.connected", "integration_connection", connected.id, null, {
       provider: spec.key,
     });
@@ -310,6 +323,8 @@ export async function disconnect(ctx: ServiceContext, provider: string) {
         isNull(schema.integrationConnection.deletedAt),
       )).returning();
     if (!row) throw new NotFoundError("Connection");
+    /** An ad platform's sealed grant goes with it, so a switched off Google is not a kept Google token. */
+    await forgetGrant(tx, row.id);
 
     await audit(tx, ctx, "connector.disconnected", "integration_connection", row.id, null, { provider });
     return { provider, status: row.status };
@@ -329,16 +344,31 @@ export async function disconnect(ctx: ServiceContext, provider: string) {
  */
 export async function importSpendFile(
   ctx: ServiceContext,
-  input: { provider: string; source: string; text: string },
+  input: {
+    provider: string; source?: string | undefined; text: string;
+    channelId?: string | undefined; campaignId?: string | undefined;
+  },
 ) {
+  /**
+   * The channel or campaign named for the whole file decides its key, so a
+   * company that set up "Google Ads: Spring AC tune up" uploads the export
+   * against that and nothing else.
+   */
+  const declared = input.channelId || input.campaignId
+    ? await guardedRead(ctx, "adspend:read", (tx) => acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+      channelId: input.channelId, campaignId: input.campaignId,
+    }))
+    : null;
+  const source = declared?.sourceKey ?? input.source ?? "";
   const adapter = createSpendSource(input.provider);
-  const parsed = adapter.parse({ text: input.text, settings: { source: input.source } });
+  const parsed = adapter.parse({ text: input.text, settings: { source } });
   if (!parsed.ok) throw new ConflictError(parsed.reason);
 
   const result = await marketingService.importSpend(ctx, {
     origin: input.provider,
     rows: parsed.rows.map((row) => ({
       source: row.source,
+      ...(declared ? { channelId: declared.channelId, campaignId: declared.campaignId } : {}),
       campaign: row.campaign,
       spentOn: row.spentOn,
       amount: row.amount,
@@ -385,7 +415,17 @@ export interface IntakeOutcome {
  */
 export async function receiveLead(
   db: Database,
-  input: { connectorId: string; organizationId: string; lead: InboundLead },
+  input: {
+    connectorId: string; organizationId: string; lead: InboundLead;
+    /**
+     * The tracking campaign this one lead is credited to, when the sender
+     * names it (a Meta form's ad campaign, mapped). Otherwise the connector's
+     * own campaign, and otherwise its channel alone.
+     */
+    campaignId?: string | null | undefined;
+    /** What the marketplace charged for this lead, exactly, when it says. */
+    charge?: string | null | undefined;
+  },
 ): Promise<IntakeOutcome> {
   return db.transaction(async (raw) => {
     const tx = raw as unknown as Database;
@@ -413,6 +453,15 @@ export async function receiveLead(
       externalId: input.lead.externalId,
       status: "offered",
       payload: input.lead.raw,
+      /**
+       * WHO TO RING. The adapter has always parsed these and this insert never
+       * wrote them, so the open offers list showed an address with no name and
+       * no number on it, and accepting an offer had nobody to create.
+       */
+      contactName: input.lead.contactName,
+      contactPhone: input.lead.contactPhone,
+      contactEmail: input.lead.contactEmail,
+      notes: input.lead.notes,
       serviceRequested: input.lead.serviceRequested,
       addressLine1: input.lead.addressLine1,
       city: input.lead.city,
@@ -420,6 +469,7 @@ export async function receiveLead(
       postalCode: input.lead.postalCode,
       estimatedValue: input.lead.estimatedValue,
       expiresAt: input.lead.expiresAt,
+      charge: input.charge && m.isPositive(m.money(input.charge)) ? input.charge : null,
     }).returning({ id: schema.leadOffer.id });
 
     /**
@@ -430,17 +480,157 @@ export async function receiveLead(
      * work they cannot take, which is a different problem from a channel
      * producing nothing and needs a different answer.
      */
+    /**
+     * Credited to the CONNECTOR'S CHANNEL, never to the sender's free text.
+     *
+     * This passed the connector's own name ("angi") straight to the touch, the
+     * touch refused anything outside the catalogue, and the lead the
+     * marketplace had been paid for was rolled back with it: the documented
+     * example connector could not receive a single lead. The channel is
+     * resolved from the company's list when the connector is set up, and for
+     * a connector made before that, from its name through the alias list,
+     * landing on the marketplace channel when nothing matches, because a lead
+     * webhook is a marketplace until somebody says otherwise.
+     *
+     * The touch carries the caller's number and the offer as its anonymous
+     * thread, so accepting the offer stitches it to the customer it becomes,
+     * and the lead counts as a person in the meantime.
+     */
+    const [connector] = await tx.select({
+      source: schema.leadSourceConnector.source,
+      channelId: schema.leadSourceConnector.channelId,
+      campaignId: schema.leadSourceConnector.acquisitionCampaignId,
+      displayName: schema.leadSourceConnector.displayName,
+    }).from(schema.leadSourceConnector)
+      .where(eq(schema.leadSourceConnector.id, input.connectorId)).limit(1);
+    /**
+     * A campaign named for this lead, else the connector's, decides the
+     * channel too, so the lead and the campaign's spend land on one funnel
+     * row. A campaign that has since been archived or deleted falls back to
+     * the connector's channel rather than refusing a lead somebody paid for.
+     */
+    const campaignId = input.campaignId ?? connector?.campaignId ?? null;
+    const declared = campaignId
+      ? await acquisition.resolveDeclared(tx, input.organizationId, { campaignId }).catch(() => null)
+      : null;
+    const channel = declared
+      ? { sourceKey: declared.sourceKey, channelId: declared.channelId }
+      : await resolveConnectorChannel(tx, input.organizationId, {
+        source: connector?.source ?? input.lead.source,
+        channelId: connector?.channelId ?? null,
+      });
     await marketingService.recordDeclaredTouch(tx, input.organizationId, {
       at: new Date(),
-      source: input.lead.source,
+      source: channel.sourceKey,
+      channelId: channel.channelId,
+      campaignId: declared?.campaignId ?? null,
+      callerE164: mk.callerKey(input.lead.contactPhone),
+      visitorId: offerThread(offer!.id),
     });
+
+    if (input.charge && m.isPositive(m.money(input.charge))) {
+      await recordLeadCharge(tx, input.organizationId, {
+        offerId: offer!.id,
+        label: `${connector?.displayName ?? "Marketplace"}: lead ${input.lead.externalId}`.slice(0, 200),
+        charge: input.charge,
+        sourceKey: channel.sourceKey,
+        channelId: channel.channelId,
+        campaignId: declared?.campaignId ?? null,
+      });
+    }
 
     return { accepted: true, offerId: offer!.id, duplicate: false, reason: null };
   });
 }
 
-/** What is on the table, soonest to expire first. */
-export async function openOffers(ctx: ServiceContext) {
+/** The anonymous thread a lead offer's touch carries until it is accepted. */
+export const offerThread = (offerId: string) => `lead_offer:${offerId}`;
+
+/**
+ * WHAT A MARKETPLACE CHARGED FOR A LEAD, AS SPEND.
+ *
+ * Written once per offer (found again by the offer's id, so a lead posted
+ * twice is charged once) on the company's day it arrived, against the
+ * channel and campaign the lead is credited to. That is what makes Angi's
+ * and Thumbtack's cost per lead on the funnel their real one.
+ *
+ * Not for a campaign priced per lead: its cost is already its price times its
+ * leads, and writing the charge as well would count every lead twice. The
+ * charge is still kept on the offer, where it can be compared with the price.
+ */
+export async function recordLeadCharge(tx: Database, organizationId: string, input: {
+  offerId: string; label: string; charge: string;
+  sourceKey: string; channelId: string | null; campaignId: string | null;
+}): Promise<boolean> {
+  if (input.campaignId) {
+    const [campaign] = await tx.select({ costModel: schema.acquisitionCampaign.costModel })
+      .from(schema.acquisitionCampaign).where(eq(schema.acquisitionCampaign.id, input.campaignId)).limit(1);
+    if (campaign?.costModel === "per_lead") return false;
+  }
+  const [already] = await tx.select({ id: schema.adSpend.id }).from(schema.adSpend).where(and(
+    eq(schema.adSpend.organizationId, organizationId),
+    eq(schema.adSpend.origin, LEAD_CHARGE_ORIGIN),
+    eq(schema.adSpend.externalId, input.offerId),
+    isNull(schema.adSpend.deletedAt),
+  )).limit(1);
+  if (already) return false;
+  const day = time.dateIn(new Date(), await timezoneOf(tx, organizationId));
+  await tx.insert(schema.adSpend).values({
+    organizationId,
+    source: input.sourceKey,
+    campaign: input.label,
+    channelId: input.channelId,
+    acquisitionCampaignId: input.campaignId,
+    spentOn: day,
+    amount: input.charge,
+    origin: LEAD_CHARGE_ORIGIN,
+    externalId: input.offerId,
+  }).onConflictDoNothing();
+  return true;
+}
+
+/** The origin a marketplace's charge for a lead is written under. */
+export const LEAD_CHARGE_ORIGIN = "lead_charge";
+
+function offerView(
+  offer: typeof schema.leadOffer.$inferSelect,
+  connector: string,
+  now: number,
+) {
+  return {
+    id: offer.id,
+    connector,
+    status: offer.status,
+    contactName: offer.contactName,
+    contactPhone: offer.contactPhone,
+    contactEmail: offer.contactEmail,
+    notes: offer.notes,
+    serviceRequested: offer.serviceRequested,
+    addressLine1: offer.addressLine1,
+    city: offer.city,
+    state: offer.state,
+    postalCode: offer.postalCode,
+    estimatedValue: offer.estimatedValue,
+    expiresAt: offer.expiresAt,
+    /**
+     * Computed against the clock, never read from the status. An expired
+     * offer whose sweep has not run is still expired, and a board that
+     * showed it as live would have somebody accept work the marketplace
+     * has already given to a competitor.
+     */
+    expired: offer.expiresAt ? offer.expiresAt.getTime() <= now : false,
+    secondsLeft: offer.expiresAt
+      ? Math.max(0, Math.round((offer.expiresAt.getTime() - now) / 1000))
+      : null,
+    customerId: offer.customerId,
+    jobId: offer.jobId,
+    decidedAt: offer.decidedAt,
+    declineReason: offer.declineReason,
+  };
+}
+
+/** What is on the table, soonest to expire first, and what was decided lately. */
+export async function openOffers(ctx: ServiceContext, input: { include?: "open" | "all" | undefined } = {}) {
   return guardedRead(ctx, "job:read", async (tx) => {
     const rows = await tx.select({
       offer: schema.leadOffer,
@@ -452,32 +642,212 @@ export async function openOffers(ctx: ServiceContext) {
       )
       .where(and(
         eq(schema.leadOffer.organizationId, ctx.actor.organizationId),
-        eq(schema.leadOffer.status, "offered"),
+        ...(input.include === "all" ? [] : [eq(schema.leadOffer.status, "offered")]),
       ))
-      .orderBy(schema.leadOffer.expiresAt);
+      .orderBy(asc(schema.leadOffer.status), schema.leadOffer.expiresAt, desc(schema.leadOffer.createdAt))
+      .limit(200);
 
     const now = Date.now();
-    return rows.map(({ offer, connector }) => ({
-      id: offer.id,
-      connector,
-      serviceRequested: offer.serviceRequested,
-      addressLine1: offer.addressLine1,
-      city: offer.city,
-      state: offer.state,
-      postalCode: offer.postalCode,
-      estimatedValue: offer.estimatedValue,
-      expiresAt: offer.expiresAt,
+    return rows.map(({ offer, connector }) => offerView(offer, connector, now));
+  });
+}
+
+async function loadOffer(tx: Database, organizationId: string, id: string) {
+  const [row] = await tx.select().from(schema.leadOffer)
+    .where(and(eq(schema.leadOffer.organizationId, organizationId), eq(schema.leadOffer.id, id)))
+    .limit(1);
+  if (!row) throw new NotFoundError("Lead offer");
+  return row;
+}
+
+export interface AcceptInput {
+  id: string;
+  /** An existing customer to put it on, when the office knows them. */
+  customerId?: string | undefined;
+  /** An existing property, when the offer's address is one already on file. */
+  propertyId?: string | undefined;
+  /** The job's summary, when the offer's own words are not the ones wanted. */
+  summary?: string | undefined;
+}
+
+/**
+ * ACCEPTING IS WHAT MATERIALISES WORK.
+ *
+ * A customer (the one named, else one already holding this phone number or
+ * email, else a new one), a property (the one named, else the offer's address,
+ * else the customer's primary property), and a job, all in one transaction,
+ * and the job credited by the same `creditWork` every other path uses: the
+ * marketplace's declared touch is stitched to the customer through the
+ * offer's thread and tagged with the job, so the channel that sold the lead is
+ * the channel that gets the work.
+ *
+ * Accepting twice returns the first acceptance. A marketplace offer is often
+ * accepted from two screens in the same minute, and two jobs for one lead is
+ * a van at a house twice.
+ */
+export async function acceptOffer(ctx: ServiceContext, input: AcceptInput) {
+  return guardedWrite(ctx, "job:write", async (tx) => {
+    assertCan(ctx.actor, "customer:write");
+    const offer = await loadOffer(tx, ctx.actor.organizationId, input.id);
+    if (offer.status === "accepted" && offer.jobId) {
+      return { offerId: offer.id, customerId: offer.customerId!, propertyId: offer.propertyId!, jobId: offer.jobId };
+    }
+    if (offer.status !== "offered") {
+      throw new ConflictError(`This lead was ${offer.status} already, so it cannot be accepted now.`);
+    }
+    if (offer.expiresAt && offer.expiresAt.getTime() <= Date.now()) {
+      throw new ConflictError(
+        "This offer has expired. The marketplace has most likely given it to somebody else, so accepting "
+        + "it here would put a job on the board for work that is no longer yours.",
+      );
+    }
+
+    const org = ctx.actor.organizationId;
+    const caller = mk.callerKey(offer.contactPhone);
+    let customerId = input.customerId ?? null;
+    if (!customerId) {
       /**
-       * Computed against the clock, never read from the status. An expired
-       * offer whose sweep has not run is still expired, and a board that
-       * showed it as live would have somebody accept work the marketplace
-       * has already given to a competitor.
+       * An existing customer first, matched on the normalised phone or the
+       * email, because the homeowner who found you on Angi this year may be
+       * the one you serviced in 2023, and a second record for them splits
+       * their history in two.
        */
-      expired: offer.expiresAt ? offer.expiresAt.getTime() <= now : false,
-      secondsLeft: offer.expiresAt
-        ? Math.max(0, Math.round((offer.expiresAt.getTime() - now) / 1000))
-        : null,
-    }));
+      const candidates = await tx.select({ id: schema.customer.id, phone: schema.customer.phone, email: schema.customer.email })
+        .from(schema.customer)
+        .where(and(eq(schema.customer.organizationId, org), isNull(schema.customer.deletedAt)))
+        .orderBy(asc(schema.customer.createdAt));
+      const match = candidates.find((c) =>
+        (caller && mk.callerKey(c.phone) === caller)
+        || (offer.contactEmail && c.email?.toLowerCase() === offer.contactEmail.toLowerCase()));
+      customerId = match?.id ?? null;
+    }
+    if (!customerId) {
+      const [created] = await tx.insert(schema.customer).values({
+        organizationId: org,
+        name: offer.contactName ?? "Lead",
+        phone: caller ?? offer.contactPhone,
+        email: offer.contactEmail?.toLowerCase() ?? null,
+      }).returning({ id: schema.customer.id });
+      customerId = created!.id;
+    }
+
+    let propertyId = input.propertyId ?? null;
+    if (!propertyId && offer.addressLine1 && offer.city && offer.state && offer.postalCode) {
+      const [existing] = await tx.select({ id: schema.property.id }).from(schema.property)
+        .where(and(
+          eq(schema.property.organizationId, org),
+          sql`lower(${schema.property.addressLine1}) = lower(${offer.addressLine1})`,
+          eq(schema.property.postalCode, offer.postalCode),
+        )).limit(1);
+      propertyId = existing?.id ?? (await tx.insert(schema.property).values({
+        organizationId: org,
+        addressLine1: offer.addressLine1,
+        city: offer.city,
+        state: offer.state,
+        postalCode: offer.postalCode,
+      }).returning({ id: schema.property.id }))[0]!.id;
+    }
+    if (!propertyId) {
+      const [primary] = await tx.select({ id: schema.customerProperty.propertyId })
+        .from(schema.customerProperty)
+        .where(and(eq(schema.customerProperty.customerId, customerId), eq(schema.customerProperty.isPrimary, true)))
+        .limit(1);
+      propertyId = primary?.id ?? null;
+    }
+    if (!propertyId) {
+      throw new ConflictError(
+        "This lead came with no address and the customer has none on file, so there is nowhere to send "
+        + "anybody. Choose a property, or add the address to the customer first.",
+      );
+    }
+    const [linked] = await tx.select({ id: schema.customerProperty.id }).from(schema.customerProperty)
+      .where(and(eq(schema.customerProperty.customerId, customerId), eq(schema.customerProperty.propertyId, propertyId)))
+      .limit(1);
+    if (!linked) {
+      await tx.insert(schema.customerProperty).values({
+        organizationId: org, customerId, propertyId, role: "owner", isPrimary: true,
+      });
+    }
+
+    const [connector] = await tx.select({ displayName: schema.leadSourceConnector.displayName })
+      .from(schema.leadSourceConnector).where(eq(schema.leadSourceConnector.id, offer.connectorId)).limit(1);
+    const number = await nextNumber(tx, org, "job");
+    const [job] = await tx.insert(schema.job).values({
+      organizationId: org,
+      number,
+      customerId,
+      propertyId,
+      status: "lead",
+      summary: input.summary?.trim() || offer.serviceRequested || `Lead from ${connector?.displayName ?? "a marketplace"}`,
+      description: offer.notes,
+      customerComplaint: offer.notes,
+    }).returning({ id: schema.job.id });
+
+    await marketingService.identify(tx, org, { visitorId: offerThread(offer.id), customerId });
+    await marketingService.creditWork(tx, org, { jobId: job!.id });
+
+    await tx.update(schema.leadOffer).set({
+      status: "accepted",
+      customerId,
+      propertyId,
+      jobId: job!.id,
+      decidedAt: new Date(),
+      decidedBy: ctx.actor.userId,
+      updatedAt: new Date(),
+    }).where(eq(schema.leadOffer.id, offer.id));
+
+    await audit(tx, ctx, "lead_offer.accepted", "lead_offer", offer.id,
+      { status: offer.status }, { status: "accepted", customerId, propertyId, jobId: job!.id });
+
+    return { offerId: offer.id, customerId, propertyId, jobId: job!.id };
+  });
+}
+
+/**
+ * The reasons an offer is turned down, as a list, because the point of
+ * recording one is to count it: "outside our area" forty times is a map
+ * problem and "no capacity" forty times is a hiring problem.
+ */
+export const DECLINE_REASONS = {
+  no_capacity: "No capacity on the board",
+  outside_area: "Outside where we work",
+  not_our_work: "Not work we do",
+  too_small: "Too small to be worth the trip",
+  duplicate: "Already a customer or already booked",
+  bad_lead: "Wrong number, spam or not a real enquiry",
+  other: "Something else",
+} as const;
+
+export async function declineOffer(ctx: ServiceContext, input: {
+  id: string; reason: keyof typeof DECLINE_REASONS; note?: string | undefined;
+}) {
+  return guardedWrite(ctx, "job:write", async (tx) => {
+    const offer = await loadOffer(tx, ctx.actor.organizationId, input.id);
+    if (offer.status === "declined") return { offerId: offer.id, status: "declined" as const };
+    if (offer.status !== "offered") {
+      throw new ConflictError(`This lead was ${offer.status} already, so it cannot be declined now.`);
+    }
+    if (!(input.reason in DECLINE_REASONS)) {
+      throw new ConflictError("Choose why it is being turned down, so the reasons can be counted.");
+    }
+    /**
+     * The touch stays. A declined lead still cost something and still says
+     * the channel is producing work this company cannot take, which is a
+     * different problem from a channel producing nothing.
+     */
+    const reason = input.note?.trim()
+      ? `${input.reason}: ${input.note.trim()}`
+      : input.reason;
+    await tx.update(schema.leadOffer).set({
+      status: "declined",
+      declineReason: reason,
+      decidedAt: new Date(),
+      decidedBy: ctx.actor.userId,
+      updatedAt: new Date(),
+    }).where(eq(schema.leadOffer.id, offer.id));
+    await audit(tx, ctx, "lead_offer.declined", "lead_offer", offer.id,
+      { status: offer.status }, { status: "declined", reason });
+    return { offerId: offer.id, status: "declined" as const };
   });
 }
 
@@ -517,15 +887,16 @@ export const handlers = {
     disconnect(ctx, input.provider),
 
   importSpendFile: (ctx: ServiceContext, input: {
-    provider: string; source: string; text: string;
+    provider: string; source?: string | undefined; text: string;
+    channelId?: string | undefined; campaignId?: string | undefined;
   }) => importSpendFile(ctx, input),
 
-  listLeadOffers: async (ctx: ServiceContext): Promise<{
-    offers: {
-      id: string; connector: string; serviceRequested: string | null;
-      addressLine1: string | null; city: string | null; state: string | null;
-      postalCode: string | null; estimatedValue: string | null;
-      expiresAt: Date | null; expired: boolean; secondsLeft: number | null;
-    }[];
-  }> => ({ offers: await openOffers(ctx) }),
+  listLeadOffers: async (ctx: ServiceContext, input: { include?: "open" | "all" | undefined } = {}) =>
+    ({ offers: await openOffers(ctx, input) }),
+
+  acceptLeadOffer: (ctx: ServiceContext, input: AcceptInput) => acceptOffer(ctx, input),
+
+  declineLeadOffer: (ctx: ServiceContext, input: {
+    id: string; reason: keyof typeof DECLINE_REASONS; note?: string | undefined;
+  }) => declineOffer(ctx, input),
 } as const;

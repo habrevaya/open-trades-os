@@ -1,12 +1,13 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, money as m, type Actor } from "@opentradesos/core";
+import { branding as brand, money as m, time, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import * as email from "./email";
 import * as payments from "./payments";
+import * as tips from "./tips";
 import {
   consume, inGrant, mintGrant, peek, requireScope, type ResolvedGrant,
 } from "./portal";
@@ -85,6 +86,8 @@ export type DeliveryState =
   | "refused"
   /** A link was minted and given to the operator. Nothing more is knowable. */
   | "link_issued"
+  /** The invoice went out in a file for the payer's own system. See services/payer-delivery.ts. */
+  | "exported"
   /** In the outbox. No provider has seen it yet. */
   | "queued"
   /** A provider accepted it. On an SMTP relay this is the last thing ever known. */
@@ -136,6 +139,9 @@ export function stateOf(row: DeliveryRowShape): DeliveryState {
   if (row.error !== null) return "refused";
   if (row.channel === "portal_link") {
     return row.submittedAt === null ? "interrupted" : "link_issued";
+  }
+  if (row.channel === "manual") {
+    return row.submittedAt === null ? "interrupted" : "exported";
   }
   /**
    * No message and no error means `send` wrote the attempt and then did not
@@ -516,7 +522,7 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
       const last = live[live.length - 1]!;
       throw new ConflictError(
         `Invoice ${invoice.number} was already sent to ${last.destination ?? "a link"} on `
-        + `${last.createdAt.toISOString().slice(0, 10)} and the send is `
+        + `${time.dateIn(last.createdAt, await timezoneOf(tx, ctx.actor.organizationId))} and the send is `
         + `${last.state}. Pass resend to send it again.`,
       );
     }
@@ -1084,6 +1090,11 @@ export interface PortalInvoicePayment {
   amount: string;
 }
 
+export interface PortalInvoiceTip {
+  receivedAt: string;
+  amount: string;
+}
+
 export interface PortalInvoice {
   organizationName: string;
   number: number;
@@ -1104,10 +1115,19 @@ export interface PortalInvoice {
    * refunded payment shows what it still holds rather than two rows.
    */
   payments: PortalInvoicePayment[];
+  /**
+   * Tips the customer added for the technicians when they paid. Shown
+   * beside the payments rather than in them, because a tip is not money on
+   * the invoice: the balance never counted it and the customer should not
+   * have to work out why the payments add up to more than the total.
+   */
+  tips: PortalInvoiceTip[];
   /** Whether the pay button should appear at all. */
   payable: boolean;
   /** False when the company has connected no processor. Nothing to click. */
   onlinePaymentAvailable: boolean;
+  /** What the pay control offers as a tip, when the company takes them. */
+  tipping: tips.TipOffer;
 }
 
 /**
@@ -1211,6 +1231,8 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
       .filter((p) => m.isPositive(p.net))
       .map(({ net: _net, ...rest }) => rest);
 
+    const tipRows = await tips.forInvoiceWithin(tx, invoiceId);
+
     /**
      * A positive balance on a void or written off invoice is not money the
      * customer owes, and a pay button there takes it anyway.
@@ -1234,8 +1256,12 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
       propertyAddress,
       lines,
       payments,
+      tips: tipRows.map((t) => ({ receivedAt: t.receivedAt.toISOString(), amount: t.amount })),
       payable,
       onlinePaymentAvailable: payable && await processorConnected(tx),
+      tipping: payable
+        ? await tips.offerFor(tx, grant.organizationId, invoiceId, m.money(invoice.balance, invoice.currency))
+        : { available: false, presets: [], for: [] },
     };
   });
 }
@@ -1293,7 +1319,10 @@ export interface PortalPaymentStart {
   intentId: string;
   clientSecret: string;
   publishableKey: string | null;
+  /** The whole charge: the balance, and the tip when there is one. */
   amount: string;
+  /** The part of `amount` that is a tip, `0.0000` when there is none. */
+  tip: string;
   currency: string;
 }
 
@@ -1307,7 +1336,7 @@ export interface PortalPaymentStart {
  */
 export async function startPayment(
   db: Database,
-  input: { token: string },
+  input: { token: string; tip?: string | undefined },
   meta?: { ip?: string | undefined } | undefined,
   /**
    * Passed straight through to `payments.intent`. Injected for the same
@@ -1360,6 +1389,12 @@ export async function startPayment(
      */
     invoiceIds: [invoiceId],
     description: `Invoice ${invoice.number}`,
+    /**
+     * As the customer typed it. `intent` checks it against the company's
+     * tip settings and this invoice's balance, and refuses it when nobody
+     * is recorded on the job to give it to.
+     */
+    ...(input.tip !== undefined ? { tip: input.tip } : {}),
   }, deps);
 
   return {
@@ -1367,6 +1402,7 @@ export async function startPayment(
     clientSecret: result.clientSecret,
     publishableKey: result.publishableKey,
     amount: result.amount,
+    tip: result.tip,
     currency: result.currency,
   };
 }
@@ -1403,6 +1439,7 @@ export const handlers = {
    */
   viewPortalInvoice: (db: Database, input: { token: string }) => viewInvoice(db, input),
 
-  payPortalInvoice: (db: Database, input: { token: string }, meta?: { ip?: string | undefined }) =>
-    startPayment(db, input, meta),
+  payPortalInvoice: (
+    db: Database, input: { token: string; tip?: string | undefined }, meta?: { ip?: string | undefined },
+  ) => startPayment(db, input, meta),
 } as const;

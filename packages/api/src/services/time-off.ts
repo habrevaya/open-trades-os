@@ -1,9 +1,24 @@
-import { and, asc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  guardedRead, guardedWrite, audit, ConflictError, NotFoundError,
+  guardedRead, guardedWrite, audit, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
+import { technicianScopeFilter } from "./scope";
+import { replayed, remember } from "./once";
+
+/**
+ * WHOSE TIME OFF somebody may see or answer: the people their timesheet
+ * scope reaches, because time off is decided by whoever approves the hours.
+ * A branch manager's queue is their branch's people, and another branch's
+ * request opened by its id is not found.
+ */
+const peopleInScope = (ctx: ServiceContext) => {
+  const people = technicianScopeFilter(scopeOf(ctx, "timesheet"), ctx.actor);
+  return people === undefined ? undefined : sql`exists (
+    select 1 from public.technician where ${schema.technician.id} = ${schema.timeOff.technicianId} and ${people}
+  )`;
+};
 
 /**
  * TIME OFF, WHICH TWO SERVICES ALREADY REFUSE WORK ON AND NOTHING COULD RECORD
@@ -137,10 +152,19 @@ export async function request(ctx: ServiceContext, input: TimeOffInput): Promise
   const permission = forSomebodyElse ? "timesheet:approve" : "timeclock:own";
 
   return guardedWrite(ctx, permission, async (tx) => {
+    /**
+     * A retry gets the first answer. Without this a request whose response
+     * was lost on a phone with one bar came back refused as overlapping the
+     * request it had just made, and the route claimed to be idempotent.
+     */
+    const seen = await replayed<TimeOffView>(tx, ctx, "time_off_request");
+    if (seen) return seen;
+
     const technicianId = input.technicianId
       ?? await ownTechnician(tx, ctx.actor.organizationId, ctx.actor.userId);
 
     await assertTechnician(tx, ctx.actor.organizationId, technicianId);
+    if (forSomebodyElse) await assertInScope(tx, ctx, technicianId);
     const { startsAt, endsAt } = window(input.startsAt, input.endsAt);
     await assertNoOverlap(tx, ctx.actor.organizationId, technicianId, startsAt, endsAt, null);
 
@@ -153,7 +177,9 @@ export async function request(ctx: ServiceContext, input: TimeOffInput): Promise
     }).returning();
 
     await audit(tx, ctx, "time_off.requested", "time_off", row!.id, null, row!);
-    return viewOf(row!);
+    const view = viewOf(row!);
+    await remember(tx, ctx, "time_off_request", row!.id, view);
+    return view;
   });
 }
 
@@ -168,7 +194,7 @@ export async function approve(
   ctx: ServiceContext, input: { id: string },
 ): Promise<TimeOffView> {
   return guardedWrite(ctx, "timesheet:approve", async (tx) => {
-    const before = await load(tx, ctx.actor.organizationId, input.id);
+    const before = await load(tx, ctx.actor.organizationId, input.id, peopleInScope(ctx));
     if (before.deletedAt !== null) {
       throw new ConflictError(
         "That request was declined. Approving it would make a day the board refuses work on "
@@ -228,7 +254,7 @@ export async function decline(
   ctx: ServiceContext, input: { id: string; reason?: string | null | undefined },
 ): Promise<TimeOffView> {
   return guardedWrite(ctx, "timesheet:approve", async (tx) => {
-    const before = await load(tx, ctx.actor.organizationId, input.id);
+    const before = await load(tx, ctx.actor.organizationId, input.id, peopleInScope(ctx));
     if (before.deletedAt !== null) return viewOf(before);
 
     const reason = input.reason?.trim() || null;
@@ -320,6 +346,7 @@ export async function list(ctx: ServiceContext, input: TimeOffQuery): Promise<Ti
   return guardedRead(ctx, own ? "timeclock:own" : "timesheet:read", async (tx) => {
     const technicianId = input.technicianId
       ?? await ownTechnician(tx, ctx.actor.organizationId, ctx.actor.userId);
+    if (!own) await assertInScope(tx, ctx, technicianId);
 
     const rows = await tx.select({
       id: schema.timeOff.id,
@@ -382,6 +409,40 @@ export async function pending(ctx: ServiceContext): Promise<TimeOffView[]> {
         eq(schema.timeOff.organizationId, ctx.actor.organizationId),
         eq(schema.timeOff.approved, false),
         isNull(schema.timeOff.deletedAt),
+        peopleInScope(ctx),
+      ))
+      .orderBy(asc(schema.timeOff.startsAt));
+    return rows.map(viewOf);
+  });
+}
+
+/**
+ * Approved time off still to come or under way, for the people this person
+ * may answer for: what the board will show as away, and what an approval can
+ * still be taken back from.
+ */
+export async function upcoming(ctx: ServiceContext): Promise<TimeOffView[]> {
+  return guardedRead(ctx, "timesheet:read", async (tx) => {
+    const rows = await tx.select({
+      id: schema.timeOff.id,
+      organizationId: schema.timeOff.organizationId,
+      technicianId: schema.timeOff.technicianId,
+      startsAt: schema.timeOff.startsAt,
+      endsAt: schema.timeOff.endsAt,
+      reason: schema.timeOff.reason,
+      approved: schema.timeOff.approved,
+      createdAt: schema.timeOff.createdAt,
+      updatedAt: schema.timeOff.updatedAt,
+      deletedAt: schema.timeOff.deletedAt,
+      technicianName: schema.technician.displayName,
+    }).from(schema.timeOff)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.timeOff.technicianId))
+      .where(and(
+        eq(schema.timeOff.organizationId, ctx.actor.organizationId),
+        eq(schema.timeOff.approved, true),
+        isNull(schema.timeOff.deletedAt),
+        gte(schema.timeOff.endsAt, new Date()),
+        peopleInScope(ctx),
       ))
       .orderBy(asc(schema.timeOff.startsAt));
     return rows.map(viewOf);
@@ -390,14 +451,24 @@ export async function pending(ctx: ServiceContext): Promise<TimeOffView[]> {
 
 /* ---------------------------------------------------------------- guards */
 
-async function load(tx: Database, organizationId: string, id: string) {
+async function load(tx: Database, organizationId: string, id: string, scope?: ReturnType<typeof peopleInScope>) {
   const [row] = await tx.select().from(schema.timeOff)
     .where(and(
       eq(schema.timeOff.organizationId, organizationId),
       eq(schema.timeOff.id, id),
+      scope,
     ));
   if (!row) throw new NotFoundError("Time off request");
   return row;
+}
+
+/** Somebody else's time off, only for a person this one may answer for. */
+async function assertInScope(tx: Database, ctx: ServiceContext, technicianId: string): Promise<void> {
+  const people = technicianScopeFilter(scopeOf(ctx, "timesheet"), ctx.actor);
+  if (people === undefined) return;
+  const [row] = await tx.select({ id: schema.technician.id }).from(schema.technician)
+    .where(and(eq(schema.technician.id, technicianId), people)).limit(1);
+  if (!row) throw new NotFoundError("Technician");
 }
 
 async function assertTechnician(
@@ -535,4 +606,6 @@ export const handlers = {
     ({ timeOff: await list(ctx, input) }),
   pendingTimeOff: async (ctx: ServiceContext): Promise<{ timeOff: TimeOffView[] }> =>
     ({ timeOff: await pending(ctx) }),
+  upcomingTimeOff: async (ctx: ServiceContext): Promise<{ timeOff: TimeOffView[] }> =>
+    ({ timeOff: await upcoming(ctx) }),
 } as const;

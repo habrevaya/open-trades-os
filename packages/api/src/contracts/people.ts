@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 /**
  * PEOPLE, AND THE DOOR
@@ -91,6 +92,8 @@ export const listPeople = defineRoute({
   input: z.object({
     /** Exact, case insensitive. For matching a person from another system. */
     email: z.string().max(320).optional(),
+    /** Technicians whose own field holds a value; somebody who is not a technician has none. */
+    ...CustomFieldListFilter,
   }),
   output: z.object({
     people: z.array(z.object({
@@ -103,6 +106,8 @@ export const listPeople = defineRoute({
       technicianId: Uuid.nullable(),
       displayName: z.string().nullable(),
       technicianActive: z.boolean().nullable(),
+      /** The technician's own fields (M29), or null for somebody who is not a technician. */
+      customFields: z.record(z.unknown()).nullable(),
     })),
   }),
 });
@@ -124,6 +129,8 @@ export const listCertificationTypes = defineRoute({
       expires: z.boolean(),
       defaultValidMonths: z.number().int().nullable(),
       renewalLeadDays: z.number().int(),
+      /** Continuing education hours a renewal needs, or null when it needs none. */
+      ceHoursRequired: z.string().nullable(),
       active: z.boolean(),
       note: z.string().nullable(),
     })),
@@ -148,6 +155,8 @@ export const defineCertificationType = defineRoute({
     expires: z.boolean().optional(),
     defaultValidMonths: z.number().int().positive().max(600).nullable().optional(),
     renewalLeadDays: z.number().int().min(0).max(3650).optional(),
+    /** Continuing education hours a renewal needs, where the authority asks for any: "16", "7.5". */
+    ceHoursRequired: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     note: z.string().max(2000).nullable().optional(),
   }),
   output: z.object({
@@ -172,6 +181,8 @@ export const updateCertificationType = defineRoute({
     grantsSkills: z.array(z.string().max(100)).max(50).optional(),
     defaultValidMonths: z.number().int().positive().max(600).nullable().optional(),
     renewalLeadDays: z.number().int().min(0).max(3650).optional(),
+    /** Continuing education hours a renewal needs, where the authority asks for any: "16", "7.5". */
+    ceHoursRequired: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     note: z.string().max(2000).nullable().optional(),
     active: z.boolean().optional(),
   }),

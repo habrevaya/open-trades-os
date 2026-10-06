@@ -63,7 +63,9 @@ import { adapterSettings } from "../secrets/endpoints";
  * and a provider has to be told which it is. An open string would let a
  * caller invent `"refund"` and have an adapter quietly ignore it.
  */
-export type AccountingEntityKind = "customer" | "invoice" | "payment" | "credit_memo" | "refund";
+export type AccountingEntityKind =
+  | "customer" | "invoice" | "payment" | "credit_memo" | "refund"
+  | "credit_note" | "credit_note_application" | "credit_note_void" | "journal";
 
 /** ISO 4217, carried on every amount for the same reason the schema carries it. */
 export interface ExternalMoney {
@@ -176,6 +178,67 @@ export interface ExternalCredit {
   reason: string;
 }
 
+/**
+ * A credit note this company issued: money taken off what a customer owes,
+ * line by line, at the tax each line charged.
+ *
+ * Shaped like `ExternalInvoice` on purpose, because it is the same document
+ * pointing the other way. Its lines land on the revenue account the ledger
+ * debited when the credit note was issued, resolved by the service exactly as
+ * an invoice's lines are, and its tax on the mapped tax account. Not
+ * `ExternalCredit`, which is one line against the write off account: a void
+ * or a write off is a loss, and a credit note is a smaller sale.
+ */
+export interface ExternalCreditNote {
+  idempotencyKey: string;
+  customerExternalId: string;
+  /** Our credit note number, prefixed, which is also the key. */
+  documentNumber: string;
+  issuedOn: string;
+  currency: string;
+  lines: ExternalInvoiceLine[];
+  tax: { amount: ExternalMoney; accountExternalId: string } | null;
+  memo: string | null;
+}
+
+/**
+ * A credit note put against an invoice, both of which are already in the
+ * books.
+ *
+ * Separate from the credit note rather than carried on it, because a credit
+ * is often issued before the invoice it ends up settling exists, and applied
+ * in parts on different days. Each application is a dated fact of its own.
+ */
+export interface ExternalCreditApplication {
+  idempotencyKey: string;
+  customerExternalId: string;
+  creditNoteExternalId: string;
+  invoiceExternalId: string;
+  appliedOn: string;
+  amount: ExternalMoney;
+}
+
+/**
+ * A manual journal an accountant posted here: lines on accounts, each a debit
+ * or a credit, balanced.
+ *
+ * The one thing this bridge sends that is not a document, and the comment on
+ * `pushInvoice` says why the sync does not push postings: a journal in the
+ * books does not age as a receivable or match a deposit. A manual journal has
+ * no document behind it in either system, so a journal is exactly what it
+ * is, over there as here. Every account is resolved from the mapping by the
+ * service, and a journal with an unmapped account is refused by name.
+ */
+export interface ExternalJournal {
+  idempotencyKey: string;
+  /** Our journal number, for a bookkeeper matching it by eye. */
+  number: number;
+  postedOn: string;
+  currency: string;
+  memo: string;
+  lines: { accountExternalId: string; direction: "debit" | "credit"; amount: ExternalMoney; description: string | null }[];
+}
+
 /** What the provider gave the thing we pushed. */
 export interface ExternalRef {
   externalId: string;
@@ -275,7 +338,7 @@ export interface ExternalAccount {
 /**
  * THE INTERFACE.
  *
- * Seven methods, and the argument for each is the comment above it. The test
+ * Eleven methods, and the argument for each is the comment above it. The test
  * a new method has to pass before it is added: could Xero and Sage both
  * implement it without the service having to know which one it is talking to.
  */
@@ -330,6 +393,44 @@ export interface AccountingProvider {
    * different documents to touch a receivable.
    */
   pushRefund(refund: ExternalRefund): Promise<PushResult>;
+
+  /**
+   * A credit note, as the provider's own credit document: a CreditMemo in
+   * QuickBooks, an ACCRECCREDIT credit note in Xero. It lands unapplied, as
+   * credit the customer holds, because that is what issuing one does here:
+   * applying it is `pushCreditApplication`, a separate dated act.
+   *
+   * Taking one back is NOT a method of its own. It goes as `pushInvoice` for
+   * the same lines dated the day of the void, then `pushCreditApplication`
+   * settling the two, for the reason given above `pushOutbound` in the sync.
+   */
+  pushCreditNote(note: ExternalCreditNote): Promise<PushResult>;
+
+  /**
+   * A manual journal. OPTIONAL: a book that cannot take one leaves it out,
+   * and the sync then leaves journals here and says so on the problems list
+   * rather than sending them some other way.
+   */
+  pushJournal?(journal: ExternalJournal): Promise<PushResult>;
+
+  /** One credit note against one invoice, by an amount, on a date. */
+  pushCreditApplication(application: ExternalCreditApplication): Promise<PushResult>;
+
+  /**
+   * "Did this application already land?", for the crash window only.
+   *
+   * Its own method rather than `findPushed`, because an application is not a
+   * document every provider can be searched for by a key. QuickBooks can,
+   * through the reference on the zero payment. A Xero allocation carries no
+   * reference at all, so the only way to find one is to read the credit note
+   * it hangs off and match it by invoice, amount and date, which needs the
+   * whole application rather than its key. `taken` is the external ids this
+   * connection has already linked, so two identical applications on one day
+   * cannot both claim the same allocation.
+   */
+  findCreditApplication(
+    application: ExternalCreditApplication, taken: string[],
+  ): Promise<ReadResult<ExternalRef | null>>;
 
   /**
    * Whether money a payment held unapplied reached the books with it.
@@ -394,6 +495,12 @@ export interface HttpResponse {
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /**
+   * The bytes, for the one answer that is not text: a report handed back as a
+   * zip. Optional so every fake that answers JSON stays as it is; `fetch`
+   * has it.
+   */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export type HttpTransport = (

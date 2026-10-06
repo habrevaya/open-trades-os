@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { portalAccount } from "@opentradesos/api/services";
+import { portalAccount, referrals } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
-import { PayNow } from "../../PayNow";
-import { AccountView, money, type AccountViewData } from "./AccountView";
+import { PayInvoice } from "../../PayInvoice";
+import { AccountView, type AccountViewData } from "./AccountView";
 import { startAccountPayment } from "./actions";
+import { ReferralBlock } from "./ReferralBlock";
 
 export const dynamic = "force-dynamic";
 
@@ -31,16 +32,25 @@ export default async function AccountPage({
   } catch {
     notFound();
   }
+  /** Never the reason the page fails: an account opens whether or not this does. */
+  const referral = await referrals.forPortal(getDb(), { token }).catch(() => null);
 
   return (
     <PortalBrand token={token}>
       <AccountView
         account={account}
         returned={returned}
+        statementHref={`/c/${token}/statement`}
+        pdfHref={(invoiceId) => `/c/${token}/invoices/${invoiceId}/pdf`}
+        changeHref={(visitId) => `/c/${token}/change/${visitId}`}
+        photoHref={(photoId) => `/c/${token}/photos/${photoId}`}
+        referral={referral ? <ReferralBlock referral={referral} /> : null}
         pay={(invoice) => (
-          <PayNow
+          <PayInvoice
             start={startAccountPayment.bind(null, token, invoice.id)}
-            balance={money(invoice.balance, invoice.currency)}
+            balance={invoice.balance}
+            currency={invoice.currency}
+            tipping={invoice.tipping}
             label={`invoice #${invoice.number}`}
           />
         )}

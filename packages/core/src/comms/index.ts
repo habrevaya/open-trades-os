@@ -221,3 +221,9 @@ export function phoneAddress(raw: string): string {
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return trimmed;
 }
+
+/**
+ * Replies by email and pictures by text: the reply address a thread is found
+ * by, the quoted history cut off a reply, and what a carrier will carry.
+ */
+export * from "./replies.js";

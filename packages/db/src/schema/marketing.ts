@@ -4,6 +4,8 @@ import { pk, timestamps, money } from "./_shared";
 import { organization } from "./tenancy";
 import { customer } from "./crm";
 import { job } from "./work";
+import { call } from "./comms";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * MARKETING, AND THE ONE THING THAT MAKES IT POSSIBLE
@@ -62,6 +64,39 @@ export const marketingTouch = pgTable("marketing_touch", {
   basis: touchBasis("basis").notNull(),
 
   /**
+   * The company's channel and tracking campaign, resolved when the touch is
+   * written: from the number dialled, then from the utm_campaign, then from
+   * the channel the source key maps to. Resolved once and kept, because a
+   * campaign renamed or a number moved next spring must not rewrite which
+   * campaign last spring's call belonged to.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
+  /** The call this touch is, when it is one. */
+  callId: uuid("call_id").references(() => call.id, { onDelete: "set null" }),
+  /**
+   * The number that rang, in E.164. The anonymous thread for a caller in the
+   * way `visitor_id` is for a browser: when a customer is created with this
+   * phone, or a customer's phone is changed to it, every call they made
+   * before anybody knew who they were becomes theirs.
+   */
+  callerE164: text("caller_e164"),
+  /**
+   * Set when a PERSON declared the source (a CSR choosing "Google Ads" on the
+   * new job form), as against a marketplace declaring it over a signed
+   * webhook. Both are `declared`; only one of them is somebody's memory of
+   * what a customer said on the phone.
+   */
+  enteredByUserId: uuid("entered_by_user_id"),
+  /**
+   * The customer whose referral link this visit arrived through. Set only
+   * with source `referral_customer`, and it is what names the referrer on
+   * the report rather than leaving "a referral" as the whole answer.
+   */
+  referrerCustomerId: uuid("referrer_customer_id").references(() => customer.id, { onDelete: "set null" }),
+
+  /**
    * Stored as five columns rather than one blob, because every one of them
    * is something an owner groups a report by, and a jsonb key nobody can
    * index is a dimension nobody uses.
@@ -74,6 +109,23 @@ export const marketingTouch = pgTable("marketing_touch", {
 
   /** gclid, msclkid, fbclid. The thing an ads platform matches a conversion on. */
   clickId: text("click_id"),
+  /**
+   * Which parameter carried the click id: gclid, gbraid, wbraid, fbclid or
+   * msclkid. Google takes the three of its own in three different fields and
+   * refuses one sent in the wrong one, so a conversion cannot be sent back
+   * from the value alone.
+   */
+  clickIdParam: text("click_id_param"),
+  /**
+   * The browser's Google Analytics client id, read by the website snippet
+   * from the `_ga` cookie the company's own analytics tag set. It is what a
+   * lead or a purchase sent to Google Analytics is tied to, so the booked job
+   * lands on the visit in the company's own analytics rather than as a
+   * stranger.
+   */
+  gaClientId: text("ga_client_id"),
+  /** Meta's browser id, from the `_fbp` cookie its pixel sets on the company's site. */
+  metaBrowserId: text("meta_browser_id"),
   /** Lower case, without `www.`, and never one of our own hosts. */
   referrerHost: text("referrer_host"),
   landingPath: text("landing_path"),
@@ -105,6 +157,9 @@ export const marketingTouch = pgTable("marketing_touch", {
     .on(t.organizationId, t.occurredAt)
     .where(sql`${t.unrecognised} is not null`),
   sourceIdx: index("marketing_touch_source_idx").on(t.organizationId, t.source, t.occurredAt),
+  callerIdx: index("marketing_touch_caller_idx").on(t.organizationId, t.callerE164)
+    .where(sql`${t.callerE164} is not null`),
+  jobIdx: index("marketing_touch_job_idx").on(t.organizationId, t.jobId),
 }));
 
 /**
@@ -133,6 +188,14 @@ export const adSpend = pgTable("ad_spend", {
   source: text("source").notNull(),
   /** Free text, matching what the platform calls it. A label, never a dimension. */
   campaign: text("campaign"),
+  /**
+   * The company's channel and tracking campaign this money went to, which
+   * ARE dimensions. `source` stays the catalogue key so the roll up keeps
+   * working for a row that names neither.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   spentOn: date("spent_on").notNull(),
   amount: money("amount").notNull(),
   impressions: integer("impressions"),
@@ -182,9 +245,26 @@ export const webForm = pgTable("web_form", {
   definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
   /** Where a submission lands when it is not a booking: a source key for the touch it creates. */
   source: text("source").notNull().default("website"),
+  /**
+   * The form's address on the hosted page, `/f/{key}`. Unique across every
+   * company, because the page is reached before anybody knows whose form it
+   * is, and random rather than the slug, because two companies may both call
+   * a form "quote".
+   */
+  publicKey: text("public_key"),
+  /**
+   * What happens after a good submission: a confirmation text or email to the
+   * person who sent it, and the sentence the page shows. Data the office
+   * edits, never code.
+   */
+  settings: jsonb("settings").$type<{
+    thankYou?: string; confirmationText?: string;
+    confirmationEmailSubject?: string; confirmationEmailBody?: string;
+  }>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("web_form_slug_idx").on(t.organizationId, t.slug).where(sql`${t.deletedAt} is null`),
+  publicKeyIdx: uniqueIndex("web_form_public_key_idx").on(t.publicKey).where(sql`${t.publicKey} is not null`),
 }));
 
 export const formSubmissionState = pgEnum("form_submission_state", [
@@ -386,4 +466,53 @@ export const unsubscribeLink = pgTable("unsubscribe_link", {
 }, (t) => ({
   hashIdx: uniqueIndex("unsubscribe_link_token_idx").on(t.tokenHash),
   addressIdx: index("unsubscribe_link_address_idx").on(t.organizationId, t.address),
+}));
+
+/* ------------------------------------------------------------- referrals */
+
+export const referralRewardState = pgEnum("referral_reward_state", [
+  /** A credit note was issued to the referrer and sits on their account. */
+  "credited",
+  /** A fixed amount the company owes the referrer and has not paid yet. */
+  "owed",
+  /** That amount, paid, by whatever means the office pays people. */
+  "paid",
+  /** Withdrawn by the office, with a reason. Never re-granted. */
+  "void",
+]);
+
+/**
+ * WHAT A REFERRAL EARNED, AND WHETHER IT HAS BEEN GIVEN
+ *
+ * One row per referred customer, granted when their first job is paid in
+ * full. The unique index is the idempotency: the worker can look at the same
+ * paid invoice on every pass, and a second pass finds the row and does
+ * nothing, so a referrer is rewarded once for each person they sent however
+ * many times the check runs.
+ *
+ * The reward is a LEDGER, not a flag on the customer, because "did we ever
+ * pay Mrs Alvarez for sending the Nguyens" is a question with a date, an
+ * amount and a document behind it, and a boolean answers none of them.
+ */
+export const referralReward = pgTable("referral_reward", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  referrerCustomerId: uuid("referrer_customer_id").notNull()
+    .references(() => customer.id, { onDelete: "cascade" }),
+  referredCustomerId: uuid("referred_customer_id").notNull()
+    .references(() => customer.id, { onDelete: "cascade" }),
+  /** The first job, whose payment earned it. */
+  jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
+  /** `credit_note` or `owed`, as the company's referral settings said when it was granted. */
+  kind: text("kind").notNull(),
+  amount: money("amount").notNull(),
+  state: referralRewardState("state").notNull(),
+  /** The credit note issued for it, when the reward was a credit. */
+  creditNoteId: uuid("credit_note_id"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  referredIdx: uniqueIndex("referral_reward_referred_idx").on(t.organizationId, t.referredCustomerId),
+  referrerIdx: index("referral_reward_referrer_idx").on(t.organizationId, t.referrerCustomerId),
 }));

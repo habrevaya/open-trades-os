@@ -25,7 +25,34 @@ import { Uuid } from "./common";
  * disagree, or they do not agree.
  */
 
-export const CustomFieldEntity = z.enum(["customer", "property", "job"]);
+/**
+ * The eight records with a `custom_fields` column, or one of the company's own
+ * kinds of record as `object:<key>` (M29's custom objects).
+ */
+export const CustomFieldEntity = z.union([
+  z.enum(["customer", "property", "job", "invoice", "estimate", "visit", "equipment", "technician"]),
+  z.string().regex(/^object:[a-z][a-z0-9_]{0,47}$/, "A kind of record is object: and its key, like object:permit"),
+]);
+
+/**
+ * A list narrowed to the records whose custom field `fieldKey` holds
+ * `fieldValue`, the way the customer list has always been: both or neither,
+ * the key one the company declared on that record, matched by the field's
+ * type (a choice exactly, several choices by membership, yes or no as
+ * stored, a number as a number, text anywhere in the value ignoring case).
+ *
+ * `fields` is several at once, each `key:value` (repeat the parameter), every
+ * one of which has to hold; `fieldKey` and `fieldValue` are one more beside
+ * them.
+ */
+export const FieldFilters = z.array(z.string().min(3).max(270)).max(10).optional()
+  .describe("Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold.");
+
+export const CustomFieldListFilter = {
+  fieldKey: z.string().max(64).optional(),
+  fieldValue: z.string().max(200).optional(),
+  fields: FieldFilters,
+};
 
 export const CustomFieldType = z.enum([
   "text", "number", "boolean", "date", "select", "multiselect",
@@ -70,6 +97,8 @@ export const defineCustomField = defineRoute({
     "Refused when the key is already defined on that entity, and refused when stored data already under that key contradicts the type being declared, because a definition that half the rows fail is worse than none. Comes back with how many records already hold a value and, on a required field, how many do not.",
   module: "M29",
   permissions: ["customfield:write"],
+  /** A dry run says what the change would do to the records that hold values, and keeps nothing. */
+  dryRun: true,
   idempotent: true,
   input: z.object({
     entityType: CustomFieldEntity,
@@ -111,6 +140,8 @@ export const updateCustomField = defineRoute({
     "The key cannot be changed and neither can the entity. Every value stored under the old key is matched by that string and nothing else, so a rename orphans all of them at once: they stay in the database, stop being found, and read as deleted.",
   module: "M29",
   permissions: ["customfield:write"],
+  /** A dry run says what the change would do to the records that hold values, and keeps nothing. */
+  dryRun: true,
   idempotent: true,
   input: z.object({
     id: Uuid,
@@ -131,6 +162,8 @@ export const deleteCustomField = defineRoute({
     "Refused while records still hold a value for it, because removing the definition does not remove the values: they stay in the record and stop being shown. Send force to remove it anyway. The answer says how many values were orphaned, and zero is the good answer.",
   module: "M29",
   permissions: ["customfield:write"],
+  /** A dry run says what the change would do to the records that hold values, and keeps nothing. */
+  dryRun: true,
   idempotent: true,
   input: z.object({
     id: Uuid,
@@ -192,7 +225,44 @@ export const validateCustomFields = defineRoute({
   }),
 });
 
+
+/**
+ * THE FIELDS ON AN INVOICE, AN ESTIMATE, A VISIT, A UNIT OR A TECHNICIAN.
+ *
+ * A customer, an address and a job carry theirs on their own create and
+ * update. These five grew a column later, and each one's own write is
+ * guarded by rules about money or the board that have nothing to do with a
+ * custom field, so filling in a field has one route per record of its own,
+ * under that record's write permission and its scope. The bag is the whole
+ * set as it should be: send what is there plus what changed.
+ */
+const SetValuesInput = z.object({ id: Uuid, customFields: z.record(z.unknown()) });
+const SetValuesOutput = z.object({ id: Uuid, customFields: z.record(z.unknown()) });
+const setValuesRoute = (
+  entity: string, path: string, read: "invoice:read" | "estimate:read" | "visit:read" | "equipment:read" | "user:read",
+  write: "invoice:write" | "estimate:write" | "visit:write" | "equipment:write" | "user:write",
+) => defineRoute({
+  method: "put",
+  path,
+  summary: `Save the company's own fields on ${entity}`,
+  description:
+    "Only what this changes is checked against the definitions: a value contradicting its type or options, or a required field left empty, is refused with one sentence per field at `customFields.<key>`. A key nothing defines is kept as sent.",
+  module: "M29",
+  permissions: [read, write],
+  idempotent: true,
+  input: SetValuesInput,
+  output: SetValuesOutput,
+});
+
+export const setInvoiceCustomFields = setValuesRoute("an invoice", "/v1/invoices/{id}/custom-fields", "invoice:read", "invoice:write");
+export const setEstimateCustomFields = setValuesRoute("an estimate", "/v1/estimates/{id}/custom-fields", "estimate:read", "estimate:write");
+export const setVisitCustomFields = setValuesRoute("a visit", "/v1/visits/{id}/custom-fields", "visit:read", "visit:write");
+export const setEquipmentCustomFields = setValuesRoute("a unit", "/v1/equipment/{id}/custom-fields", "equipment:read", "equipment:write");
+export const setTechnicianCustomFields = setValuesRoute("a technician", "/v1/technicians/{id}/custom-fields", "user:read", "user:write");
+
 export const customFieldRoutes = {
   defineCustomField, listCustomFields, updateCustomField,
   deleteCustomField, getCustomFieldUsage, validateCustomFields,
+  setInvoiceCustomFields, setEstimateCustomFields, setVisitCustomFields,
+  setEquipmentCustomFields, setTechnicianCustomFields,
 } as const;

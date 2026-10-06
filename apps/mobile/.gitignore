@@ -1,0 +1,11 @@
+# Expo's local state, the output of `expo export`, and the native projects
+# `expo prebuild` writes. EAS builds generate the native projects in the
+# cloud from app.json, so they are never committed.
+.expo/
+dist/
+ios/
+android/
+*.jks
+*.p8
+*.p12
+*.mobileprovision

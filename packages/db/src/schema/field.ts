@@ -1,8 +1,8 @@
-import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef } from "./_shared";
-import { organization } from "./tenancy";
-import { technician } from "./tenancy";
+import { organization, technician, user } from "./tenancy";
 import { message } from "./comms";
+import { domainEvent } from "./automation";
 
 /**
  * THE FIELD
@@ -28,6 +28,13 @@ export const device = pgTable("device", {
   platform: text("platform"),
   appVersion: text("app_version"),
   osVersion: text("os_version"),
+  /**
+   * The Expo push token the phone app registered, and nothing else: a
+   * browser has none. Written by the phone when it registers, cleared when
+   * the phone signs out or is taken away, and cleared when Expo says the app
+   * is no longer on the phone, so a token that can never be delivered to is
+   * not asked about on every change to somebody's day.
+   */
   pushToken: text("push_token"),
 
   /**
@@ -47,6 +54,17 @@ export const device = pgTable("device", {
    */
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  /**
+   * The SHA-256 of the sign in this phone is using, when it signed in with
+   * the phone app rather than a browser.
+   *
+   * Kept so that revoking the device ends the sign in as well. Revoking only
+   * the device would stop the phone syncing and leave its token reading the
+   * customer list, which is the half of a lost phone that matters. Only the
+   * hash, the same as `session.token_hash`: a copy of this table opens
+   * nothing, because the API hashes whatever it is presented with.
+   */
+  sessionTokenHash: text("session_token_hash"),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("device_org_idx").on(t.organizationId, t.technicianId),
@@ -261,4 +279,151 @@ export const arrivalNotice = pgTable("arrival_notice", {
 }, (t) => ({
   visitIdx: index("arrival_notice_visit_idx").on(t.visitId, t.sentAt),
   orgIdx: index("arrival_notice_org_idx").on(t.organizationId, t.sentAt),
+}));
+
+export const pushStatus = pgEnum("push_status", [
+  /** Written, not yet handed to the push service. */
+  "queued",
+  /**
+   * Claimed by one worker for one request. Two workers running at once is
+   * supported, and without a claim both would send the same row and the
+   * technician's phone would buzz twice for one change. A claim left behind
+   * by a worker that died is put back after a few minutes.
+   */
+  "sending",
+  /** The push service took it. Whether the phone showed it is the receipt's business. */
+  "sent",
+  /** Refused, by the push service or by the phone being gone. `error` says which. */
+  "failed",
+  /** Never sent, on purpose: the change was stale by the time it was read. */
+  "skipped",
+]);
+
+/**
+ * ONE NOTICE TO ONE PHONE ABOUT ONE CHANGE
+ *
+ * A row per device per event rather than a fire and forget call, for the two
+ * questions somebody asks the morning after a technician drove to a cancelled
+ * job: was he told, and if not, why not. A push that leaves no trace answers
+ * neither.
+ *
+ * Keyed on the event and the device, so the worker reading the same event
+ * twice (two workers, or a pass cut short and repeated) writes one row and
+ * sends one notice, not two buzzes for one change.
+ */
+export const pushDelivery = pgTable("push_delivery", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The change this tells somebody about. */
+  eventId: uuid("event_id").notNull().references(() => domainEvent.id, { onDelete: "cascade" }),
+  deviceId: uuid("device_id").notNull().references(() => device.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").notNull().references(() => technician.id, { onDelete: "cascade" }),
+  /** What a tap on the notice opens. Not a foreign key: a deleted visit keeps its history. */
+  visitId: uuid("visit_id"),
+  /** assigned, unassigned, rescheduled or cancelled. */
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  /** Delivered without sound inside the company's quiet hours. See core `pushUrgency`. */
+  quiet: boolean("quiet").notNull().default(false),
+  status: pushStatus("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  /** The push service's id for it, which its receipt is asked about by. */
+  ticketId: text("ticket_id"),
+  error: text("error"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  /** When the receipt was read. Null on a sent row means it has not been asked yet. */
+  receiptCheckedAt: timestamp("receipt_checked_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  /** One notice per change per phone, however many times the event is read. */
+  eventDeviceIdx: uniqueIndex("push_delivery_event_device_idx").on(t.eventId, t.deviceId),
+  /** The send queue and the receipts still owed. */
+  statusIdx: index("push_delivery_status_idx").on(t.organizationId, t.status, t.createdAt),
+  deviceIdx: index("push_delivery_device_idx").on(t.deviceId, t.createdAt),
+}));
+
+/**
+ * A ONE TIME CODE FOR SIGNING THE PHONE IN
+ *
+ * Above the tenant, like `setup_token` and for the same reason: it exists
+ * before anybody is signed in, so there is no company to scope it to yet.
+ * Closed the same way too. Row level security denies every direct read and
+ * write, and three database functions are the only way a code is issued,
+ * tried or spent, so the rules about how many and how often live in the one
+ * place a second caller cannot skip.
+ *
+ * Only a hash of the code is kept. Six digits are a million possibilities,
+ * which a hash does not make unguessable; what protects a code is that it
+ * lives ten minutes, dies after five wrong guesses, and is spent the moment
+ * it works. The hash is so that a copy of this table is a list of dead
+ * numbers rather than a list of live sign ins.
+ */
+export const signInCode = pgTable("sign_in_code", {
+  id: pk(),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  /** SHA-256 of the email and the code together. */
+  codeHash: text("code_hash").notNull(),
+  /** Where it was sent: `sms` or `email`. Kept for the audit of a sign in. */
+  channel: text("channel").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Wrong guesses against this code. At the limit it is revoked. */
+  attempts: integer("attempts").notNull().default(0),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  /** Replaced by a newer code, or guessed at too often. */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  /** The live code for a person, and how many they have asked for lately. */
+  userIdx: index("sign_in_code_user_idx").on(t.userId, t.createdAt),
+}));
+
+/**
+ * WHY A POSITION WAS TAKEN. The same three reasons `packages/core/src/location`
+ * shares for, and nothing else, because nothing else is working time.
+ */
+export const positionReason = pgEnum("position_reason", ["on_the_way", "working", "on_the_clock"]);
+
+/**
+ * WHERE A TECHNICIAN WAS, WHILE THEY WERE WORKING
+ *
+ * One row per fix the phone sent and the server agreed fell inside working
+ * time: clocked in, on the way to a visit, or working one. A fix outside all
+ * three is dropped on arrival and never written, which is what makes "nothing
+ * is tracked off the clock" a property of this table rather than a promise
+ * about the phone.
+ *
+ * SHORT LIVED BY DESIGN. Deleted by the worker after the company's retention
+ * (three days unless it says otherwise, thirty at most), so this is where
+ * somebody is and was today, never a history of a person's movements.
+ *
+ * `visit_id` is the visit the fix belongs to when it was taken on the way to
+ * or at one. The customer's tracking link reads only fixes with its own
+ * visit's id, taken after the notice was sent, so a technician's drive to
+ * the job before is never shown to the customer after.
+ */
+export const technicianPosition = pgTable("technician_position", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").notNull().references(() => technician.id, { onDelete: "cascade" }),
+  deviceId: uuid("device_id").notNull().references(() => device.id, { onDelete: "cascade" }),
+  /** By the phone's clock, clamped to the server's: a fix from the future is refused, not stored. */
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  accuracyMeters: integer("accuracy_meters"),
+  /** Degrees clockwise from north, when the phone knows. */
+  heading: integer("heading"),
+  /** Metres a second, when the phone knows. */
+  speed: doublePrecision("speed"),
+  reason: positionReason("reason").notNull(),
+  visitId: uuid("visit_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** One row per fix: a batch resent after a dropped answer is the same fixes again. */
+  fixIdx: uniqueIndex("technician_position_fix_idx").on(t.deviceId, t.recordedAt),
+  latestIdx: index("technician_position_latest_idx").on(t.organizationId, t.technicianId, t.recordedAt),
+  visitIdx: index("technician_position_visit_idx").on(t.visitId, t.recordedAt),
+  purgeIdx: index("technician_position_purge_idx").on(t.recordedAt),
 }));

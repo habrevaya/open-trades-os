@@ -64,20 +64,94 @@ it can tell you what to ask an administrator for. Sent as a transport failure
 it becomes "the OpenTradesOS server is down", which is both wrong and
 unactionable.
 
+**A change can be tried first.** The tools that change many records at once
+(renaming or merging a customer tag, moving jobs between branches, setting tax on
+many items, a price change, a supplier catalogue, loading a spreadsheet of a
+company's own records) take `dryRun`, and so do the tools that change how the
+company is set up: defining, changing and retiring a custom field or a kind of
+record, writing, publishing and deleting a workflow, and copying settings back from
+a sandbox. Sent as
+true, the route runs exactly as it would, inside a transaction that is then
+rolled back, and the answer is what it would have returned, the rows it would
+have written per table, and the audit lines naming each record. It is the route
+itself rather than a prediction of it, so the preview cannot drift from what the
+real call does. Only routes that write nothing outside the database offer it: a
+rollback cannot take back a text or a card charge, and asking any other route
+for a dry run is refused rather than run for real.
+
 ## Setup
 
-1. Install a connected application (Settings, then Connected apps) and grant it
-   the permissions it needs. You cannot grant a permission you do not hold
-   yourself; the check is the same one that governs defining a role.
-2. Issue a token. It is shown once and stored only as a hash, so a support
-   engineer cannot read it back out of a table. `expires_at` is required: a
-   partner holding a permanent credential is a permanent liability on both
-   sides, and an expiry that has to be opted into is one nobody sets.
-3. Point the client at `https://your-instance/api/mcp` with
-   `Authorization: Bearer ots_...`.
+There are three ways to connect, and all three end at the same endpoint with
+the same permission checks.
 
-A signed-in browser session works too, which is what makes the endpoint usable
-from a client running on the same machine as the app.
+**A hosted assistant, with OAuth.** Point the client at
+`https://your-instance/api/mcp` and nothing else. It is answered with a 401 whose
+`WWW-Authenticate` header names `/.well-known/oauth-protected-resource`; from
+there the client finds `/.well-known/oauth-authorization-server`, registers
+itself at `/api/oauth/register`, and sends you to `/oauth/authorize`. That page
+says who is asking and what it could do, every permission in plain words, and
+you approve or refuse. Approving makes it a connected app under Settings,
+Applications, which is also where you turn it off.
+
+**A desktop client, with an app token.** Install a connected application under
+Settings, Applications, grant it what it needs, and issue a token (shown once,
+stored only as a hash, always with an expiry). Then give the client a command:
+
+    OPENTRADESOS_URL=https://your-instance OPENTRADESOS_TOKEN=ots_... \
+      node packages/sdk/bin/opentradesos-mcp.mjs
+
+or, from a checkout, `npx ./packages/sdk` or `pnpm mcp:bridge` with the same two
+variables. That is a stdio server with no dependencies that carries each message
+to `/api/mcp` with the token; every protocol rule stays on the server.
+
+**On the server itself, with an app token.** `pnpm --filter @opentradesos/api mcp`
+with `OPENTRADESOS_TOKEN` and `DATABASE_URL` runs the same server over stdio
+against the database directly, for a client on the machine the database is on.
+
+A signed-in browser session works on the HTTP endpoint too, which is what makes
+it usable from a client running on the same machine as the app.
+
+### OAuth, in detail
+
+Clients register themselves (RFC 7591), public by default: a client on somebody's
+laptop has nowhere to keep a secret, so none is issued and PKCE with S256 stands in
+for one, `plain` refused. A client that runs on its maker's own server can register
+as confidential instead (`token_endpoint_auth_method` of `client_secret_basic` or
+`client_secret_post`). It is handed a secret once, in the registration answer, and
+only its hash is kept; from then on the token, revocation and introspection
+endpoints refuse that client with a 401 unless it sends the secret, in the
+`Authorization` header or in the form but not both. PKCE is required of it too,
+because the secret proves which client is calling and PKCE proves the code was
+asked for by the same one.
+A code lives ten minutes, works once and is bound to the client, its redirect
+address and the PKCE challenge. Presenting a code twice revokes everything the
+first exchange produced. Access tokens are ordinary app tokens an hour long;
+refresh tokens last thirty days unused and rotate on every use, and a refresh
+token used twice revokes its whole family, because it means two parties hold it.
+
+Scopes are permissions from the catalogue, or bundles of them with names a
+person can read: `read` (everything you can see, nothing you can change),
+`customers`, `jobs`, `dispatch`, `estimates`, `invoices`, `messages`, `tasks`
+and `reports`. A client that names none asks for `read`. A bundle is cut down to
+what the approver holds, and the consent page lists what was left out; an
+unknown scope is refused rather than dropped. Every permission the page offers is
+a ticked box, and the person can untick any of them: the app gets what is left,
+and when that is less than was asked for the token answers with the permissions
+themselves as its scope, so the client can see it got less. A permission the
+page did not offer cannot be added by posting it, and nothing ticked is refused
+(that is "Do not connect"). The assistant reaches the same records the approver
+can, on every resource. Authorizing the same client again replaces its grant
+rather than adding a second app.
+
+A client can hand a token back at `/api/oauth/revoke` (RFC 7009): a refresh
+token ends everything descended from the same approval, an access token ends
+alone. The answer is the same 200 whether or not the token existed, and a token
+another client holds is refused. `/api/oauth/introspect` (RFC 7662) tells a
+client whether one of its own tokens is still live, with its scope and expiry;
+anything else, another client's token included, is `active: false` and nothing
+more. Neither ends the connected app, which stays under Settings, Applications
+for the company to turn off. A registration no company has approved a week after
+it was made is removed by the worker; one any company approved is kept.
 
 ## Using it
 
@@ -133,6 +207,15 @@ set held by whoever approved it.
 The MCP endpoint is `POST /api/mcp`, speaking JSON-RPC. A `GET` answers 405
 with an `Allow` header rather than 404, because this server has no
 server-initiated event stream and a 404 would send somebody checking their URL.
+A request with no usable credential answers 401 with the OAuth challenge, and
+an expired or revoked token says `invalid_token` so the client refreshes.
+
+OAuth lives beside it: `/.well-known/oauth-authorization-server`,
+`/.well-known/oauth-protected-resource`, `POST /api/oauth/register`,
+`/oauth/authorize`, `POST /api/oauth/token`, `POST /api/oauth/revoke` and
+`POST /api/oauth/introspect`. Over HTTP a dry run is the
+`x-otos-dry-run: true` header on a route the OpenAPI document marks
+`x-dry-run`.
 
 The underlying routes are the same ones in the OpenAPI document at
 `packages/api/openapi.json`, generated from the contracts.
@@ -146,18 +229,50 @@ requests do.
 **Why is a tool missing from my list?** You do not hold its permissions. Call
 it anyway and the refusal will name what to ask for.
 
-**Can I connect over stdio?** Not yet. HTTP only.
+**Can I connect over stdio?** Yes, two ways: the bridge in `packages/sdk` to a
+hosted instance, or the server in `packages/api` beside the database. Both take
+an app token.
 
-**Does it support OAuth?** Not yet. Bearer tokens from a connected application,
-or a browser session.
+**Does it support OAuth?** Yes, the authorization code flow with PKCE that the
+MCP specification describes, for public clients and for confidential ones with a
+secret, with revocation and introspection. See Setup.
 
-**Can an agent add a custom field or edit a workflow rule?** Not yet. Those
-routes exist in the product but the tools for them are part of the unfinished
-half of this module.
+**Can an agent see what a change would do first?** Yes, on the bulk tools and the
+tools that change how the company is set up: send `dryRun: true`.
+
+**Can an agent add a custom field or edit a workflow rule?** Yes, with the same
+permissions as the screens. `otos_define_custom_field` and `otos_update_custom_field`
+need `customfield:write`, as Settings, Custom fields does; `otos_define_custom_object`
+defines a kind of record (a permit, an inspection) and its fields are then
+`otos_define_custom_field` on `object:<key>`; `otos_get_workflow` reads a workflow's
+trigger, conditions and steps with `workflow:read`, and `otos_create_workflow` and
+`otos_publish_workflow` write and publish one with `workflow:write`, refused when it
+names a step the person the agent acts for could not publish. Records of a company's
+own kinds are `otos_list_custom_records` and `otos_create_custom_record`, under
+`record:read` and `record:write`.
+
+**Is there somewhere safe to try things?** Yes, a sandbox: a second company holding a
+copy of this one's settings and none of its customers. `otos_create_sandbox` makes
+one, `otos_get_sandbox_copy_plan` says what copying each setting back would do, and
+`otos_copy_back_from_sandbox` copies the chosen ones, all or none, after a dry run if
+asked. All three need `sandbox:manage`. M29 has what is copied and what is not.
 
 ## What is not built
 
-Stdio transport. OAuth for remote clients. Tools for defining custom fields and
-objects. Tools for editing workflow rules. A dry-run mode on bulk operations. A
-sandbox tenant. The plugin APIs for custom job workflows, pricing rules and
-report types.
+The plugin APIs for custom job workflows, pricing rules and report types. An app
+token belongs to one company, so an agent connected to the real company reaches its
+sandbox only through the sandbox routes, and an agent working inside a sandbox needs a
+token issued there.
+
+OAuth introspection answers a client about its own tokens only; there is no
+resource server here other than this instance, so nothing else is authorised to
+ask about somebody else's. A confidential client's secret does not expire and
+cannot be rotated: a client whose secret leaked registers again and is approved
+again. Clients authenticate with a secret or not at all; signed JWT assertions
+(`private_key_jwt`) and mutual TLS are not supported. A revoked token ends the
+token, not the connection: the app stays active with nothing live until the
+company turns it off or the client is approved again. The stdio
+transports read their token once at start and check it on every message, so a
+new token means restarting the client. A dry run is offered on seventeen bulk routes:
+the bulk changes and the routes that change how the company is set up, and on no
+route that sends a message or moves money.

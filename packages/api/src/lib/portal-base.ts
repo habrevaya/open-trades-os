@@ -1,3 +1,4 @@
+import { trimTrailingSlashes } from "@opentradesos/core";
 /**
  * WHERE A CUSTOMER'S LINK POINTS
  *
@@ -20,5 +21,5 @@
  */
 export function portalBase(env: Record<string, string | undefined> = process.env): string {
   const value = env["PORTAL_BASE_URL"] || env["PUBLIC_URL"] || env["AUTH_URL"];
-  return (value || "https://portal.example.com").replace(/\/+$/, "");
+  return trimTrailingSlashes((value || "https://portal.example.com"));
 }

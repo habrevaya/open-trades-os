@@ -89,6 +89,23 @@ needed to look at it. The same reasoning applies to the holdings list, which inc
 the lapsed and the revoked: a list of only what is current would silently lose the
 row a compliance officer is looking for.
 
+**Assignment asks this module, one person at a time.** Sending a technician on
+their own is checked against the job type's required skills by asking the
+skill standing for THAT person, not for a group, because Dana's licence does not
+qualify Sam to go alone. Covered clears the skill, even when the person's
+profile forgot it; lapsed and absent refuse it with this module's own sentence,
+even when the profile lists it, because the register knows the date and the
+profile is a string somebody typed.
+
+**For a skill no certification grants, the person's recorded skills decide,
+once the company uses them for that skill.** A technician's skills are recorded
+on the technicians screen. A skill nobody in the company is recorded with
+cannot be checked and does not refuse: every trade pack declares required
+skills on every job type and nothing recorded a technician's skills before this
+check, so refusing on an empty list would have stopped every assignment on the
+day it shipped. Recording the first person who does it is what starts refusing
+everybody who is not recorded with it.
+
 **These tables hold the person and the qualification and never the bytes.** No file
 column, no storage key, no document id. A certificate attaches through the ordinary
 attachment path, which needs nothing from this module.
@@ -118,17 +135,123 @@ expired included and flagged. `/certifications` is the screen.
 ### Ask whether people can do the work
 
 `POST /v1/people/skill-standing` answers it for a set of people and a set of
-required skills, and says why not when the answer is no. This is the function the
-crew check is meant to call.
+required skills, and says why not when the answer is no. The crew check calls
+it for the crew, and assignment calls it for each technician sent on their own
+(`POST /v1/visits/{id}/assign`, booking with a technician, and the dispatch
+suggestions at `GET /v1/dispatch/suggestions`).
+
+### Record what each technician does
+
+`/schedule/technicians` records a technician's skills, beside any
+certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`,
+along with their own working hours and whether their location is shared while
+they work (see M09 and M11). `POST /v1/technicians/{id}/photo` sets or clears
+the photograph a customer sees beside their first name on a tracking link.
+`GET /v1/technicians` lists them.
+
+### Onboarding
+
+`/people/onboarding` keeps a checklist per role: documents to collect,
+training to give, equipment to hand over (`POST /v1/onboarding-checklist`).
+`POST /v1/people/{membershipId}/onboarding` copies the checklist for the
+person's role onto them, once per line, so running it again after the
+checklist grows adds only the new lines and editing the checklist never
+rewrites what somebody already part way through was asked. Each line is
+ticked with who and when, and a note of what was collected or handed over
+(`POST /v1/onboarding-lines/{id}`). A person is onboarded when every required
+line is done, not when a percentage gets close.
+
+### Documents people sign themselves
+
+`/people/documents` holds the words the company asks its own people to sign:
+the handbook, the drug and alcohol policy, the vehicle use agreement
+(`POST /v1/staff-documents`, `GET /v1/staff-documents`). The words cannot be
+edited afterwards, because a signature is worth what the record of what was
+signed is worth: a new version is a new document, and retiring the old one
+(`POST /v1/staff-documents/{id}/retire`) stops anybody new being asked and
+keeps every signature it has. People are asked from the document's page or
+their own (`POST /v1/staff-documents/{id}/requests`), and asking twice asks
+once. A document line on a role's onboarding checklist can be one the person
+signs: starting their onboarding asks them, and their signature ticks the
+line. `GET /v1/staff-documents/{id}` says who signed, when, and how.
+
+Each person signs from their own record, by typing their name or drawing it.
+The signature is kept as every signature in the product is, a
+`document_signature` with their name and email, the moment, the address and
+browser it came from, and a hash of the exact words they were shown; a drawing
+is kept as a picture beside it.
+
+### A person's own record
+
+`/me` is the record of whoever is signed in, for everybody, on a phone first
+(`GET /v1/me`): the documents waiting for their signature, their onboarding,
+who to ring if they are hurt, the facts of their employment, and for somebody
+who goes out to jobs their certifications with when each runs out and the
+continuing education toward each renewal. They do three things to it
+themselves: sign what they were asked to sign
+(`POST /v1/me/documents/{requestId}/sign`), tick their own onboarding lines
+and untick the ones they ticked (`POST /v1/me/onboarding-lines/{id}`), and keep
+the people to ring (`POST /v1/me/emergency-contacts`,
+`POST /v1/me/emergency-contacts/{id}/remove`). Their pay is on `/me/pay` and
+their time off on `/me/time-off` (M17).
+
+None of these takes a person: each is the signed in person's own membership,
+from the session, so a line, a contact or a document of anybody else's is not
+found. Reading anybody else's record is still `user:read`. All of it is
+`profile:own`, which every preset holds.
+
+### Who to ring, and the facts of their employment
+
+`POST /v1/people/{membershipId}/emergency-contacts` keeps who to ring, in the
+order to ring them, each with a number. `PUT /v1/people/{membershipId}/employment`
+keeps the start and end date, the employment type, how they are paid (hourly,
+salary, piece rate, commission only) and the id payroll knows them by. Never
+what they are paid: that is payroll's, behind `payroll:read`. All of it is the
+roster's, `user:read` to read and `user:write` to change, and it is on
+`/people`, where somebody with nobody on file to ring is said in words.
+
+### Skills with dates and evidence
+
+`POST /v1/technicians/{technicianId}/skills` records a skill with since when
+and what showed it (who signed it off, the course, the test), and puts it on
+the list the assignment check reads. `POST /v1/technician-skills/{id}/end`
+takes it off with the day and the reason and keeps the record, so "could Sam
+braze in March" still has an answer. Evidence is required. A skill on the
+list with no record says so on the person's page.
+
+### Continuing education
+
+`POST /v1/technicians/{technicianId}/continuing-education` logs hours of a
+course toward a certification type, and a type can say how many hours a
+renewal needs. `GET /v1/technicians/{technicianId}/continuing-education`
+counts the hours since the current holding was issued against that, so the
+hours behind the last renewal do not count twice. It is a compliance record,
+`compliance:read` and `compliance:write`, beside the register.
+
+### A job that needs more than its type
+
+`PUT /v1/jobs/{id}/required-skills` gives one job skills beyond its type's: a
+lift ticket for a rooftop unit, a confined space entry for a crawlspace. They
+are checked wherever the type's are, for a technician sent alone and for a
+crew, at booking and in the suggestions. The job's page takes them.
 
 ## Permissions
 
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | The roster. Not the certifications, under the presets as they stand |
+| Office manager, branch manager | The roster. Not the certifications, under the presets as they stand |
 | Dispatcher, CSR, technician | Neither |
 | Accountant | Neither |
+| Everybody | Their own record on `/me`, and nothing of anybody else's |
+
+Onboarding, emergency contacts, the employment record, skills and the
+documents people are asked to sign are read with `user:read` and changed with
+`user:write`, which the office manager preset does not hold, because it is
+also what assigns roles. A company that wants its office manager keeping these
+records grants it by name.
+
+Everybody holds `profile:own`: their own record, and nobody else's.
 
 ## API
 
@@ -143,6 +266,27 @@ crew check is meant to call.
 | `POST /v1/certifications/{id}/status` | `compliance:write` |
 | `GET /v1/certifications/expiring` | `compliance:read` |
 | `POST /v1/people/skill-standing` | `compliance:read` |
+| `GET /v1/technicians` | `visit:read` |
+| `PATCH /v1/technicians/{id}` | `user:write` |
+| `GET /v1/roster` | `user:read` |
+| `GET /v1/people/{membershipId}` | `user:read` |
+| `POST /v1/people/{membershipId}/onboarding` | `user:write` |
+| `POST /v1/people/{membershipId}/emergency-contacts` | `user:write` |
+| `PUT /v1/people/{membershipId}/employment` | `user:write` |
+| `POST /v1/technicians/{technicianId}/skills` | `user:write` |
+| `POST /v1/technicians/{technicianId}/continuing-education` | `compliance:write` |
+| `PUT /v1/jobs/{id}/required-skills` | `job:write` |
+| `POST /v1/technicians/{id}/photo` | `user:write` |
+| `GET /v1/staff-documents` | `user:read` |
+| `GET /v1/staff-documents/{id}` | `user:read` |
+| `POST /v1/staff-documents` | `user:write` |
+| `POST /v1/staff-documents/{id}/retire` | `user:write` |
+| `POST /v1/staff-documents/{id}/requests` | `user:write` |
+| `GET /v1/me` | `profile:own` |
+| `POST /v1/me/emergency-contacts` | `profile:own` |
+| `POST /v1/me/emergency-contacts/{id}/remove` | `profile:own` |
+| `POST /v1/me/onboarding-lines/{id}` | `profile:own` |
+| `POST /v1/me/documents/{requestId}/sign` | `profile:own` |
 
 ## Common questions
 
@@ -150,18 +294,29 @@ crew check is meant to call.
 bytes belong to the attachment path, which already handles any entity, and a second
 place to put a file is a second reference count to get wrong.
 
-**Can a technician see their own certifications?** Not under the presets: reading
-the register needs `compliance:read`, which the technician preset does not hold. A
-company that wants that grants it.
+**Can a technician see their own certifications?** Yes, their own, on `/me`, with
+when each runs out and whether the office has seen the card. The register of
+everybody's needs `compliance:read`, which the technician preset does not hold.
 
-**Does a lapsed licence stop dispatch?** The standing check answers that it has
-lapsed and says so. Wiring that answer into individual technician assignment is not
-done; crews are checked against skills as strings today.
+**Does a lapsed licence stop dispatch?** Yes. A lapsed or revoked certification
+for a skill the work needs refuses the assignment with the person's name and the
+date it ran out, for a crew and for a technician sent alone. Somebody holding
+`visit:assign_unqualified` can send them anyway with a reason, which the audit
+log keeps beside the refusal.
 
 ## What is not built
 
-The skill standing answer is not wired into technician assignment, so the only
-qualification refusal in the product is still the crew check against opaque strings.
-Continuing education hours are not tracked, only the resulting certification. There
-is no onboarding checklist, no emergency contact and no employment record: this is a
-qualification register beside a roster, not an HR system.
+This is a qualification register and the office's record of each person, not
+an HR system. Certificates and scans attach through the ordinary attachment
+path; the documents people sign are text written here, not uploaded files, and
+a signed one cannot be printed as a PDF yet. A person keeps their own
+emergency contacts and nothing else of their record: a new address or phone
+number goes to the office. A person can tick any line of their own onboarding,
+and the office sees that they ticked it rather than the office. A skill's
+record has no expiry of its own: only a certification can say until when.
+Continuing education counts hours toward a renewal and does not check that a
+course is one the authority accepts, and a person cannot log their own hours.
+Editing the list of skills on the technicians screen does not end their
+records here; a skill taken off that way is called out on the person's page
+until its record is ended. Signing through the API records no address or
+browser, because the route does not see them; the screen does.

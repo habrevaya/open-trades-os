@@ -3,6 +3,7 @@
 import { attempt, field, fields, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
+import { todayIn } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { apps } from "@opentradesos/api/services";
 
@@ -19,7 +20,8 @@ export type AppsState = FormState;
  * it on with nobody having approved it.
  */
 export async function act(_previous: AppsState, form: FormData): Promise<AppsState> {
-  const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+  const user = await requireSetupUser();
+  const ctx = { actor: user.actor, db: getDb() };
   const op = String(form.get("op") ?? "");
 
   const state = await attempt(form, async () => {
@@ -54,7 +56,7 @@ export async function act(_previous: AppsState, form: FormData): Promise<AppsSta
             value: issued.token,
             caption:
               `Copy this now. It is not stored and cannot be shown again, and it expires on `
-              + `${issued.expiresAt.toISOString().slice(0, 10)}.`,
+              + `${todayIn(user.organizationTimezone, issued.expiresAt)}.`,
           },
         };
       }
@@ -70,12 +72,34 @@ export async function act(_previous: AppsState, form: FormData): Promise<AppsSta
         });
         return { message: "Turned off, and its credentials with it." };
 
+      case "approve": {
+        const { app, returnTo } = await apps.approve(ctx, { id: String(form.get("id") ?? "") });
+        return {
+          message: `${app.name} is approved. It collects its credential itself, once.`,
+          ...(returnTo ? { link: returnTo } : {}),
+        };
+      }
+
+      case "refuse": {
+        const { app, returnTo } = await apps.refuse(ctx, {
+          id: String(form.get("id") ?? ""),
+          ...(field(form, "reason") ? { reason: field(form, "reason")! } : {}),
+        });
+        return {
+          message: `${app.name} was refused and holds nothing.`,
+          ...(returnTo ? { link: returnTo } : {}),
+        };
+      }
+
       default:
         throw new Error(`Unknown op: ${op}`);
     }
   });
 
-  if (state?.done) revalidatePath("/settings/apps");
+  if (state?.done) {
+    revalidatePath("/settings/apps");
+    if (op === "approve" || op === "refuse") revalidatePath(`/settings/apps/requests/${String(form.get("id") ?? "")}`);
+  }
   return state;
 }
 

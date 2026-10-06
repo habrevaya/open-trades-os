@@ -4,6 +4,7 @@ import { pk, timestamps, money } from "./_shared";
 import { organization, user, technician } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * INTEGRATIONS
@@ -39,6 +40,10 @@ export const capability = pgEnum("capability", [
   "payments", "telephony", "messaging", "email", "accounting", "maps", "routing",
   "storage", "calendar", "payroll", "financing", "tax", "ai_model", "reviews",
   "ads", "analytics", "lead_source",
+  /** Speech to text, for call recordings and voicemails. */
+  "transcription",
+  /** A mail house that prints and posts postcards and letters. */
+  "direct_mail",
 ]);
 
 export const connectionStatus = pgEnum("connection_status", [
@@ -101,6 +106,34 @@ export const integrationSecret = pgTable("integration_secret", {
 }, (t) => ({
   uniq: uniqueIndex("integration_secret_org_name_idx").on(t.organizationId, t.name),
   keyIdx: index("integration_secret_key_idx").on(t.keyId),
+}));
+
+/**
+ * DRIVE TIMES, ASKED ONCE
+ *
+ * The road network's answer for one pair of points, kept so the optimiser,
+ * the rebalance and a customer refreshing their tracking link do not ask the
+ * routing provider the same question every time. Keyed on the two points
+ * rounded to about eleven metres (`geo.coordinateKey`) and on the provider,
+ * so connecting a different one is not answered from another's cache.
+ *
+ * `expires_at` is the provider's: a self hosted OSRM's answers are kept for
+ * weeks because roads change slowly, a commercial one's only as long as its
+ * terms allow. An expired pair is asked again; the worker deletes the rest.
+ */
+export const travelTime = pgTable("travel_time", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  originKey: text("origin_key").notNull(),
+  destinationKey: text("destination_key").notNull(),
+  minutes: integer("minutes").notNull(),
+  meters: integer("meters"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => ({
+  pairIdx: uniqueIndex("travel_time_pair_idx").on(t.organizationId, t.provider, t.originKey, t.destinationKey),
+  expiresIdx: index("travel_time_expires_idx").on(t.expiresAt),
 }));
 
 export const syncDirection = pgEnum("sync_direction", ["inbound", "outbound", "bidirectional"]);
@@ -166,6 +199,35 @@ export const accountingEntityKind = pgEnum("accounting_entity_kind", [
    * is never sent twice.
    */
   "refund",
+  /**
+   * A credit note this company issued, as a QuickBooks CreditMemo or a Xero
+   * ACCRECCREDIT. Its own kind rather than `credit_memo`, which is the
+   * document a void or a write off of an INVOICE becomes and is keyed by the
+   * invoice's id: a credit note has its own id and its own number sequence,
+   * and one kind for both would make "is this credit note in the books" and
+   * "is this invoice's write off in the books" the same row.
+   */
+  "credit_note",
+  /**
+   * A credit note put against an invoice over there: a zero payment linking
+   * the two in QuickBooks, an Allocation in Xero. The entity id is the
+   * `credit_note_application` row, or the credit note's own id for the one
+   * settlement a void makes, which no application row can share.
+   */
+  "credit_note_application",
+  /**
+   * An issued credit note taken back. It goes as an invoice for the same
+   * lines, dated the day of the void and settled against the credit note,
+   * rather than as either book's own void: see `pushOutbound` for why. The
+   * entity id is the credit note's id.
+   */
+  "credit_note_void",
+  /**
+   * A manual journal, as a QuickBooks JournalEntry or a Xero manual journal.
+   * The entity id is the `journal_entry` row; a reversal is a journal of its
+   * own and goes as one.
+   */
+  "journal",
 ]);
 
 /**
@@ -381,6 +443,28 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
   connectionId: uuid("connection_id").references(() => integrationConnection.id, { onDelete: "set null" }),
   /** "angi", "thumbtack", "neighbrium", "ahs", "carrier-dealer". */
   source: text("source").notNull(),
+  /**
+   * The channel every lead from this sender is credited to. `source` above
+   * is the sender's own name and is free text, because the senders are not a
+   * closed set; this is what the reports group by, chosen from the company's
+   * channel list when the connector is set up.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  /**
+   * The tracking campaign under that channel its leads are credited to, when
+   * the company buys from this sender under one ("Thumbtack: spring AC"), so
+   * a marketplace lead lands on the same funnel row as the campaign's spend.
+   */
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
+  /**
+   * How leads from this sender arrive, which decides how the webhook is
+   * verified and read: `webhook` (the signed generic endpoint), `angi`,
+   * `thumbtack` and `yelp` (each platform's own post, verified its own way),
+   * or `email` (read from a notification email forwarded to the company's
+   * lead inbox, where `source` says which platform).
+   */
+  kind: text("kind").notNull().default("webhook"),
   displayName: text("display_name").notNull(),
   /** Decline automatically when accepting would breach capacity. */
   autoAcceptEnabled: boolean("auto_accept_enabled").notNull().default(false),
@@ -459,6 +543,14 @@ export const leadOffer = pgTable("lead_offer", {
   estimatedValue: money("estimated_value"),
   /** Offers usually expire fast. Speed to lead is the whole game. */
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /**
+   * What the marketplace charged for this lead, when it says. Written as spend
+   * on the day it arrived as well, so a marketplace's cost reaches the funnel
+   * without anybody typing it; kept here so the offer can say what it cost.
+   */
+  charge: money("charge"),
+  /** When the customer or the office last wrote on the lead, through the marketplace. */
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
 
   /** Set once accepted and materialized. */
   customerId: uuid("customer_id").references(() => customer.id, { onDelete: "set null" }),
@@ -481,6 +573,91 @@ export const leadOffer = pgTable("lead_offer", {
   payoutIdx: index("lead_offer_payout_idx").on(t.organizationId, t.payoutReconciledAt),
 }));
 
+/**
+ * A MESSAGE ON A LEAD, THROUGH THE MARKETPLACE THAT SOLD IT
+ *
+ * Thumbtack and Yelp keep the conversation with the customer on their side,
+ * and a reply that does not go back through them does not reach the person
+ * at all: the customer's number is often withheld and the platform's relay is
+ * the only way to them. So these are not texts or emails and are not kept
+ * with them. They are the lead's own thread, in order, each with the
+ * platform's id for it so a message posted twice is kept once.
+ *
+ * An outbound row is written BEFORE the platform is asked, as `sending`, and
+ * marked `sent` or `failed` with the platform's words after, so a reply is
+ * never sent twice by a double press and never lost by a crash in between.
+ */
+export const leadOfferMessage = pgTable("lead_offer_message", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  offerId: uuid("offer_id").notNull().references(() => leadOffer.id, { onDelete: "cascade" }),
+  /** `inbound` from the customer, `outbound` from the office. */
+  direction: text("direction").notNull(),
+  body: text("body").notNull(),
+  /** The platform's id for the message. Null for an outbound one until the platform names it. */
+  externalId: text("external_id"),
+  /** `received`, `sending`, `sent` or `failed`. */
+  state: text("state").notNull(),
+  /** The platform's words when it refused or could not be reached. */
+  error: text("error"),
+  sentByUserId: uuid("sent_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** When it was written, by the platform's clock for an inbound one. */
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  threadIdx: index("lead_offer_message_thread_idx").on(t.offerId, t.at),
+  externalIdx: uniqueIndex("lead_offer_message_external_idx").on(t.offerId, t.externalId)
+    .where(sql`${t.externalId} is not null`),
+}));
+
+/**
+ * THE COMPANY'S LEAD INBOX: one address the marketplaces' lead emails are
+ * forwarded to, `leads+TOKEN@` the company's receiving domain. One per
+ * company, with a token that decides the company when an email arrives and
+ * is replaced when somebody rotates it.
+ */
+export const leadInbox = pgTable("lead_inbox", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: uniqueIndex("lead_inbox_org_idx").on(t.organizationId),
+  tokenIdx: uniqueIndex("lead_inbox_token_idx").on(t.token),
+}));
+
+/**
+ * EVERY EMAIL THE LEAD INBOX RECEIVED, AND WHAT BECAME OF IT
+ *
+ * Kept whether or not it made a lead. An email this could not read is the one
+ * somebody most needs to see: a platform changed its layout, a customer left
+ * their number out, or a mailbox sent the confirmation code for the
+ * forwarding rule being set up. `excerpt` is the words, cut short, never the
+ * HTML, because nothing here renders what a stranger sent.
+ */
+export const leadEmail = pgTable("lead_email", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The email provider's id for it, which makes a redelivery the same email. */
+  providerMessageId: text("provider_message_id").notNull(),
+  fromAddress: text("from_address").notNull(),
+  subject: text("subject"),
+  /** Which marketplace it came from, when that could be told. */
+  platform: text("platform"),
+  /** `lead`, `message` (the customer wrote again on a lead already here), `duplicate` or `unreadable`. */
+  outcome: text("outcome").notNull(),
+  /** Why it could not be read, in words. */
+  reason: text("reason"),
+  offerId: uuid("offer_id").references(() => leadOffer.id, { onDelete: "set null" }),
+  excerpt: text("excerpt"),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  providerIdx: uniqueIndex("lead_email_provider_idx").on(t.organizationId, t.providerMessageId),
+  recentIdx: index("lead_email_recent_idx").on(t.organizationId, t.receivedAt),
+}));
+
 // ---------------------------------------------------------------------------
 // Connected applications
 // ---------------------------------------------------------------------------
@@ -491,7 +668,29 @@ export const connectedAppStatus = pgEnum("connected_app_status", [
   "active",
   /** Turned off, permanently. A reinstall is a new row with a new grant. */
   "revoked",
+  /**
+   * Asked, and told no. Apart from `revoked` because the two are different
+   * facts about the past: a revoked app once held a grant and may have used
+   * it, a refused one never held anything. An operator reading the list after
+   * an incident asks exactly that question.
+   */
+  "refused",
 ]);
+
+/**
+ * HOW AN APP CAME TO BE ASKED FOR.
+ *
+ * `operator`  somebody here installed and approved it in one step.
+ * `request`   the app asked, through the install URL, and waited.
+ * `oauth`     a remote MCP client asked through the authorization flow.
+ *
+ * Kept because the three end differently. A requested app collects its
+ * credential once with the secret it was given when it asked; an OAuth client
+ * collects short lived tokens through the token endpoint; an operator's app is
+ * handed a token on the screen. A row that cannot say which it is makes every
+ * one of those paths guess.
+ */
+export const connectedAppSource = pgEnum("connected_app_source", ["operator", "request", "oauth"]);
 
 /**
  * A third party that may act against this company's instance.
@@ -536,9 +735,49 @@ export const connectedApp = pgTable("connected_app", {
   revokedByUserId: uuid("revoked_by_user_id").references(() => user.id, { onDelete: "set null" }),
   revokedReason: text("revoked_reason"),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  source: connectedAppSource("source").notNull().default("operator"),
+  /**
+   * THE REQUEST, WHILE IT IS ONE.
+   *
+   * Columns on the app rather than a table of their own, because a request
+   * and the app it asks to become are one row with one status: two tables
+   * would be two places to ask whether this thing is pending, and the day
+   * they disagree an app is approved on one screen and waiting on another.
+   */
+  /** Where the person deciding is sent back to, with the outcome. Https only. */
+  redirectUri: text("redirect_uri"),
+  /** An opaque value the app chose, echoed back with the outcome so it can match it up. */
+  requestState: text("request_state"),
+  /** Where the request came from, as the app server saw it. For the person deciding. */
+  requestedFrom: text("requested_from"),
+  /**
+   * A request nobody answers dies rather than waiting forever. An approval
+   * three months later is a decision about an app that has probably moved on,
+   * made by somebody who has forgotten what it was.
+   */
+  requestExpiresAt: timestamp("request_expires_at", { withTimezone: true }),
+  /**
+   * SHA-256 of the secret the app was handed when it asked, and must present
+   * to collect its credential. The app's proof that it is the one that asked:
+   * the request id travels through a browser and is not a secret.
+   */
+  claimHash: text("claim_hash"),
+  /** When the credential was handed over. Once, and never again. */
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  refusedAt: timestamp("refused_at", { withTimezone: true }),
+  refusedByUserId: uuid("refused_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  refusedReason: text("refused_reason"),
+  /**
+   * The OAuth client this app is, when it arrived through the authorization
+   * flow. One app per client per company, so authorizing the same client
+   * again changes its grant rather than adding a second app nobody can tell
+   * from the first.
+   */
+  oauthClientId: text("oauth_client_id"),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("connected_app_org_idx").on(t.organizationId, t.status),
+  oauthIdx: index("connected_app_oauth_idx").on(t.organizationId, t.oauthClientId),
 }));
 
 /**
@@ -571,6 +810,115 @@ export const appToken = pgTable("app_token", {
 }, (t) => ({
   hashIdx: uniqueIndex("app_token_hash_idx").on(t.tokenHash),
   appIdx: index("app_token_app_idx").on(t.appId),
+}));
+
+// ---------------------------------------------------------------------------
+// OAuth for remote MCP clients
+// ---------------------------------------------------------------------------
+
+/**
+ * A CLIENT THAT REGISTERED ITSELF.
+ *
+ * Remote MCP clients register before they know which company they will be
+ * pointed at, which is why this is the one table in the section with no
+ * `organization_id`: a registration is a name and a list of addresses to send
+ * a code back to, and nothing about any company. Row level security is on and
+ * no policy admits the application role, so it is read and written only
+ * through the two functions in `sql/after.sql`, the same posture as the rate
+ * limit table.
+ *
+ * A registration grants nothing. Everything a client can do is decided when a
+ * person at a company approves it, and recorded on that company's
+ * `connected_app` row.
+ */
+export const oauthClient = pgTable("oauth_client", {
+  /** The `client_id` handed back at registration. Random, and not a secret. */
+  clientId: text("client_id").primaryKey(),
+  name: text("name").notNull(),
+  /** Exact strings. A code is only ever sent to one of these, compared byte for byte. */
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  /** Where the registration came from, so an operator can see a burst of them. */
+  registeredFrom: text("registered_from"),
+  /**
+   * How the client proves who it is at the token, revocation and
+   * introspection endpoints. `none` for a public client, which has nothing to
+   * prove with and is held to PKCE instead; `client_secret_basic` or
+   * `client_secret_post` for a confidential one, a client that runs on its
+   * maker's own server and can keep a secret there.
+   */
+  authMethod: text("token_endpoint_auth_method").notNull().default("none"),
+  /**
+   * SHA-256 of a confidential client's secret. The secret is handed back once,
+   * in the registration answer, and never stored: a table that held it would
+   * be a list of every assistant's password. Null for a public client.
+   */
+  secretHash: text("secret_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A ONE TIME CODE, HANDED THROUGH A BROWSER.
+ *
+ * Lives ten minutes, works once, and is bound to everything the client said
+ * when it asked: the address it is sent to, the PKCE challenge only the client
+ * can answer, and the grant the person approved. The code travels in a URL
+ * and ends up in browser history, which is exactly why possessing it is not
+ * enough: the token endpoint wants the verifier behind the challenge too.
+ */
+export const oauthCode = pgTable("oauth_code", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  appId: uuid("app_id").notNull().references(() => connectedApp.id, { onDelete: "cascade" }),
+  clientId: text("client_id").notNull(),
+  /** SHA-256 of the code. The code itself is never stored. */
+  codeHash: text("code_hash").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  /** BASE64URL(SHA-256(verifier)). Only S256 is accepted; `plain` is refused at the door. */
+  codeChallenge: text("code_challenge").notNull(),
+  /** The scope as approved, space separated, echoed in the token response. */
+  scope: text("scope").notNull(),
+  /** The resource the client named, when it named one. Checked again at the token endpoint. */
+  resource: text("resource"),
+  approvedByUserId: uuid("approved_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Set on the first exchange. A second exchange revokes what the first produced. */
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  /** The access token the exchange issued, so a replayed code can kill it. */
+  issuedTokenId: uuid("issued_token_id"),
+  /** The refresh token family it started, for the same reason. */
+  familyId: uuid("family_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  codeIdx: uniqueIndex("oauth_code_hash_idx").on(t.codeHash),
+}));
+
+/**
+ * A REFRESH TOKEN, ROTATED ON EVERY USE.
+ *
+ * Every refresh hands back a new one and marks the old one used. A used one
+ * presented again means two parties hold the same token, and there is no way
+ * to tell which is the client: so the whole family is revoked, and the client
+ * that was legitimate asks its person to connect again. That is the cost of
+ * noticing a theft, and it is much smaller than not noticing one.
+ */
+export const oauthRefreshToken = pgTable("oauth_refresh_token", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  appId: uuid("app_id").notNull().references(() => connectedApp.id, { onDelete: "cascade" }),
+  clientId: text("client_id").notNull(),
+  /** Every token descended from one authorization shares this. */
+  familyId: uuid("family_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  scope: text("scope").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  /** The access token issued beside this refresh token, revoked with the family. */
+  accessTokenId: uuid("access_token_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tokenIdx: uniqueIndex("oauth_refresh_token_hash_idx").on(t.tokenHash),
+  familyIdx: index("oauth_refresh_token_family_idx").on(t.organizationId, t.familyId),
 }));
 
 // ---------------------------------------------------------------------------

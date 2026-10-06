@@ -61,10 +61,36 @@ const ESCALATES: Record<string, { also: Permission; when: string; service: strin
   setPurchaseOrderStatus: {
     also: "po:approve",
     when:
-      "Submitting an order for approval demands it; every other transition takes "
-      + "`po:write`. Declaring both would tell a reader and an agent that moving an "
-      + "order back to draft needs approval authority, which it does not.",
+      "Submitting an order no approval step applies to demands it; an order the steps "
+      + "apply to is sent on `po:write` once every step has approved it, and every other "
+      + "transition takes `po:write`. Declaring both would tell a reader and an agent that "
+      + "moving an order back to draft needs approval authority, which it does not.",
     service: "inventory.ts",
+  },
+  assignVisit: {
+    also: "visit:assign_unqualified",
+    when:
+      "Only when the caller overrides a qualification refusal with a reason. An ordinary "
+      + "assignment of somebody qualified takes `visit:dispatch` alone, and declaring both "
+      + "would tell an agent it cannot put a qualified technician on a visit without the "
+      + "authority to send an unqualified one.",
+    service: "qualification.ts",
+  },
+  closeTask: {
+    also: "task:write",
+    when:
+      "Unless the task is the caller's own and they are marking it done. Finishing your own "
+      + "task is the same class of act as claiming it and takes `task:read`; dismissing one, "
+      + "or closing anybody else's, is the office's and takes `task:write`.",
+    service: "tasks.ts",
+  },
+  visitPaymentLink: {
+    also: "invoice:send",
+    when:
+      "Unless the caller is the technician on the visit. A card link for the job in front of "
+      + "you takes `payment:collect`; minting one for any other job's invoice is sending an "
+      + "invoice, and takes the permission that does that.",
+    service: "field-payments.ts",
   },
 };
 

@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { invoiceDelivery } from "@opentradesos/api/services";
+import { financing, invoiceDelivery } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
-import { PayNow } from "../../PayNow";
+import { PayInvoice } from "../../PayInvoice";
 import { startPayment } from "./actions";
+import { PayOverTime } from "../../Financing";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,9 @@ export default async function InvoicePage({
    * usually a second or two later. The page says so rather than showing a
    * balance that looks as if the payment did not take.
    */
+  /** What the lender offers on this balance, if the company has a lender. Never a reason the page fails. */
+  const loan = await financing.portalInvoice(getDb(), { token }).catch(() => null);
+
   const returned = typeof query["redirect_status"] === "string" ? query["redirect_status"] : null;
 
   return (
@@ -73,15 +77,20 @@ export default async function InvoicePage({
           {invoice.issuedOn && invoice.dueOn && " · "}
           {invoice.dueOn && <>Due {day(invoice.dueOn)}</>}
         </p>
+        <p className="mt-2 text-sm">
+          <a href={`/i/${token}/pdf`} className="underline underline-offset-4">Download a PDF of this invoice</a>
+        </p>
       </header>
 
       <Summary invoice={invoice} returned={returned} />
 
       {invoice.payable && returned !== "succeeded" && returned !== "processing" && (
         invoice.onlinePaymentAvailable ? (
-          <PayNow
+          <PayInvoice
             start={startPayment.bind(null, token)}
-            balance={money(invoice.balance, invoice.currency)}
+            balance={invoice.balance}
+            currency={invoice.currency}
+            tipping={invoice.tipping}
           />
         ) : (
           <div className="rounded-md border border-steel-200 bg-canvas p-5 text-sm text-ink-700">
@@ -99,6 +108,11 @@ export default async function InvoicePage({
         )
       )}
 
+      {loan ? (
+        <PayOverTime token={token} lender={loan.lender} application={loan.application}
+                     options={[{ optionId: null, name: null, offer: loan.offer, applicable: true }]} />
+      ) : null}
+
       <Lines invoice={invoice} />
 
       {invoice.payments.length > 0 && (
@@ -113,6 +127,16 @@ export default async function InvoicePage({
                 <span className="shrink-0 font-mono tabular-nums">
                   {money(p.amount, invoice.currency)}
                 </span>
+              </li>
+            ))}
+            {invoice.tips.map((t, i) => (
+              <li key={`tip-${t.receivedAt}-${i}`} className="flex justify-between gap-4 text-ink-500">
+                {/*
+                  Beside the payments, not counted in them: a tip is not money
+                  on the invoice, and the balance above never included it.
+                */}
+                <span>Tip for the technicians, {day(t.receivedAt)}</span>
+                <span className="shrink-0 font-mono tabular-nums">{money(t.amount, invoice.currency)}</span>
               </li>
             ))}
           </ul>

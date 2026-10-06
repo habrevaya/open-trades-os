@@ -125,9 +125,9 @@ stores it under `<PROVIDER>_CREDENTIAL` and points the connection there.
 ## Provider addresses are fixed
 
 Every adapter talks to its provider's own address. The `baseUrl` and
-`tokenUrl` settings exist so the test suites can point an adapter at a local
-fake, and they are refused on connect and ignored if found in a stored
-connection, unless the server is started with
+`tokenUrl` settings (and Nominatim's `endpoint`) exist so the test suites can
+point an adapter at a local fake, and they are refused on connect and ignored
+if found in a stored connection, unless the server is started with
 
 ```
 ALLOW_PROVIDER_BASE_URL=1
@@ -136,3 +136,30 @@ ALLOW_PROVIDER_BASE_URL=1
 Never set this outside a test environment. With it set, anybody who can
 connect an integration can send the provider credential the server holds to a
 host of their choosing.
+
+That covers every provider: payments, accounting, financing, texts, calls on
+Twilio (numbers, recordings, the browser phone), call transcripts, email, AI
+models, call tracking, the geocoders, drive times, the ad platforms (including
+their sign in and token exchange), the lead marketplaces and direct mail. A
+self hosted server is set for the whole deployment, by whoever runs it, rather
+than on a company's connection: `NOMINATIM_URL` for OpenStreetMap,
+`OSRM_URL` or `OPENROUTESERVICE_URL` for drive times, `WHISPER_URL` for
+transcripts.
+
+## Addresses a company does choose
+
+Two addresses are the company's by design, because there is no provider's own
+address to fall back to: an SMTP connection's `host` and `port`, and an
+outbound webhook endpoint's URL (https only). The server connects to them from
+its own network. No server secret travels to them (an SMTP password is the
+company's own secret, read from its own namespace, and a webhook is signed
+with the endpoint's own secret), but neither is checked against private,
+loopback or link-local addresses, so somebody holding `integration:write` can
+make the server open a connection inside the network it runs in. A webhook
+endpoint's delivery history keeps the start of whatever the receiver answered,
+so that is a request whose answer they can read.
+
+On a deployment serving several companies, run the web app and the worker
+with outbound traffic to private ranges (`10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, `127.0.0.0/8`, `169.254.0.0/16`, `fc00::/7`, `::1`) blocked
+at the network, which covers both and anything added later.

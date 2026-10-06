@@ -110,7 +110,7 @@ describe("connection settings", () => {
     expect(offenders).toEqual([]);
     // Every adapter reading `baseUrl` declares it as an endpoint.
     for (const [provider, settings] of Object.entries(connectors.CONNECTOR_SETTINGS)) {
-      for (const key of ["baseUrl", "tokenUrl"]) {
+      for (const key of ["baseUrl", "tokenUrl", "endpoint"]) {
         if (settings[key]) expect(settings[key]!.endpoint, `${provider}.${key}`).toBe(true);
       }
     }

@@ -1,7 +1,9 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { assertCan, taskRules } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, decodeCursor, paginate, NotFoundError, ConflictError, type ServiceContext,
+  audit, guardedRead, guardedWrite, decodeCursor, paginate, NotFoundError, ConflictError,
+  type ServiceContext,
 } from "./context";
 
 /**
@@ -14,17 +16,18 @@ import {
  * queue create work for other people is a different thing, and a queue anybody
  * can add to stops being a queue anybody reads.
  *
- * WHAT A READER MAY DO IS CLAIM, AND ONLY CLAIM. This comment used to say a
- * technician "can be handed a task and complete it", and `close` has always taken
- * `task:write`, which the technician preset does not hold. So the sentence was
- * false in the direction that matters: somebody reading it would build a role on
- * it.
+ * WHAT A READER MAY DO WITH THEIR OWN WORK: CLAIM IT, TICK IT, FINISH IT. A
+ * technician can take an unclaimed task, tick its checklist, and mark a task
+ * assigned to them done, with `task:read`, because each of those is acting on
+ * your own work, the same class of act as clocking yourself in. It used to stop
+ * at claiming, which left a technician who picked work off the queue unable to
+ * say they had done it, and the office finishing it for them from a phone call.
  *
- * The asymmetry that leaves is real and is stated rather than smoothed over. A
- * technician can take an unclaimed task, which sets it in progress, and cannot
- * then close it: finishing is the office's. Whether that is right is a product
- * decision and not one to make by widening a permission here, so it is named in
- * `docs/modules/m34-tasks-and-the-office-queue.md` instead.
+ * The rule is narrow on purpose, and it is in `close` rather than in a wider
+ * grant. Only a task assigned to the caller, and only finishing it: dismissing
+ * one ("we decided not to") is a judgement about whether the work was worth
+ * raising and stays with `task:write`, and so does closing anybody else's. The
+ * product decision behind it is in `docs/modules/m34-tasks-and-the-office-queue.md`.
  */
 
 export type TaskView = "mine" | "unassigned" | "overdue" | "all";
@@ -38,6 +41,30 @@ export interface TaskInput {
   assigneeUserId?: string | undefined;
   queue?: string | undefined;
   dueAt?: Date | undefined;
+  /** Things to tick off inside it, in order. */
+  checklist?: string[] | undefined;
+}
+
+/**
+ * Write a task's checklist, in order, inside the transaction that made it.
+ *
+ * Exported for the recurring pass, which copies a template's list onto each
+ * task it raises: the copy is per task, so ticking Monday's does not tick
+ * Tuesday's.
+ */
+export async function writeChecklist(
+  tx: Database, organizationId: string, taskId: string, labels: readonly string[], from = 0,
+): Promise<void> {
+  const clean = labels.map((label) => label.trim()).filter((label) => label !== "");
+  if (from + clean.length > taskRules.MAX_CHECKLIST_ITEMS) {
+    throw new ConflictError(
+      `A checklist holds ${taskRules.MAX_CHECKLIST_ITEMS} items at most. A longer one is a procedure, and belongs in a form.`,
+    );
+  }
+  if (clean.length === 0) return;
+  await tx.insert(schema.taskChecklistItem).values(clean.map((label, i) => ({
+    organizationId, taskId, label: label.slice(0, 300), position: from + i,
+  })));
 }
 
 /**
@@ -78,6 +105,14 @@ export async function list(
       task: schema.task,
       assigneeName: schema.user.name,
       assigneeEmail: schema.user.email,
+      /** How far through its checklist, for the queue to say "2 of 5" without opening it. */
+      /**
+       * The identifiers are written out rather than interpolated: in a select
+       * list Drizzle renders a column bare, and a bare "id" inside this
+       * subquery would be the checklist item's own id.
+       */
+      checklistTotal: sql<number>`(select count(*)::int from public.task_checklist_item i where i.task_id = "task"."id")`,
+      checklistDone: sql<number>`(select count(*)::int from public.task_checklist_item i where i.task_id = "task"."id" and i.done_at is not null)`,
     })
       .from(schema.task)
       .leftJoin(schema.user, eq(schema.user.id, schema.task.assigneeUserId))
@@ -108,13 +143,37 @@ export async function list(
     const now = Date.now();
     return {
       ...page,
-      data: page.data.map(({ task, assigneeName, assigneeEmail }) => ({
+      data: page.data.map(({ task, assigneeName, assigneeEmail, checklistTotal, checklistDone }) => ({
         ...task,
         assigneeName: assigneeName ?? assigneeEmail,
+        checklistTotal: Number(checklistTotal),
+        checklistDone: Number(checklistDone),
         overdue: task.dueAt !== null
           && task.dueAt.getTime() < now
           && (task.status === "open" || task.status === "in_progress"),
       })),
+    };
+  });
+}
+
+/**
+ * One task, for its own page: where its checklist is ticked and where a task
+ * with items unticked is closed with a reason.
+ */
+export async function get(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "task:read", async (tx) => {
+    const [row] = await tx.select().from(schema.task).where(eq(schema.task.id, input.id)).limit(1);
+    if (!row) throw new NotFoundError("Task");
+    const named = row.assigneeUserId
+      ? (await tx.execute<{ name: string | null; email: string }>(
+        sql`select name, email from app.organization_people() where user_id = ${row.assigneeUserId}::uuid`,
+      ))[0]
+      : undefined;
+    return {
+      ...row,
+      assigneeName: named ? (named.name ?? named.email) : null,
+      overdue: row.dueAt !== null && row.dueAt.getTime() < Date.now()
+        && (row.status === "open" || row.status === "in_progress"),
     };
   });
 }
@@ -154,6 +213,7 @@ export async function create(ctx: ServiceContext, input: TaskInput) {
       dueAt: input.dueAt ?? null,
       createdByUserId: ctx.actor.userId,
     }).returning();
+    await writeChecklist(tx, ctx.actor.organizationId, created!.id, input.checklist ?? []);
 
     await audit(tx, ctx, "task.created", "task", created!.id, null, created);
     return created!;
@@ -234,12 +294,22 @@ export async function update(
  */
 export async function close(
   ctx: ServiceContext,
-  input: { id: string; outcome?: string; dismissed?: boolean },
+  input: { id: string; outcome?: string; dismissed?: boolean; overrideReason?: string },
 ) {
-  return guardedWrite(ctx, "task:write", async (tx) => {
+  return guardedWrite(ctx, "task:read", async (tx) => {
     const [before] = await tx.select().from(schema.task)
       .where(eq(schema.task.id, input.id)).limit(1);
     if (!before) throw new NotFoundError("Task");
+
+    /**
+     * FINISHING YOUR OWN TASK NEEDS ONLY `task:read`; everything else here
+     * needs `task:write`. Checked before anything else is said about the
+     * task, so somebody without the right to close it learns nothing from the
+     * refusal about its state.
+     */
+    const ownFinish = before.assigneeUserId === ctx.actor.userId && input.dismissed !== true;
+    if (!ownFinish) assertCan(ctx.actor, "task:write");
+
     if (before.completedAt) throw new ConflictError("That task is already closed");
 
     if (input.dismissed && !input.outcome?.trim()) {
@@ -248,9 +318,24 @@ export async function close(
       throw new ConflictError("Say why it was dismissed");
     }
 
+    /**
+     * A checklist with items unticked closes as done only with a reason, and
+     * the reason is kept apart from the outcome. See `core/tasks`.
+     */
+    const items = await tx.select({ doneAt: schema.taskChecklistItem.doneAt })
+      .from(schema.taskChecklistItem)
+      .where(eq(schema.taskChecklistItem.taskId, input.id));
+    const verdict = taskRules.closeVerdict({
+      items: items.map((item) => ({ done: item.doneAt !== null })),
+      dismissed: input.dismissed ?? false,
+      overrideReason: input.overrideReason,
+    });
+    if (!verdict.ok) throw new ConflictError(verdict.message);
+
     const [after] = await tx.update(schema.task).set({
       status: input.dismissed ? "dismissed" : "done",
       outcome: input.outcome?.trim() || null,
+      checklistOverrideReason: verdict.overrideReason,
       completedAt: new Date(),
       completedByUserId: ctx.actor.userId,
       updatedAt: new Date(),
@@ -297,7 +382,8 @@ const onTheWire = (row: {
   entityType: string | null; entityId: string | null; assigneeUserId: string | null;
   assigneeName: string | null; queue: string | null; dueAt: Date | null;
   completedAt: Date | null; outcome: string | null; raisedByRunId: string | null;
-  createdAt: Date; overdue: boolean;
+  createdAt: Date; overdue: boolean; escalatedAt: Date | null;
+  checklistTotal: number; checklistDone: number; templateId: string | null;
 }) => ({
   id: row.id,
   title: row.title,
@@ -315,6 +401,10 @@ const onTheWire = (row: {
   raisedByRunId: row.raisedByRunId,
   createdAt: row.createdAt.toISOString(),
   overdue: row.overdue,
+  escalatedAt: row.escalatedAt?.toISOString() ?? null,
+  checklistTotal: row.checklistTotal,
+  checklistDone: row.checklistDone,
+  templateId: row.templateId,
 });
 
 export const handlers = {
@@ -338,10 +428,11 @@ export const handlers = {
       title: string; body?: string | undefined; priority?: TaskInput["priority"];
       entityType?: string | undefined; entityId?: string | undefined;
       assigneeUserId?: string | undefined; queue?: string | undefined;
-      dueAt?: string | undefined;
+      dueAt?: string | undefined; checklist?: string[] | undefined;
     },
   ) => ({
     id: (await create(ctx, {
+      ...(input.checklist !== undefined ? { checklist: input.checklist } : {}),
       title: input.title,
       ...(input.body !== undefined ? { body: input.body } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
@@ -381,10 +472,14 @@ export const handlers = {
 
   closeTask: async (
     ctx: ServiceContext,
-    input: { id: string; outcome?: string | undefined; dismissed?: boolean | undefined },
+    input: {
+      id: string; outcome?: string | undefined; dismissed?: boolean | undefined;
+      overrideReason?: string | undefined;
+    },
   ) => {
     const after = await close(ctx, {
       id: input.id,
+      ...(input.overrideReason !== undefined ? { overrideReason: input.overrideReason } : {}),
       ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
       ...(input.dismissed !== undefined ? { dismissed: input.dismissed } : {}),
     });

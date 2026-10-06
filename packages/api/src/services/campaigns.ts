@@ -1,13 +1,18 @@
 import { randomBytes, createHash } from "node:crypto";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { campaign as cp, comms } from "@opentradesos/core";
+import { campaign as cp, comms, resolveMembership, tags as tagRules, SYSTEM_USER_ID, type Actor, type Permission, type RoleId } from "@opentradesos/core";
 import * as commsSend from "./comms-send";
 import * as email from "./email";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
+import { render } from "../lib/render";
+import { REVENUE_SQL } from "./marketing";
+import { senderFor } from "./phone-numbers";
+import { within } from "./workflow-schedule";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * SENDING TO THE LIST THE COMPANY ALREADY OWNS
@@ -70,7 +75,7 @@ import { refusingDuplicate } from "./duplicates";
  * clauses, which is why none of them repeats `organization_id`: a clause that
  * looks like the protection is how the real protection stops being checked.
  */
-function clauseFor(rule: cp.AudienceRule) {
+export function clauseFor(rule: cp.AudienceRule) {
   switch (rule.kind) {
     case "no_job_since":
       /**
@@ -178,8 +183,17 @@ function clauseFor(rule: cp.AudienceRule) {
       )`;
 
     case "tagged_any":
-      /** `?|` is jsonb's "any of these appears", which is what the column is. */
-      return sql`c.tags ?| ${sql.param(rule.tags.map((tag) => tag.trim()))}::text[]`;
+      /**
+       * Through `customer_tag`, compared by the case blind key, so "vip"
+       * reaches the customers tagged "VIP" exactly as the customer list's tag
+       * filter does. It used to be jsonb's `?|` on the list, which matched the
+       * spelling as typed and read every customer's list to do it; the key
+       * index answers this without reading anybody's list.
+       */
+      return sql`c.id in (
+        select ct.customer_id from public.customer_tag ct
+        where ct.tag_key = any(${sql.param([...new Set(rule.tags.map(tagRules.tagKey).filter((key) => key !== ""))])}::text[])
+      )`;
 
     case "open_deficiency":
       /**
@@ -284,7 +298,7 @@ export const MAX_AUDIENCE = 25_000;
  * kind) must refuse rather than reach `clauseFor` and hit the `never` branch
  * as a 500.
  */
-function parseRules(raw: unknown): cp.AudienceRule[] {
+export function parseRules(raw: unknown): cp.AudienceRule[] {
   const list = Array.isArray(raw) ? raw : [];
   const verdict = cp.checkAudience(list as cp.AudienceRule[]);
   if (!verdict.ok) {
@@ -315,10 +329,72 @@ export interface CampaignInput {
   name: string;
   channel: "sms" | "email";
   audience: cp.AudienceRule[];
-  body: string;
+  /** The words. Optional only when `templateCode` names a message template to start from. */
+  body?: string | undefined;
   subject?: string | null | undefined;
+  /**
+   * A message template (M18) to take the body and subject from. Copied in,
+   * not linked: a campaign's words are fixed when it goes, and editing the
+   * template next month must not change what this campaign says it sent.
+   */
+  templateCode?: string | undefined;
   utmCampaign?: string | undefined;
   messagingCampaignId?: string | null | undefined;
+}
+
+/**
+ * A template's words, for a campaign on the same channel.
+ *
+ * Its placeholders are the templates' own syntax and are checked against the
+ * campaign merge fields by `checkContent` like a body typed by hand, so a
+ * template written for an arrival notice (`{{ visit.window }}`) is refused
+ * here rather than sent with a hole in it.
+ */
+async function templateWords(
+  tx: Database, organizationId: string, code: string, channel: "sms" | "email",
+): Promise<{ body: string; subject: string | null }> {
+  const [row] = await tx.select({
+    body: schema.messageTemplate.body,
+    subject: schema.messageTemplate.subject,
+    channel: schema.messageTemplate.channel,
+  }).from(schema.messageTemplate)
+    .where(and(
+      eq(schema.messageTemplate.organizationId, organizationId),
+      eq(schema.messageTemplate.code, code),
+      eq(schema.messageTemplate.active, true),
+      isNull(schema.messageTemplate.deletedAt),
+    )).limit(1);
+  if (!row) throw new NotFoundError(`Message template "${code}"`);
+  if (row.channel !== channel) {
+    throw new ConflictError(`"${code}" is a ${row.channel} template and this is a ${channel} campaign.`);
+  }
+  return { body: row.body, subject: row.subject };
+}
+
+/**
+ * What the company is called and the number a customer would ring, for the
+ * merge fields. The main number rather than the sending one, because "ring
+ * us on" a number bought to absorb complaint rates is a number the customer
+ * should not be given.
+ */
+async function companyScope(tx: Database, organizationId: string) {
+  const [org] = await tx.select({ name: schema.organization.name })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const main = await senderFor(tx, organizationId, { smsRequired: false, purpose: "conversation" });
+  return { companyName: org?.name ?? "", companyPhone: main?.e164 ?? null };
+}
+
+/** One recipient's words: the body and subject with the merge fields filled in. */
+function personalise(
+  words: { body: string; subject: string | null },
+  scope: { companyName: string; companyPhone: string | null },
+  customerName: string,
+) {
+  const values = cp.mergeScope({ customerName, ...scope });
+  return {
+    body: render(words.body, values),
+    subject: words.subject ? render(words.subject, values) : null,
+  };
 }
 
 function checkContent(input: {
@@ -339,7 +415,14 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
     if (!verdict.ok) {
       throw new ConflictError(verdict.refusals.map((r) => r.message).join(" "));
     }
-    checkContent(input);
+    const fromTemplate = input.templateCode
+      ? await templateWords(tx, ctx.actor.organizationId, input.templateCode, input.channel)
+      : null;
+    const words = {
+      body: input.body?.trim() || fromTemplate?.body || "",
+      subject: input.subject?.trim() || fromTemplate?.subject || null,
+    };
+    checkContent({ channel: input.channel, subject: words.subject, body: words.body });
 
     const utmCampaign = (input.utmCampaign?.trim() || utmFor(name));
 
@@ -363,8 +446,8 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
         name,
         channel: input.channel,
         audience: verdict.rules as unknown as Record<string, unknown>[],
-        body: input.body.trim(),
-        subject: input.channel === "email" ? (input.subject?.trim() ?? null) : null,
+        body: words.body,
+        subject: input.channel === "email" ? words.subject : null,
         utmCampaign,
         messagingCampaignId: input.messagingCampaignId ?? null,
         createdByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
@@ -660,6 +743,9 @@ export function preview(ctx: ServiceContext, input: {
   channel?: "sms" | "email" | undefined;
   audience?: cp.AudienceRule[] | undefined;
   sample?: number | undefined;
+  /** Words to render against the first recipient, when previewing an unsaved campaign. */
+  body?: string | undefined;
+  subject?: string | null | undefined;
 }) {
   return guardedRead(ctx, "campaign:read", async (tx) => {
     let channel: "sms" | "email";
@@ -688,6 +774,25 @@ export function preview(ctx: ServiceContext, input: {
     const count = overflow ? MAX_AUDIENCE : candidates.length;
     const sample = Math.min(input.sample ?? 20, 100);
 
+    /**
+     * THE MESSAGE AS THE FIRST PERSON ON THE LIST WILL READ IT, merge fields
+     * filled in by the same renderer the send uses. "Hi {{ customer.firstName }}"
+     * is a template; "Hi Maria" is what somebody checks before four thousand
+     * of them go out, and it is the version that shows a field that came out
+     * empty.
+     */
+    const words = input.id
+      ? await loadWithin(tx, ctx, input.id).then((row) => ({ body: row.body, subject: row.subject }))
+      : input.body ? { body: input.body, subject: input.subject ?? null } : null;
+    const scope = await companyScope(tx, ctx.actor.organizationId);
+    const first = candidates[0];
+    const rendered = words
+      ? {
+        for: first?.name ?? null,
+        ...personalise(words, scope, first?.name ?? cp.MERGE_FIELDS[1].example),
+      }
+      : null;
+
     return {
       count,
       /**
@@ -700,6 +805,7 @@ export function preview(ctx: ServiceContext, input: {
       overflow,
       inWords: cp.describeAudience(rules),
       pace: cp.pace(count, limits),
+      rendered,
       sample: candidates.slice(0, sample).map((c) => ({
         customerId: c.customerId, name: c.name, address: c.address,
       })),
@@ -765,6 +871,14 @@ export interface SendReport {
  */
 export function send(ctx: ServiceContext, input: { id: string; at?: string | undefined }) {
   return guardedWrite(ctx, "campaign:write", async (tx): Promise<SendReport> => {
+    /**
+     * THE ROW IS LOCKED FOR THE BATCH. A person pressing send while the worker
+     * fires the same campaign is two senders selecting the same recipients,
+     * and the unique index only catches that after the email half has queued
+     * its messages in their own transactions. The second sender waits here,
+     * then finds the recipients already written and selects nobody.
+     */
+    await tx.execute(sql`select id from public.marketing_campaign where id = ${input.id} for update`);
     const row = await loadWithin(tx, ctx, input.id);
     const at = input.at ? new Date(input.at) : new Date();
 
@@ -832,16 +946,36 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
       return true;
     });
 
-    const plan = cp.pace(fresh.length, limits);
+    /**
+     * THE DAILY CAP IS A DAY, NOT A CALL. `pace` answers how many one batch
+     * may take; what has already gone in the last twenty four hours comes
+     * off it, so a second press the same afternoon, or the worker coming
+     * round again five seconds later, does not send a second day's worth into
+     * a carrier that will reject it.
+     */
+    const [sentToday] = await tx.select({ n: sql<number>`count(*)::int` })
+      .from(schema.campaignRecipient)
+      .where(and(
+        eq(schema.campaignRecipient.campaignId, row.id),
+        eq(schema.campaignRecipient.state, "queued"),
+        sql`${schema.campaignRecipient.queuedAt} > ${new Date(at.getTime() - 86_400_000).toISOString()}::timestamptz`,
+      ));
+    const capLeft = limits.dailyCap === null
+      ? null
+      : Math.max(0, limits.dailyCap - (sentToday?.n ?? 0));
+    const plan = cp.pace(fresh.length, { perSecond: limits.perSecond, dailyCap: capLeft });
     const batch = fresh.slice(0, plan.firstBatch);
     const remaining = fresh.length - batch.length;
+    const scope = await companyScope(tx, ctx.actor.organizationId);
 
     for (const candidate of batch) {
+      /** Their own words: "Hi Maria" rather than "Hi {{ customer.firstName }}". */
+      const words = personalise({ body: row.body, subject: row.subject }, scope, candidate.name);
       const outcome = channel === "sms"
         ? await commsSend.sendMarketing(tx, {
           organizationId: ctx.actor.organizationId,
           address: candidate.address,
-          body: row.body,
+          body: words.body,
           customerId: candidate.customerId,
           at,
         })
@@ -849,8 +983,8 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
           campaignId: row.id,
           address: candidate.address,
           customerId: candidate.customerId,
-          subject: row.subject ?? "",
-          body: row.body,
+          subject: words.subject ?? "",
+          body: words.body,
           at,
         });
 
@@ -956,7 +1090,7 @@ async function sendCampaignEmail(tx: Database, ctx: ServiceContext, input: {
  * silently does not work.
  */
 function baseUrl(): string {
-  return (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/+$/, "");
+  return trimTrailingSlashes((process.env["PUBLIC_BASE_URL"] ?? ""));
 }
 
 /**
@@ -995,6 +1129,136 @@ export async function mintUnsubscribe(tx: Database, organizationId: string, inpu
   });
 
   return { token, url: `${base}/api/v1/public/unsubscribe/${token}` };
+}
+
+/* ------------------------------------------------------------ the clock */
+
+export interface DueResult {
+  campaignId: string;
+  organizationId: string;
+  action: "sent" | "waiting" | "skipped";
+  reason?: string;
+  queued?: number;
+  remaining?: number;
+}
+
+/**
+ * The person a scheduled send acts as: whoever wrote the campaign, with what
+ * they hold NOW.
+ *
+ * Not a system actor granted `campaign:write`. Building an actor and handing
+ * it the permission its own guard checks is the moment that guard stops
+ * meaning anything, and the next caller in a hurry does the same. A scheduled
+ * send is the author's own action, deferred, so it is checked against the
+ * author's membership at the moment it fires: somebody whose access was taken
+ * away on Tuesday does not send a campaign on Wednesday.
+ */
+async function authorOf(tx: Database, row: typeof schema.marketingCampaign.$inferSelect): Promise<Actor | null> {
+  if (!row.createdByUserId) return null;
+  const [member] = await tx.select({
+    role: schema.membership.role,
+    grants: schema.membership.grants,
+    revocations: schema.membership.revocations,
+    active: schema.membership.active,
+    customPermissions: schema.role.permissions,
+  }).from(schema.membership)
+    .leftJoin(schema.role, eq(schema.role.id, schema.membership.roleId))
+    .where(and(
+      eq(schema.membership.organizationId, row.organizationId),
+      eq(schema.membership.userId, row.createdByUserId),
+    )).limit(1);
+  if (!member || !member.active) return null;
+  const resolved = resolveMembership({
+    role: member.role as RoleId,
+    ...(member.customPermissions
+      ? { customRole: { permissions: member.customPermissions as Permission[], scopes: {} } }
+      : {}),
+    grants: member.grants as Permission[],
+    revocations: member.revocations as Permission[],
+  });
+  return {
+    userId: row.createdByUserId,
+    organizationId: row.organizationId,
+    roles: [],
+    grants: resolved.permissions,
+  };
+}
+
+/**
+ * FIRE WHAT IS DUE. `scheduled_for` was stored for a long time and fired by
+ * nothing, so a staged send was one press per batch for as many days as the
+ * carrier's cap made it. The worker calls this every pass.
+ *
+ * Three things keep it from doing harm, and each is a reason it waits rather
+ * than refusing:
+ *
+ *   QUIET HOURS. Inside the company's window it does nothing and comes back.
+ *   Sending would write every recipient as skipped for `quiet_hours`, which
+ *   is permanent: a scheduled campaign that fired at 9.05pm would reach
+ *   nobody, ever.
+ *
+ *   THE DAILY CAP. `send` takes what is left of the last twenty four hours'
+ *   cap and no more, so coming round every few seconds is harmless.
+ *
+ *   IDEMPOTENCE. `send` locks the campaign and never re-selects a recipient
+ *   already written, so two workers, or a worker and a person pressing the
+ *   button, send each person one message.
+ */
+export async function sendDue(
+  db: Database,
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
+): Promise<DueResult[]> {
+  const now = options.now ?? new Date();
+  const rows = within(options.only, await db.execute<{ organization_id: string; campaign_id: string }>(
+    sql`select organization_id, campaign_id from app.due_campaigns(${options.limit ?? 50})`,
+  ));
+  const results: DueResult[] = [];
+  for (const due of rows) {
+    if (options.shouldStop?.()) break;
+    const base = { campaignId: due.campaign_id, organizationId: due.organization_id };
+    try {
+      const system: ServiceContext = {
+        actor: { userId: SYSTEM_USER_ID, organizationId: due.organization_id, roles: [], agentId: "campaigns" },
+        db,
+      };
+      const ready = await inTenant(system, async (tx) => {
+        const [row] = await tx.select().from(schema.marketingCampaign)
+          .where(eq(schema.marketingCampaign.id, due.campaign_id)).limit(1);
+        if (!row) return { wait: "gone" } as const;
+        const quiet = await commsSend.quietHoursFor(tx, due.organization_id, now);
+        if (quiet.window && comms.inQuietHours(quiet.localHour, quiet.window)) {
+          return { wait: "quiet_hours" } as const;
+        }
+        const limits = await limitsWithin(tx, due.organization_id, row);
+        if (limits.dailyCap !== null) {
+          const [today] = await tx.select({ n: sql<number>`count(*)::int` })
+            .from(schema.campaignRecipient)
+            .where(and(
+              eq(schema.campaignRecipient.campaignId, row.id),
+              eq(schema.campaignRecipient.state, "queued"),
+              sql`${schema.campaignRecipient.queuedAt} > ${new Date(now.getTime() - 86_400_000).toISOString()}::timestamptz`,
+            ));
+          if ((today?.n ?? 0) >= limits.dailyCap) return { wait: "daily_cap" } as const;
+        }
+        const author = await authorOf(tx, row);
+        return author ? { author } as const : { wait: "no_author" } as const;
+      });
+      if ("wait" in ready) {
+        results.push({ ...base, action: "waiting", reason: ready.wait });
+        continue;
+      }
+      const report = await send({ actor: ready.author, db }, { id: due.campaign_id, at: now.toISOString() });
+      results.push({ ...base, action: "sent", queued: report.queued, remaining: report.remaining });
+    } catch (error) {
+      /**
+       * One campaign's refusal (its author lost the permission, its carrier
+       * registration was withdrawn) must not stop the clock for every other
+       * company. The campaign stays due and the reason is in the log.
+       */
+      results.push({ ...base, action: "skipped", reason: (error as Error).message });
+    }
+  }
+  return results;
 }
 
 /* --------------------------------------------------------------- handlers */
@@ -1096,10 +1360,17 @@ export function results(ctx: ServiceContext, input: { id: string }) {
     const row = await loadWithin(tx, ctx, input.id);
     const tally = await tallyWithin(tx, row.id);
 
+    /**
+     * Revenue is `marketing.REVENUE_SQL`, the one definition every marketing
+     * figure shares: what the ledger recognised on the job, without the tax
+     * and with voids and credits taken off. This used to sum `job.total`, a
+     * figure on the job, so the campaign and the attribution report disagreed
+     * about the same work by the sales tax.
+     */
     const [work] = await tx.execute<{ jobs: string; revenue: string | null }>(sql`
-      select count(*)::text as jobs, coalesce(sum(j.total), 0)::text as revenue
-      from public.job j
-      where j.campaign_id = ${row.id} and j.deleted_at is null
+      select count(*)::text as jobs, coalesce(sum(${sql.raw(REVENUE_SQL)}), 0)::text as revenue
+      from public.job job
+      where job.campaign_id = ${row.id} and job.deleted_at is null
     `);
 
     const [replies] = await tx.execute<{ n: string }>(sql`

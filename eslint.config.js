@@ -107,6 +107,17 @@ export default tseslint.config(
    * any package's build, so nothing else here has taught eslint that `process`
    * and `console` exist in them.
    */
+  /**
+   * The SDK's MCP bridge, plain JavaScript so `npx` runs it with nothing
+   * built. Node's own globals, and stderr is where it talks.
+   */
+  {
+    files: ["packages/sdk/bin/**/*.mjs"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly", URL: "readonly", fetch: "readonly", NodeJS: "readonly" },
+    },
+  },
+
   {
     files: ["scripts/**/*.mjs"],
     languageOptions: {

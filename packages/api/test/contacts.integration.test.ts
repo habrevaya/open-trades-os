@@ -6,6 +6,7 @@ import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import * as dispatchSvc from "../src/services/dispatch";
 import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import { dispatch } from "../src/http/dispatch";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -367,5 +368,112 @@ run("listing them", () => {
 
   it("refuses a listing scoped to nothing", async () => {
     await expect(contacts.list(owner(), {})).rejects.toBeInstanceOf(ConflictError);
+  });
+});
+
+/**
+ * THE SAME RULES, OVER THE API
+ *
+ * The routes call the functions the customer's page calls, so these check the
+ * wiring and the rules the API adds because it has no option list to lean
+ * on: an address that is not the customer's, and a retried add or remove.
+ */
+run("the contacts API", () => {
+  let key = 0;
+  const call = async (method: string, path: string, body?: unknown, ctx: ServiceContext = owner()) => {
+    key += 1;
+    const response = await dispatch(new Request(`http://x${path}`, {
+      method,
+      headers: { "content-type": "application/json", "idempotency-key": `contacts-api-${Date.now()}-${key}` },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }), { db: db(), resolveSession: async () => ctx });
+    return { status: response.status, body: await response.json() as Record<string, unknown> };
+  };
+
+  it("adds, lists, edits, makes primary and removes a customer's people", async () => {
+    const added = await call("POST", `/v1/customers/${landlordId}/contacts`, {
+      name: "Tess Tenant", phone: TENANT_PHONE, propertyId: rentalId, title: "Tenant",
+    });
+    expect(added.status).toBe(201);
+    expect(added.body).toMatchObject({ customerId: landlordId, propertyId: rentalId, preferredChannel: "sms", isPrimary: false });
+    const tess = added.body["id"] as string;
+
+    const second = await call("POST", `/v1/customers/${landlordId}/contacts`, {
+      name: "Mo Manager", email: "mo@example.test", preferredChannel: "email", isPrimary: true,
+    });
+    const mo = second.body["id"] as string;
+
+    const edited = await call("PATCH", `/v1/contacts/${tess}`, { name: "Tess T.", email: "tess@example.test" });
+    expect(edited.body).toMatchObject({ name: "Tess T.", phone: TENANT_PHONE, email: "tess@example.test" });
+
+    const promoted = await call("POST", `/v1/contacts/${tess}/primary`, {});
+    expect(promoted.body["isPrimary"]).toBe(true);
+    const listed = await call("GET", `/v1/customers/${landlordId}/contacts`);
+    const people = listed.body["contacts"] as Array<{ id: string; isPrimary: boolean; noticeRank: number }>;
+    expect(people.map((p) => p.id)).toEqual([tess, mo]);
+    expect(people.find((p) => p.id === mo)!.isPrimary).toBe(false);
+
+    const gone = await call("POST", `/v1/contacts/${mo}/remove`, {});
+    expect(gone.body).toEqual({ id: mo, removed: true });
+    const after = await call("GET", `/v1/customers/${landlordId}/contacts`);
+    expect((after.body["contacts"] as unknown[]).length).toBe(1);
+  });
+
+  it("holds the API to the page's rules, in words", async () => {
+    const noWay = await call("POST", `/v1/customers/${landlordId}/contacts`, { name: "Nobody" });
+    expect(noWay.status).toBe(409);
+    expect(String(noWay.body["error"] ?? JSON.stringify(noWay.body))).toMatch(/phone number or an email/);
+
+    const wrongChannel = await call("POST", `/v1/customers/${landlordId}/contacts`, {
+      name: "Ed Email", phone: TENANT_PHONE, preferredChannel: "email",
+    });
+    expect(wrongChannel.status).toBe(409);
+
+    const created = await call("POST", `/v1/customers/${landlordId}/contacts`, { name: "Pat", phone: TENANT_PHONE });
+    const cleared = await call("PATCH", `/v1/contacts/${created.body["id"] as string}`, { phone: null });
+    expect(cleared.status).toBe(409);
+  });
+
+  it("refuses an address that is not one of the customer's", async () => {
+    const stranger = await customers.create(owner(), {
+      type: "residential", name: "Sam Stranger", paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
+    });
+    const theirs = await properties.create(owner(), {
+      address: { line1: "9 Elsewhere Ln", city: "Austin", state: "TX", postalCode: "78704", country: "US" },
+      hasDog: false, customFields: {}, customerId: stranger.id, customerRole: "owner",
+    });
+    const refused = await call("POST", `/v1/customers/${landlordId}/contacts`, {
+      name: "Wrong House", phone: TENANT_PHONE, propertyId: theirs.id,
+    });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(refused.body)).toMatch(/not one of this customer's/);
+
+    const fine = await call("POST", `/v1/customers/${landlordId}/contacts`, { name: "Right House", phone: TENANT_PHONE });
+    const moved = await call("PATCH", `/v1/contacts/${fine.body["id"] as string}`, { propertyId: theirs.id });
+    expect(moved.status).toBe(409);
+  });
+
+  it("returns the first answer to a retried add and a retried remove", async () => {
+    const send = (method: string, path: string, body: unknown, idempotencyKey: string) => dispatch(new Request(`http://x${path}`, {
+      method, headers: { "content-type": "application/json", "idempotency-key": idempotencyKey }, body: JSON.stringify(body),
+    }), { db: db(), resolveSession: async () => owner() }).then(async (r) => ({ status: r.status, body: await r.json() as Record<string, unknown> }));
+
+    const first = await send("POST", `/v1/customers/${landlordId}/contacts`, { name: "Once", phone: TENANT_PHONE }, "contact-once");
+    const again = await send("POST", `/v1/customers/${landlordId}/contacts`, { name: "Once", phone: TENANT_PHONE }, "contact-once");
+    expect(again.body["id"]).toBe(first.body["id"]);
+    const [count] = await raw<{ n: number }[]>`select count(*)::int as n from public.contact where organization_id = ${ORG} and name = 'Once'`;
+    expect(count!.n).toBe(1);
+
+    const removed = await send("POST", `/v1/contacts/${first.body["id"] as string}/remove`, {}, "contact-gone");
+    const removedAgain = await send("POST", `/v1/contacts/${first.body["id"] as string}/remove`, {}, "contact-gone");
+    expect(removed.status).toBe(201);
+    expect(removedAgain).toEqual(removed);
+  });
+
+  it("is a customer the caller cannot see for a technician, and closed to writes", async () => {
+    const listed = await call("GET", `/v1/customers/${landlordId}/contacts`, undefined, as(["technician"]));
+    expect(listed.status).toBe(404);
+    const added = await call("POST", `/v1/customers/${landlordId}/contacts`, { name: "T", phone: TENANT_PHONE }, as(["technician"]));
+    expect(added.status).toBe(403);
   });
 });

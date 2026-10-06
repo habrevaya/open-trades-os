@@ -1,6 +1,8 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reviews, ConflictError } from "@opentradesos/api/services";
+import { reviews, reviewSync, ConflictError } from "@opentradesos/api/services";
+import { ActionForm } from "@/components/ActionForm";
+import { answerMatch, syncListings } from "./actions";
 import { Chip } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Empty, PageHeader } from "@/components/Table";
@@ -68,6 +70,10 @@ export default async function ReviewsPage() {
   }
 
   const owed = items.filter((item) => item.recoveryDueAt && !item.recoveredAt);
+  const [listings, suggestions, replies] = await Promise.all([
+    reviewSync.listings(ctx), reviewSync.suggestions(ctx), reviewSync.replyStates(ctx),
+  ]);
+  const unposted = replies.filter((r) => r.replyState === "pending" || r.replyState === "failed");
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -99,6 +105,62 @@ export default async function ReviewsPage() {
           */}
           No reviews recorded yet, which is not the same as a rating of zero.
         </p>
+      )}
+
+      {listings.map((listing) => (
+        <section key={listing.provider} aria-label={listing.label}
+                 className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-steel-200 p-3">
+          <p className="text-sm text-ink-700">
+            {listing.status === "connected"
+              ? <>{listing.site} reviews are read every hour{listing.lastReadAt ? <>, last at {formatIn(new Date(listing.lastReadAt), user.organizationTimezone)}</> : null}. Replies written here are posted back to {listing.site}.</>
+              : <>{listing.label} is set up but nobody has signed in, so nothing is read. Sign in on Settings, Integrations.</>}
+            {listing.lastReadError ? <span className="mt-1 block text-red-600">{listing.lastReadError}</span> : null}
+          </p>
+          {listing.status === "connected" && (
+            <ActionForm action={syncListings} submit={`Fetch from ${listing.site} now`} tone="quiet" className="" />
+          )}
+        </section>
+      ))}
+
+      {suggestions.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-base font-semibold">Who wrote these?</h2>
+          <p className="mt-1 max-w-2xl text-sm text-ink-700">
+            A guess from the name and a recently finished job, never a fact. Nothing is tied to a
+            customer until you say so, because the wrong customer means a stranger&rsquo;s review on a
+            technician&rsquo;s record and a recovery call to somebody who never complained.
+          </p>
+          <ul className="mt-3 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {suggestions.map((s) => (
+              <li key={s.id} className="bg-canvas p-4">
+                <p className="text-sm text-ink-900">
+                  <span className="font-medium">{"★".repeat(s.rating)}</span> by {s.authorName ?? "Anonymous"}: probably{" "}
+                  <a href={`/customers/${s.customerId}`} className="underline underline-offset-4">{s.customerName}</a>
+                </p>
+                <p className="mt-1 text-sm text-ink-500">{s.reason}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <ActionForm action={answerMatch} submit={`Yes, it is ${s.customerName}`} hidden={{ id: s.id, accept: "yes" }} className="" />
+                  <ActionForm action={answerMatch} submit="No, not them" tone="quiet" hidden={{ id: s.id, accept: "no" }} className="" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {unposted.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-base font-semibold">Replies not on the review site yet</h2>
+          <ul className="mt-3 space-y-2">
+            {unposted.map((r) => (
+              <li key={r.id} className="rounded border border-steel-200 p-3 text-sm">
+                {r.replyState === "failed"
+                  ? <span className="text-red-600">{reviewSync.siteName(r.platform)} refused this reply: {r.replyError}</span>
+                  : <span className="text-ink-700">Waiting to be posted{r.replyError ? `: ${r.replyError}` : "."}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {owed.length > 0 && (

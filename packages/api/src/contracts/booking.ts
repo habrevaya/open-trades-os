@@ -71,14 +71,15 @@ export const getAvailability = defineRoute({
   path: "/v1/public/availability",
   summary: "Real openings for a bookable service",
   description:
-    "Derived from business hours, time off, existing commitments and the per-window ceiling. Never a list that was typed in.",
+    "Derived from business hours, the technicians' own days (who is working, who is off, who is qualified for the work and how much of each window is already booked, with work still waiting for somebody taken off first) and the per-window ceiling, which stays the most the company will sell. Never a list that was typed in.",
   module: "M05",
   permissions: [],
   authorization: "public",
   input: z.object({
     organizationSlug: z.string().min(1).max(100),
     bookableServiceId: Uuid,
-    from: z.string().date(),
+    /** Defaults to today where the company is, which is not UTC's today after seven in the evening in Austin. */
+    from: z.string().date().optional(),
     /** Capped server side at the service's own maxAdvanceDays. */
     days: z.number().int().min(1).max(90).default(14),
     postalCode: z.string().max(20).optional(),
@@ -111,6 +112,8 @@ export const BookingRequest = z.object({
   sourceUrl: z.string().nullable(),
   referrer: z.string().nullable(),
   utm: z.record(z.string()),
+  /** The technician a returning customer asked for from their own account, when they asked for one. */
+  preferredTechnicianId: Uuid.nullable(),
   declineReason: z.string().nullable(),
   decidedAt: z.string().datetime().nullable(),
 }).merge(Timestamps);
@@ -345,9 +348,48 @@ export const setBusinessHours = defineRoute({
   output: z.object({ days: z.number().int() }),
 });
 
+/**
+ * A SHARE OF EACH WINDOW HELD FOR MEMBERS
+ *
+ * What a plan's priority dispatch reserves: online booking keeps a share of
+ * each arrival window back from anybody who is not a member, until a set
+ * number of hours before it opens. Holds nothing while no live plan
+ * promises priority, and says so.
+ */
+const MemberHold = z.object({
+  /** Per cent of each window held for members, 0 to 90. Zero holds nothing. */
+  reservePercent: z.number().int().min(0).max(90),
+  /** Hours before a window opens when what is still held is let go to anybody. */
+  releaseHours: z.number().int().min(0).max(336),
+});
+
+export const getMemberHold = defineRoute({
+  method: "get",
+  path: "/v1/booking/member-hold",
+  summary: "The share of each window online booking holds for members",
+  description:
+    "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held.",
+  module: "M08",
+  permissions: ["booking:read"],
+  input: z.object({}),
+  output: MemberHold.extend({ plansWithPriority: z.number().int() }),
+});
+
+export const setMemberHold = defineRoute({
+  method: "put",
+  path: "/v1/booking/member-hold",
+  summary: "Set the share of each window online booking holds for members",
+  description:
+    "Applies to the public widget, to a customer booking from their own account and to a customer asking to move a visit from their link: a member whose plan covers the address is offered the held share, anybody else is not.",
+  module: "M08",
+  permissions: ["booking:configure"],
+  input: MemberHold,
+  output: MemberHold.extend({ plansWithPriority: z.number().int() }),
+});
+
 export const bookingRoutes = {
   createBookableService, setArrivalWindows, setBusinessHours,
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
-  configureBookableService,
+  configureBookableService, getMemberHold, setMemberHold,
 } as const;

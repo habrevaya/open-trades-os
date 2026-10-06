@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { telephony, transcript as tr } from "@opentradesos/core";
 import {
@@ -194,13 +194,24 @@ export interface LogCallInput {
  */
 export async function logCall(ctx: ServiceContext, input: LogCallInput) {
   return guardedWrite(ctx, "message:send", async (tx) => {
+    const inbound = input.direction === "inbound"
+      ? await marketingService.inboundCallFacts(tx, ctx.actor.organizationId, {
+        fromE164: input.fromE164,
+        receivedOnE164: input.receivedOnE164 ?? null,
+        at: input.startedAt ?? new Date(),
+      })
+      : null;
     const [row] = await tx.insert(schema.call).values({
       organizationId: ctx.actor.organizationId,
       direction: input.direction,
       fromE164: input.fromE164,
       toE164: input.toE164,
       receivedOnE164: input.receivedOnE164 ?? null,
-      customerId: input.customerId ?? null,
+      customerId: input.customerId ?? inbound?.customerId ?? null,
+      phoneNumberId: inbound?.phoneNumberId ?? null,
+      channelId: inbound?.channelId ?? null,
+      acquisitionCampaignId: inbound?.campaignId ?? null,
+      firstTimeCaller: inbound?.firstTimeCaller ?? null,
       contactId: input.contactId ?? null,
       jobId: input.jobId ?? null,
       answeredByUserId: input.answeredByUserId ?? null,
@@ -231,7 +242,9 @@ export async function logCall(ctx: ServiceContext, input: LogCallInput) {
     if (input.direction === "inbound" && input.receivedOnE164) {
       await marketingService.recordTouch(tx, ctx.actor.organizationId, {
         at: row!.startedAt ?? new Date(),
-        customerId: input.customerId ?? null,
+        customerId: row!.customerId,
+        callId: row!.id,
+        callerE164: inbound?.callerE164 ?? null,
         trackedNumber: input.receivedOnE164,
       });
     }
@@ -265,39 +278,50 @@ export interface RecordingDecisionInput {
  * null URL, and only one of them must never be retried.
  */
 export async function decideRecording(ctx: ServiceContext, input: RecordingDecisionInput) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
+  return guardedWrite(ctx, "message:send", (tx) => decideRecordingIn(tx, ctx, input));
+}
 
-    if (call.recordingDeletedAt) {
-      throw new ConflictError(
-        "This call's recording was deleted. Granting permission again would only invite somebody to attach another copy of the thing that was destroyed.",
-      );
-    }
+/**
+ * The decision itself, inside a transaction somebody else opened.
+ *
+ * Split out for the company's own tracking numbers, whose carrier webhook has
+ * no actor to hold `message:send` (see `voice.ts`). Granting a synthetic
+ * actor the permission its own guard checks would make the guard mean
+ * nothing, so the webhook calls THIS, the same function the guarded route
+ * calls, and the one decision about recording a call stays in one place.
+ */
+export async function decideRecordingIn(tx: Database, ctx: ServiceContext, input: RecordingDecisionInput) {
+  const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
 
-    const decision = telephony.mayRecord({
-      parties: input.parties,
-      policies: await policies(tx, ctx.actor.organizationId),
-      announcementPlayed: input.announcementPlayed,
-    });
-
-    const now = new Date();
-    await tx.update(schema.call).set({
-      recordingConsent: decision.governing,
-      recordingStartedAt: decision.ok ? (call.recordingStartedAt ?? now) : null,
-      recordingRefusal: decision.ok ? null : decision.reason,
-      announcementPlayedAt: input.announcementPlayed ? (call.announcementPlayedAt ?? now) : null,
-      updatedAt: now,
-    }).where(eq(schema.call.id, call.id));
-
-    await audit(
-      tx, ctx,
-      decision.ok ? "call.recording_permitted" : "call.recording_refused",
-      "call", call.id, null,
-      { governing: decision.governing, ...(decision.ok ? { why: decision.why } : { reason: decision.reason }) },
+  if (call.recordingDeletedAt) {
+    throw new ConflictError(
+      "This call's recording was deleted. Granting permission again would only invite somebody to attach another copy of the thing that was destroyed.",
     );
+  }
 
-    return decision;
+  const decision = telephony.mayRecord({
+    parties: input.parties,
+    policies: await policies(tx, ctx.actor.organizationId),
+    announcementPlayed: input.announcementPlayed,
   });
+
+  const now = new Date();
+  await tx.update(schema.call).set({
+    recordingConsent: decision.governing,
+    recordingStartedAt: decision.ok ? (call.recordingStartedAt ?? now) : null,
+    recordingRefusal: decision.ok ? null : decision.reason,
+    announcementPlayedAt: input.announcementPlayed ? (call.announcementPlayedAt ?? now) : null,
+    updatedAt: now,
+  }).where(eq(schema.call.id, call.id));
+
+  await audit(
+    tx, ctx,
+    decision.ok ? "call.recording_permitted" : "call.recording_refused",
+    "call", call.id, null,
+    { governing: decision.governing, ...(decision.ok ? { why: decision.why } : { reason: decision.reason }) },
+  );
+
+  return decision;
 }
 
 /**
@@ -311,29 +335,39 @@ export async function decideRecording(ctx: ServiceContext, input: RecordingDecis
  * recompute.
  */
 export async function attachRecording(ctx: ServiceContext, callId: string, recordingUrl: string) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const call = await loadCall(tx, ctx.actor.organizationId, callId);
+  return guardedWrite(ctx, "message:send", (tx) => attachRecordingIn(tx, ctx, callId, recordingUrl));
+}
 
-    if (call.recordingDeletedAt) {
-      throw new ConflictError("This call's recording was deleted. It cannot be attached again.");
-    }
-    if (!call.recordingStartedAt) {
-      const because = call.recordingRefusal
-        ? `recording was refused for this call (${call.recordingRefusal})`
-        : "nobody asked whether this call could be recorded";
-      throw new ConflictError(
-        `There is no permission to store a recording of this call, because ${because}. `
-        + "Run the recording check first: a recording attached without one is a recording nobody can say was allowed.",
-      );
-    }
+/**
+ * The attachment, inside a transaction somebody else opened, for the same
+ * reason as `decideRecordingIn`. `storageKey` is set when this product keeps
+ * the audio itself, as a stored file, rather than pointing at somebody
+ * else's copy.
+ */
+export async function attachRecordingIn(
+  tx: Database, ctx: ServiceContext, callId: string, recordingUrl: string, storageKey?: string | undefined,
+) {
+  const call = await loadCall(tx, ctx.actor.organizationId, callId);
 
-    const [row] = await tx.update(schema.call)
-      .set({ recordingUrl, updatedAt: new Date() })
-      .where(eq(schema.call.id, call.id)).returning();
+  if (call.recordingDeletedAt) {
+    throw new ConflictError("This call's recording was deleted. It cannot be attached again.");
+  }
+  if (!call.recordingStartedAt) {
+    const because = call.recordingRefusal
+      ? `recording was refused for this call (${call.recordingRefusal})`
+      : "nobody asked whether this call could be recorded";
+    throw new ConflictError(
+      `There is no permission to store a recording of this call, because ${because}. `
+      + "Run the recording check first: a recording attached without one is a recording nobody can say was allowed.",
+    );
+  }
 
-    await audit(tx, ctx, "call.recording_attached", "call", call.id, null, { recordingUrl });
-    return row!;
-  });
+  const [row] = await tx.update(schema.call)
+    .set({ recordingUrl, ...(storageKey ? { recordingStorageKey: storageKey } : {}), updatedAt: new Date() })
+    .where(eq(schema.call.id, call.id)).returning();
+
+  await audit(tx, ctx, "call.recording_attached", "call", call.id, null, { recordingUrl });
+  return row!;
 }
 
 /**
@@ -353,18 +387,82 @@ export async function attachRecording(ctx: ServiceContext, callId: string, recor
  * lands and nobody has to remember to delete it a second time.
  */
 export async function deleteRecording(ctx: ServiceContext, callId: string, reason: string) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
+  return guardedWrite(ctx, "message:send", (tx) => deleteRecordingIn(tx, ctx, callId, reason));
+}
+
+/**
+ * The deletion, inside a transaction somebody else opened: the guarded route
+ * above and the retention sweep, which runs as the worker.
+ *
+ * When this product kept the audio itself, the stored bytes go too, in the
+ * same statement set: a recording whose row says deleted while its bytes sit
+ * in `stored_file` is a recording that was not deleted. The bytes are only
+ * removed when nothing else points at them, which for a recording is always,
+ * since its key is the hash of a call nobody else had.
+ */
+export async function deleteRecordingIn(tx: Database, ctx: ServiceContext, callId: string, reason: string) {
+  const call = await loadCall(tx, ctx.actor.organizationId, callId);
+  if (call.recordingDeletedAt) return call;
+
+  /**
+   * A transcript of the recording goes with it, in the same statement. The
+   * words are the recording in another form, and a deletion that left them
+   * would be a deletion of the sound only. A voicemail's transcript stays:
+   * deleting a call recording does not delete the message the caller left,
+   * and nor does it delete what the phone assistant heard, which is not of
+   * the recording.
+   * One an integration sent, which cannot say what it was made from, goes
+   * too: the safe reading of "delete the recording" is the one that leaves
+   * no words of the conversation behind.
+   */
+  const recordingTranscript = call.transcriptSource !== "voicemail" && call.transcriptSource !== "assistant";
+  const [row] = await tx.update(schema.call).set({
+    recordingUrl: null,
+    recordingStorageKey: null,
+    recordingDeletedAt: new Date(),
+    ...(recordingTranscript ? {
+      transcript: null, transcriptSegments: null, transcriptText: null, transcriptRedactedAt: null,
+      transcriptRedactionCounts: null, transcriptStatus: null, transcriptSource: null, transcriptError: null,
+    } : {}),
+    updatedAt: new Date(),
+  }).where(eq(schema.call.id, call.id)).returning();
+
+  if (call.recordingStorageKey) {
+    await tx.update(schema.storedFile).set({
+      bytes: Buffer.alloc(0), sizeBytes: 0, deletedAt: new Date(), updatedAt: new Date(),
+    }).where(and(
+      eq(schema.storedFile.organizationId, ctx.actor.organizationId),
+      eq(schema.storedFile.storageKey, call.recordingStorageKey),
+      eq(schema.storedFile.references, 0),
+    ));
+  }
+
+  await audit(tx, ctx, "call.recording_deleted", "call", call.id, { recordingUrl: call.recordingUrl }, { reason });
+  return row!;
+}
+
+/**
+ * The kept audio of one call, for the player on the call screen.
+ *
+ * `message:read`, the permission that reads the call itself: a recording is
+ * the call, and whoever may read the conversation may hear it. Nothing for a
+ * call whose recording was deleted or never kept here.
+ */
+export async function recordingAudio(ctx: ServiceContext, callId: string, which: "recording" | "voicemail" = "recording") {
+  return guardedRead(ctx, "message:read", async (tx) => {
     const call = await loadCall(tx, ctx.actor.organizationId, callId);
-    if (call.recordingDeletedAt) return call;
-
-    const [row] = await tx.update(schema.call).set({
-      recordingUrl: null,
-      recordingDeletedAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(schema.call.id, call.id)).returning();
-
-    await audit(tx, ctx, "call.recording_deleted", "call", call.id, { recordingUrl: call.recordingUrl }, { reason });
-    return row!;
+    const key = which === "recording"
+      ? (call.recordingDeletedAt ? null : call.recordingStorageKey)
+      : call.voicemailStorageKey;
+    if (!key) throw new NotFoundError("Recording");
+    const [file] = await tx.select().from(schema.storedFile)
+      .where(and(
+        eq(schema.storedFile.organizationId, ctx.actor.organizationId),
+        eq(schema.storedFile.storageKey, key),
+        isNull(schema.storedFile.deletedAt),
+      )).limit(1);
+    if (!file) throw new NotFoundError("Recording");
+    return { bytes: file.bytes, contentType: file.contentType, sizeBytes: file.sizeBytes };
   });
 }
 
@@ -373,6 +471,12 @@ export async function deleteRecording(ctx: ServiceContext, callId: string, reaso
 export interface AttachTranscriptInput {
   callId: string;
   segments: readonly tr.RawSegment[];
+  /**
+   * Which of the call's audio the words are of, when this product made the
+   * transcript itself. Null for one an integration sent: it is still kept,
+   * and nothing here can say what it was made from.
+   */
+  source?: "recording" | "voicemail" | "assistant" | null | undefined;
 }
 
 /**
@@ -397,52 +501,104 @@ export interface AttachTranscriptInput {
  * shortcut and it would put the card number back.
  */
 export async function attachTranscript(ctx: ServiceContext, input: AttachTranscriptInput) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
+  return guardedWrite(ctx, "message:send", (tx) => attachTranscriptIn(tx, ctx, input));
+}
 
-    const normalized = tr.normalizeSegments(input.segments);
-    if (!normalized.ok) {
+/**
+ * The same, inside a transaction somebody else opened: the guarded route
+ * above, and the background transcriber, which acts as the system for the
+ * reason `voice.ts` gives about the carrier's webhook.
+ *
+ * A TRANSCRIPT IS A RECORDING BY ANOTHER NAME, so two calls are refused one:
+ * a call where somebody asked not to be recorded, and a call whose recording
+ * was deleted (unless it is the voicemail being written out, which is a
+ * message the caller chose to leave). Writing down every word of a
+ * conversation somebody refused to have recorded keeps exactly what they
+ * refused.
+ */
+export async function attachTranscriptIn(tx: Database, ctx: ServiceContext, input: AttachTranscriptInput) {
+  const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
+
+  if (input.source !== "voicemail") {
+    if (call.recordingRefusal === "party_declined") {
       throw new ConflictError(
-        "This transcript was refused rather than repaired, because a transcript that was quietly straightened out gets believed: "
-        + normalized.defects.map((d) => tr.describeDefect(d)).join(" "),
+        "Somebody on this call asked not to be recorded, so a transcript of it is not kept either: every word written down is the recording they refused.",
       );
     }
+    if (call.recordingDeletedAt) {
+      throw new ConflictError("This call's recording was deleted, and a transcript of it would keep what was deleted.");
+    }
+  }
 
-    const redacted = tr.redactTranscript(normalized.segments);
-    const now = new Date();
+  const normalized = tr.normalizeSegments(input.segments);
+  if (!normalized.ok) {
+    throw new ConflictError(
+      "This transcript was refused rather than repaired, because a transcript that was quietly straightened out gets believed: "
+      + normalized.defects.map((d) => tr.describeDefect(d)).join(" "),
+    );
+  }
 
-    const [row] = await tx.update(schema.call).set({
-      transcript: tr.renderForSummary(redacted.segments),
-      transcriptSegments: redacted.segments.map((s) => ({
-        speaker: s.speaker, startMs: s.startMs, endMs: s.endMs, text: s.text, confidence: s.confidence,
-      })),
-      transcriptRedactedAt: now,
-      transcriptRedactionCounts: redacted.report.countsByCategory,
-      updatedAt: now,
-    }).where(eq(schema.call.id, call.id)).returning();
+  const redacted = tr.redactTranscript(normalized.segments);
+  const now = new Date();
 
-    await audit(tx, ctx, "call.transcript_attached", "call", call.id, null, {
-      segments: redacted.segments.length,
-      redacted: redacted.report.redacted,
-      countsByCategory: redacted.report.countsByCategory,
-    });
+  const [row] = await tx.update(schema.call).set({
+    transcript: tr.renderForSummary(redacted.segments),
+    transcriptSegments: redacted.segments.map((s) => ({
+      speaker: s.speaker, startMs: s.startMs, endMs: s.endMs, text: s.text, confidence: s.confidence,
+    })),
+    /** The search form, from the same redacted segments and with no timestamps in it. */
+    transcriptText: tr.searchDocument(redacted.segments).text,
+    transcriptRedactedAt: now,
+    transcriptRedactionCounts: redacted.report.countsByCategory,
+    transcriptStatus: "done",
+    transcriptSource: input.source ?? null,
+    transcriptError: null,
+    updatedAt: now,
+  }).where(eq(schema.call.id, call.id)).returning();
 
-    return {
-      call: row!,
-      report: redacted.report,
-      quality: tr.assessQuality(redacted.segments),
-    };
+  await audit(tx, ctx, "call.transcript_attached", "call", call.id, null, {
+    segments: redacted.segments.length,
+    redacted: redacted.report.redacted,
+    countsByCategory: redacted.report.countsByCategory,
+    source: input.source ?? null,
   });
+
+  return {
+    call: row!,
+    report: redacted.report,
+    quality: tr.assessQuality(redacted.segments),
+  };
 }
 
 /* ------------------------------------------------------------------ reads */
 
-export const callsFor = (ctx: ServiceContext, options: { customerId?: string; limit?: number } = {}) =>
+/**
+ * What a search box matches on a call: the words said on it, or the number
+ * that rang. Shared by the API's call list and the call log screen, so the
+ * two cannot disagree about what "search calls" means.
+ *
+ * The words through Postgres's own full text search over the redacted
+ * transcript, so "leaking water heater" finds the call where somebody said
+ * "the water heater is leaking". Digits as digits, so "555 0192" finds the
+ * caller whichever way their number was written.
+ */
+export function callSearch(q: string | undefined) {
+  const text = q?.trim() ?? "";
+  if (text === "") return undefined;
+  const digits = text.replace(/\D/g, "");
+  const words = sql`to_tsvector('english', coalesce(${schema.call.transcriptText}, '')) @@ websearch_to_tsquery('english', ${text})`;
+  return digits.length >= 4 && digits.length === text.replace(/[\s().+-]/g, "").length
+    ? sql`(${words} or regexp_replace(${schema.call.fromE164}, '[^0-9]', '', 'g') like ${`%${digits}%`})`
+    : words;
+}
+
+export const callsFor = (ctx: ServiceContext, options: { customerId?: string; limit?: number; q?: string } = {}) =>
   guardedRead(ctx, "message:read", async (tx) => {
-    const where = options.customerId
-      ? and(eq(schema.call.organizationId, ctx.actor.organizationId), eq(schema.call.customerId, options.customerId))
-      : eq(schema.call.organizationId, ctx.actor.organizationId);
-    return tx.select().from(schema.call).where(where)
+    return tx.select().from(schema.call).where(and(
+      eq(schema.call.organizationId, ctx.actor.organizationId),
+      options.customerId ? eq(schema.call.customerId, options.customerId) : undefined,
+      callSearch(options.q),
+    ))
       .orderBy(desc(schema.call.startedAt))
       .limit(Math.min(options.limit ?? 50, 200));
   });
@@ -500,9 +656,12 @@ export const handlers = {
     providerCallId: input.providerCallId ?? null,
   }),
 
-  listCalls: async (ctx: ServiceContext, input: { customerId?: string | undefined; limit: number }) => ({
+  listCalls: async (ctx: ServiceContext, input: {
+    customerId?: string | undefined; limit: number; q?: string | undefined;
+  }) => ({
     calls: await callsFor(ctx, {
       ...(input.customerId ? { customerId: input.customerId } : {}),
+      ...(input.q ? { q: input.q } : {}),
       limit: input.limit,
     }),
   }),

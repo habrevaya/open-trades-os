@@ -56,6 +56,13 @@ const RentalView = z.object({
   materialType: z.string().nullable(),
   disposalFee: MoneyString.nullable(),
   previousRentalId: Uuid.nullable(),
+  /** The collection stop the scheduler booked for it, when it has one. */
+  collectionVisitId: Uuid.nullable(),
+  /** When the customer agreed the collection should happen, when they agreed a time. It beats the end of the price. */
+  collectionAgreedStart: z.string().datetime().nullable(),
+  collectionAgreedEnd: z.string().datetime().nullable(),
+  /** The invoice its period, meters and charges went on, once raised. */
+  invoiceId: Uuid.nullable(),
 });
 
 /* ------------------------------------------------------------- the fleet */

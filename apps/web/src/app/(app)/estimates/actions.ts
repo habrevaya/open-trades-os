@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { deposits, estimates } from "@opentradesos/api/services";
+import { ConflictError, deposits, estimates } from "@opentradesos/api/services";
 import {
   createEstimate, sendEstimate, requestDeposit, convertEstimate, approveEstimate, declineEstimate,
 } from "@opentradesos/api/contracts";
@@ -50,16 +50,37 @@ export async function actOnEstimate(_previous: FormState, form: FormData): Promi
     switch (op) {
       case "send": {
         /**
-         * The link only. `sendEstimate` accepts email and text as channels
-         * and delivers neither (it issues the link and returns it), so
-         * offering "email it" here would be a button that sends nothing.
+         * By email or text through the same consent gate as every message,
+         * or the link alone to hand over. A refusal (they replied STOP, no
+         * sender connected) is not an error: it is recorded on the estimate
+         * and said here in the transport's own words.
          */
+        const channel = field(form, "channel") ?? "email";
         const sent = await estimates.send(c, parsed(sendEstimate.input, {
-          id, channel: "link", expiresInDays: Number(field(form, "expiresInDays") ?? "30"),
+          id, channel, to: field(form, "to"), message: field(form, "message"),
+          expiresInDays: Number(field(form, "expiresInDays") ?? "30"),
         }));
+        const by = (one: string) => (one === "email" ? "by email" : "by text");
+        const went = sent.deliveries.filter((d) => d.state !== "refused");
+        if (went.length === 0) {
+          const reasons = sent.deliveries.map((d) => d.error).filter(Boolean).join(" ");
+          throw new ConflictError(`Not sent. ${reasons} Nothing else changed.`);
+        }
+        if (channel === "link") {
+          return {
+            message: "Here is the link to give them. It opens once to approve and sign, and any earlier link stops working.",
+            ...(sent.approvalUrl ? { link: sent.approvalUrl } : {}),
+          };
+        }
+        /**
+         * By both at once, one channel can be refused while the other goes.
+         * The estimate is sent, and the refusal is said beside it rather
+         * than lost, because "they never got the text" changes who rings them.
+         */
+        const notSent = sent.deliveries.filter((d) => d.state === "refused")
+          .map((d) => ` Not sent ${by(d.channel)}: ${d.error ?? "refused"}`).join("");
         return {
-          message: "Here is the link to give them. It opens once to approve and sign, and any earlier link stops working.",
-          link: sent.approvalUrl,
+          message: `Sent ${went.map((d) => `${by(d.channel)} to ${d.destination}`).join(" and ")}.${notSent}`,
         };
       }
       case "deposit": {

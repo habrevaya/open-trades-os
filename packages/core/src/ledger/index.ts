@@ -116,6 +116,12 @@ export interface LedgerEntry {
   /** Carried onto the row so job level profitability is a query, not a join. */
   jobId?: string | undefined;
   customerId?: string | undefined;
+  /**
+   * The entry this one takes back, when it is a reversal. Only a manual
+   * journal's reversal sets it today; the column has existed since the first
+   * migration so that a correction can point at what it corrects.
+   */
+  reversesEntryId?: string | undefined;
 }
 
 export interface Posting {
@@ -668,12 +674,18 @@ export function postCreditNote(input: {
   /** Only the amounts being credited, never the original invoice's. */
   totals: { subtotal: Money; taxTotal: Money; total: Money };
   customerId?: string | undefined;
+  /**
+   * The job of the invoice it credits, so a job's revenue (the ledger's
+   * revenue lines carrying its id) is net of what was credited back, as
+   * every report and the ad platforms' values say it is.
+   */
+  jobId?: string | undefined;
   invoiceId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
-  const tag = { customerId: input.customerId };
+  const tag = { customerId: input.customerId, jobId: input.jobId };
 
   return assertBalanced({
     sourceType: "credit_note",
@@ -731,11 +743,17 @@ export function postCreditNoteVoid(input: {
   occurredAt: Date;
   totals: { subtotal: Money; taxTotal: Money; total: Money };
   customerId?: string | undefined;
+  /**
+   * The job of the invoice it credits, so a job's revenue (the ledger's
+   * revenue lines carrying its id) is net of what was credited back, as
+   * every report and the ad platforms' values say it is.
+   */
+  jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
-  const tag = { customerId: input.customerId };
+  const tag = { customerId: input.customerId, jobId: input.jobId };
 
   return assertBalanced({
     sourceType: "credit_note_void",
@@ -966,6 +984,185 @@ export function postCommissionPayment(input: {
       dr(ACCOUNTS.COMMISSION_PAYABLE, input.amount, "Commission paid"),
       cr(ACCOUNTS.CASH, input.amount, "Cash out"),
     ]),
+  });
+}
+
+/**
+ * PAYING OUT TIPS, the only thing that ever happens to them on the books.
+ *
+ * A tip is credited to `TIPS_PAYABLE` the moment it arrives with a payment
+ * (see `postPayment`), because it was never the company's money: it was
+ * handed to the company to pass on. Passing it on discharges that liability
+ * against cash and touches nothing else. No revenue on the way in and no
+ * expense on the way out, which is what keeps a tip heavy month from reading
+ * as a good month followed by a bad one.
+ *
+ * Without this posting a company that tips its technicians through payroll
+ * would carry every tip ever given as a liability for ever, and its balance
+ * sheet would say it still owed technicians money they were paid years ago.
+ */
+export function postTipPayout(input: {
+  payrollRunId: string;
+  occurredAt: Date;
+  amount: Money;
+}): Posting {
+  if (isNegative(input.amount)) {
+    throw new RangeError(`postTipPayout takes the amount paid out, and was given ${toString(input.amount)}.`);
+  }
+  return assertBalanced({
+    sourceType: "tip_payout",
+    sourceId: input.payrollRunId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.TIPS_PAYABLE, input.amount, "Tips paid to technicians"),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out"),
+    ]),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Manual journals
+// ---------------------------------------------------------------------------
+
+/**
+ * ACCOUNTS A JOURNAL MAY NOT TOUCH, and why each one.
+ *
+ * Each of these is kept in step with a set of documents by the product: the
+ * receivable with open invoices, customer deposits with deposits held and
+ * unapplied money, tips and commission with the people they are owed to,
+ * deferred revenue with an agreement's visits. A journal straight to one
+ * makes the account disagree with its documents, and every report reading
+ * either side (aging, a customer's statement, payroll) is then wrong in a way
+ * no screen explains. Xero refuses a manual journal to its receivable for the
+ * same reason. The correction goes through the document: a credit note, a
+ * refund, a deposit refund, a payroll adjustment.
+ */
+export const CONTROL_ACCOUNTS: Readonly<Record<string, string>> = {
+  [ACCOUNTS.AR]: "Accounts receivable follows the invoices. Correct it with a credit note, a write off or a payment.",
+  [ACCOUNTS.CUSTOMER_DEPOSITS]: "Customer deposits follows the deposits and unapplied payments held. Apply, refund or forfeit the deposit instead.",
+  [ACCOUNTS.TIPS_PAYABLE]: "Tips payable follows the tips owed to technicians. It is cleared through payroll.",
+  [ACCOUNTS.COMMISSION_PAYABLE]: "Commission payable follows the commission records. Adjust those instead.",
+  [ACCOUNTS.DEFERRED_REVENUE]: "Deferred revenue follows the agreements' visits. It is released as visits are done.",
+};
+
+export interface JournalLineInput {
+  accountCode: string;
+  /** A positive decimal string on exactly one of the two sides. */
+  debit?: string | undefined;
+  credit?: string | undefined;
+  memo?: string | undefined;
+}
+
+export type JournalCheck =
+  | { ok: true; entries: LedgerEntry[]; total: Money }
+  | { ok: false; problems: { line: number | null; message: string }[] };
+
+const JOURNAL_ACCOUNT = /^[1-9]\d{2,9}$/;
+
+/**
+ * Whether a set of lines is a journal that may be posted, with every problem
+ * named against its line rather than the first one thrown.
+ *
+ * An accountant entering eight lines wants to know that line three has both
+ * sides filled in AND that the whole thing is off by forty dollars, in one
+ * answer. The imbalance is stated as an amount and a side, because "does not
+ * balance" alone sends somebody adding up a column by hand.
+ */
+export function checkJournal(lines: readonly JournalLineInput[], currency = "USD"): JournalCheck {
+  const problems: { line: number | null; message: string }[] = [];
+  const entries: LedgerEntry[] = [];
+
+  if (lines.length < 2) problems.push({ line: null, message: "A journal has at least two lines: a debit and a credit." });
+
+  lines.forEach((line, index) => {
+    const n = index + 1;
+    const code = line.accountCode.trim();
+    if (!JOURNAL_ACCOUNT.test(code)) {
+      problems.push({ line: n, message: `"${line.accountCode}" is not an account code.` });
+      return;
+    }
+    const control = CONTROL_ACCOUNTS[code];
+    if (control) {
+      problems.push({ line: n, message: `Account ${code} cannot take a journal. ${control}` });
+      return;
+    }
+    const debit = (line.debit ?? "").trim();
+    const credit = (line.credit ?? "").trim();
+    if ((debit === "") === (credit === "")) {
+      problems.push({ line: n, message: "Put an amount in the debit or the credit, not both and not neither." });
+      return;
+    }
+    const raw = debit !== "" ? debit : credit;
+    if (!/^\d+(\.\d{1,4})?$/.test(raw)) {
+      problems.push({ line: n, message: `"${raw}" is not an amount.` });
+      return;
+    }
+    const amount = money(raw, currency);
+    if (isZero(amount)) {
+      problems.push({ line: n, message: "A line of zero moves nothing. Remove it." });
+      return;
+    }
+    const memo = line.memo?.trim();
+    entries.push({
+      direction: debit !== "" ? "debit" : "credit",
+      accountCode: code,
+      amount,
+      ...(memo ? { memo } : {}),
+    });
+  });
+
+  if (problems.length === 0) {
+    const imbalance = imbalanceOf(entries);
+    if (!isZero(imbalance)) {
+      const side = isNegative(imbalance) ? "credits" : "debits";
+      const by = isNegative(imbalance) ? subtract(zero(currency), imbalance) : imbalance;
+      problems.push({
+        line: null,
+        message: `Debits and credits must be equal. The ${side} are more by ${toString(round(by, 4))}.`,
+      });
+    }
+  }
+
+  if (problems.length > 0) return { ok: false, problems };
+  const total = sum(entries.filter((e) => e.direction === "debit").map((e) => e.amount), currency);
+  return { ok: true, entries, total };
+}
+
+/** A manual journal, as a posting. Checked and balanced, or it throws. */
+export function postJournal(input: { journalId: string; occurredAt: Date; entries: LedgerEntry[] }): Posting {
+  return assertBalanced({
+    sourceType: "journal",
+    sourceId: input.journalId,
+    occurredAt: input.occurredAt,
+    entries: input.entries,
+  });
+}
+
+/**
+ * The reversal of a journal: every line on the other side, each pointing at
+ * the entry it takes back.
+ *
+ * A reversal and not an edit, because the ledger is append only and because
+ * "what did the books say on the 31st" must still have its old answer after
+ * somebody corrects them on the 3rd.
+ */
+export function reverseJournal(input: {
+  journalId: string;
+  occurredAt: Date;
+  original: readonly { id: string; direction: Direction; accountCode: string; amount: Money; memo?: string | null }[];
+  memo: string;
+}): Posting {
+  return assertBalanced({
+    sourceType: "journal",
+    sourceId: input.journalId,
+    occurredAt: input.occurredAt,
+    entries: input.original.map((entry) => ({
+      direction: entry.direction === "debit" ? "credit" : "debit",
+      accountCode: entry.accountCode,
+      amount: entry.amount,
+      memo: input.memo,
+      reversesEntryId: entry.id,
+    })),
   });
 }
 

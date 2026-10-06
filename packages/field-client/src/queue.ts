@@ -30,7 +30,63 @@ const KEY = {
   operation: (seq: number) => `otos.op.${String(seq).padStart(12, "0")}`,
   counter: "otos.sequence",
   device: "otos.device",
+  backoff: "otos.backoff",
+  skipped: "otos.skipped",
 } as const;
+
+/**
+ * THE REQUEST NEVER GOT AN ANSWER.
+ *
+ * Thrown by a transport when nothing judged the operations: no signal, a
+ * server that could not be reached, a sign in that has to be renewed first.
+ * The queue does not count it against the operations, and that distinction
+ * is the difference between a queue that works offline and one that does
+ * not. Counting it, which is what a plain Error does, meant a phone with no
+ * signal for three minutes had retried everything five times and given up
+ * on the whole day, in a basement, before the technician had found the
+ * furnace.
+ *
+ * An answer that refused the batch, a server fault or a revoked device, is a
+ * plain Error and is counted, because retrying that forever hides it.
+ */
+export class OfflineError extends Error {
+  readonly offline = true as const;
+  constructor(message = "No connection") {
+    super(message);
+    this.name = "OfflineError";
+  }
+}
+
+/**
+ * By shape rather than by class, because a transport bundled into another
+ * copy of this package (a phone app's own build of it) throws an
+ * OfflineError that `instanceof` here would not recognise.
+ */
+export const isOffline = (error: unknown): boolean =>
+  error instanceof OfflineError
+  || (typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true);
+
+/** The token was refused rather than the connection lost. See SignedOutError. */
+export const isSignedOut = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && (error as { signedOut?: unknown }).signedOut === true;
+
+/**
+ * How long to wait after the Nth failure in a row before trying on a timer.
+ *
+ * Doubling from five seconds to a ceiling of fifteen minutes, with the
+ * second half of each wait randomised. The ceiling is because a technician
+ * who drives back into signal should see the queue empty within a few
+ * minutes, not an hour. The randomness is for the morning after an outage,
+ * when every phone in the company would otherwise retry on the same second.
+ *
+ * Only the timer waits. Somebody tapping a button always sends straight
+ * away, because a person who just did something expects it to go now.
+ */
+export function backoffDelayMs(failures: number, random: () => number = Math.random): number {
+  if (failures <= 0) return 0;
+  const ceiling = Math.min(5_000 * 2 ** (failures - 1), 15 * 60_000);
+  return Math.round(ceiling / 2 + (ceiling / 2) * random());
+}
 
 export type QueuedStatus = "pending" | "sending" | "held" | "rejected" | "conflicted";
 
@@ -65,12 +121,28 @@ export interface SyncResponse {
   results: SyncResult[];
   awaiting: number[];
   snapshotRevision: number;
+  /** What became of positions sent with it. Absent from older servers. */
+  positions?: { stored: number; dropped: Record<string, number> } | undefined;
+}
+
+/** Where the phone was, as the sync takes it. See `positions.ts`. */
+export interface PositionFix {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number | undefined;
+  heading?: number | undefined;
+  speed?: number | undefined;
+  recordedAt: string;
 }
 
 export interface Transport {
   send(input: {
     deviceId: string;
     operations: Array<Omit<QueuedOperation, "status" | "attempts" | "lastError" | "conflict">>;
+    /** Sequences this device numbered and lost. See `flush`. Absent when none. */
+    skipped?: number[];
+    /** Positions riding along, sent by `PositionBuffer.flush`. */
+    positions?: PositionFix[];
   }): Promise<SyncResponse>;
 }
 
@@ -85,8 +157,11 @@ export interface QueueOptions {
   batchSize?: number;
   /** After this many failures an operation stops being retried automatically
    *  and is surfaced instead, because something is wrong that retrying will
-   *  not fix and a queue that retries forever hides it. */
+   *  not fix and a queue that retries forever hides it. An `OfflineError` is
+   *  not a failure for this count. */
   maxAttempts?: number;
+  /** Injected so a test can make the backoff deterministic. */
+  random?: () => number;
 }
 
 export class FieldQueue {
@@ -96,6 +171,19 @@ export class FieldQueue {
   private readonly newId: () => string;
   private readonly batchSize: number;
   private readonly maxAttempts: number;
+  private readonly random: () => number;
+  /**
+   * Every read-modify-write of the counter or of one operation runs through
+   * here, one at a time.
+   *
+   * Storage is asynchronous, so two taps in the same instant (a photo saved
+   * while the status button is pressed) both read counter 5, both write 6,
+   * and the second operation overwrites the first under the same key. That
+   * is a lost operation with no error anywhere, which is the one outcome
+   * this package exists to prevent. Sending is NOT held here, because a tap
+   * must not wait for a request on one bar of signal.
+   */
+  private tail: Promise<unknown> = Promise.resolve();
 
   constructor(options: QueueOptions) {
     this.storage = options.storage;
@@ -104,6 +192,13 @@ export class FieldQueue {
     this.newId = options.newId ?? (() => crypto.randomUUID());
     this.batchSize = options.batchSize ?? 100;
     this.maxAttempts = options.maxAttempts ?? 5;
+    this.random = options.random ?? Math.random;
+  }
+
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(fn, fn);
+    this.tail = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -125,6 +220,10 @@ export class FieldQueue {
     longitude?: string | undefined;
     accuracyMeters?: number | undefined;
   }): Promise<QueuedOperation> {
+    return this.serial(() => this.enqueueNow(input));
+  }
+
+  private async enqueueNow(input: Parameters<FieldQueue["enqueue"]>[0]): Promise<QueuedOperation> {
     const sequence = await this.nextSequence();
 
     const operation: QueuedOperation = {
@@ -193,10 +292,18 @@ export class FieldQueue {
     conflicted: number;
     snapshotRevision: number | null;
     error: string | null;
+    /** Lost sequences learned from this answer, to declare on the next send. */
+    skipping?: number;
   }> {
     const all = await this.pending();
+    /**
+     * Not the rejected, which the server will refuse again, and not the
+     * conflicted, which it has already applied: a conflict stays on the
+     * phone so the technician sees it, not so it can be sent every half
+     * minute for the rest of the day.
+     */
     const sendable = all
-      .filter((o) => o.status !== "rejected" && o.attempts < this.maxAttempts)
+      .filter((o) => o.status !== "rejected" && o.status !== "conflicted" && o.attempts < this.maxAttempts)
       .slice(0, this.batchSize);
 
     if (sendable.length === 0) {
@@ -208,9 +315,12 @@ export class FieldQueue {
 
     let response: SyncResponse;
     try {
+      const local = new Set(all.map((o) => o.sequence));
+      const skipped = (await this.skippedSequences()).filter((n) => !local.has(n));
       response = await transport.send({
         deviceId: this.deviceId,
         operations: sendable.map(({ status: _s, attempts: _a, lastError: _e, conflict: _c, ...op }) => op),
+        ...(skipped.length > 0 ? { skipped } : {}),
       });
     } catch (error) {
       /**
@@ -220,16 +330,95 @@ export class FieldQueue {
        * rather than applied twice.
        */
       const message = error instanceof Error ? error.message : String(error);
+      const counted = !isOffline(error);
       for (const op of sendable) {
-        await this.write({ ...op, attempts: op.attempts + 1, lastError: message });
+        await this.update(op.sequence, (current) => ({
+          ...current,
+          attempts: counted ? current.attempts + 1 : current.attempts,
+          lastError: message,
+        }));
       }
+      await this.recordFailure();
       return {
         sent: 0, applied: 0, held: 0, rejected: 0, conflicted: 0,
         snapshotRevision: null, error: message,
       };
     }
 
-    return this.reconcile(sendable, response);
+    await this.storage.remove(KEY.backoff);
+    const result = await this.reconcile(sendable, response);
+    return { ...result, skipping: await this.learnSkipped(response.awaiting ?? []) };
+  }
+
+  /**
+   * NUMBERS THIS PHONE LOST, SAID OUT LOUD.
+   *
+   * The counter is advanced before an operation is written, so a phone that
+   * dies between the two has numbered something that does not exist; and an
+   * operation the technician discards before it ever got through leaves the
+   * same hole. The server holds everything after a hole, waiting for it, and
+   * says which numbers in `awaiting`. A number it is waiting for that this
+   * phone does not hold will never come, so the next send declares it, and
+   * the server stops waiting.
+   *
+   * Only numbers the phone has handed out, and only ones it does not hold:
+   * an operation that is merely slow, or has stopped retrying, is still here
+   * and is not declared lost.
+   */
+  private async learnSkipped(awaiting: number[]): Promise<number> {
+    if (awaiting.length === 0) {
+      await this.storage.remove(KEY.skipped);
+      return 0;
+    }
+    const held = new Set((await this.pending()).map((o) => o.sequence));
+    const counter = await this.currentSequence();
+    const before = new Set(await this.skippedSequences());
+    const lost = awaiting.filter((n) => n <= counter && !held.has(n));
+    await this.storage.set(KEY.skipped, JSON.stringify(lost));
+    return lost.filter((n) => !before.has(n)).length;
+  }
+
+  private async skippedSequences(): Promise<number[]> {
+    const raw = await this.storage.get(KEY.skipped);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((n): n is number => typeof n === "number") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Whether a timer should try now. A failed send pushes this out; an
+   * answered one, or anybody tapping a button, resets it.
+   */
+  async due(): Promise<boolean> {
+    const until = await this.backoffUntil();
+    return until === null || until.getTime() <= this.now().getTime();
+  }
+
+  /** When the timer will next try, for a screen that says so. */
+  async backoffUntil(): Promise<Date | null> {
+    const state = await this.backoffState();
+    return state ? new Date(state.until) : null;
+  }
+
+  private async backoffState(): Promise<{ failures: number; until: string } | null> {
+    const raw = await this.storage.get(KEY.backoff);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { failures: number; until: string };
+      return typeof parsed.failures === "number" && typeof parsed.until === "string" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async recordFailure(): Promise<void> {
+    const failures = ((await this.backoffState())?.failures ?? 0) + 1;
+    const until = new Date(this.now().getTime() + backoffDelayMs(failures, this.random));
+    await this.storage.set(KEY.backoff, JSON.stringify({ failures, until: until.toISOString() }));
   }
 
   /**
@@ -254,7 +443,9 @@ export class FieldQueue {
          * queued and let the next flush ask again, which is safe because the
          * client id makes a repeat a replay.
          */
-        await this.write({ ...op, attempts: op.attempts + 1, lastError: "no result returned" });
+        await this.update(op.sequence, (current) => ({
+          ...current, attempts: current.attempts + 1, lastError: "no result returned",
+        }));
         continue;
       }
 
@@ -267,27 +458,27 @@ export class FieldQueue {
       if (result.status === "conflicted") {
         // Applied, and it disagreed with what the server held. It stays on the
         // phone so the technician sees it, and the office sees it too.
-        await this.write({
-          ...op,
+        await this.update(op.sequence, (current) => ({
+          ...current,
           status: "conflicted",
           conflict: result.conflict ?? "The office changed this while you were offline.",
-        });
+        }));
         conflicted += 1;
         continue;
       }
 
       if (result.status === "rejected") {
-        await this.write({
-          ...op,
+        await this.update(op.sequence, (current) => ({
+          ...current,
           status: "rejected",
           lastError: result.rejection ?? "Rejected",
-        });
+        }));
         rejected += 1;
         continue;
       }
 
       // held or accepted. Waiting on something earlier from this device.
-      await this.write({ ...op, status: "held" });
+      await this.update(op.sequence, (current) => ({ ...current, status: "held" }));
       held += 1;
     }
 
@@ -308,24 +499,31 @@ export class FieldQueue {
    * reports success.
    */
   async dismiss(clientId: string): Promise<boolean> {
-    for (const op of await this.pending()) {
-      if (op.clientId === clientId) {
-        await this.storage.remove(KEY.operation(op.sequence));
-        return true;
+    return this.serial(async () => {
+      for (const op of await this.pending()) {
+        if (op.clientId === clientId) {
+          await this.storage.remove(KEY.operation(op.sequence));
+          return true;
+        }
       }
-    }
-    return false;
+      return false;
+    });
   }
 
   /** Retry something that had given up, after the technician asks. */
   async retry(clientId: string): Promise<boolean> {
-    for (const op of await this.pending()) {
-      if (op.clientId === clientId) {
-        await this.write({ ...op, status: "pending", attempts: 0, lastError: undefined });
-        return true;
+    const found = await this.serial(async () => {
+      for (const op of await this.pending()) {
+        if (op.clientId === clientId) {
+          await this.write({ ...op, status: "pending", attempts: 0, lastError: undefined });
+          return true;
+        }
       }
-    }
-    return false;
+      return false;
+    });
+    // Somebody asked, so the timer's wait is over too.
+    if (found) await this.storage.remove(KEY.backoff);
+    return found;
   }
 
   /**
@@ -349,12 +547,14 @@ export class FieldQueue {
    * operation a replay of a different one from the last install.
    */
   async adoptSequence(serverSequence: number): Promise<void> {
-    const local = await this.currentSequence();
-    // Never backwards. If the phone is somehow ahead, it is ahead because it
-    // has operations the server has not seen.
-    if (serverSequence > local) {
-      await this.storage.set(KEY.counter, String(serverSequence));
-    }
+    return this.serial(async () => {
+      const local = await this.currentSequence();
+      // Never backwards. If the phone is somehow ahead, it is ahead because it
+      // has operations the server has not seen.
+      if (serverSequence > local) {
+        await this.storage.set(KEY.counter, String(serverSequence));
+      }
+    });
   }
 
   private async nextSequence(): Promise<number> {
@@ -365,5 +565,31 @@ export class FieldQueue {
 
   private async write(op: QueuedOperation): Promise<void> {
     await this.storage.set(KEY.operation(op.sequence), JSON.stringify(op));
+  }
+
+  /**
+   * Change one stored operation, reading it again first.
+   *
+   * A send can take a minute on one bar, and the technician can dismiss or
+   * retry the operation in the meantime. Writing back the copy taken before
+   * the request would put a dismissed operation back on the phone, so the
+   * verdict is applied to whatever is stored now, and to nothing if it has
+   * gone.
+   */
+  private async update(
+    sequence: number,
+    change: (current: QueuedOperation) => QueuedOperation,
+  ): Promise<void> {
+    await this.serial(async () => {
+      const raw = await this.storage.get(KEY.operation(sequence));
+      if (!raw) return;
+      let current: QueuedOperation;
+      try {
+        current = JSON.parse(raw) as QueuedOperation;
+      } catch {
+        return;
+      }
+      await this.write(change(current));
+    });
   }
 }

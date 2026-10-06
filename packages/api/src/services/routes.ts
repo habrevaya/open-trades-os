@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, isNull, max, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { recurrence as rc, time } from "@opentradesos/core";
+import { geo, recurrence as rc, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
 } from "./context";
 import { nextNumber } from "./jobs";
+import { connectedRouter, providerLabel, travelMatrix } from "./travel-times";
 
 /**
  * ROUTES: THE THIRD CAPACITY MODEL
@@ -612,6 +613,9 @@ export async function materialise(
 
 export type DayBasis = "overtime_policy" | "business_hours" | "unknown";
 
+/** Where the drive time in a density figure came from. */
+export type TravelSource = "declared" | "road" | "none";
+
 export interface Density {
   routeId: string;
   routeName: string;
@@ -620,11 +624,21 @@ export interface Density {
   targetStopCount: number | null;
   overTarget: boolean | null;
   serviceMinutes: number;
-  /** Null when the route has not declared a drive time. Null is not zero. */
+  /** Null when there is no drive time to give: none declared and no road network to ask. Null is not zero. */
   travelMinutes: number | null;
-  /** Service plus travel. A FLOOR when travel is undeclared, see `travelDeclared`. */
+  /** Service plus travel. A FLOOR when some of the drive is unknown, see `travelComplete`. */
   totalMinutes: number;
+  /** Kept for callers that read it: true only when the route's own declared drive time was used. */
   travelDeclared: boolean;
+  /**
+   * `declared` from the route's own drive time between stops, `road` from
+   * the company's routing service, `none` when there is neither.
+   */
+  travelSource: TravelSource;
+  /** Whether every leg of the drive is in the figure. When false the total is a floor. */
+  travelComplete: boolean;
+  /** The drive in a sentence, saying where it came from and what it leaves out. */
+  travelNote: string;
   /** The minute at which this day starts costing overtime, and where that came from. */
   overtimeAfterMinutes: number | null;
   dayBasis: DayBasis;
@@ -647,105 +661,209 @@ export interface Density {
  * matters in their business, and today they make it by feel and discover the
  * answer on Friday at time and a half.
  *
- * THREE THINGS THIS WILL NOT DO, each because the data does not support it:
+ * THE DRIVE, in this order:
  *
- *   It does not estimate travel. There is no geocoding in this product, so
- *   travel is the per route figure the operator declared and nothing else.
- *   Undeclared, the total is reported as a FLOOR and `travelDeclared` says
- *   so, rather than quietly treating the drive as zero and telling somebody
- *   a fifteen stop day fits.
+ *   The route's own declared drive time between stops, when the operator
+ *   gave one: the person who drives the route knows the river has one
+ *   bridge, and the optimiser lets the same figure beat the road network.
  *
- *   It does not guess the working day. The threshold comes from the overtime
- *   policy's daily figure, which is the actual minute overtime begins, or
- *   failing that from the declared business hours for that weekday. With
- *   neither, the answer is null and the explanation names what to set.
- *   `services/labor.ts` refuses to run a timesheet without a policy for the
- *   same reason: every default is a position on what somebody is owed.
+ *   Otherwise the company's routing service (OSRM, Mapbox or
+ *   OpenRouteService, `services/travel-times.ts`) when one is connected:
+ *   by road between each stop and the next in the route's order, and out
+ *   from where the servicer's day starts and back when that is on the map.
+ *   Only legs the service answered for count as by road. A leg it could not
+ *   answer, a stop not on the map, or the extra stop being asked about
+ *   (which has no address yet) leaves the figure a FLOOR, said so, rather
+ *   than filled in with a straight line guess.
  *
- *   It does not count the drive from the yard to the first stop, or home from
- *   the last. Those are real minutes and nothing records them, so including a
- *   guess would make the one number an operator checks against reality wrong
- *   in a direction they cannot see.
+ *   Otherwise nothing, and the total is a floor, rather than quietly
+ *   treating the drive as zero and telling somebody a fifteen stop day fits.
+ *
+ * It does not guess the working day. The threshold comes from the overtime
+ * policy's daily figure, which is the actual minute overtime begins, or
+ * failing that from the declared business hours for that weekday. With
+ * neither, the answer is null and the explanation names what to set.
+ * `services/labor.ts` refuses to run a timesheet without a policy for the
+ * same reason: every default is a position on what somebody is owed.
  *
  * `addingStopOfMinutes` answers the question as it is actually asked: not
  * "how long is my route" but "what happens if I put this customer on it".
+ *
+ * The road network is asked outside any transaction, as every drive time
+ * is, so a routing server taking its time holds no connection.
  */
 export async function density(
   ctx: ServiceContext,
   input: { id: string; addingStopOfMinutes?: number | undefined },
 ): Promise<Density> {
-  return guardedRead(ctx, "job:read", async (tx) => {
+  const loaded = await guardedRead(ctx, "job:read", async (tx) => {
     const route = await loadRoute(tx, ctx.actor.organizationId, input.id);
     const active = (await listStops(tx, route.id)).filter((s) => s.active);
+    const day = await workingDay(tx, ctx.actor.organizationId, route.dayOfWeek);
+    const start = await servicerStart(tx, ctx.actor.organizationId, route);
+    return { route, active, day, start };
+  });
+  const { route, active } = loaded;
 
-    const extra = input.addingStopOfMinutes ?? 0;
-    if (extra < 0) throw new ConflictError("A stop cannot take negative time.");
+  const extra = input.addingStopOfMinutes ?? 0;
+  if (extra < 0) throw new ConflictError("A stop cannot take negative time.");
 
-    const stopCount = active.length + (extra > 0 ? 1 : 0);
-    const serviceMinutes = active.reduce((sum, s) => sum + s.estimatedMinutes, 0) + extra;
+  const stopCount = active.length + (extra > 0 ? 1 : 0);
+  const serviceMinutes = active.reduce((sum, s) => sum + s.estimatedMinutes, 0) + extra;
 
-    const perHop = route.travelMinutesBetweenStops;
-    const travelDeclared = perHop !== null;
+  const perHop = route.travelMinutesBetweenStops;
+  let travelSource: TravelSource = "none";
+  let travelMinutes: number | null = null;
+  let travelComplete = false;
+  let travelNote = "This route has no declared drive time between stops and no road network to ask, so the drive is not in the figure.";
+
+  if (perHop !== null) {
     // Between stops, so one fewer hop than there are stops, and never below
     // zero on a route with a single stop or none.
-    const travelMinutes = perHop === null ? null : perHop * Math.max(0, stopCount - 1);
-    const totalMinutes = serviceMinutes + (travelMinutes ?? 0);
+    travelSource = "declared";
+    travelMinutes = perHop * Math.max(0, stopCount - 1);
+    travelComplete = true;
+    travelNote = `The route's own drive time, ${perHop} minutes between stops. The drive out to the first stop and home from the last is not counted.`;
+  } else if (active.length > 0 && await connectedRouter(ctx)) {
+    const road = await roadTravel(ctx, active, loaded.start?.place ?? null);
+    if (road.minutes !== null) {
+      travelSource = "road";
+      travelMinutes = road.minutes;
+      travelComplete = road.complete && extra === 0;
+      travelNote = road.note + (extra > 0 ? " The extra stop has no address yet, so its drive is not counted." : "");
+    } else {
+      travelNote = road.note;
+    }
+  }
+  const totalMinutes = serviceMinutes + (travelMinutes ?? 0);
 
-    const { minutes: overtimeAfterMinutes, basis: dayBasis } =
-      await workingDay(tx, ctx.actor.organizationId, route.dayOfWeek);
+  const { minutes: overtimeAfterMinutes, basis: dayBasis } = loaded.day;
 
-    const minutesOverThreshold = overtimeAfterMinutes === null
-      ? null
-      : totalMinutes - overtimeAfterMinutes;
+  const minutesOverThreshold = overtimeAfterMinutes === null
+    ? null
+    : totalMinutes - overtimeAfterMinutes;
 
-    /**
-     * The honest three way answer. A floor that already exceeds the threshold
-     * is a real yes, because adding the undeclared travel can only make it
-     * worse. A floor under the threshold with no travel declared is a
-     * genuine unknown, and reporting it as a no would be the exact claim this
-     * file must not make.
-     */
-    const runsIntoOvertime = overtimeAfterMinutes === null
-      ? null
-      : totalMinutes > overtimeAfterMinutes
-        ? true
-        : travelDeclared ? false : null;
+  /**
+   * The honest three way answer. A floor that already exceeds the threshold
+   * is a real yes, because adding the unknown travel can only make it
+   * worse. A floor under the threshold is a genuine unknown, and reporting
+   * it as a no would be the exact claim this file must not make.
+   */
+  const runsIntoOvertime = overtimeAfterMinutes === null
+    ? null
+    : totalMinutes > overtimeAfterMinutes
+      ? true
+      : travelComplete ? false : null;
 
+  return {
+    routeId: route.id,
+    routeName: route.name,
+    dayOfWeek: route.dayOfWeek,
+    stopCount,
+    targetStopCount: route.targetStopCount,
+    overTarget: route.targetStopCount === null ? null : stopCount > route.targetStopCount,
+    serviceMinutes,
+    travelMinutes,
+    totalMinutes,
+    travelDeclared: travelSource === "declared",
+    travelSource,
+    travelComplete,
+    travelNote,
+    overtimeAfterMinutes,
+    dayBasis,
+    minutesOverThreshold,
+    runsIntoOvertime,
+    explanation: explain({
+      stopCount, totalMinutes, travelComplete, travelSource,
+      overtimeAfterMinutes, dayBasis, runsIntoOvertime, extra,
+    }),
+  };
+}
+
+/**
+ * Where the servicer's day starts: the technician's own start, the crew's
+ * base or its lead's, otherwise the company's first location, the same rule
+ * the dispatch map uses. Null when none is on the map.
+ */
+async function servicerStart(
+  tx: Database, organizationId: string, route: typeof schema.route.$inferSelect,
+): Promise<{ name: string; place: geo.LatLng | null } | null> {
+  let home: string | null = null;
+  if (route.technicianId) {
+    const [t] = await tx.select({ home: schema.technician.homeLocationId }).from(schema.technician)
+      .where(eq(schema.technician.id, route.technicianId)).limit(1);
+    home = t?.home ?? null;
+  } else if (route.crewId) {
+    const [c] = await tx.select({ home: schema.crew.homeLocationId }).from(schema.crew)
+      .where(eq(schema.crew.id, route.crewId)).limit(1);
+    home = c?.home ?? null;
+    if (!home) {
+      const [lead] = await tx.select({ home: schema.technician.homeLocationId }).from(schema.crewMember)
+        .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+        .where(and(eq(schema.crewMember.crewId, route.crewId), eq(schema.crewMember.isLead, true))).limit(1);
+      home = lead?.home ?? null;
+    }
+  }
+  const locations = await tx.select().from(schema.location)
+    .where(and(eq(schema.location.organizationId, organizationId), eq(schema.location.active, true)))
+    .orderBy(asc(schema.location.createdAt), asc(schema.location.id));
+  const chosen = (home ? locations.find((l) => l.id === home) : undefined) ?? locations[0];
+  if (!chosen) return null;
+  return { name: chosen.name, place: geo.parseLatLng(chosen.latitude, chosen.longitude) };
+}
+
+/**
+ * The drive by road through the route's stops in order, out from the start
+ * and back when it is on the map, counting only legs the routing service
+ * answered. Null minutes when no leg was by road at all.
+ */
+async function roadTravel(
+  ctx: ServiceContext,
+  stops: readonly { id: string; latitude: string | null; longitude: string | null }[],
+  start: geo.LatLng | null,
+): Promise<{ minutes: number | null; complete: boolean; note: string }> {
+  const points = new Map<string, geo.LatLng | null>(stops.map((s) => [s.id, geo.parseLatLng(s.latitude, s.longitude)]));
+  if (start) points.set("start", start);
+  const matrix = await travelMatrix(ctx, points, { assumptions: geo.DEFAULT_DRIVE });
+  const keys = [...(start ? ["start"] : []), ...stops.map((s) => s.id), ...(start ? ["start"] : [])];
+  let minutes = 0;
+  let known = 0;
+  let unknown = 0;
+  for (let i = 0; i + 1 < keys.length; i++) {
+    const leg = matrix.road(keys[i]!, keys[i + 1]!);
+    if (leg === null) unknown += 1;
+    else { minutes += leg; known += 1; }
+  }
+  const offMap = stops.filter((s) => points.get(s.id) === null).length;
+  if (known === 0 && unknown > 0) {
     return {
-      routeId: route.id,
-      routeName: route.name,
-      dayOfWeek: route.dayOfWeek,
-      stopCount,
-      targetStopCount: route.targetStopCount,
-      overTarget: route.targetStopCount === null ? null : stopCount > route.targetStopCount,
-      serviceMinutes,
-      travelMinutes,
-      totalMinutes,
-      travelDeclared,
-      overtimeAfterMinutes,
-      dayBasis,
-      minutesOverThreshold,
-      runsIntoOvertime,
-      explanation: explain({
-        stopCount, totalMinutes, travelDeclared,
-        overtimeAfterMinutes, dayBasis, runsIntoOvertime, extra,
-      }),
+      minutes: null, complete: false,
+      note: matrix.failure
+        ? `The routing service did not answer (${matrix.failure.replace(/\.$/, "")}), so the drive is not in the figure.`
+        : "No stop on this route is on the map, so the drive cannot be asked by road.",
     };
-  });
+  }
+  const parts = [`By road between the stops in their order${start ? ", and out from where the day starts and back" : ""}, from ${providerLabel(matrix.provider)}.`];
+  if (!start) parts.push("Where the day starts is not on the map, so the drive out and home is not counted.");
+  if (offMap > 0) parts.push(`${offMap} ${offMap === 1 ? "stop is" : "stops are"} not on the map, so ${offMap === 1 ? "its legs are" : "their legs are"} not counted.`);
+  else if (unknown > 0) parts.push(`${unknown} ${unknown === 1 ? "leg" : "legs"} the routing service did not answer for ${unknown === 1 ? "is" : "are"} not counted.`);
+  return { minutes, complete: unknown === 0, note: parts.join(" ") };
 }
 
 /** The sentence an operator reads. Every branch says what it rests on. */
 function explain(d: {
-  stopCount: number; totalMinutes: number; travelDeclared: boolean;
+  stopCount: number; totalMinutes: number; travelComplete: boolean; travelSource: TravelSource;
   overtimeAfterMinutes: number | null; dayBasis: DayBasis;
   runsIntoOvertime: boolean | null; extra: number;
 }): string {
   const head = d.extra > 0
     ? `With the extra stop, ${d.stopCount} stops come to ${d.totalMinutes} minutes`
     : `${d.stopCount} stops come to ${d.totalMinutes} minutes`;
-  const floor = d.travelDeclared
+  const floor = d.travelComplete
     ? ""
-    : " and that is a floor, because this route has no declared drive time between stops";
+    : d.travelSource === "none"
+      ? " and that is a floor, because this route has no declared drive time between stops and no road network to ask"
+      : " and that is a floor, because some of the drive could not be counted";
 
   if (d.overtimeAfterMinutes === null) {
     return `${head}${floor}. Whether that runs into overtime cannot be said: this company has `
@@ -764,7 +882,7 @@ function explain(d: {
     return `${head}, ${spare} minutes inside ${d.overtimeAfterMinutes}, ${source}.`;
   }
   return `${head}${floor}. The stop time alone fits inside ${d.overtimeAfterMinutes}, `
-    + `${source}, but without a drive time nobody can say whether the day does.`;
+    + `${source}, but without ${d.travelSource === "none" ? "a drive time" : "the whole drive"} nobody can say whether the day does.`;
 }
 
 /**
@@ -864,6 +982,8 @@ async function listStops(tx: Database, routeId: string) {
     id: schema.routeStop.id,
     propertyId: schema.routeStop.propertyId,
     addressLine1: schema.property.addressLine1,
+    latitude: schema.property.latitude,
+    longitude: schema.property.longitude,
     sequence: schema.routeStop.sequence,
     estimatedMinutes: schema.routeStop.estimatedMinutes,
     intervalDays: schema.routeStop.intervalDays,

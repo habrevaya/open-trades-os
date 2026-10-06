@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "OpenTradesOS Field",
+    "slug": "opentradesos-field",
+    "scheme": "opentradesos",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "org.opentradesos.field",
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["fetch", "processing", "location"]
+      }
+    },
+    "android": {
+      "package": "org.opentradesos.field"
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-background-task",
+      "expo-notifications",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Your company sees where you are while you are clocked in or on a visit, and your customer sees you on their tracking link while you are on the way to them. Never when you are off the clock.",
+          "locationAlwaysAndWhenInUsePermission": "To keep sharing where you are while the screen is off, only while you are clocked in or on a visit. It stops when you clock out.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "The camera is used to photograph the work you do on a job, so the office and the customer can see it.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ]
+  }
+}

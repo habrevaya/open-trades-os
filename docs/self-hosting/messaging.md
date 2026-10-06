@@ -55,6 +55,9 @@ keyed on the customer's address.
 One endpoint serves every provider, because what differs between them is
 parsing and signing and both are the adapter's job.
 
+The same connection answers calls to tracking numbers bought on the settings
+screen; `docs/self-hosting/voice.md` covers that side.
+
 The token in the path is what identifies the tenant. Not the `To` number: a
 company's phone number is printed on their truck, and routing on it would let
 anyone aim a forged message at a tenant they picked. Not a header or a query
@@ -122,6 +125,34 @@ number forever is how a queue stops being a queue.
 `sent` means the carrier accepted it. `delivered` means a receipt said so.
 Receipts arrive out of order and a later `sent` never moves a `delivered`
 message backwards.
+
+## Replies to email
+
+Customers replying to an invoice or an estimate reach the inbox when the email
+provider receives mail as well as sending it. With Resend:
+
+1. Add a receiving domain in Resend (a subdomain such as
+   `replies.yourcompany.com`, with the MX record Resend gives you).
+2. Enter that domain as "Domain Resend receives replies on" on the Resend
+   connection under Settings, Integrations.
+3. Subscribe the webhook you already pointed at this installation to
+   `email.received` as well as the delivery events.
+
+Every email then carries `reply+TOKEN@` that domain as its Reply-To, the token
+being the thread's own, and a reply lands in that thread. The webhook is signed
+with the same secret as delivery callbacks; without that secret nothing comes
+in. Resend's webhook carries only the envelope, so the words are fetched from
+its received emails API with the connection's API key. Plain SMTP cannot
+receive, so replies to mail sent that way go to the From mailbox as before.
+
+## Pictures
+
+A picture texted in is fetched from Twilio with the account's credentials and
+kept in this installation's file store. A picture sent from the inbox is
+fetched BY Twilio from `PUBLIC_URL` under the messaging webhook path, so
+`PUBLIC_URL` must be reachable from the internet for pictures to go out, as it
+must for webhooks to come in. Each picture's address carries a random key of
+its own and answers for a week.
 
 ## Writing an adapter
 

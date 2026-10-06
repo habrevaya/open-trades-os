@@ -5,6 +5,23 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { clockPass } from "./contract-clocks";
+import { geocodePending, type GeocodeDeps } from "./geocoding";
+import { adsPass } from "./ads";
+import type { AdsDeps } from "./ad-platforms";
+import { mailPass, type MailDeps } from "./direct-mail";
+import { deliverDue } from "./delivery-schedules";
+import { agentPass } from "./agent-worker";
+import { renewalsPass } from "./agreements";
+import { sendDue } from "./campaigns";
+import { taskPass } from "./task-rules";
+import { purgePass } from "./retention";
+import { deliverOwed, type Transport } from "./webhooks";
+import { pushPass } from "./push";
+import { purgePositions } from "./location";
+import { purgeUnusedClients } from "./oauth";
+import { collectionsPass } from "./rental-billing";
+import type { PushProvider } from "../push/provider";
 
 /**
  * THE WORKER
@@ -199,6 +216,33 @@ export interface PassOptions {
    */
   schedules?: boolean;
   /**
+   * The AI agents' own pass, inside the clock. On by default; a deployment
+   * that wants no agent to run in the background turns it off here, and an
+   * agent nobody turned on costs a single read either way.
+   */
+  agents?: boolean;
+  /**
+   * Whether this pass also puts a few addresses on the map, and with what.
+   *
+   * On by default, for companies that have connected a geocoder and nobody
+   * else, and bounded by its own small time budget so a backfill of a large
+   * customer list against a one-request-a-second service never holds up a
+   * text. `false` turns it off; an object passes the geocoder's dependencies,
+   * which is how a test supplies a fake one.
+   */
+  geocoding?: false | { deps?: GeocodeDeps; budgetMs?: number };
+  /**
+   * Whether this pass also visits the connected ad platforms, analytics and
+   * review listings: spend every six hours, Local Services leads every ten
+   * minutes, reviews hourly, conversions every quarter hour, each by its own
+   * clock. On by default, for companies with one connected and nobody else.
+   * `false` turns it off; an object passes the platforms' dependencies, which
+   * is how a test supplies fakes.
+   */
+  ads?: false | { deps?: AdsDeps };
+  /** Mailings left half sent, finished a batch at a time. False turns it off; deps point it at a fake mail house. */
+  mail?: false | { deps?: MailDeps };
+  /**
    * Runs after each drain, for the organizations that had events.
    *
    * The outbox is separate from the runner on purpose: a workflow queues a
@@ -226,7 +270,39 @@ export interface PassOptions {
    * worker; see `only` on `drainAll` for who it is for.
    */
   only?: readonly string[];
+  /**
+   * Whether this pass also delivers the webhooks owed in companies that had
+   * no events: replays somebody asked for and retries a receiver is waiting
+   * on. On by default; `false` turns it off, and an object passes the
+   * transport, which is how a test keeps it off the network.
+   */
+  webhooks?: false | { send?: Transport };
+  /**
+   * Whether this pass also tells technicians' phones about changes to their
+   * day. On by default, through Expo's push service; `false` turns it off,
+   * and an object passes the provider, which is how a test keeps it off the
+   * network.
+   */
+  push?: false | { provider?: PushProvider };
+  /**
+   * Whether this pass also deletes technicians' positions past their
+   * company's retention, and drive times past their provider's expiry. At
+   * most every ten minutes, because nothing about a three day retention
+   * needs a delete every five seconds.
+   */
+  positions?: false;
+  /**
+   * Whether this pass also removes OAuth client registrations no company ever
+   * approved, a week after they were made. At most hourly; `false` turns it
+   * off.
+   */
+  oauthClients?: false;
 }
+
+let positionsPurgedAt = 0;
+const POSITION_PURGE_INTERVAL_MS = 10 * 60_000;
+let clientsPurgedAt = 0;
+const CLIENT_PURGE_INTERVAL_MS = 60 * 60_000;
 
 /**
  * ONE PASS: the clock, then the log, then whatever the drain left to send.
@@ -247,6 +323,14 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * The clock first, so anything it fires is in the log before this pass
    * reads it and goes out on the same pass rather than the next.
    */
+  /**
+   * Companies whose scheduled reports, statements or campaign batches went into
+   * the outbox on this pass. None of those writes an event, so a company whose
+   * only activity was one of them has nothing in the drain results, and without
+   * this its messages would sit queued until it next did something else.
+   */
+  const delivered = new Set<string>();
+
   if (options.schedules !== false) {
     try {
       await tick(options.db, scope);
@@ -254,10 +338,190 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       await resumeDue(options.db, scope);
       // And the records that have been sitting there too long.
       await sweep(options.db, scope);
+      /**
+       * And the agreements whose term is ending: renewed when the plan and the
+       * member both said so, lapsed when they did not, and told beforehand
+       * when the plan owes a notice. On the clock rather than on an event,
+       * because the end of a term is a date arriving rather than anything
+       * somebody did. Its texts go into the outbox like a workflow's, and each
+       * renewal and notice writes an event, so the drain below sends them on
+       * this pass.
+       */
+      await renewalsPass(options.db, scope);
+      /**
+       * And the campaign sends that are due: a scheduled one whose time has
+       * come, or a staged one with a new day of its carrier's cap. Before the
+       * drain, like the schedules, so the texts it queues leave on this pass.
+       */
+      for (const due of await sendDue(options.db, scope)) {
+        if (due.action === "sent") delivered.add(due.organizationId);
+      }
     } catch (error) {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.
       console.error("[worker] schedules:", (error as Error).message);
+    }
+    /**
+     * The office queue's own clock: recurring tasks raised for the company's
+     * day, and late tasks escalated. Its own try, so a broken template cannot
+     * hold up a scheduled workflow or the other way round, and each company's
+     * failure inside it is kept to that company. Both halves are idempotent on
+     * a unique index, so a pass cut short and repeated raises and tells once.
+     */
+    try {
+      for (const result of await taskPass(options.db, scope)) {
+        if (result.escalated.length > 0) delivered.add(result.organizationId);
+        for (const failure of result.failed) console.error(`[worker] tasks ${result.organizationId}: ${failure}`);
+      }
+    } catch (error) {
+      console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Contract clocks: SLA, invoicing and claim deadlines reconciled against
+     * what has happened, and a task raised for any about to breach. Its own
+     * try, for the reason the task pass has one. The tasks it raises go to
+     * the queue, where the task pass above escalates them if nobody acts.
+     */
+    try {
+      for (const result of await clockPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] contract clocks ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] contract clocks:", (error as Error).message);
+    }
+    /**
+     * Records past their retention, for the companies that switched purging
+     * on for a rule, once a day each. Its own try, because a purge that
+     * fails must not hold up anything else, and nothing else may hold it up
+     * either: a hold placed this morning is read by this pass, not cached.
+     */
+    try {
+      for (const result of await purgePass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] retention ${result.organizationId}: ${result.error}`);
+        else if (result.run && result.run.failed > 0) {
+          console.warn(`[worker] retention ${result.organizationId}: ${result.run.failed} records could not be removed; the reasons are on the pass.`);
+        }
+      }
+    } catch (error) {
+      console.error("[worker] retention:", (error as Error).message);
+    }
+    /**
+     * Containers due back, booked on the board as collections at the time
+     * agreed with the customer or on the day the price runs out, for each
+     * company that has not turned it off. Its own try, and each company's
+     * failure is kept to that company: a hire not booked this pass is booked
+     * on the next, and one already booked is never booked twice.
+     */
+    try {
+      for (const result of await collectionsPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] collections ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] collections:", (error as Error).message);
+    }
+    /**
+     * Reports and statements on a clock. Its own try, so a broken workflow
+     * schedule cannot hold up the Monday reports, and the other way round.
+     */
+    try {
+      for (const tick of await deliverDue(options.db, scope)) {
+        if (tick.queued) delivered.add(tick.organizationId);
+      }
+    } catch (error) {
+      console.error("[worker] deliveries:", (error as Error).message);
+    }
+    /**
+     * The AI agents a company left running on their own (intake, text chat,
+     * collections). Its own try, and each company's failure is kept to that
+     * company inside it. A reply or reminder it queued goes out on this pass.
+     */
+    if (options.agents !== false) {
+      try {
+        for (const result of await agentPass(options.db, stop ? { shouldStop: stop } : {})) {
+          if (result.queued) delivered.add(result.organizationId);
+          for (const failure of result.failed) console.error(`[worker] agents ${result.organizationId}: ${failure}`);
+        }
+      } catch (error) {
+        console.error("[worker] agents:", (error as Error).message);
+      }
+    }
+  }
+
+  /**
+   * Where technicians were, deleted on time. Its own try, like everything
+   * here: a purge that fails is tried again on a later pass, and must not
+   * hold up a text. A worker that has not purged recently (a restart) purges
+   * on its first pass.
+   */
+  if (options.positions !== false && Date.now() - positionsPurgedAt >= POSITION_PURGE_INTERVAL_MS) {
+    try {
+      await purgePositions(options.db);
+      positionsPurgedAt = Date.now();
+    } catch (error) {
+      console.error("[worker] positions:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Registrations by MCP clients that no company went on to approve. Its own
+   * try and its own clock, like the positions: nothing about a week old
+   * registration is urgent, and nothing else may wait on it.
+   */
+  if (options.oauthClients !== false && Date.now() - clientsPurgedAt >= CLIENT_PURGE_INTERVAL_MS) {
+    try {
+      await purgeUnusedClients(options.db);
+      clientsPurgedAt = Date.now();
+    } catch (error) {
+      console.error("[worker] oauth registrations:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Addresses, before the log, on a budget of their own. Not inside the
+   * schedules block above: a geocoder that is down must not be the reason a
+   * scheduled workflow is late, and the same try for both would make it so.
+   */
+  if (options.geocoding !== false) {
+    try {
+      const geocoding = options.geocoding ?? {};
+      await geocodePending(options.db, {
+        ...scope,
+        ...(geocoding.deps ? { deps: geocoding.deps } : {}),
+        ...(geocoding.budgetMs !== undefined ? { budgetMs: geocoding.budgetMs } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] geocoding:", (error as Error).message);
+    }
+  }
+
+  /**
+   * The ad platforms, before the log for the same reason: a pull that books a
+   * Local Services lead writes its touch now and the drain carries it. Its
+   * own try, because Google being down must not hold up a text.
+   */
+  if (options.ads !== false) {
+    try {
+      await adsPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.ads?.deps ? { deps: options.ads.deps } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] ad platforms:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Mailings larger than one send's batch, a batch per company per pass. Its
+   * own try, because a mail house that is down must not hold up a text.
+   */
+  if (options.mail !== false) {
+    try {
+      await mailPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.mail?.deps ? { deps: options.mail.deps } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] direct mail:", (error as Error).message);
     }
   }
 
@@ -270,14 +534,52 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * in the outbox until that company happens to produce another event, which
    * on a quiet afternoon is hours. The budget is set with room for it.
    */
-  for (const result of results) {
-    if (result.events === 0) continue;
+  const sending = new Set([
+    ...results.filter((result) => result.events > 0).map((result) => result.organizationId),
+    ...delivered,
+  ]);
+  for (const organizationId of sending) {
     try {
-      await options.afterDrain?.(result.organizationId);
+      await options.afterDrain?.(organizationId);
     } catch (error) {
       // One organization's carrier being down must not stop the loop for
       // everybody else. The messages stay queued and go on the next pass.
-      console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
+      console.error(`[worker] outbox ${organizationId}:`, (error as Error).message);
+    }
+  }
+
+  /**
+   * Phones, after the drain, so a change the board made a moment ago is in
+   * the log by now and goes out on this pass. Its own try, like everything
+   * else here: a push service that is down must not hold up a webhook, and
+   * the notices it could not send are tried again next pass.
+   */
+  if (options.push !== false) {
+    try {
+      await pushPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.push?.provider ? { provider: options.push.provider } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] push:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Webhooks owed where nothing happened this pass. After the hook above, so
+   * a company that did have events is delivered to once, by it, and skipped
+   * here.
+   */
+  if (options.webhooks !== false) {
+    try {
+      await deliverOwed(options.db, {
+        /** Only when the hook ran: without one, nobody has delivered to them yet. */
+        skip: options.afterDrain ? sending : new Set(),
+        ...scope,
+        ...(options.webhooks?.send ? { send: options.webhooks.send } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] webhooks:", (error as Error).message);
     }
   }
 

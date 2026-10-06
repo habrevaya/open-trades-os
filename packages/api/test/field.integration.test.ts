@@ -31,6 +31,14 @@ const ctxFor = (roles: Actor["roles"]): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles }, db: db(),
 });
 const tech = () => ctxFor(["technician"]);
+/** A technician the company has let file inspections, which the presets do not. */
+const inspector = (): ServiceContext => ({
+  actor: {
+    userId: USER, organizationId: ORG, roles: ["technician"],
+    grants: ["compliance:read", "compliance:write"],
+  },
+  db: db(),
+});
 
 let technicianId = "";
 let customerId = "";
@@ -337,6 +345,50 @@ run("the connection coming and going", () => {
     const held = result.results.filter((r) => r.status === "held");
     expect(held).toHaveLength(1);
     expect(result.awaiting).toContain(base + 2);
+  });
+
+  it("applies a held operation once the gap is filled, rather than holding it for ever", async () => {
+    /**
+     * The defect: a held operation was recorded as held and every later send
+     * of it was answered from that record, so nothing behind a gap was ever
+     * applied, even after the missing operation arrived.
+     */
+    const { visitId } = await makeVisit();
+    const device = await freshDevice();
+    const note = (sequence: number, clientId = uuid()) => ({
+      clientId, sequence, kind: "visit.note" as const, subjectId: visitId,
+      occurredAt: new Date().toISOString(), payload: { text: `op ${sequence}` },
+    });
+
+    const three = note(3);
+    const first = await fieldOps.sync(tech(), { deviceId: device, operations: [note(1), three] });
+    expect(first.results.find((r) => r.clientId === three.clientId)?.status).toBe("held");
+
+    const second = await fieldOps.sync(tech(), { deviceId: device, operations: [note(2), three] });
+    expect(second.results.find((r) => r.clientId === three.clientId)?.status).toBe("applied");
+
+    const rows = await raw<{ status: string }[]>`select status from public.field_operation
+      where client_id = ${three.clientId}`;
+    expect(rows.map((r) => r.status)).toEqual(["applied"]);
+    const [visit] = await raw<{ technician_notes: string }[]>`select technician_notes from public.visit where id = ${visitId}`;
+    expect(visit!.technician_notes).toBe("op 1\nop 2\nop 3");
+  });
+
+  it("applies what follows a sequence the device says it lost", async () => {
+    // The phone died between numbering operation 2 and writing it.
+    const { visitId } = await makeVisit();
+    const device = await freshDevice();
+    const ops = [1, 3].map((sequence) => ({
+      clientId: uuid(), sequence, kind: "visit.note" as const, subjectId: visitId,
+      occurredAt: new Date().toISOString(), payload: { text: `op ${sequence}` },
+    }));
+
+    const held = await fieldOps.sync(tech(), { deviceId: device, operations: ops });
+    expect(held.awaiting).toEqual([2]);
+
+    const declared = await fieldOps.sync(tech(), { deviceId: device, operations: [ops[1]!], skipped: [2] });
+    expect(declared.results[0]!.status).toBe("applied");
+    expect(declared.awaiting).toEqual([]);
   });
 
   it("refuses a revoked device", async () => {
@@ -780,7 +832,8 @@ run("every operation does something", () => {
    */
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
-    "service_report", "service_report_field", "field_upload", "portal_event",
+    "service_report", "service_report_field", "field_upload", "portal_event", "payment",
+    "inspection", "estimate", "invoice", "task", "cash_tip",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -801,6 +854,16 @@ run("every operation does something", () => {
     const [report] = await raw`insert into public.service_report
       (organization_id, visit_id, job_id, customer_id, property_id)
       values (${ORG}, ${visitId}, ${jobId}, ${customerId}, ${propertyId}) returning id`;
+    const [program] = await raw`insert into public.inspection_program (organization_id, name, checkpoints)
+      values (${ORG}, 'Annual test', ${raw.json([{ key: "valve", label: "Valve holds", severityOnFail: "major" }])})
+      returning id`;
+    /** For selling and closing on site: an estimate written on the phone, one the office wrote, a part and a task. */
+    const estimateId = uuid();
+    const optionId = uuid();
+    const lineId = uuid();
+    const [offered] = await raw`insert into public.estimate (organization_id, number, customer_id, property_id, status)
+      values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId}, 'sent') returning id`;
+    const [task] = await raw`insert into public.task (organization_id, title) values (${ORG}, 'Call the customer back') returning id`;
 
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
@@ -818,7 +881,7 @@ run("every operation does something", () => {
         payload: { field: "ambient_temp", value: 94, unit: "F" } },
       { kind: "visit.checklist_item", subjectId: visitId, payload: { itemId: "x", done: true } },
       { kind: "visit.add_line", subjectId: visitId,
-        payload: { name: "Filter", quantity: "1", unitPrice: "24.00" } },
+        payload: { lineId, name: "Filter", quantity: "1", unitPrice: "24.00" } },
       { kind: "equipment.record",
         payload: { propertyId, category: "air_handler", serialNumber: `E-${uuid().slice(0, 8)}` } },
       { kind: "attachment.attach", subjectId: visitId,
@@ -826,6 +889,22 @@ run("every operation does something", () => {
       { kind: "signature.capture", subjectId: visitId,
         payload: { uploadId: uuid(), contentType: "image/png" } },
       { kind: "service_report.submit", subjectId: report!.id, payload: {} },
+      { kind: "payment.collect", subjectId: visitId, payload: { method: "cash", amount: "50.00" } },
+      { kind: "inspection.record", subjectId: uuid(), payload: {
+        visitId, programId: program!.id, signedByName: "Ray Nunez",
+        answers: [{ itemKey: "valve", value: { kind: "pass_fail", passed: true }, at: new Date().toISOString(), by: "Ray Nunez" }],
+      } },
+      { kind: "estimate.create", subjectId: estimateId, payload: {
+        visitId, options: [{ id: optionId, name: "Repair", lines: [{ id: uuid(), name: "Capacitor", quantity: "1", unitPrice: "45.00", taxable: false }] }],
+      } },
+      { kind: "estimate.approve", subjectId: estimateId, payload: {
+        visitId, optionId, selectedLineIds: [], signerName: "Pat Doe", signatureUploadId: uuid(), shownTotal: "45.00",
+      } },
+      { kind: "estimate.decline", subjectId: offered!.id, payload: { visitId, reason: "Too dear" } },
+      { kind: "invoice.raise", subjectId: uuid(), payload: { visitId, source: "work", jobLineIds: [lineId], shownTotal: "24.00" } },
+      { kind: "task.claim", subjectId: task!.id, payload: {} },
+      { kind: "task.close", subjectId: task!.id, payload: { outcome: "Called them" } },
+      { kind: "tip.record", subjectId: visitId, payload: { amount: "10.00" } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -837,11 +916,12 @@ run("every operation does something", () => {
 
     const device = await freshDevice();
     const inert: string[] = [];
+    const landed = new Map<string, string>();
 
     for (const [i, testCase] of cases.entries()) {
       const before = await fingerprint();
 
-      const result = await fieldOps.sync(tech(), {
+      const result = await fieldOps.sync(inspector(), {
         deviceId: device,
         operations: [{
           clientId: uuid(),
@@ -854,6 +934,7 @@ run("every operation does something", () => {
       });
 
       const status = result.results[0]!.status;
+      landed.set(testCase.kind, `${status}${result.results[0]!.rejection ? `: ${result.results[0]!.rejection}` : ""}`);
       if (status !== "applied" && status !== "conflicted") continue;
 
       if ((await fingerprint()) === before) inert.push(testCase.kind);
@@ -861,6 +942,11 @@ run("every operation does something", () => {
 
     const logOnly = new Set<string>(fieldOps.LOG_ONLY_OPERATIONS);
     const silent = inert.filter((k) => !logOnly.has(k));
+
+    /** The selling and closing kinds really land here, so their effect is what is being watched. */
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record"]) {
+      expect(landed.get(kind), kind).toBe("applied");
+    }
 
     expect(
       silent,
@@ -1035,6 +1121,60 @@ run("every operation does something", () => {
       where property_id = ${propertyId} and serial_number = ${serial}`;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.location).toBe("Attic, north end");
+  });
+
+  /**
+   * ACROSS THE COMPANY, WITH THE OFFICE'S RULES. The same plate typed
+   * differently is the same unit; the serial on file at another address is
+   * not added a second time from the phone, but held for the office with
+   * the address it is on file at, and the phone hears that.
+   */
+  const recordFromPhone = async (payload: Record<string, unknown>) => (await fieldOps.sync(tech(), {
+    deviceId: await freshDevice(),
+    operations: [{
+      clientId: uuid(), sequence: 1, kind: "equipment.record", occurredAt: new Date().toISOString(), payload,
+    }],
+  })).results[0]!;
+
+  it("matches the same plate however it is typed", async () => {
+    const tail = uuid().slice(0, 6).toUpperCase();
+    await raw`insert into public.equipment (organization_id, property_id, category, serial_number)
+              values (${ORG}, ${propertyId}, 'furnace', ${`AB-${tail} X`})`;
+    const result = await recordFromPhone({ propertyId, category: "furnace", serialNumber: `ab${tail.toLowerCase()}x`, model: "TUH1" });
+    expect(result.status).toBe("applied");
+    const rows = await raw`select model from public.equipment where organization_id = ${ORG}
+      and regexp_replace(upper(serial_number), '[^A-Z0-9]', '', 'g') = ${`AB${tail}X`}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.model).toBe("TUH1");
+  });
+
+  it("holds a unit whose serial is on file at another address for the office, rather than adding it twice", async () => {
+    const [elsewhere] = await raw`insert into public.property (organization_id, address_line1, city, state, postal_code)
+      values (${ORG}, '12 Elm St', 'Austin', 'TX', '78701') returning id`;
+    const serial = `MV-${uuid().slice(0, 8)}`;
+    await raw`insert into public.equipment (organization_id, property_id, category, serial_number)
+              values (${ORG}, ${elsewhere!.id}, 'water_heater', ${serial})`;
+
+    const held = await recordFromPhone({ propertyId, category: "water_heater", serialNumber: serial });
+    expect(held.status).toBe("conflicted");
+    expect(held.conflict).toMatch(/^Not added from the phone\. Serial .* is already on file: water_heater at 12 Elm St, Austin/);
+    const here = await raw`select 1 from public.equipment where property_id = ${propertyId} and serial_number = ${serial}`;
+    expect(here).toHaveLength(0);
+    const conflicts = await fieldOps.conflicts(ctxFor(["dispatcher"]), { limit: 50, includeResolved: false });
+    expect(conflicts.data.some((c) => c.kind === "equipment.record" && c.conflict.includes("12 Elm St"))).toBe(true);
+
+    /** A technician who knows it is another unit with the same plate says so, and it is added. */
+    const confirmed = await recordFromPhone({
+      propertyId, category: "water_heater", serialNumber: serial, serialElsewhereConfirmed: true,
+    });
+    expect(confirmed.status).toBe("applied");
+    expect(await raw`select 1 from public.equipment where property_id = ${propertyId} and serial_number = ${serial}`).toHaveLength(1);
+  });
+
+  it("refuses a unit at an address that is not this company's", async () => {
+    const result = await recordFromPhone({ propertyId: uuid(), category: "furnace", serialNumber: "ZZ-1" });
+    expect(result.status).toBe("rejected");
+    expect(result.rejection).toMatch(/address is not here/);
   });
 });
 

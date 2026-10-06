@@ -44,6 +44,7 @@ export async function writePosting(
       ...(entry.customerId ? { customerId: entry.customerId } : {}),
       ...(entry.jobId ? { jobId: entry.jobId } : {}),
       ...(entry.memo ? { memo: entry.memo } : {}),
+      ...(entry.reversesEntryId ? { reversesEntryId: entry.reversesEntryId } : {}),
     })),
   );
 
@@ -54,15 +55,15 @@ export async function writePosting(
 
 /**
  * `ledger:read` AND `ledger:post` WERE GRANTED TO ROLES AND CHECKED BY
- * NOTHING, and the two are owed for different reasons.
+ * NOTHING, and the two were owed for different reasons.
  *
- * `ledger:post` stays owed, deliberately. A posting in this product is a
- * consequence of a guarded business action: invoicing, taking a payment,
- * writing one off. There is no bare journal entry surface and there should
- * not be one, because an operator who can post freely can make the books say
- * anything without a document behind it. The permission exists for the day a
- * manual journal is genuinely needed, and until then it is excused by name in
- * `permissions-enforced.test.ts`.
+ * `ledger:post` was owed deliberately, for the day a manual journal was
+ * genuinely needed, because an operator who can post freely can make the
+ * books say anything without a document behind it. That day came: an
+ * accountant's accruals, depreciation and payroll had no way onto this ledger,
+ * so every report here disagreed with the books by exactly their work. It is
+ * now enforced by `services/journals.ts`, with the refusals that make it safe
+ * stated there.
  *
  * `ledger:read` was a different story: the postings are written, they are
  * append only and trigger-enforced, and NOTHING COULD READ THEM BACK. A

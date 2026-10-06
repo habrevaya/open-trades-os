@@ -165,6 +165,19 @@ create policy demo_visit_no_direct_access on public.demo_visit
   using (false)
   with check (false);
 
+-- A one time sign in code for the field app sits above the tenant for the same
+-- reason a first-password link does: it exists before anybody is signed in.
+-- Nothing selects it; two functions near the end of this file issue and spend
+-- one, so the limits on how many and how often cannot be skipped by a second
+-- caller that forgot them.
+alter table public.sign_in_code enable row level security;
+alter table public.sign_in_code force row level security;
+drop policy if exists sign_in_code_no_direct_access on public.sign_in_code;
+create policy sign_in_code_no_direct_access on public.sign_in_code
+  to authenticated
+  using (false)
+  with check (false);
+
 -- ---- Ledger is append only ---------------------------------------------
 -- No UPDATE. No DELETE. Ever. A correction is a new reversing entry.
 -- Enforced in the database rather than in application code, because
@@ -523,6 +536,69 @@ revoke all on function app.create_session(uuid, text, uuid, timestamptz) from pu
 revoke all on function app.revoke_session(text) from public;
 
 -- -------------------------------------------------------------------------
+-- SANDBOXES
+-- A sandbox is a second company holding a practice copy of a real one's
+-- configuration (services/sandbox.ts). Two doors, both narrow.
+--
+-- Moving a session between the two halves of a pair. The session table is
+-- not the application's to write, so this is a function like creating a
+-- session, and it is where the check lives: the person is an active member
+-- of where they are going, and where they are going is THIS company's own
+-- sandbox (not thrown away) or the company this sandbox was copied from.
+-- Any other organization id answers false and moves nothing.
+drop function if exists app.switch_session_organization(text, uuid);
+create function app.switch_session_organization(p_token_hash text, p_organization_id uuid)
+  returns boolean
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user uuid;
+    v_current uuid;
+    v_ok boolean;
+  begin
+    select s.user_id, s.active_organization_id into v_user, v_current
+      from public.session s
+     where s.token_hash = p_token_hash and s.revoked_at is null and s.expires_at > now();
+    if v_user is null or v_current is null then return false; end if;
+    select exists (
+      select 1
+        from public.organization target
+        join public.organization cur on cur.id = v_current
+        join public.membership m on m.organization_id = target.id and m.user_id = v_user and m.active
+       where target.id = p_organization_id
+         and target.suspended_at is null
+         and (
+           (target.sandbox_of_organization_id = cur.id and cur.sandbox_organization_id = target.id
+             and target.sandbox_discarded_at is null)
+           or cur.sandbox_of_organization_id = target.id
+         )
+    ) into v_ok;
+    if not v_ok then return false; end if;
+    update public.session set active_organization_id = p_organization_id where token_hash = p_token_hash;
+    return true;
+  end
+  $$;
+revoke all on function app.switch_session_organization(text, uuid) from public;
+
+-- The other half's name and when it was made, for the band that says which
+-- one you are in. Row level security hides the other company's row, rightly;
+-- this answers only for the current company's own sandbox or the company it
+-- is a sandbox of, and only those two facts.
+drop function if exists app.sandbox_pair(uuid);
+create function app.sandbox_pair(p_other uuid)
+  returns table (name text, created_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.name, o.created_at
+      from public.organization o
+      join public.organization cur on cur.id = (select app.current_organization_id())
+     where o.id = p_other
+       and (cur.sandbox_organization_id = o.id or cur.sandbox_of_organization_id = o.id)
+  $$;
+revoke all on function app.sandbox_pair(uuid) from public;
+grant execute on function app.sandbox_pair(uuid) to authenticated;
+
+-- -------------------------------------------------------------------------
 -- PORTAL GRANTS
 --
 -- A customer approving an estimate has no session and never will. Resolution
@@ -536,6 +612,15 @@ revoke all on function app.revoke_session(text) from public;
 -- charge. So the use count is incremented in the same statement that reads the
 -- row, and the limit is enforced in the WHERE clause rather than afterwards in
 -- application code.
+--
+-- Both return the contact a grant acts for, when a contact on the customer
+-- signed in as them, so the request that follows can be recorded as that
+-- person. Adding a column to what a function returns is not something
+-- `create or replace` may do, so each is dropped first; the grants on them
+-- are given again further down, on every migrate.
+drop function if exists app.consume_portal_grant(text, text);
+drop function if exists app.peek_portal_grant(text);
+
 create or replace function app.consume_portal_grant(
   p_token_hash text, p_ip text default null
 ) returns table (
@@ -544,7 +629,8 @@ create or replace function app.consume_portal_grant(
     customer_id uuid,
     scope text,
     subject_id uuid,
-    uses_remaining integer
+    uses_remaining integer,
+    contact_id uuid
   )
   language sql
   volatile
@@ -570,7 +656,8 @@ create or replace function app.consume_portal_grant(
        )
     returning
       g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
-      case when g.max_uses is null then null else g.max_uses - g.use_count end
+      case when g.max_uses is null then null else g.max_uses - g.use_count end,
+      g.contact_id
   $$;
 
 -- Reading a grant without spending a use. Every refresh of a tracking page
@@ -583,7 +670,8 @@ create or replace function app.peek_portal_grant(p_token_hash text)
     customer_id uuid,
     scope text,
     subject_id uuid,
-    uses_remaining integer
+    uses_remaining integer,
+    contact_id uuid
   )
   language sql
   stable
@@ -592,7 +680,8 @@ create or replace function app.peek_portal_grant(p_token_hash text)
   as $$
     select
       g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
-      case when g.max_uses is null then null else g.max_uses - g.use_count end
+      case when g.max_uses is null then null else g.max_uses - g.use_count end,
+      g.contact_id
     from public.portal_grant g
     where g.token_hash = p_token_hash
       and g.expires_at > now()
@@ -633,6 +722,213 @@ create or replace function app.revoke_portal_grant(p_token_hash text)
 revoke all on function app.consume_portal_grant(text, text) from public;
 revoke all on function app.peek_portal_grant(text) from public;
 revoke all on function app.revoke_portal_grant(text) from public;
+
+-- -------------------------------------------------------------------------
+-- COUNTING THE OPEN INTERNET
+--
+-- The public endpoints (a touch from the website snippet, a pool number for
+-- a visitor, a hosted form) count their callers in `public_rate_limit` and
+-- refuse past a ceiling. The count is taken before any tenant is known,
+-- because which company a request is for is part of what is being counted,
+-- so it cannot go through a policy keyed on the current organization.
+--
+-- Row level security is ON with no policy, so the application role can read
+-- and write nothing in the table directly. The only way in is this function,
+-- which adds one hit to a key's current window and returns the total. It
+-- returns a number about a key the caller supplied and nothing else, so it
+-- cannot be used to read anybody's traffic. Old windows are cleared as it
+-- goes, a day behind, so the table holds a day of minutes rather than years.
+alter table public.public_rate_limit enable row level security;
+alter table public.public_rate_limit force row level security;
+
+create or replace function app.count_public_hit(p_key text, p_window_seconds integer)
+  returns integer
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_window timestamptz := to_timestamp(
+      floor(extract(epoch from now()) / greatest(p_window_seconds, 1)) * greatest(p_window_seconds, 1));
+    v_hits integer;
+  begin
+    insert into public.public_rate_limit (key, window_start, hits)
+      values (left(p_key, 300), v_window, 1)
+      on conflict (key, window_start) do update set hits = public.public_rate_limit.hits + 1
+      returning hits into v_hits;
+    -- One in a hundred calls sweeps, which keeps the table small without a job.
+    if random() < 0.01 then
+      delete from public.public_rate_limit where window_start < now() - interval '1 day';
+    end if;
+    return v_hits;
+  end
+  $$;
+
+revoke all on function app.count_public_hit(text, integer) from public;
+grant execute on function app.count_public_hit(text, integer) to authenticated;
+
+-- ---- OAuth clients, above the tenant -------------------------------------
+-- A remote MCP client registers before anybody has told it which company it
+-- will be pointed at, so `oauth_client` has no organization_id and the
+-- catalog driven loop above does not reach it. Row level security is on with
+-- no policy, so the application role can neither read nor write it directly:
+-- the two functions below are the only way in, and they hand back a
+-- registration and nothing about any company. A registration grants nothing.
+alter table public.oauth_client enable row level security;
+alter table public.oauth_client force row level security;
+
+-- A confidential client registers with a secret, of which only the SHA-256
+-- reaches this table. The four argument form from before confidential
+-- clients existed is dropped so nothing can register a client without saying
+-- which kind it is.
+drop function if exists app.oauth_register_client(text, text, jsonb, text);
+create or replace function app.oauth_register_client(
+  p_client_id text, p_name text, p_redirect_uris jsonb, p_from text,
+  p_auth_method text, p_secret_hash text
+) returns void
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    insert into public.oauth_client
+      (client_id, name, redirect_uris, registered_from, token_endpoint_auth_method, secret_hash)
+    values (p_client_id, left(p_name, 200), p_redirect_uris, left(p_from, 100), p_auth_method, p_secret_hash)
+  $$;
+
+revoke all on function app.oauth_register_client(text, text, jsonb, text, text, text) from public;
+grant execute on function app.oauth_register_client(text, text, jsonb, text, text, text) to authenticated;
+
+-- Which kind of client it is, but never its secret's hash: a client proves
+-- its secret through `oauth_client_secret_matches` below, so the hash does
+-- not leave the database even as far as the application.
+drop function if exists app.oauth_client(text);
+create or replace function app.oauth_client(p_client_id text)
+  returns table (client_id text, name text, redirect_uris jsonb, auth_method text)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.client_id, c.name, c.redirect_uris, c.token_endpoint_auth_method
+    from public.oauth_client c
+    where c.client_id = p_client_id
+    limit 1
+  $$;
+
+revoke all on function app.oauth_client(text) from public;
+grant execute on function app.oauth_client(text) to authenticated;
+
+-- Whether a confidential client presented its own secret. The caller hashes
+-- what was sent, so the secret itself is never a parameter here or in a log.
+-- A public client has no secret and never matches.
+create or replace function app.oauth_client_secret_matches(p_client_id text, p_secret_hash text)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select coalesce((
+      select c.secret_hash is not null and c.secret_hash = p_secret_hash
+      from public.oauth_client c
+      where c.client_id = p_client_id
+      limit 1
+    ), false)
+  $$;
+
+revoke all on function app.oauth_client_secret_matches(text, text) from public;
+grant execute on function app.oauth_client_secret_matches(text, text) to authenticated;
+
+-- REGISTRATIONS NOBODY EVER USED.
+-- A client registers before anybody at any company has been asked, and many
+-- register on every attempt to connect, so a burst of rows that no company
+-- ever approved is normal. One that is a week old with no connected app and
+-- no code at any company is junk, and the worker removes it. One that any
+-- company ever approved is kept for good, even after the company turned it
+-- off, because its id is on that company's connected app and audit lines.
+create or replace function app.oauth_purge_unused_clients(p_older_than_days int default 7, p_limit int default 1000)
+  returns int
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with doomed as (
+      select c.client_id
+      from public.oauth_client c
+      where c.created_at < now() - make_interval(days => greatest(p_older_than_days, 1))
+        and not exists (select 1 from public.connected_app a where a.oauth_client_id = c.client_id)
+        and not exists (select 1 from public.oauth_code k where k.client_id = c.client_id)
+      limit p_limit
+    ), gone as (
+      delete from public.oauth_client c using doomed d where c.client_id = d.client_id returning 1
+    )
+    select count(*)::int from gone
+  $$;
+
+revoke all on function app.oauth_purge_unused_clients(int, int) from public;
+-- (The grant to `background` is further down, after that role exists.)
+
+-- The token endpoint is called by a client holding a code or a refresh token
+-- and nothing else: no cookie, no tenant. These answer WHICH company a code
+-- or a refresh token belongs to, from its 256 bit hash, and nothing more; the
+-- exchange itself then runs inside that company like any other write, where
+-- every check on the code is made. A suspended company answers nothing.
+create or replace function app.oauth_code_organization(p_code_hash text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id
+    from public.oauth_code c
+    join public.organization o on o.id = c.organization_id
+    where c.code_hash = p_code_hash and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.oauth_code_organization(text) from public;
+grant execute on function app.oauth_code_organization(text) to authenticated;
+
+create or replace function app.oauth_refresh_organization(p_token_hash text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select r.organization_id
+    from public.oauth_refresh_token r
+    join public.organization o on o.id = r.organization_id
+    where r.token_hash = p_token_hash and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.oauth_refresh_organization(text) from public;
+grant execute on function app.oauth_refresh_organization(text) to authenticated;
+
+-- The same question for an access token, which is an ordinary app token: the
+-- revocation and introspection endpoints are handed one by a client with no
+-- tenant. Only a token of an app that came through OAuth answers. A token an
+-- operator issued by hand is not any OAuth client's to ask about, so to these
+-- endpoints it is unknown, exactly like a string nobody issued.
+create or replace function app.oauth_access_organization(p_token_hash text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select t.organization_id
+    from public.app_token t
+    join public.connected_app a on a.id = t.app_id
+    join public.organization o on o.id = t.organization_id
+    where t.token_hash = p_token_hash
+      and a.oauth_client_id is not null
+      and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.oauth_access_organization(text) from public;
+grant execute on function app.oauth_access_organization(text) to authenticated;
+
+-- An app that asked to be installed comes back for its credential holding
+-- the request id and the secret it was given, and no tenant. This answers
+-- which company the request is with, for a request and only a request: an
+-- app an operator installed by hand has no claim to collect, and naming its
+-- company to anybody holding its id would be a small leak for no purpose.
+create or replace function app.app_request_organization(p_app_id uuid)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id
+    from public.connected_app a
+    join public.organization o on o.id = a.organization_id
+    where a.id = p_app_id and a.source = 'request' and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.app_request_organization(uuid) from public;
+grant execute on function app.app_request_organization(uuid) to authenticated;
 
 -- =========================================================================
 -- COVERAGE ASSERTION
@@ -893,6 +1189,11 @@ $$;
 
 grant authenticated to background;
 
+-- Held here rather than beside the function: that one is defined above, before
+-- this role exists, and a grant to a role that does not yet exist aborts the
+-- whole migration on a database that has never had one (a fresh install, CI).
+grant execute on function app.oauth_purge_unused_clients(int, int) to background;
+
 -- `p_only` narrows the search to the companies named, and null (the default,
 -- and what the worker passes) searches all of them. It exists for a pass that
 -- must not touch tenants it was not asked about: a test sharing its database
@@ -1038,6 +1339,39 @@ revoke all on function app.due_workflow_runs(int) from public;
 grant execute on function app.due_workflow_runs(int) to background;
 
 -- =========================================================================
+-- CAMPAIGN SENDS THAT ARE DUE
+--
+-- A text or email campaign with `scheduled_for` in the past, or one already
+-- `sending` because a carrier's daily cap left part of its list for another
+-- day. `scheduled_for` was stored for a long time and fired by nothing, so a
+-- staged send was one press per batch. The worker reads this, and only ids
+-- come back: the send itself runs inside the tenant, under its guard.
+-- =========================================================================
+
+create or replace function app.due_campaigns(p_limit int default 100)
+returns table (organization_id uuid, campaign_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id, c.id
+    from public.marketing_campaign c
+    where c.deleted_at is null
+      and c.cancelled_at is null
+      and (
+        (c.state = 'scheduled' and c.scheduled_for is not null and c.scheduled_for <= now())
+        or c.state = 'sending'
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = c.organization_id and o.suspended_at is not null
+      )
+    order by coalesce(c.scheduled_for, c.started_at)
+    limit p_limit
+  $$;
+
+revoke all on function app.due_campaigns(int) from public;
+grant execute on function app.due_campaigns(int) to background;
+
+-- =========================================================================
 -- WORKFLOWS THAT WATCH FOR SOMETHING NOT HAPPENING
 --
 -- The same shape as the two above. Ids and the dwell spec, nothing else, and
@@ -1066,6 +1400,338 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
 
 revoke all on function app.dwell_workflows(int) from public;
 grant execute on function app.dwell_workflows(int) to background;
+
+-- =========================================================================
+-- ADDRESSES WAITING TO BE PUT ON THE MAP
+--
+-- The same shape as the three above: a cross tenant read for the worker,
+-- ids only, and not callable by the role the request path uses.
+--
+-- Only companies that have connected a geocoder. A company that has not has
+-- chosen not to send its customers' addresses anywhere, and the worker
+-- finding their rows anyway would be the first step towards doing it.
+--
+-- Due means: not placed by hand, the stored coordinate does not answer for
+-- the address as it is now, and either the address has not been tried yet or
+-- a failure that might clear has passed its back off. The same rule as
+-- `geo.geocodeDue` in core, which the worker checks again inside the tenant.
+--
+-- Within a company, locations first, because a technician's day cannot be
+-- ordered without where it starts; then properties with work in the coming week, because
+-- those are the pins a dispatcher is about to look for; then the newest,
+-- because a customer added this morning is likelier to be booked than one
+-- from 2019.
+-- =========================================================================
+
+create or replace function app.addresses_to_geocode(p_limit int default 50)
+returns table (organization_id uuid, entity text, entity_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    with geocoding as (
+      select distinct c.organization_id
+      from public.integration_connection c
+      join public.organization o on o.id = c.organization_id
+      where c.capability = 'maps'
+        and c.status = 'connected'
+        and c.deleted_at is null
+        and o.suspended_at is null
+    ),
+    due as (
+      select l.organization_id, 'location'::text as entity, l.id as entity_id,
+             0 as tier, l.created_at
+      from public.location l
+      join geocoding g on g.organization_id = l.organization_id
+      where l.active
+        and coalesce(btrim(l.address_line1), '') <> ''
+        and l.location_source is distinct from 'manual'
+        and l.located_address is distinct from l.address_key
+        and (l.geocode_attempted_address is distinct from l.address_key
+             or (l.geocode_retry_at is not null and l.geocode_retry_at <= now()))
+      union all
+      select p.organization_id, 'property'::text, p.id,
+             case when exists (
+               select 1 from public.job j
+               join public.visit v on v.job_id = j.id
+               where j.property_id = p.id
+                 and v.window_start >= now() - interval '1 day'
+                 and v.window_start < now() + interval '7 days'
+             ) then 1 else 2 end,
+             p.created_at
+      from public.property p
+      join geocoding g on g.organization_id = p.organization_id
+      where p.deleted_at is null
+        and btrim(p.address_line1) <> ''
+        and p.location_source is distinct from 'manual'
+        and p.located_address is distinct from p.address_key
+        and (p.geocode_attempted_address is distinct from p.address_key
+             or (p.geocode_retry_at is not null and p.geocode_retry_at <= now()))
+    )
+    -- Round robin across companies, so one company whose geocoder is broken,
+    -- or who connected one with forty thousand customers on file, cannot
+    -- fill every pass and starve the company that added one customer today.
+    , ranked as (
+      select organization_id, entity, entity_id, tier, created_at,
+             row_number() over (partition by organization_id order by tier, created_at desc, entity_id) as turn
+      from due
+    )
+    select organization_id, entity, entity_id
+    from ranked
+    order by turn, tier, created_at desc, entity_id
+    limit p_limit
+  $$;
+
+revoke all on function app.addresses_to_geocode(int) from public;
+grant execute on function app.addresses_to_geocode(int) to background;
+
+-- =========================================================================
+-- WHERE TECHNICIANS WERE, DELETED ON TIME
+--
+-- Live positions are kept for the company's retention (`organization.settings
+-- -> 'locationSharing' -> 'retentionDays'`, three days when unset, never more
+-- than thirty) and then deleted, across every tenant in one statement, which
+-- is why this is a definer function: the worker has no tenant. A company
+-- that turned sharing off keeps nothing past the same retention either. The
+-- bound is enforced here as well as in the service, so a settings row edited
+-- by hand cannot keep a person's movements for a year.
+--
+-- And drive times past their provider's expiry, for the same worker pass.
+-- =========================================================================
+
+create or replace function app.purge_technician_positions(p_limit int default 5000)
+returns table (organization_id uuid, removed bigint)
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with doomed as (
+      select p.id
+      from public.technician_position p
+      join public.organization o on o.id = p.organization_id
+      where p.recorded_at < now() - make_interval(days => least(30, greatest(1, coalesce(
+              case when (o.settings -> 'locationSharing' ->> 'retentionDays') ~ '^[0-9]{1,3}$'
+                   then (o.settings -> 'locationSharing' ->> 'retentionDays')::int end, 3))))
+      limit p_limit
+    ),
+    gone as (
+      delete from public.technician_position t
+      using doomed d where t.id = d.id
+      returning t.organization_id
+    )
+    select g.organization_id, count(*)::bigint from gone g group by g.organization_id
+  $$;
+
+revoke all on function app.purge_technician_positions(int) from public;
+grant execute on function app.purge_technician_positions(int) to background;
+
+create or replace function app.purge_travel_times(p_limit int default 5000)
+returns bigint
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with doomed as (
+      select id from public.travel_time where expires_at < now() limit p_limit
+    ), gone as (
+      delete from public.travel_time t using doomed d where t.id = d.id returning 1
+    )
+    select count(*)::bigint from gone
+  $$;
+
+revoke all on function app.purge_travel_times(int) from public;
+grant execute on function app.purge_travel_times(int) to background;
+-- REPORTS AND STATEMENTS THAT ARRIVE ON THEIR OWN
+--
+-- The same shape as the three above: which schedules are due, across every
+-- tenant, as ids and nothing else. Paused ones and suspended companies are
+-- left out here rather than in the caller, so forgetting to check is not a
+-- way for a paused report to go out.
+-- =========================================================================
+
+create or replace function app.due_deliveries(p_limit int default 100)
+returns table (organization_id uuid, schedule_id uuid, kind text, next_run_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id, s.id, s.kind::text, s.next_run_at
+    from public.delivery_schedule s
+    where s.paused_at is null
+      and s.next_run_at is not null
+      and s.next_run_at <= now()
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    -- Longest overdue first, so a backlog after an outage goes out in the
+    -- order it was owed.
+    order by s.next_run_at
+    limit p_limit
+  $$;
+
+revoke all on function app.due_deliveries(int) from public;
+grant execute on function app.due_deliveries(int) to background;
+-- AGREEMENTS COMING UP FOR RENEWAL
+--
+-- The same shape as the three above and for the same reason: ids only, not
+-- callable by the role the request path uses. A company is returned when it
+-- has an active agreement whose end is inside the plan's notice window, with
+-- a day to spare either side for timezones. Whether anything is actually due
+-- is decided per agreement, in the company's own calendar, by the service.
+-- =========================================================================
+
+create or replace function app.agreement_renewal_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id
+    from public.agreement a
+    join public.agreement_plan p on p.id = a.plan_id
+    where a.status = 'active'
+      and a.ends_on is not null
+      and (
+        a.ends_on <= current_date + 1
+        or (a.renewal_notice_sent_at is null
+            and a.ends_on <= current_date + p.renewal_notice_days + 1)
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = a.organization_id and o.suspended_at is not null
+      )
+    group by a.organization_id
+    order by min(a.ends_on)
+    limit p_limit
+  $$;
+
+revoke all on function app.agreement_renewal_organizations(int) from public;
+grant execute on function app.agreement_renewal_organizations(int) to background;
+
+-- =========================================================================
+-- COMPANIES WITH CONTAINER COLLECTIONS TO BOOK
+--
+-- The rental pass in the worker books each hire's collection on the board
+-- when it comes due, across every tenant, and the worker cannot read across
+-- tenants under RLS. This returns the companies with an open hire that has
+-- no live collection and is due back (or has a collection agreed) within the
+-- company's lead days, with a day to spare for timezones, and that have not
+-- turned automatic collections off. Whether each one is due is decided per
+-- hire, in the company's own calendar, by the service.
+-- =========================================================================
+
+create or replace function app.rental_collection_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select r.organization_id
+    from public.rental r
+    join public.organization o on o.id = r.organization_id
+    where r.picked_up_at is null
+      and r.delivered_at is not null
+      and o.suspended_at is null
+      and coalesce((o.settings -> 'rentalDispatch' ->> 'automaticCollections')::boolean, true)
+      and (
+        r.collection_visit_id is null
+        or exists (
+          select 1 from public.visit v
+           where v.id = r.collection_visit_id and v.status = 'cancelled'
+        )
+      )
+      and (
+        (r.collection_agreed_start is not null
+          and r.collection_agreed_start::date
+            <= current_date + coalesce((o.settings -> 'rentalDispatch' ->> 'collectionLeadDays')::int, 1) + 1)
+        or (r.collection_agreed_start is null and r.included_days is not null
+          and r.delivered_at::date + r.included_days - 1
+            <= current_date + coalesce((o.settings -> 'rentalDispatch' ->> 'collectionLeadDays')::int, 1) + 1)
+      )
+    group by r.organization_id
+    order by r.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.rental_collection_organizations(int) from public;
+grant execute on function app.rental_collection_organizations(int) to background;
+-- WEBHOOK DELIVERIES OWED IN A QUIET COMPANY
+--
+-- Delivery runs after a company's events are drained, so a company that
+-- produced nothing this pass was never visited: a replay somebody asked for
+-- sat waiting for the next job to be booked, and so did the retry a failing
+-- receiver was owed. This returns the companies with either, as ids and
+-- nothing else, in the same shape as the functions above. Whether a retry is
+-- due yet is still decided per endpoint by the service, against its backoff.
+-- =========================================================================
+
+create or replace function app.webhook_work_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select e.organization_id
+    from public.webhook_endpoint e
+    where e.active
+      and e.deleted_at is null
+      and (
+        e.failure_count > 0
+        or exists (
+          select 1 from public.webhook_replay r
+           where r.endpoint_id = e.id and r.status = 'pending'
+        )
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = e.organization_id and o.suspended_at is not null
+      )
+    group by e.organization_id
+    order by min(e.last_delivery_at) nulls first
+    limit p_limit
+  $$;
+
+revoke all on function app.webhook_work_organizations(int) from public;
+grant execute on function app.webhook_work_organizations(int) to background;
+
+-- ---- Companies with task rules to apply ----------------------------------
+-- The task pass in the worker raises recurring tasks and escalates late ones,
+-- across every tenant, and the worker cannot read across tenants under RLS.
+-- This answers only WHICH companies have an active template or an active
+-- escalation rule; what is due is decided per company, in its own timezone,
+-- by the service. A suspended company is left alone, like every other pass.
+create or replace function app.task_rule_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select t.organization_id from public.task_template t where t.active
+      union
+      select r.organization_id from public.task_escalation_rule r where r.active
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.task_rule_organizations(int) from public;
+grant execute on function app.task_rule_organizations(int) to background;
+
+-- ---- Companies whose contract clocks need a pass -------------------------
+-- The commercial module keeps SLA, invoicing and claim clocks on jobs, and
+-- the worker reconciles them and raises a task for any about to breach. The
+-- worker has no tenant until it picks one, so it asks here which companies
+-- hold a contract in force or a live clock waiting to escalate, and nothing
+-- else: a list of ids, the same shape as task_rule_organizations above.
+create or replace function app.contract_clock_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select c.organization_id from public.service_contract c
+       where c.active and c.deleted_at is null
+      union
+      select o.organization_id from public.obligation o
+       where o.state in ('open', 'breached') and o.escalate_at is not null and o.escalated_at is null
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.contract_clock_organizations(int) from public;
+grant execute on function app.contract_clock_organizations(int) to background;
 
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
@@ -1526,8 +2192,11 @@ create or replace function app.network_rollup(
         and n.operator_organization_id = (select app.current_organization_id())
         and n.deleted_at is null
     ),
+    -- Each member's own zone: a month is that company's month, so a job one of
+    -- them finished on the evening of the 31st is counted in the 31st's month
+    -- and not, as a UTC month would have it, in the next.
     members as (
-      select o.id, o.network_member_code
+      select o.id, o.network_member_code, coalesce(o.timezone, 'America/Chicago') as zone
       from public.organization o
       join operator on true
       join public.network_grant g
@@ -1541,15 +2210,15 @@ create or replace function app.network_rollup(
     )
     -- Jobs completed, per member per month.
     select m.id, m.network_member_code,
-           to_char(j.completed_at, 'YYYY-MM'), 'jobs_completed', count(*)::numeric
+           to_char(j.completed_at at time zone m.zone, 'YYYY-MM'), 'jobs_completed', count(*)::numeric
     from members m
     join public.job j on j.organization_id = m.id
     where p_aggregate = 'job_counts'
       and j.deleted_at is null
       and j.completed_at is not null
-      and j.completed_at >= p_from::timestamptz
-      and j.completed_at < (p_to + 1)::timestamptz
-    group by m.id, m.network_member_code, to_char(j.completed_at, 'YYYY-MM')
+      and j.completed_at >= (p_from::timestamp at time zone m.zone)
+      and j.completed_at < ((p_to + 1)::timestamp at time zone m.zone)
+    group by m.id, m.network_member_code, to_char(j.completed_at at time zone m.zone, 'YYYY-MM')
 
     union all
 
@@ -1613,7 +2282,7 @@ create or replace function app.network_rollup(
     -- debit balances. A sum of raw amounts with the directions mixed is a
     -- number that means nothing.
     select m.id, m.network_member_code,
-           to_char(e.occurred_at, 'YYYY-MM'),
+           to_char(e.occurred_at at time zone m.zone, 'YYYY-MM'),
            case substr(e.account_code, 1, 1)
              when '1' then 'asset' when '2' then 'liability'
              when '3' then 'equity' when '4' then 'revenue'
@@ -1629,9 +2298,9 @@ create or replace function app.network_rollup(
     from members m
     join public.ledger_entry e on e.organization_id = m.id
     where p_aggregate = 'gl_summary'
-      and e.occurred_at >= p_from::timestamptz
-      and e.occurred_at < (p_to + 1)::timestamptz
-    group by m.id, m.network_member_code, to_char(e.occurred_at, 'YYYY-MM'),
+      and e.occurred_at >= (p_from::timestamp at time zone m.zone)
+      and e.occurred_at < ((p_to + 1)::timestamp at time zone m.zone)
+    group by m.id, m.network_member_code, to_char(e.occurred_at at time zone m.zone, 'YYYY-MM'),
              substr(e.account_code, 1, 1)
   $$;
 
@@ -1822,3 +2491,647 @@ create or replace function app.operator_set_membership(
 
 revoke all on function app.operator_set_membership(uuid, uuid, text) from public;
 grant execute on function app.operator_set_membership(uuid, uuid, text) to platform_operator;
+
+-- ---- Which branch a new job belongs to ------------------------------------
+-- A branch is a business unit, and `job.business_unit_id` is what a branch
+-- scoped person's job list is filtered on (services/scope.ts). Eight places
+-- in this product insert a job (booking one, confirming an online request,
+-- converting an estimate, accepting a lead, a recurring plan, an agreement
+-- visit, a route, a project phase) and not one of them chose a branch, so a
+-- branch manager who booked a job watched it vanish from their own list the
+-- moment it was saved: it belonged to no branch, and their scope shows one.
+--
+-- So the default lives here, once, under all eight, rather than in eight
+-- services that would each have to remember it. A job saved without a branch
+-- takes the branch of the person saving it, then the branch its job type
+-- belongs to, and otherwise stays with none, which only company wide people
+-- see and Settings > Branches lists for somebody to sort out. A branch that
+-- has been retired is not handed to new work. A job saved WITH a branch keeps
+-- it: whether this person may choose that branch is the service's question,
+-- because it is about their scope rather than about the row.
+--
+-- Security invoker on purpose. It reads the membership and the job type the
+-- request can already see, inside the tenant the request is already in.
+create or replace function app.default_job_branch() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  begin
+    if new.business_unit_id is null then
+      select m.business_unit_id into new.business_unit_id
+        from public.membership m
+        join public.business_unit bu on bu.id = m.business_unit_id and bu.active
+       where m.organization_id = new.organization_id
+         and m.user_id = (select app.current_user_id())
+         and m.active
+       limit 1;
+    end if;
+    if new.business_unit_id is null and new.job_type_id is not null then
+      select jt.business_unit_id into new.business_unit_id
+        from public.job_type jt
+        join public.business_unit bu on bu.id = jt.business_unit_id and bu.active
+       where jt.id = new.job_type_id
+         and jt.organization_id = new.organization_id;
+    end if;
+    return new;
+  end;
+  $$;
+
+drop trigger if exists job_default_branch on public.job;
+create trigger job_default_branch
+  before insert on public.job
+  for each row execute function app.default_job_branch();
+
+-- ---- A customer's tags, one row each, kept by the database ----------------
+-- `customer_tag` is what the tag filter, the tag counts and a campaign's
+-- `tagged_any` read, under an index on the case blind key. The customer's
+-- own list stays the record of what they carry, and this rebuilds the rows
+-- from it whenever the list or the customer's deleted state changes, in the
+-- same statement as the change. Nothing else writes the table, so nothing
+-- can leave it disagreeing with the lists: an import, a restore, a rename
+-- across the book and a row inserted by hand all pass through here.
+--
+-- Security invoker. It writes rows for the customer the statement just
+-- wrote, under the tenant that statement was already allowed to write in.
+-- The key is the one `core/tags` compares by: trimmed, inner spaces run
+-- together, lower cased, so a key worked out in TypeScript finds these rows.
+create or replace function app.sync_customer_tags() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  begin
+    if tg_op = 'UPDATE'
+       and new.tags is not distinct from old.tags
+       and (new.deleted_at is null) = (old.deleted_at is null) then
+      return null;
+    end if;
+    if tg_op = 'UPDATE' then
+      delete from public.customer_tag where customer_id = new.id;
+    end if;
+    if new.deleted_at is null then
+      insert into public.customer_tag (organization_id, customer_id, position, tag, tag_key)
+      select new.organization_id, new.id, (t.ord - 1)::int, t.tag,
+             lower(regexp_replace(regexp_replace(t.tag, '\s+', ' ', 'g'), '^ | $', '', 'g'))
+      from jsonb_array_elements_text(
+        case when jsonb_typeof(new.tags) = 'array' then new.tags else '[]'::jsonb end
+      ) with ordinality as t(tag, ord)
+      where t.tag is not null;
+    end if;
+    return null;
+  end;
+  $$;
+
+drop trigger if exists customer_tags_sync on public.customer;
+create trigger customer_tags_sync
+  after insert or update of tags, deleted_at on public.customer
+  for each row execute function app.sync_customer_tags();
+
+-- ---- A branch's mark on a job or invoice number ---------------------------
+-- Numbers stay one sequence per company. A company that turns branch marks on
+-- (`organization.settings.branchNumbering`, jobs and invoices separately) has
+-- its branch's short code written in front of each NEW job or invoice
+-- ("AUS-1042"), here, once, at insert. Nothing recomputes it: a job moved to
+-- another branch, or a branch whose code changes, keeps the number its
+-- customer was given. Rows made before the setting was turned on keep none.
+--
+-- A trigger for the reason the default branch is one: eight services insert
+-- jobs and four insert invoices, and a mark written by one of them is a mark
+-- on some numbers and not others. Named to sort after `job_default_branch`,
+-- because Postgres fires a table's triggers in name order and the branch has
+-- to be decided before its code can be read.
+--
+-- Security invoker on purpose: it reads the company's own settings and
+-- branches, which the request can already see.
+create or replace function app.number_prefix() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  declare
+    v_unit uuid := new.business_unit_id;
+    v_code text;
+  begin
+    if new.number_prefix is not null then
+      return new;
+    end if;
+    if not exists (
+      select 1 from public.organization o
+       where o.id = new.organization_id
+         and coalesce(o.settings -> 'branchNumbering' ->> (
+               case tg_table_name when 'job' then 'jobs' else 'invoices' end
+             ), 'false') = 'true'
+    ) then
+      return new;
+    end if;
+    -- An invoice usually carries no branch of its own; it is the job's.
+    -- Nested rather than one condition, because a job row has no job_id and
+    -- PL/pgSQL would refuse the reference even on a branch it never takes.
+    if tg_table_name = 'invoice' then
+      if v_unit is null and new.job_id is not null then
+        select j.business_unit_id into v_unit from public.job j where j.id = new.job_id;
+      end if;
+    end if;
+    if v_unit is null then
+      return new;
+    end if;
+    select upper(trim(bu.code)) into v_code from public.business_unit bu where bu.id = v_unit;
+    -- The same rule as `work.numberPrefix` in core: a short run of letters
+    -- and digits, or no mark at all.
+    if v_code ~ '^[A-Z0-9]{1,8}$' then
+      new.number_prefix := v_code;
+    end if;
+    return new;
+  end;
+  $$;
+
+drop trigger if exists job_number_prefix on public.job;
+create trigger job_number_prefix
+  before insert on public.job
+  for each row execute function app.number_prefix();
+
+drop trigger if exists invoice_number_prefix on public.invoice;
+create trigger invoice_number_prefix
+  before insert on public.invoice
+  for each row execute function app.number_prefix();
+
+-- ---- Inviting somebody to work here ----------------------------------------
+-- The setup wizard's team step, and Settings > Team. Until these two
+-- functions existed the only way a second person got into a company was the
+-- operator API or a row typed into the database, so every company was one
+-- person with a login.
+--
+-- Both run as definer because the `user` table's policy lets a session see
+-- only its own row, which is right and stays right: an office manager must
+-- not be able to list every account on the deployment. They check the
+-- caller's standing themselves rather than trusting the service, the same as
+-- `revoke_sessions_for`, and they act only inside the caller's own company.
+-- The permission (`user:invite`) and whether the role being handed out is
+-- within the inviter's own authority are checked by the service before it
+-- gets here; this is the second lock, not the first.
+--
+-- AN ADDRESS THAT ALREADY HAS AN ACCOUNT IS NOT ADDED, and that is the rule
+-- the whole design rests on. Adding an existing account to this company would
+-- hand this company's records to whoever controls that account, and nothing
+-- here proves that is the person the address belongs to: anybody can sign up
+-- with an address that is not theirs, or be invited somewhere else first and
+-- choose the password. So an invite creates the person or finds them already
+-- in THIS company, and an address in use anywhere else is refused with
+-- `elsewhere` for the service to explain.
+create or replace function app.invite_member(p_email text, p_name text, p_role text)
+  returns table (membership_id uuid, user_id uuid, outcome text, active boolean, has_password boolean)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+    v_email text := lower(trim(p_email));
+    v_user uuid;
+    v_membership uuid;
+    v_active boolean;
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active
+    ) then
+      raise exception 'only an active member of a company may invite somebody to it'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    select u.id into v_user from public."user" u where u.email = v_email;
+
+    if v_user is null then
+      insert into public."user" (email, name)
+      values (v_email, nullif(trim(coalesce(p_name, '')), ''))
+      returning id into v_user;
+      insert into public.membership (organization_id, user_id, role)
+      values (v_org, v_user, p_role::public.member_role)
+      returning id into v_membership;
+      return query select v_membership, v_user, 'created'::text, true, false;
+      return;
+    end if;
+
+    select m.id, m.active into v_membership, v_active
+      from public.membership m
+     where m.organization_id = v_org and m.user_id = v_user;
+
+    if v_membership is null then
+      return query select null::uuid, null::uuid, 'elsewhere'::text, false, false;
+      return;
+    end if;
+
+    return query select v_membership, v_user, 'member'::text, v_active,
+      exists (select 1 from public.credential c where c.user_id = v_user);
+  end;
+  $$;
+
+-- A first-password link for somebody this company invited.
+--
+-- `issue_setup_token` is the operator's and stays the operator's. This is the
+-- same link with the tenant's narrower rule in front of it: the person must
+-- be a member of the caller's company, of NO other company, and have no
+-- password yet. The middle condition is what stops one company issuing a
+-- link for somebody another company invited and is still waiting on: with it,
+-- a link can only ever open an account whose sole membership is the company
+-- that asked for it, which is the account it created.
+create or replace function app.issue_invite_token(
+  p_user_id uuid, p_token_hash text, p_expires_at timestamptz
+) returns boolean
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active
+    ) then
+      return false;
+    end if;
+    if not exists (
+      select 1 from public.membership m where m.organization_id = v_org and m.user_id = p_user_id
+    ) then
+      return false;
+    end if;
+    if exists (
+      select 1 from public.membership m where m.user_id = p_user_id and m.organization_id <> v_org
+    ) then
+      return false;
+    end if;
+    if exists (select 1 from public.credential c where c.user_id = p_user_id) then
+      return false;
+    end if;
+
+    update public.setup_token
+       set revoked_at = now(), updated_at = now()
+     where user_id = p_user_id and used_at is null and revoked_at is null;
+    insert into public.setup_token (user_id, token_hash, expires_at)
+    values (p_user_id, p_token_hash, p_expires_at);
+    return true;
+  end;
+  $$;
+
+revoke all on function app.invite_member(text, text, text) from public;
+revoke all on function app.issue_invite_token(uuid, text, timestamptz) from public;
+grant execute on function app.invite_member(text, text, text) to authenticated;
+grant execute on function app.issue_invite_token(uuid, text, timestamptz) to authenticated;
+
+-- Which of this company's people have not chosen a password yet: invited,
+-- and not in. Membership ids only, for the team list to say "has not signed
+-- in yet" and offer a fresh link. Whether a colleague has finished signing
+-- up is not a secret inside their own company; their password row is, and
+-- this reads its existence and nothing else.
+create or replace function app.organization_people_waiting()
+  returns table (membership_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select m.id
+    from public.membership m
+    where m.organization_id = (select app.current_organization_id())
+      and not exists (select 1 from public.credential c where c.user_id = m.user_id)
+  $$;
+
+revoke all on function app.organization_people_waiting() from public;
+grant execute on function app.organization_people_waiting() to authenticated;
+
+-- A first-password link for an invite's EMAIL, made at the moment the outbox
+-- hands that email to the provider.
+--
+-- The email in the outbox does not carry the link: everybody who reads the
+-- inbox can read the outbox, and a link that chooses a new colleague's
+-- password, sitting in a dispatcher's inbox, is a way into an account the
+-- dispatcher was never given. So the outbox asks for a link as it sends, puts
+-- it in the copy that goes to the provider, and keeps it nowhere.
+--
+-- The caller is the outbox, which acts as nobody, so this does not ask who is
+-- calling. It asks the things that make the link safe to make instead: the
+-- invite is this company's, not replaced and not expired, its person is still
+-- turned on, belongs to no other company and has no password yet, and an
+-- email sealed to this invite is in the middle of being sent right now. The
+-- last of those is what stops this being a way to mint a link at any other
+-- time. The link it makes ends when the invite does, and making it does not
+-- retire the link the inviter was shown: both are the same invite.
+create or replace function app.issue_invite_email_token(p_invite_id uuid, p_token_hash text)
+  returns timestamptz
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_user uuid;
+    v_expires timestamptz;
+  begin
+    if v_org is null then
+      return null;
+    end if;
+    select m.user_id, i.expires_at into v_user, v_expires
+      from public.membership_invite i
+      join public.membership m on m.id = i.membership_id and m.organization_id = i.organization_id
+     where i.id = p_invite_id
+       and i.organization_id = v_org
+       and i.replaced_at is null
+       and i.expires_at > now()
+       and m.active
+       and exists (
+         select 1 from public.message msg
+          where msg.sealed_invite_id = i.id
+            and msg.organization_id = v_org
+            and msg.status = 'sending'
+       );
+    if v_user is null then
+      return null;
+    end if;
+    if exists (select 1 from public.membership m where m.user_id = v_user and m.organization_id <> v_org) then
+      return null;
+    end if;
+    if exists (select 1 from public.credential c where c.user_id = v_user) then
+      return null;
+    end if;
+    insert into public.setup_token (user_id, token_hash, expires_at)
+    values (v_user, p_token_hash, v_expires);
+    return v_expires;
+  end;
+  $$;
+
+revoke all on function app.issue_invite_email_token(uuid, text) from public;
+grant execute on function app.issue_invite_email_token(uuid, text) to authenticated;
+-- =========================================================================
+-- THE FIELD APP: ONE TIME SIGN IN CODES AND PUSH NOTICES
+-- =========================================================================
+
+-- The functions that issue and spend a code are under "The field app" near
+-- the end of this file.
+
+-- Issue a code for whoever owns this email, replacing any live one they had.
+-- Returns nothing for an address nobody owns, and `issued = false` for one
+-- that has asked too often lately, so the caller can answer both the same
+-- way and the form never says which addresses exist.
+create or replace function app.issue_sign_in_code(
+  p_email text, p_code_hash text, p_channel text, p_expires_at timestamptz,
+  p_per_window int, p_window_minutes int
+) returns table (user_id uuid, email text, name text, issued boolean)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user public."user"%rowtype;
+    v_recent int;
+  begin
+    select * into v_user from public."user" u where lower(u.email) = lower(p_email) limit 1;
+    if not found then
+      return;
+    end if;
+
+    -- Serialised per person, so two requests at once cannot both read two
+    -- recent codes and both issue a third.
+    perform pg_advisory_xact_lock(hashtext('sign_in_code:' || v_user.id::text));
+
+    select count(*) into v_recent from public.sign_in_code c
+     where c.user_id = v_user.id
+       and c.created_at > now() - make_interval(mins => p_window_minutes);
+    if v_recent >= p_per_window then
+      return query select v_user.id, v_user.email, v_user.name, false;
+      return;
+    end if;
+
+    -- Only the newest code works. A person asking again usually never got
+    -- the first one, and the first one is then in nobody's hands that
+    -- should be using it.
+    update public.sign_in_code c
+       set revoked_at = now(), updated_at = now()
+     where c.user_id = v_user.id and c.used_at is null and c.revoked_at is null;
+
+    insert into public.sign_in_code (user_id, code_hash, channel, expires_at)
+    values (v_user.id, p_code_hash, p_channel, p_expires_at);
+
+    return query select v_user.id, v_user.email, v_user.name, true;
+  end;
+  $$;
+
+-- Try a code. Returns the person on a match and spends the code in the same
+-- statement, so two phones submitting it together cannot both sign in: the
+-- second waits on the row lock and finds it used. A wrong guess is counted
+-- against the live code, and at the limit the code is revoked, so the five
+-- guesses a code allows cannot become fifty by asking again and again.
+-- Returns null for every refusal alike: wrong, expired, spent or never sent.
+create or replace function app.consume_sign_in_code(
+  p_email text, p_code_hash text, p_max_attempts int
+) returns uuid
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_code public.sign_in_code%rowtype;
+  begin
+    select c.* into v_code
+      from public.sign_in_code c
+      join public."user" u on u.id = c.user_id
+     where lower(u.email) = lower(p_email)
+       and c.used_at is null
+       and c.revoked_at is null
+       and c.expires_at > now()
+     order by c.created_at desc
+     limit 1
+     for update of c;
+
+    if not found then
+      return null;
+    end if;
+
+    if v_code.code_hash = p_code_hash then
+      update public.sign_in_code
+         set used_at = now(), updated_at = now()
+       where id = v_code.id;
+      return v_code.user_id;
+    end if;
+
+    update public.sign_in_code
+       set attempts = attempts + 1,
+           revoked_at = case when attempts + 1 >= p_max_attempts then now() else revoked_at end,
+           updated_at = now()
+     where id = v_code.id;
+    return null;
+  end;
+  $$;
+
+revoke all on function app.issue_sign_in_code(text, text, text, timestamptz, int, int) from public;
+revoke all on function app.consume_sign_in_code(text, text, int) from public;
+grant execute on function app.issue_sign_in_code(text, text, text, timestamptz, int, int) to authenticated;
+grant execute on function app.consume_sign_in_code(text, text, int) to authenticated;
+
+-- ---- Companies with a push to send ----------------------------------------
+-- The push pass reads each company's changes to somebody's day from its own
+-- position in the event log (the `push` consumer) and sends what it writes. The same shape as the functions
+-- above: which companies have a change it has not read, a notice still
+-- waiting to go, or a receipt still owed, as ids and nothing else. Whether
+-- any of it is due is decided per company by the service.
+create or replace function app.push_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select e.organization_id
+        from public.domain_event e
+        left join public.event_cursor c
+          on c.organization_id = e.organization_id and c.consumer = 'push'
+       where e.sequence > coalesce(c.last_sequence, 0)
+         -- Only the changes a phone is told about, so a company busy with
+         -- everything else is not visited on every pass for nothing.
+         and e.name in ('visit.assigned', 'visit.unassigned', 'visit.rescheduled', 'visit.cancelled')
+       group by e.organization_id
+      union
+      select d.organization_id
+        from public.push_delivery d
+       where d.status in ('queued', 'sending')
+          or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
+       group by d.organization_id
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.push_work_organizations(int) from public;
+grant execute on function app.push_work_organizations(int) to background;
+
+-- =========================================================================
+-- THE AD PLATFORMS, ANALYTICS AND REVIEW LISTINGS THE WORKER VISITS
+--
+-- The same shape as the others: which companies have a connected Google Ads,
+-- Local Services, Meta, Google Analytics or Business Profile connection, as
+-- ids and nothing else. Whether anything is DUE for one of them (a spend
+-- pull, a lead pull, a review read, a conversion to send) is the service's
+-- question, asked inside the company's own tenant, so this function never
+-- reads a sync row or a send. The one least recently visited comes first,
+-- so a deployment with more companies than one pass reaches still turns
+-- through all of them.
+-- =========================================================================
+
+create or replace function app.ad_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id
+      from public.integration_connection c
+      join public.organization o on o.id = c.organization_id
+      left join public.sync_run r on r.connection_id = c.id
+     where c.provider in ('google_ads', 'google_lsa', 'meta_ads', 'ga4', 'google_business_profile',
+                          'bing_ads', 'meta_lead_ads', 'search_console', 'ga4_data', 'facebook_page')
+       and c.status = 'connected'
+       and c.deleted_at is null
+       and o.suspended_at is null
+     group by c.organization_id
+     order by max(r.started_at) nulls first
+     limit p_limit
+  $$;
+
+revoke all on function app.ad_work_organizations(int) from public;
+grant execute on function app.ad_work_organizations(int) to background;
+
+-- -------------------------------------------------------------------------
+-- COMPANIES WITH A MAILING HALF SENT
+--
+-- A mailing larger than one send's batch is left `sending` with pieces still
+-- pending, and the worker posts the rest. Ids and nothing else, oldest
+-- mailing first; the pieces themselves are read inside the company's own
+-- tenant boundary.
+create or replace function app.mail_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select mc.organization_id
+      from public.mail_campaign mc
+      join public.organization o on o.id = mc.organization_id
+     where mc.state = 'sending'
+       and o.suspended_at is null
+     group by mc.organization_id
+     order by min(mc.updated_at)
+     limit p_limit
+  $$;
+
+revoke all on function app.mail_work_organizations(int) from public;
+grant execute on function app.mail_work_organizations(int) to background;
+-- COMPANIES WITH AN AI AGENT THAT RUNS ON ITS OWN
+--
+-- Intake, text chat and collections run on the worker's clock as the person
+-- each company chose, and only for companies that turned one on and chose
+-- that person. Ids and nothing else, in the same shape as the functions
+-- above; what each agent then reads, it reads inside the company's own
+-- tenant boundary as that person.
+-- =========================================================================
+
+create or replace function app.ai_agent_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id
+      from public.ai_agent_setting s
+     where s.agent in ('intake', 'chat', 'collections')
+       and s.run_as_user_id is not null
+       and (s.settings ->> 'enabled') = 'true'
+       and not exists (
+         select 1 from public.organization o
+          where o.id = s.organization_id and o.suspended_at is not null
+       )
+     group by s.organization_id
+     limit p_limit
+  $$;
+
+revoke all on function app.ai_agent_organizations(int) from public;
+grant execute on function app.ai_agent_organizations(int) to background;
+-- ---- Companies whose records may be due for purging --------------------
+-- The retention purge removes records past a declared period, once a day per
+-- company, and only under a policy the company itself switched purging on
+-- for: the trade packs seed every policy with purging off. This answers WHICH
+-- companies have such a policy and have not had a pass in the last twenty
+-- hours, as ids and nothing else. What is due, what is held and what goes is
+-- decided per company by the service, which writes an audit line per record.
+create or replace function app.retention_purge_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select p.organization_id
+    from public.retention_policy p
+    where p.active and p.purge_allowed
+      and not exists (
+        select 1 from public.organization o
+         where o.id = p.organization_id and o.suspended_at is not null
+      )
+      and not exists (
+        select 1 from public.retention_purge_run r
+         where r.organization_id = p.organization_id
+           and r.trigger = 'worker'
+           and r.started_at > now() - interval '20 hours'
+      )
+    group by p.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.retention_purge_organizations(int) from public;
+grant execute on function app.retention_purge_organizations(int) to background;
+
+-- ---- A purchase order's printable link, for the vendor ------------------
+-- An emailed order carries a link that opens the order as the vendor reads
+-- it, with no sign in, because a supply house counter has no account here.
+-- The link is a random token whose SHA-256 is all `purchase_order_send`
+-- keeps. This resolves a hash to the company and the order, and nothing else,
+-- for the same reason the portal grant functions above do: the page has no
+-- tenant until the token says which one, and row level security is what
+-- keeps the rest of that company out of reach once it does. An expired link,
+-- or one from a suspended company, resolves to nothing.
+create or replace function app.purchase_order_link(p_token_hash text)
+returns table (organization_id uuid, purchase_order_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id, s.purchase_order_id
+    from public.purchase_order_send s
+    where s.link_token_hash = p_token_hash
+      and s.link_expires_at > now()
+      and s.state = 'queued'
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    limit 1
+  $$;
+
+revoke all on function app.purchase_order_link(text) from public;
+grant execute on function app.purchase_order_link(text) to authenticated;

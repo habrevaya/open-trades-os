@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { portal } from "@opentradesos/api/services";
+import { CompanyContact } from "@/components/CompanyContact";
 
 /**
  * THE CONTRACTOR'S NAME ON THE PAGE THEIR CUSTOMER OPENS
@@ -17,9 +18,17 @@ import { portal } from "@opentradesos/api/services";
  * URL shape and a component that would break quietly the first time a route
  * moved.
  */
-export async function PortalBrand({ token, children }: {
+export async function PortalBrand({ token, children, logoHref }: {
   token: string;
   children: React.ReactNode;
+  /**
+   * Where the logo is fetched from, when the token must not go in a URL.
+   * A customer's own sign in is a cookie, and putting it in an image's
+   * address would hand it to the browser's history and to anything that
+   * logs requests; those pages serve the logo from a route that reads the
+   * cookie instead.
+   */
+  logoHref?: string;
 }) {
   const brand = await portal.brandingFor(getDb(), token).catch(() => null);
 
@@ -48,11 +57,19 @@ export async function PortalBrand({ token, children }: {
             it the logo is the one thing on the page that would need a login
             to load.
           */
-          src={`/brand/logo?t=${encodeURIComponent(token)}&v=${brand.version}`}
+          src={logoHref
+            ? `${logoHref}?v=${brand.version}`
+            : `/brand/logo?t=${encodeURIComponent(token)}&v=${brand.version}`}
           alt={brand.organizationName}
           className="mx-auto h-12 max-w-[200px] object-contain"
         />
       )}
+      {/*
+        How to reach the company, under its mark, on every page a customer
+        opens: the question somebody has about an invoice is usually best
+        asked on the phone, and the page used to give no number to call.
+      */}
+      <CompanyContact contact={brand?.contact} centered className="text-center text-xs not-italic text-ink-500" />
       {children}
     </div>
   );

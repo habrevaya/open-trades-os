@@ -76,6 +76,25 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
+  # The phone assistant's conversations: one WebSocket per call, opened by
+  # Twilio at VOICE_RELAY_URL, which has to reach this port over TLS. Only
+  # needed for the phone assistant, so it starts with
+  # `docker compose --profile voice up`. See docs/self-hosting/voice.md.
+  voice-relay:
+    profiles: ["voice"]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    command: ["pnpm", "--filter", "@opentradesos/api", "voice-relay"]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgresql://opentradesos:opentradesos@postgres:5432/opentradesos
+      VOICE_RELAY_PORT: "3300"
+    ports: ["3300:3300"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:

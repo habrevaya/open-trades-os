@@ -2,6 +2,8 @@ import { PermissionError } from "@opentradesos/core";
 import {
   NotFoundError, ConflictError, InvalidGrantError, OrganizationSuspendedError, UnprocessableError,
   DemoReadOnlyError,
+  SignInRefusedError,
+  TooManyRequestsError,
 } from "../services/context";
 
 /**
@@ -57,6 +59,8 @@ export function errorResponse(error: unknown): Response {
   if (error instanceof DemoReadOnlyError) {
     return problem(403, error.message, { code: error.code });
   }
+  /** The phone app's sign in, refused in words the person typing can act on. */
+  if (error instanceof SignInRefusedError) return problem(401, error.message);
   if (error instanceof NotFoundError) return problem(404, error.message);
   if (error instanceof ConflictError) return problem(409, error.message);
   /**
@@ -82,6 +86,11 @@ export function errorResponse(error: unknown): Response {
    * existed.
    */
   if (error instanceof InvalidGrantError) return problem(410, error.message);
+
+  /** 429 with Retry-After, for the public endpoints' per key ceilings. */
+  if (error instanceof TooManyRequestsError) {
+    return problem(429, error.message, {}, { "retry-after": String(error.retryAfterSeconds) });
+  }
 
   console.error("Unhandled error serving a request:", error);
   return problem(500, "Internal error");

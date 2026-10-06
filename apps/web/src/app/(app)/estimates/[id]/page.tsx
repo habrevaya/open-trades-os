@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, deposits, estimates, NotFoundError } from "@opentradesos/api/services";
+import { agreements, customers, customFields, deposits, estimates, financing, fieldSales, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { ProposalLayoutPanel } from "./ProposalLayoutPanel";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
-import { formatDay } from "@/lib/dates";
-import { EstimateActions, Options, type EstimateView } from "./Panels";
+import { formatDay, formatIn } from "@/lib/dates";
+import { Deliveries, EstimateActions, Options, type EstimateView } from "./Panels";
 import { actOnEstimate } from "../actions";
+import { FinancingPanel } from "@/components/FinancingPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -25,11 +28,25 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
     number: number; title: string | null; expiresOn: string | null; signerName: string | null;
     selectedOptionId: string | null;
   };
-  const [customer, held] = await Promise.all([
+  const [customer, held, sent] = await Promise.all([
     customers.get(ctx, { id: estimate.customerId }).catch(() => null),
     can(user.actor, "deposit:read") ? deposits.list(ctx, { estimateId: id }).then((r) => r.deposits) : [],
+    estimates.deliveries(ctx, { id }),
   ]);
   const chosen = estimate.options.find((o) => o.id === estimate.selectedOptionId);
+  const memberIds = estimate.options.flatMap((o) => o.lines)
+    .map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
+  const plans = memberIds.length > 0 && can(user.actor, "customer:read")
+    ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
+    : new Map<string, string>();
+
+  /** Financing: a monthly figure per option and every application, once the estimate has gone out. */
+  const loan = (estimate as { status: string }).status === "draft" ? null : await financing.forEstimate(ctx, { estimateId: id });
+  /** The customer's drawn signature, when they chose and signed on the technician's phone. */
+  const signed = await fieldSales.signatureOn(ctx, { subject: "estimate", subjectId: id });
+  const offersFinancing = loan !== null && (loan.connected
+    ? loan.options.some((o) => o.applicable) || loan.applications.length > 0
+    : can(user.actor, "payment:collect"));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -39,7 +56,11 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           <span className="font-mono tabular-nums text-ink-500">{estimate.number}</span>{" "}
           {estimate.title ?? "Estimate"}
         </h1>
-        <Chip tone={tone(ESTIMATE_TONE, estimate.status)}>{label(ESTIMATE_STATUS, estimate.status)}</Chip>
+        <div className="flex items-center gap-3">
+          <a href={`/estimates/${id}/proposal`} className="text-sm underline underline-offset-4">Proposal to print</a>
+          <a href={`/estimates/${id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
+          <Chip tone={tone(ESTIMATE_TONE, estimate.status)}>{label(ESTIMATE_STATUS, estimate.status)}</Chip>
+        </div>
       </div>
       <Facts>
         <Fact label="Customer">
@@ -47,10 +68,18 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         </Fact>
         <Fact label="Good until">{estimate.expiresOn ? formatDay(estimate.expiresOn, user.organizationTimezone) : null}</Fact>
         <Fact label="Chosen">{chosen?.name}</Fact>
-        <Fact label="Signed by">{estimate.signerName}</Fact>
+        <Fact label="Signed by">
+          {estimate.signerName}
+          {signed?.onSite ? `, on the technician's phone, ${formatIn(signed.signedAt, user.organizationTimezone)}` : null}
+          {signed?.imageKey
+            ? <> (<a href={`/files/${signed.imageKey}`} className="text-blue-600 underline underline-offset-4">signature</a>)</>
+            : null}
+        </Fact>
       </Facts>
 
-      <Options estimate={estimate} />
+      <Options estimate={estimate} plans={plans} />
+
+      <Deliveries deliveries={sent} when={(at) => formatIn(at, user.organizationTimezone)} />
 
       <EstimateActions
         action={actOnEstimate}
@@ -58,6 +87,7 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         deposits={held.map((d) => ({
           id: d.id, status: d.status, amountRequested: d.amountRequested, amountReceived: d.amountReceived,
         }))}
+        contact={{ email: customer?.email ?? null, phone: customer?.phone ?? null }}
         allowed={{
           send: can(user.actor, "estimate:send") && can(user.actor, "portal:grant"),
           deposit: can(user.actor, "deposit:collect"),
@@ -65,6 +95,30 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           write: can(user.actor, "estimate:write"),
           convert: can(user.actor, "estimate:write") && can(user.actor, "job:write"),
         }}
+      />
+
+      {loan && offersFinancing ? (
+        <FinancingPanel
+          subject={{ estimateId: id }}
+          connected={loan.connected}
+          lender={loan.lender}
+          offers={loan.options.map((o) => ({
+            optionId: o.optionId, name: o.name, total: o.total,
+            sentence: o.offer?.sentence ?? null, applicable: o.applicable,
+          }))}
+          applications={loan.applications}
+          canSend={can(user.actor, "payment:collect")}
+          timezone={user.organizationTimezone}
+        />
+      ) : null}
+      <ProposalLayoutPanel ctx={ctx} estimateId={id} status={estimate.status}
+                           canWrite={can(user.actor, "estimate:write")} />
+      <CustomFieldsPanel
+        entityType="estimate" id={id}
+        definitions={await customFields.formFields(ctx, "estimate")}
+        values={await customFields.valuesFor(ctx, { entityType: "estimate", id })}
+        canWrite={can(user.actor, "estimate:write")}
+        back={`/estimates/${id}`}
       />
     </div>
   );

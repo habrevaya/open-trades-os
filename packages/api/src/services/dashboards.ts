@@ -6,6 +6,7 @@ import {
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
+import { catalogueFor } from "./report-company";
 import { BUILT_IN } from "./report-built-in";
 import { BUILT_IN_DASHBOARDS, type BuiltInDashboard } from "./dashboard-built-in";
 import { run, type ReportResult } from "./reports";
@@ -36,6 +37,13 @@ export interface TileResult {
   /** The dimension it is drawn against, for anything that is not a number. */
   dimension?: { key: string; label: string; type: string; sortPrefix?: boolean };
   result?: ReportResult;
+  /**
+   * The report the tile drew, so a bar or a number can open the records
+   * behind it. Carried on the result rather than looked up again by the
+   * screen, because a saved dashboard's tile points at a report somebody may
+   * have edited since, and the drill has to open what was DRAWN.
+   */
+  definition?: reporting.ReportDefinition;
   /**
    * Why this tile has nothing on it.
    *
@@ -121,6 +129,7 @@ async function drawTile(
           }
         : {}),
       result,
+      definition: entry.tile.definition,
     };
   } catch (error) {
     /**
@@ -282,9 +291,12 @@ export async function setTiles(
         throw new ConflictError("That tile points at a report that does not exist.");
       }
 
+      /** The company's catalogue, so a tile on a saved report grouped by a custom field is checked against it. */
+      const dataset = (await catalogueFor(tx, ctx.actor.organizationId)).find((d) => d.key === source.definition.dataset);
+      if (!dataset) throw new ConflictError("That tile's report is about something this company no longer has.");
       const decision = dashboard.checkShape(
         { key: tile.key, title: tile.title ?? source.title, kind: tile.kind, width: tile.width, definition: source.definition },
-        CATALOGUE.find((d) => d.key === source.definition.dataset)!,
+        dataset,
       );
       if (!decision.ok) throw new ConflictError(decision.detail);
     }
@@ -319,6 +331,7 @@ export async function getSaved(
   const stored = saved.tiles as unknown as StoredTile[];
   const sources = await inTenant(ctx, async (tx) =>
     Promise.all(stored.map((tile) => sourceFor(tx, tile))));
+  const companyCatalogue = await inTenant(ctx, (tx) => catalogueFor(tx, ctx.actor.organizationId));
 
   const resolvable: dashboard.Tile[] = [];
   const missing: TileResult[] = [];
@@ -349,7 +362,7 @@ export async function getSaved(
 
   const decision = dashboard.resolveDashboard(
     { key: saved.id, title: saved.name, description: saved.description ?? "", tiles: resolvable },
-    CATALOGUE,
+    companyCatalogue,
     permissionsFor(ctx.actor),
   );
 

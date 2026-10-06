@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
 
 export const OperationKind = z.enum([
   "visit.en_route", "visit.arrive", "visit.start", "visit.complete",
@@ -9,6 +9,12 @@ export const OperationKind = z.enum([
   "service_report.set_field", "service_report.submit", "visit.checklist_item",
   "visit.add_line", "equipment.record",
   "attachment.attach", "signature.capture",
+  "payment.collect",
+  "inspection.record",
+  "estimate.create", "estimate.approve", "estimate.decline",
+  "invoice.raise",
+  "task.claim", "task.close",
+  "tip.record",
 ]);
 
 export const OperationStatus = z.enum([
@@ -42,6 +48,24 @@ export const FieldOperationInput = z.object({
   accuracyMeters: z.number().int().min(0).max(100_000).optional(),
 });
 
+/**
+ * Where the phone was, sent with the queue rather than queued in it.
+ *
+ * Not an operation, deliberately: a position is not a thing the technician
+ * did, it needs no sequence and no conflict rule, and one that never arrives
+ * costs nothing. The phone takes these only while its person is working,
+ * and the server judges each one again against its own record of the clock
+ * and the visits, dropping any that falls outside working time.
+ */
+export const PositionInput = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracyMeters: z.number().min(0).max(100_000).optional(),
+  heading: z.number().min(0).max(360).optional(),
+  speed: z.number().min(0).max(100).optional(),
+  recordedAt: z.string().datetime(),
+});
+
 export const OperationResult = z.object({
   clientId: Uuid,
   status: OperationStatus,
@@ -69,13 +93,23 @@ export const syncOperations = defineRoute({
   path: "/v1/field/sync",
   summary: "Submit queued field operations",
   description:
-    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt.",
+    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`. Positions ride along in `positions` and are kept only when the company shares locations, the person's sharing is on, and the server's own record puts the fix inside working time: clocked in, on the way to a visit or working one. Anything else is dropped and counted in the answer, never stored.",
   module: "M11",
   permissions: ["field:sync"],
   idempotent: true,
   input: z.object({
     deviceId: Uuid,
-    operations: z.array(FieldOperationInput).min(1).max(500),
+    /** May be empty when the phone has only positions to send. */
+    operations: z.array(FieldOperationInput).max(500),
+    positions: z.array(PositionInput).max(500).optional(),
+    /**
+     * Sequences this device numbered and will never send: the phone died
+     * between numbering an operation and writing it, or the technician
+     * discarded one that never got through. Without this the operations
+     * after such a number were held for ever. Send the numbers the last
+     * response listed in `awaiting` that the device does not hold.
+     */
+    skipped: z.array(z.number().int().min(1)).max(500).optional(),
   }),
   output: z.object({
     results: z.array(OperationResult),
@@ -84,6 +118,11 @@ export const syncOperations = defineRoute({
     /** Bumped when the device's slice of the schedule changed, so the client
      *  knows to pull rather than diffing what it already has. */
     snapshotRevision: z.number().int(),
+    /** What became of the positions: how many were kept, and why the rest were not. */
+    positions: z.object({
+      stored: z.number().int(),
+      dropped: z.record(z.number().int()),
+    }),
   }),
 });
 
@@ -111,6 +150,44 @@ export const registerDevice = defineRoute({
   }),
 });
 
+/**
+ * An estimate as the phone presents it to a customer: the options and their
+ * lines at the prices on the document, member discounts included, the terms,
+ * and how it was decided. Built from what a customer may see rather than by
+ * removing what they may not.
+ */
+export const FieldEstimate = z.object({
+  id: Uuid,
+  number: z.number().int(),
+  status: z.string(),
+  title: z.string().nullable(),
+  jobId: Uuid.nullable(),
+  selectedOptionId: Uuid.nullable(),
+  signerName: z.string().nullable(),
+  terms: z.string().nullable(),
+  options: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    description: z.string().nullable(),
+    isRecommended: z.boolean(),
+    total: MoneyString,
+    lines: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      description: z.string().nullable(),
+      quantity: MoneyString,
+      unitPrice: MoneyString,
+      /** Every discount on the line, the member's included. */
+      discountAmount: MoneyString,
+      memberDiscountAmount: MoneyString,
+      taxable: z.boolean(),
+      taxRate: RateString,
+      isOptional: z.boolean(),
+      isSelected: z.boolean(),
+    })),
+  })),
+});
+
 export const VisitForField = z.object({
   id: Uuid,
   jobId: Uuid,
@@ -118,7 +195,17 @@ export const VisitForField = z.object({
   sequence: z.number().int(),
   status: z.string(),
   summary: z.string(),
+  /** The job's longer description, when the office wrote one. */
+  description: z.string().nullable(),
   customerComplaint: z.string().nullable(),
+  /** What technicians have already written on this visit, oldest first. */
+  technicianNotes: z.string().nullable(),
+  /**
+   * When somebody said they had arrived. The visit stays `en_route` until work
+   * starts, because that is the state machine core reasons about, so this is
+   * the only way a phone can show "arrived" after a restart.
+   */
+  arrivedAt: z.string().datetime().nullable(),
   windowStart: z.string().datetime().nullable(),
   windowEnd: z.string().datetime().nullable(),
   routeOrder: z.number().int().nullable(),
@@ -145,6 +232,113 @@ export const VisitForField = z.object({
     label: z.string(),
     required: z.boolean(),
     doneAt: z.string().datetime().nullable(),
+  })),
+  /**
+   * What is still owed on the job's issued invoices, so the person collecting
+   * on site knows the number before the customer asks. Null when nothing has
+   * been invoiced yet, and for a caller who may not read invoices.
+   */
+  amountDue: MoneyString.nullable(),
+  /**
+   * The service report for this visit as the phone fills it in: the fields
+   * the job type's template asks for, each with the last value recorded, and
+   * the report's id once one exists. A phone that has not started one makes
+   * its own id, the way it does for every other record it creates offline.
+   */
+  report: z.object({
+    id: Uuid.nullable(),
+    submitted: z.boolean(),
+    fields: z.array(z.object({
+      key: z.string(),
+      label: z.string(),
+      kind: z.string(),
+      unit: z.string().nullable(),
+      options: z.array(z.string()),
+      required: z.boolean(),
+      min: z.number().nullable(),
+      max: z.number().nullable(),
+      /** The newest value recorded, as text, or null when nothing has been. */
+      value: z.string().nullable(),
+    })),
+  }),
+  /** Parts and charges already recorded on this visit, from any phone or the office. */
+  parts: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    quantity: z.string(),
+  })),
+  /**
+   * Inspections already filed against this visit, from any phone or the
+   * office, with the verdict the server drew. Empty for a caller who may
+   * not read compliance records.
+   */
+  inspections: z.array(z.object({
+    id: Uuid,
+    programId: Uuid.nullable(),
+    programName: z.string(),
+    result: z.string().nullable(),
+    performedOn: z.string().date().nullable(),
+  })),
+  /**
+   * The plan this customer is a member on at this address today, which the
+   * phone prices an estimate and an invoice with, the way the server will.
+   * Null for a customer who is not a member.
+   */
+  member: z.object({
+    planName: z.string(),
+    /** The discount as a fraction, "0.15". "0" for a plan that only waives a fee. */
+    rate: RateString,
+    waivesDiagnosticFee: z.boolean(),
+    waivesAfterHoursRate: z.boolean(),
+  }).nullable(),
+  /**
+   * Estimates the technician can show the customer: the ones on this visit's
+   * job, and the customer's undecided ones at this address that belong to no
+   * job yet. Prices only. No cost and no margin, because this is what is
+   * turned round to face the customer. Empty for a caller who may not read
+   * estimates.
+   */
+  estimates: z.array(FieldEstimate),
+  /** Parts and charges on the job not yet billed, which an invoice raised on site can bill. */
+  billable: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    quantity: MoneyString,
+    unitPrice: MoneyString,
+    taxable: z.boolean(),
+    /** The price book item's kind, which decides whether a member's rate touches it. */
+    itemKind: z.string().nullable(),
+    /** A fee a plan may waive: "diagnostic" or "after_hours". */
+    feeRole: z.string().nullable(),
+  })),
+  /** The job's invoices, other than void ones. Empty for a caller who may not read invoices. */
+  invoices: z.array(z.object({
+    id: Uuid,
+    number: z.number().int(),
+    status: z.string(),
+    total: MoneyString,
+    balance: MoneyString,
+  })),
+});
+
+/**
+ * An inspection programme as the phone runs it: the checkpoints in order,
+ * each a pass or fail or a reading with its unit and range, so a reading
+ * outside its range is said on the phone before it is saved. The verdict is
+ * still the server's.
+ */
+export const InspectionProgramForField = z.object({
+  id: Uuid,
+  name: z.string(),
+  standard: z.string().nullable(),
+  version: z.number().int(),
+  checkpoints: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    requiresReading: z.boolean(),
+    unit: z.string().nullable(),
+    min: z.number().nullable(),
+    max: z.number().nullable(),
   })),
 });
 
@@ -181,12 +375,72 @@ export const getFieldSnapshot = defineRoute({
       name: z.string(),
       unitPrice: MoneyString,
       taxable: z.boolean(),
+      /** What the customer reads under the line on a proposal. */
+      description: z.string().nullable(),
+      /** service, material, equipment, labor, fee or discount: whether a member's rate touches it. */
+      kind: z.string(),
+      /** A fee a plan may waive: "diagnostic" or "after_hours". */
+      feeRole: z.string().nullable(),
+      /** What a kit includes, by name, so the technician can say what the price covers. */
+      components: z.array(z.object({ name: z.string(), quantity: z.number() })),
     })),
     openTimeEntry: z.object({
       id: Uuid,
       kind: z.string(),
       startedAt: z.string().datetime(),
     }).nullable(),
+    /**
+     * The programmes a technician can run an inspection against, only for one
+     * who may file inspections (`compliance:write`). Empty otherwise, so the
+     * phone offers nothing it would then refuse.
+     */
+    inspectionPrograms: z.array(InspectionProgramForField),
+    /**
+     * Whether this phone may share where its person is, so it can decide for
+     * itself offline and show them which it is. It still shares only while
+     * they are clocked in or on a visit.
+     */
+    locationSharing: z.object({
+      companyEnabled: z.boolean(),
+      personEnabled: z.boolean(),
+      intervalSeconds: z.number().int(),
+      retentionDays: z.number().int(),
+    }),
+    /**
+     * The office queue as the phone shows it: this person's tasks and the
+     * ones nobody has taken, open first by when they are due. Empty for
+     * somebody who may not read tasks.
+     */
+    tasks: z.array(z.object({
+      id: Uuid,
+      title: z.string(),
+      body: z.string().nullable(),
+      priority: z.string(),
+      status: z.string(),
+      /** Taken by this person, as opposed to waiting for somebody to take it. */
+      mine: z.boolean(),
+      dueAt: z.string().datetime().nullable(),
+      overdue: z.boolean(),
+      checklistTotal: z.number().int(),
+      checklistDone: z.number().int(),
+    })),
+    /**
+     * What this person may do on site, so the phone offers only what the
+     * server would accept, and what selling on site needs to know about the
+     * company: whether it takes tips with a payment (and the suggested
+     * percentages), whether a lender is connected, and whether the field
+     * assistant is on.
+     */
+    abilities: z.object({
+      writeEstimates: z.boolean(),
+      presentEstimates: z.boolean(),
+      raiseInvoices: z.boolean(),
+      takePayments: z.boolean(),
+      tasks: z.boolean(),
+      tipping: z.object({ enabled: z.boolean(), presets: z.array(z.number().int()) }),
+      financing: z.boolean(),
+      assistant: z.boolean(),
+    }),
   }),
 });
 
@@ -231,7 +485,51 @@ export const getDispatchBoard = defineRoute({
         /** Running late against its own window, computed once here rather
          *  than by every client that renders a board. */
         isLate: z.boolean(),
+        /** The service route this stop is on, for route work. */
+        routeName: z.string().nullable(),
+        /** Locked by the office: the rebalance and the optimiser leave it where it is. */
+        locked: z.boolean(),
       })),
+    })),
+    /**
+     * Crews with work on the day, each a lane of its own. Crew work used to
+     * land in the unassigned pile, because nobody is in its assignment list.
+     */
+    crews: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      color: z.string().nullable(),
+      leadName: z.string().nullable(),
+      memberNames: z.array(z.string()),
+      visits: z.array(z.object({
+        id: Uuid,
+        jobNumber: z.number().int(),
+        summary: z.string(),
+        status: z.string(),
+        windowStart: z.string().datetime().nullable(),
+        windowEnd: z.string().datetime().nullable(),
+        routeOrder: z.number().int().nullable(),
+        estimatedDurationMinutes: z.number().int(),
+        customerName: z.string(),
+        addressLine1: z.string(),
+        isLate: z.boolean(),
+        routeName: z.string().nullable(),
+        locked: z.boolean(),
+      })),
+    })),
+    /** Service routes with stops on the day, how many are done, and who runs each. */
+    routes: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      stops: z.number().int(),
+      done: z.number().int(),
+      runBy: z.string().nullable(),
+    })),
+    /** On call shifts overlapping the day, in order. Empty means nobody is on call. */
+    onCall: z.array(z.object({
+      technicianName: z.string(),
+      startsAt: z.string().datetime(),
+      endsAt: z.string().datetime(),
     })),
     /** Not yet assigned to anyone. The pile a dispatcher works from. */
     unassigned: z.array(z.object({
@@ -244,6 +542,14 @@ export const getDispatchBoard = defineRoute({
       customerName: z.string(),
       addressLine1: z.string(),
       postalCode: z.string(),
+      routeName: z.string().nullable(),
+      locked: z.boolean(),
+      /**
+       * The plan that promised this customer priority, when one covers this
+       * job. The pile comes sorted with these first and is otherwise in the
+       * order it always had.
+       */
+      priorityPlan: z.string().nullable(),
     })),
   }),
 });
@@ -252,6 +558,8 @@ export const assignVisit = defineRoute({
   method: "post",
   path: "/v1/visits/{id}/assign",
   summary: "Put a visit on somebody's day",
+  description:
+    "Refused, with a sentence naming the person and the skill, when somebody being sent is not qualified for the work's required skills by their certifications or their recorded skills. A caller holding visit:assign_unqualified may send them anyway by giving a reason, which the audit log keeps beside the refusal it overrode.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -261,8 +569,21 @@ export const assignVisit = defineRoute({
     leadTechnicianId: Uuid.optional(),
     /** Where in the day it sits. Omitted appends to the end. */
     routeOrder: z.number().int().optional(),
+    /**
+     * Send them although the qualification check refused. Needs
+     * visit:assign_unqualified, and a reason somebody reading the audit log
+     * later would accept.
+     */
+    overrideQualification: z.object({ reason: z.string().trim().min(5).max(500) }).optional(),
   }),
-  output: z.object({ ok: z.literal(true), status: z.string() }),
+  output: z.object({
+    ok: z.literal(true),
+    status: z.string(),
+    /** True when a refusal was overridden to make this assignment. */
+    overridden: z.boolean(),
+    /** Required skills nothing could check for the people sent, said rather than hidden. */
+    unknownSkills: z.array(z.string()),
+  }),
 });
 
 /**
@@ -367,7 +688,213 @@ export const resolveConflict = defineRoute({
   output: z.object({ ok: z.literal(true) }),
 });
 
+/**
+ * THE PHONE APP SIGNING IN
+ *
+ * Public, because nobody is signed in yet, and refused with a 401 in plain
+ * words for a wrong password, a locked account, or an account that is not a
+ * technician. The same password check and lockout as the sign in form.
+ */
+export const signInDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in",
+  summary: "Sign the phone app in",
+  description:
+    "Email and password in, a device token out, presented afterwards as `Authorization: Bearer otd_...`. The token is a session: it acts as the person, stops working when they are deactivated, and lasts ninety days. Only an account with a technician record and field:sync is let in. Register the device with the token next, which binds the token to it so revoking the device ends the sign in.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    password: z.string().min(1).max(500),
+  }),
+  output: z.object({
+    /** Shown once. Only its hash is kept. */
+    token: z.string(),
+    expiresAt: z.string().datetime(),
+    user: z.object({ id: Uuid, name: z.string().nullable(), email: z.string() }),
+    organization: z.object({ id: Uuid, name: z.string(), timezone: z.string() }),
+  }),
+});
+
+export const FieldDevice = z.object({
+  id: Uuid,
+  technicianId: Uuid,
+  technicianName: z.string(),
+  label: z.string().nullable(),
+  platform: z.string().nullable(),
+  appVersion: z.string().nullable(),
+  lastSeenAt: z.string().datetime().nullable(),
+  lastSyncedAt: z.string().datetime().nullable(),
+  /** A phone app token is live on it. A browser never has one. */
+  signedIn: z.boolean(),
+  revokedAt: z.string().datetime().nullable(),
+});
+
+export const listDevices = defineRoute({
+  method: "get",
+  path: "/v1/field/devices",
+  summary: "Every phone the technicians use",
+  module: "M11",
+  permissions: ["user:read"],
+  input: z.object({}),
+  output: z.object({ devices: z.array(FieldDevice) }),
+});
+
+export const signOutDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/devices/{id}/sign-out",
+  summary: "Sign the phone app out",
+  description:
+    "Ends the device's token. Only the caller's own device; another person's phone is the office's decision, which is the revoke route. The device keeps its sequence, so signing in again on the same handset carries on numbering.",
+  module: "M11",
+  permissions: ["field:sync"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ ok: z.literal(true) }),
+});
+
+export const revokeDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/devices/{id}/revoke",
+  summary: "Take a phone away",
+  description:
+    "For a lost or returned phone. The device can no longer sync and its token stops working on every route at once. It does not stop the person signing in again; deactivating them does that.",
+  module: "M11",
+  permissions: ["user:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ ok: z.literal(true), revokedAt: z.string().datetime() }),
+});
+
+/**
+ * A CODE INSTEAD OF A PASSWORD
+ *
+ * Two public calls, like the password sign in beside them. The first sends a
+ * six digit code to the technician's mobile number on file, or to their email,
+ * and answers the same sentence whether or not the address belongs to anybody,
+ * so it cannot be used to find out who works where. The second trades the code
+ * for the same device token a password gets.
+ */
+export const requestSignInCode = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in/code",
+  summary: "Send the phone a sign in code",
+  description:
+    "Sends a six digit code by text to the mobile number the office recorded for the technician, or by email. The answer is the same whether or not the address belongs to anybody. A code lives ten minutes, dies after five wrong guesses, and only the newest one works; a person may ask three times in fifteen minutes, and an address is limited per minute.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    channel: z.enum(["sms", "email"]),
+  }),
+  output: z.object({
+    ok: z.literal(true),
+    /** What to tell the person, which never says whether the address exists. */
+    message: z.string(),
+  }),
+});
+
+export const signInWithCode = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in/verify",
+  summary: "Sign the phone app in with a code",
+  description:
+    "The email and the code in, the same device token the password sign in gives out. Spends the code. Refused with one sentence for a wrong, expired, spent or never sent code alike, and only an account with a technician record is let in.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    code: z.string().min(1).max(20),
+  }),
+  output: signInDevice.output,
+});
+
+/**
+ * The number a code is texted to, set by the office. Never by the person
+ * asking for a code, because a sign in sent to a number the asker chose is
+ * not a sign in.
+ */
+export const setTechnicianMobile = defineRoute({
+  method: "post",
+  path: "/v1/field/technicians/{id}/mobile",
+  summary: "Set the number sign in codes are texted to",
+  module: "M11",
+  permissions: ["user:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    /** Null clears it, and the person can then only get a code by email. */
+    mobilePhone: z.string().trim().min(7).max(40).nullable(),
+  }),
+  output: z.object({ id: Uuid, mobilePhone: z.string().nullable() }),
+});
+
+/**
+ * THE PHONES, AS THE OFFICE SEES THEM
+ *
+ * Each technician with the phones they have signed in on, and the number a
+ * code goes to. The screen behind it is `/settings/phones`.
+ */
+export const listFieldPeople = defineRoute({
+  method: "get",
+  path: "/v1/field/technicians",
+  summary: "Technicians and their phones",
+  module: "M11",
+  permissions: ["user:read"],
+  input: z.object({}),
+  output: z.object({
+    technicians: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      active: z.boolean(),
+      mobilePhone: z.string().nullable(),
+      devices: z.array(FieldDevice.extend({
+        /** A push token is registered, so changes to their day reach this phone. */
+        notifications: z.boolean(),
+      })),
+    })),
+  }),
+});
+
+/**
+ * CARD, ON SITE, THROUGH THE LINK THE CUSTOMER ALREADY GETS
+ *
+ * The phone never touches a card number. It asks for the job's invoice link,
+ * the same one an emailed invoice carries, and either texts it to the
+ * customer or hands it to the phone's share sheet so the customer pays on
+ * their own phone. The payment lands when the card processor says it did,
+ * exactly as it does for an emailed invoice.
+ */
+export const visitPaymentLink = defineRoute({
+  method: "post",
+  path: "/v1/visits/{id}/payment-link",
+  summary: "A card payment link for the job on this visit",
+  description:
+    "For the technician on the visit, or anybody who may send invoices. Refused with a sentence when the job has no issued invoice with money owing, or the company has not connected card payments. With `text: true` the link is also texted to the customer's number on file, subject to the same consent rules as every other text.",
+  module: "M13",
+  permissions: ["payment:collect"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    text: z.boolean().default(false),
+  }),
+  output: z.object({
+    url: z.string(),
+    invoiceId: Uuid,
+    invoiceNumber: z.number().int(),
+    amountDue: MoneyString,
+    texted: z.boolean(),
+    /** Why it was not texted, in words for the person on site. Null when it was, or was not asked. */
+    reason: z.string().nullable(),
+  }),
+});
+
 export const fieldRoutes = {
+  signInDevice, listDevices, signOutDevice, revokeDevice,
+  requestSignInCode, signInWithCode, setTechnicianMobile, listFieldPeople, visitPaymentLink,
   syncOperations, registerDevice, getFieldSnapshot,
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice,
   listConflicts, resolveConflict,

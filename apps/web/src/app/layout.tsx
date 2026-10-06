@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { HeldSubmits } from "@/components/HeldSubmits";
+import { HELD_SUBMITS_SCRIPT } from "@/lib/held-submits";
+import { HYDRATE_AFTER_PARSE_SCRIPT } from "@/lib/hydrate-after-parse";
 
 /**
  * Plex rather than Inter. Squared terminals read as instrument panel rather
@@ -19,7 +22,22 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
-      <body>{children}</body>
+      <head>
+        {/*
+          A plain script in the head, so it runs while the page is still
+          arriving, before anything can be pressed; see lib/held-submits.ts.
+          Not next/script's beforeInteractive: that queues it until Next's own
+          code has loaded, which is after a quick thumb, and holds hydration
+          back while it runs.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: HELD_SUBMITS_SCRIPT }} />
+        {/* React starts once the page is all here; see lib/hydrate-after-parse.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: HYDRATE_AFTER_PARSE_SCRIPT }} />
+      </head>
+      <body>
+        {children}
+        <HeldSubmits />
+      </body>
     </html>
   );
 }

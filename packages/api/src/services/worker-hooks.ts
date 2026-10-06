@@ -6,7 +6,16 @@ import { inTenant } from "./context";
 import { readerFor } from "../secrets/store";
 import { ProviderNotConfiguredError } from "../comms/provider";
 import * as accounting from "./accounting";
+import * as email from "./email";
+import * as websiteTracking from "./website-tracking";
+import * as voice from "./voice";
+import * as transcription from "./transcription";
+import * as referrals from "./referrals";
 import { AccountingNotConfiguredError } from "../accounting/provider";
+import { EmailProviderNotConfiguredError } from "../email/provider";
+// The email adapters, registered the same way, so the worker can find the
+// company's mail provider by name.
+import "../email";
 // Registers the carrier adapters. Drop this import and the worker still runs;
 // the outbox simply finds no provider and leaves messages queued.
 import "../comms";
@@ -50,6 +59,27 @@ async function sendQueued(
 
   await recoverStuck(db, organizationId);
   await flush(db, organizationId, { provider });
+}
+
+/**
+ * Hand this tenant's queued email to its mail provider.
+ *
+ * The SMS outbox has been drained here from the start and email was not:
+ * `POST /v1/email/send-queued` was the only thing that sent it, which is a
+ * button somebody has to press. That was survivable while every email was
+ * one a person had just asked for, and it is not once a report or a monthly
+ * statement is queued at seven in the morning by the worker itself.
+ *
+ * Same shape as the texts: no provider connected is an ordinary state and the
+ * mail stays queued until one is.
+ */
+async function sendQueuedEmail(db: Database, readSecret: SecretReader | undefined, organizationId: string): Promise<void> {
+  const provider = await email.providerFor(db, organizationId, readSecret).catch((error: unknown) => {
+    if (error instanceof EmailProviderNotConfiguredError) return null;
+    throw error;
+  });
+  if (!provider) return;
+  await email.flush(db, organizationId, { provider });
 }
 
 /**
@@ -110,6 +140,32 @@ async function syncAccounting(db: Database, organizationId: string): Promise<voi
 }
 
 /**
+ * The marketing side's own upkeep: pool numbers quiet visitors still hold go
+ * back, call recordings past a declared retention are deleted, and referral
+ * rewards that have come due are granted. Each is idempotent, so a pass that
+ * finds nothing to do costs a few reads.
+ */
+async function marketingUpkeep(db: Database, organizationId: string): Promise<void> {
+  await websiteTracking.releaseIdle(db, organizationId);
+  await voice.sweepRecordings(db, organizationId);
+  await referrals.grantDue(db, organizationId);
+}
+
+/**
+ * Write out the recordings and voicemails this company's calls left, a few
+ * at a time. A recording kept here emits `call.recorded` and a voicemail
+ * `call.missed`, so a company with audio waiting is a company this hook is
+ * already called for. Nothing is waiting for a company with no speech to
+ * text connected, because nothing is queued for one.
+ */
+async function transcribeCalls(db: Database, readSecret: SecretReader | undefined, organizationId: string): Promise<void> {
+  const pass = await transcription.transcribePending(db, organizationId, { readSecret });
+  if (pass.failed > 0) {
+    console.warn(`[worker] ${pass.failed} call transcripts failed for ${organizationId}; the reason is on each call.`);
+  }
+}
+
+/**
  * BOTH RUN, AND NEITHER CAN STOP THE OTHER.
  *
  * `afterDrain` is awaited inside the worker's pass, so a throw from any of
@@ -130,8 +186,11 @@ export function backgroundHooks(
 ): (organizationId: string) => Promise<void> {
   const steps = [
     { name: "sendQueued", run: (org: string) => sendQueued(db, readSecret, org) },
+    { name: "sendQueuedEmail", run: (org: string) => sendQueuedEmail(db, readSecret, org) },
     { name: "sendWebhooks", run: (org: string) => sendWebhooks(db, org) },
     { name: "syncAccounting", run: (org: string) => syncAccounting(db, org) },
+    { name: "marketingUpkeep", run: (org: string) => marketingUpkeep(db, org) },
+    { name: "transcribeCalls", run: (org: string) => transcribeCalls(db, readSecret, org) },
   ];
   return async (organizationId: string) => {
     for (const step of steps) {

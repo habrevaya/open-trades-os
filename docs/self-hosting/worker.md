@@ -44,6 +44,87 @@ nobody has to guess:
 | The worker was down for three days | One run, for the occurrence it was due, and then back on the normal clock. Not three |
 | An expression nothing can read | Recorded on the row with a reason, rather than quietly becoming "never" |
 
+## Addresses on the map
+
+Each pass also looks up a few addresses for every company that has connected a
+geocoder (OpenStreetMap or Mapbox, under Settings, Integrations), so a customer
+saved in the office never waits on a geocoder. It runs on its own budget of a
+few seconds a pass, before the drain, and a geocoder that is down is logged and
+skipped rather than holding up a text. Against the public OpenStreetMap server it
+asks one address a second at most, which is a limit **per process**: run one
+worker, or set `NOMINATIM_URL` to your own Nominatim server, before sending it a
+customer list in the thousands. That address is the deployment's to set and
+applies to every company on it; a connection cannot name one, because the
+server would send every customer address, from inside your network, to
+whatever it named ([secrets.md](secrets.md#provider-addresses-are-fixed)). A
+Mapbox token is a secret name like any other, read from the company's own
+secrets. A company with no geocoder connected is never
+looked at. Turn it off for a deployment with `geocoding: false` on the pass.
+## Reports and statements that arrive on their own
+
+Scheduled reports and the monthly statement run fire on the same pass, from
+their own cursor (`delivery_schedule.next_run_at`), the same way a scheduled
+workflow does: a cross tenant read of what is due through
+`app.due_deliveries`, which returns ids and nothing else, then inside the
+company a conditional update on the due time as the claim, with the delivery in
+the same transaction.
+
+| Case | What happens |
+|---|---|
+| The worker was down over three Mondays | One delivery, for the occurrence that was due, then back on the clock |
+| A restart, or a second worker, reaches an occurrence that already went | Nothing. Each delivery row carries its occurrence's key under a unique index, inserted first |
+| A schedule was paused | Not returned as due, and not sent if a pause lands mid pass |
+| The person who set it up can no longer see the report | Recorded as not run, with the reason, and the clock moves on |
+| A delivery throws | Rolled back, still due, retried on the next pass, and the reason is written on the schedule |
+
+A company whose report or statements went into the outbox on a pass is handed
+to the after-pass hooks (texts, email, webhooks, accounting) even if it had no
+events, so the email goes on that pass. The email hook is new with this: queued
+email used to wait for `POST /v1/email/send-queued`.
+
+## Records past their retention
+
+Once a day per company, the pass removes records past a retention rule that the
+company switched purging on for under Compliance, Keeping records. Every seeded
+rule arrives with purging off, so a deployment that never turns one on never has
+anything removed. A company is visited when it has such a rule and no pass in the
+last twenty hours, through `app.retention_purge_organizations`, which the
+`background` role may call and the request role may not.
+
+| What happens | What the pass does |
+|---|---|
+| A record is past every rule that covers it and not on hold | Removed, with its photographs and signatures, and an audit line naming the rule |
+| A record is on hold | Kept and counted |
+| Another active rule over the same record has purging off, or keeps it longer | Kept |
+| Removing one record fails | That record is kept and the reason is written on the pass; the rest carry on |
+
+At most five hundred records go in one pass; the next day's pass carries on.
+
+## Telling a technician's phone
+
+After the drain, each pass reads every company's log from its own position
+(the `push` consumer) for the four changes to somebody's day:
+`visit.assigned`, `visit.unassigned`, `visit.rescheduled` and
+`visit.cancelled`. It writes a `push_delivery` row per change per phone with a
+push token and sends them through Expo's push service
+(`https://exp.host/--/api/v2/push/send`), then asks for the receipts a quarter
+of an hour later. Nothing to configure: the phones register their own tokens.
+A company that requires an access token for its Expo project sets
+`EXPO_ACCESS_TOKEN` in the worker's environment.
+
+| What happens | What the pass does |
+|---|---|
+| A change is read twice, by a restart or a second worker | Nothing. One row per change per phone, under a unique index |
+| Two workers send at once | Each claims different rows; a claim left by a worker that died goes back after five minutes |
+| The push service does not answer | Tried again on later passes, five times, then marked failed with the reason |
+| Expo says the app is gone from the phone | The phone's token is forgotten, so it is not asked about again |
+| A change is read more than twelve hours after it was made | Skipped as old news, said on the row |
+| It is inside the company's quiet hours | Sent without a sound, unless the work starts before they end |
+
+Finding the companies with something to do is a cross tenant read, through
+`app.push_work_organizations`, granted to the `background` role like the
+others.
+
 ## Waiting for something not to happen
 
 The third trigger kind, and the one the other two cannot express. An event
@@ -112,7 +193,9 @@ definition, and row level security is forced on every tenant table, so it
 cannot be done by selecting. It goes through
 `app.pending_event_organizations`, which returns organization ids and a count
 and nothing else. The clock uses a second one, `app.scheduled_workflows`,
-which returns ids, the cron expression and the company's timezone.
+which returns ids, the cron expression and the company's timezone, and
+scheduled reports and statements a third, `app.due_deliveries`, which returns
+ids and the due time.
 
 `authenticated`, the role every request runs as, is **not** granted execute on
 it. A web request being able to enumerate every tenant with pending work is an
@@ -213,3 +296,27 @@ instead: `deploy/templates/netlify/README.md` says when.
 
 It is not a queue. The event log is already durable and already ordered, and a
 queue beside it would be a second source of truth about what happened.
+
+## Ad platforms, analytics and review listings
+
+Each pass also visits every company with a connected Google Ads, Local
+Services, Meta, Google Analytics or Google Business Profile, through
+`app.ad_work_organizations`, which returns company ids and nothing else, least
+recently visited first. Inside each company every connection does what is due
+by its own clock:
+
+| What | How often |
+|---|---|
+| Spend per campaign per day, the last three days again each time | Every six hours |
+| Local Services calls, messages and bookings into the lead offers | Every ten minutes |
+| Google reviews read, and replies written here posted | Every hour; waiting replies on every pass |
+| Booked and paid jobs sent to the platform whose click won them | Every quarter hour |
+
+Every pull is a `sync_run` row with what it read, what it wrote and why it
+stopped, written before the platform is asked, so a platform that is down is
+asked again at the next cadence and not on every tick. A platform that stops
+accepting the sign in marks the connection as needing a person and the worker
+leaves it alone until somebody signs in again. Nothing to configure beyond the
+connections themselves and `CREDENTIAL_SEALING_KEY`, which the worker needs
+with the same value as the web app to open the grants it keeps. Turn the visits
+off for a deployment with `ads: false` on the pass.

@@ -8,7 +8,9 @@ import { formatIn } from "@/lib/dates";
 import { PageHeader, Empty } from "@/components/Table";
 import { EnableSwitch } from "../EnableSwitch";
 import { EditForm } from "./EditForm";
+import { ConditionPaths } from "../ConditionPaths";
 import { DeleteButton } from "./DeleteButton";
+import { withStepChoices } from "@/lib/step-choices";
 
 export const dynamic = "force-dynamic";
 
@@ -173,7 +175,7 @@ export default async function AutomationPage({
           <EditForm
             id={workflow.id}
             events={await workflows.triggerEventCatalogue(ctx)}
-            steps={workflows.availableSteps(ctx)}
+            steps={await withStepChoices(ctx, workflows.availableSteps(ctx))}
             shapes={workflows.dwellShapes()}
             initial={{
               name: workflow.name,
@@ -185,6 +187,7 @@ export default async function AutomationPage({
               steps: (version?.steps as { kind: string; config?: Record<string, unknown> }[]) ?? [],
             }}
           />
+          <ConditionPaths ctx={ctx} />
           <div className="mt-8 border-t border-steel-200 pt-4">
             <DeleteButton id={workflow.id} name={workflow.name} />
           </div>

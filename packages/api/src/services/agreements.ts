@@ -1,14 +1,20 @@
-import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { ledger, money as m, time, recurrence } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  ledger, membership, money as m, time, recurrence, SYSTEM_USER_ID, type Actor,
+} from "@opentradesos/core";
+import {
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { sendTransactional } from "./comms-send";
+import * as email from "./email";
 import { refusingDuplicate } from "./duplicates";
 import { nextNumber } from "./jobs";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
 import { resolveIn } from "./entitlements";
+import { within } from "./workflow-schedule";
+import * as once from "./once";
 
 /**
  * MAINTENANCE AGREEMENTS
@@ -164,28 +170,79 @@ export async function plans(ctx: ServiceContext, input: { includeInactive?: bool
 
 export interface PlanInput {
   name: string;
-  code?: string;
-  description?: string;
+  code?: string | undefined;
+  description?: string | undefined;
   price: string;
   billingFrequency: "monthly" | "quarterly" | "semiannual" | "annual" | "one_time";
   termMonths: number;
   includedVisitsPerTerm: number;
-  visitAnchorMonths?: number[];
-  visitIntervalDays?: number;
-  discountRate?: string;
-  priorityDispatch?: boolean;
-  waivesDiagnosticFee?: boolean;
-  benefits?: string[];
-  autoRenews?: boolean;
+  visitAnchorMonths?: number[] | undefined;
+  /** Which day of an anchor month the visit falls on. Absent for the day the agreement was sold. */
+  visitAnchorDay?: number | null | undefined;
+  visitIntervalDays?: number | undefined;
+  discountRate?: string | undefined;
+  priorityDispatch?: boolean | undefined;
+  waivesDiagnosticFee?: boolean | undefined;
+  waivesAfterHoursRate?: boolean | undefined;
+  benefits?: string[] | undefined;
+  autoRenews?: boolean | undefined;
+  /** Days before the end of a term that the member is told. Zero for no notice. */
+  renewalNoticeDays?: number | undefined;
 }
+
+/**
+ * The rules a plan has to satisfy, for a new one and for an edit.
+ *
+ * One function rather than one copy in each, because an edit that skipped a
+ * check a new plan has is how a rate typed as 15 gets onto a plan that was
+ * created with 0.15.
+ */
+/** Some of a plan, for an edit: every field may be absent or explicitly undefined. */
+export type PlanPatch = { [K in keyof PlanInput]?: PlanInput[K] | undefined };
+
+function checkPlan(input: PlanPatch): void {
+  if (input.name !== undefined && input.name.trim() === "") throw new ConflictError("A plan needs a name.");
+  if (input.price !== undefined && !/^\d+(\.\d{1,4})?$/.test(input.price.trim())) {
+    throw new ConflictError("A plan's price has to be an amount, like 228.00.");
+  }
+  if (input.termMonths !== undefined && (!Number.isInteger(input.termMonths) || input.termMonths < 1)) {
+    throw new ConflictError("A term is at least one month.");
+  }
+  if (input.includedVisitsPerTerm !== undefined
+      && (!Number.isInteger(input.includedVisitsPerTerm) || input.includedVisitsPerTerm < 0)) {
+    throw new ConflictError("A plan cannot include a negative number of visits.");
+  }
+  if (input.renewalNoticeDays !== undefined
+      && (!Number.isInteger(input.renewalNoticeDays) || input.renewalNoticeDays < 0 || input.renewalNoticeDays > 365)) {
+    throw new ConflictError("The renewal notice is a number of days between none and a year.");
+  }
+  if (input.visitAnchorDay !== undefined && input.visitAnchorDay !== null
+      && (!Number.isInteger(input.visitAnchorDay) || input.visitAnchorDay < 1 || input.visitAnchorDay > 31)) {
+    throw new ConflictError("The visit day is a day of the month, from 1 to 31.");
+  }
+  if ((input.visitAnchorMonths ?? []).some((month) => !Number.isInteger(month) || month < 1 || month > 12)) {
+    throw new ConflictError("Visit months are numbered 1 for January to 12 for December.");
+  }
+  if (input.discountRate !== undefined && input.discountRate !== ""
+      && Number(input.discountRate) !== 0 && !membership.usableRate(input.discountRate)) {
+    /**
+     * A fraction, refused above one rather than divided by a hundred, for
+     * the same reason the discount limit refuses it: guessing whether 15
+     * meant fifteen per cent or fifteen hundred is how a member discount
+     * ends up giving the work away.
+     */
+    throw new ConflictError(
+      `A member discount is a fraction rather than a percentage: 0.15 is fifteen per cent, and ${input.discountRate} is not one.`,
+    );
+  }
+}
+
+const rateOrNull = (rate: string | undefined): string | null =>
+  rate === undefined || rate.trim() === "" || Number(rate) === 0 ? null : rate.trim();
 
 export async function createPlan(ctx: ServiceContext, input: PlanInput) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
-    if (input.name.trim() === "") throw new ConflictError("A plan needs a name.");
-    if (input.termMonths < 1) throw new ConflictError("A term is at least one month.");
-    if (input.includedVisitsPerTerm < 0) {
-      throw new ConflictError("A plan cannot include a negative number of visits.");
-    }
+    checkPlan(input);
 
     /**
      * The plan code is unique per company and is a thing somebody types. A
@@ -205,18 +262,103 @@ export async function createPlan(ctx: ServiceContext, input: PlanInput) {
         billingFrequency: input.billingFrequency,
         termMonths: input.termMonths,
         autoRenews: input.autoRenews ?? true,
+        ...(input.renewalNoticeDays !== undefined ? { renewalNoticeDays: input.renewalNoticeDays } : {}),
         includedVisitsPerTerm: input.includedVisitsPerTerm,
         visitAnchorMonths: input.visitAnchorMonths ?? [],
+        visitAnchorDay: input.visitAnchorDay ?? null,
         visitIntervalDays: input.visitIntervalDays ?? null,
-        discountRate: input.discountRate ?? null,
+        discountRate: rateOrNull(input.discountRate),
         priorityDispatch: input.priorityDispatch ?? false,
         waivesDiagnosticFee: input.waivesDiagnosticFee ?? false,
-        benefits: input.benefits ?? [],
+        waivesAfterHoursRate: input.waivesAfterHoursRate ?? false,
+        benefits: (input.benefits ?? []).map((b) => b.trim()).filter(Boolean),
       }).returning(),
     );
 
     await audit(tx, ctx, "agreement_plan.created", "agreement_plan", plan!.id, null, plan);
     return plan!;
+  });
+}
+
+export async function getPlan(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "membership:read", async (tx) => {
+    const [plan] = await tx.select().from(schema.agreementPlan)
+      .where(eq(schema.agreementPlan.id, input.id)).limit(1);
+    if (!plan) throw new NotFoundError("Plan");
+    /**
+     * How many members are on it, said beside the form that edits it,
+     * because that number is what tells somebody what an edit reaches.
+     */
+    const [counted] = await tx.select({ members: sql<number>`count(*)::int` })
+      .from(schema.agreement)
+      .where(and(eq(schema.agreement.planId, input.id), inArray(schema.agreement.status, ["active", "past_due", "paused"])));
+    return { ...plan, members: Number(counted?.members ?? 0) };
+  });
+}
+
+/**
+ * EDITING A PLAN, and what an edit reaches.
+ *
+ * A plan is the thing hundreds of agreements point at, so the question is
+ * never "can it change" but "who does the change reach", and the answer is
+ * different per field and deliberate:
+ *
+ *   THE PRICE AND THE DISCOUNT are frozen on each agreement at sale, so an
+ *   edit reaches the next sale and nobody already on the plan. A price rise
+ *   for existing members is a renewal with a new price, which is a
+ *   conversation, not a form.
+ *
+ *   THE TERM, THE VISITS AND THEIR MONTHS shape a term when one is written,
+ *   so they reach new sales and each existing member's NEXT term when it
+ *   renews. A term already written owes what it owed when it was written.
+ *
+ *   THE PERKS (priority, the waived fees, the benefit list) are the
+ *   company's standing promise to everybody on the plan and are read from
+ *   the plan when they are used, so turning one off takes it from existing
+ *   members from that moment. The screen says so beside the boxes.
+ *
+ *   HOW OFTEN IT BILLS reaches new sales only: each agreement keeps the
+ *   frequency it was sold on, renewals included, because a member who
+ *   agreed to pay annually does not start getting monthly invoices because
+ *   somebody edited a form.
+ */
+export async function updatePlan(ctx: ServiceContext, input: { id: string; active?: boolean | undefined } & PlanPatch) {
+  return guardedWrite(ctx, "membership:write", async (tx) => {
+    const [before] = await tx.select().from(schema.agreementPlan)
+      .where(eq(schema.agreementPlan.id, input.id)).limit(1);
+    if (!before) throw new NotFoundError("Plan");
+    checkPlan(input);
+
+    const set: Partial<typeof schema.agreementPlan.$inferInsert> = { updatedAt: new Date() };
+    if (input.name !== undefined) set.name = input.name.trim();
+    if (input.code !== undefined) set.code = input.code.trim() === "" ? null : input.code.trim();
+    if (input.description !== undefined) set.description = input.description.trim() === "" ? null : input.description.trim();
+    if (input.price !== undefined) set.price = m.toString(usd(input.price.trim()));
+    if (input.billingFrequency !== undefined) set.billingFrequency = input.billingFrequency;
+    if (input.termMonths !== undefined) set.termMonths = input.termMonths;
+    if (input.includedVisitsPerTerm !== undefined) set.includedVisitsPerTerm = input.includedVisitsPerTerm;
+    if (input.visitAnchorMonths !== undefined) set.visitAnchorMonths = input.visitAnchorMonths;
+    if (input.visitAnchorDay !== undefined) set.visitAnchorDay = input.visitAnchorDay;
+    if (input.visitIntervalDays !== undefined) set.visitIntervalDays = input.visitIntervalDays;
+    if (input.discountRate !== undefined) set.discountRate = rateOrNull(input.discountRate);
+    if (input.priorityDispatch !== undefined) set.priorityDispatch = input.priorityDispatch;
+    if (input.waivesDiagnosticFee !== undefined) set.waivesDiagnosticFee = input.waivesDiagnosticFee;
+    if (input.waivesAfterHoursRate !== undefined) set.waivesAfterHoursRate = input.waivesAfterHoursRate;
+    if (input.benefits !== undefined) set.benefits = input.benefits.map((b) => b.trim()).filter(Boolean);
+    if (input.autoRenews !== undefined) set.autoRenews = input.autoRenews;
+    if (input.renewalNoticeDays !== undefined) set.renewalNoticeDays = input.renewalNoticeDays;
+    if (input.active !== undefined) set.active = input.active;
+
+    const [after] = await refusingDuplicate(
+      "agreement_plan_code_idx",
+      `"${input.code ?? ""}" is already the code of another plan. One code is one plan, because `
+      + `the code is what an invoice line and a renewal both look it up by.`,
+      () => tx.update(schema.agreementPlan).set(set)
+        .where(eq(schema.agreementPlan.id, input.id)).returning(),
+    );
+
+    await audit(tx, ctx, "agreement_plan.updated", "agreement_plan", input.id, before, after);
+    return after!;
   });
 }
 
@@ -294,72 +436,17 @@ export async function sell(ctx: ServiceContext, input: SellInput) {
       endsOn,
       /** Frozen at sale. Raising the plan price must not reprice a member. */
       price: m.toString(price),
+      /** Frozen at sale as well, for the same reason. See the column. */
+      discountRate: plan.discountRate,
       billingFrequency: plan.billingFrequency,
       autoRenews: plan.autoRenews,
       visitsIncludedThisTerm: plan.includedVisitsPerTerm,
     }).returning();
 
-    const dues = visitDueDates({
-      startedOn,
-      termMonths: plan.termMonths,
-      count: plan.includedVisitsPerTerm,
-      anchorMonths: plan.visitAnchorMonths ?? [],
-      anchorDay: plan.visitAnchorDay,
-      intervalDays: plan.visitIntervalDays,
+    await writeTerm(tx, ctx, {
+      agreementId: agreement!.id, plan, startedOn, endsOn, price, term: 1,
+      billingFrequency: plan.billingFrequency,
     });
-
-    /**
-     * What each visit is worth, allocated at cent precision so the slices sum
-     * exactly to the term price. The alternative, dividing and rounding each
-     * one, leaves a cent in deferred revenue that nothing will ever release.
-     */
-    const slices = ledger.recognitionSchedule(price, dues.length);
-
-    for (const [index, dueOn] of dues.entries()) {
-      const [visit] = await tx.insert(schema.agreementVisit).values({
-        organizationId: ctx.actor.organizationId,
-        agreementId: agreement!.id,
-        sequence: index + 1,
-        dueOn,
-        recognitionAmount: m.toString(slices[index]!),
-      }).returning();
-
-      await tx.insert(schema.deferredRevenueEntry).values({
-        organizationId: ctx.actor.organizationId,
-        agreementId: agreement!.id,
-        agreementVisitId: visit!.id,
-        amount: m.toString(slices[index]!),
-        scheduledFor: dueOn,
-      });
-    }
-
-    /**
-     * A plan with no included visits still defers its price over the term.
-     * Otherwise a discount-only membership would recognise a year of revenue
-     * on the day it was sold, which is the exact error this module exists to
-     * avoid.
-     */
-    if (dues.length === 0) {
-      await tx.insert(schema.deferredRevenueEntry).values({
-        organizationId: ctx.actor.organizationId,
-        agreementId: agreement!.id,
-        amount: m.toString(price),
-        scheduledFor: endsOn,
-      });
-    }
-
-    for (const [index, instalment] of billingSchedule({
-      startedOn, termMonths: plan.termMonths,
-      frequency: plan.billingFrequency, price,
-    }).entries()) {
-      await tx.insert(schema.agreementBilling).values({
-        organizationId: ctx.actor.organizationId,
-        agreementId: agreement!.id,
-        sequence: index + 1,
-        dueOn: instalment.dueOn,
-        amount: m.toString(instalment.amount),
-      });
-    }
 
     await emit(tx, ctx, {
       name: "agreement.sold",
@@ -378,6 +465,118 @@ export async function sell(ctx: ServiceContext, input: SellInput) {
   });
 }
 
+/**
+ * Everything one term owes, written down: the visits, the deferred revenue
+ * behind each, and the billing instalments.
+ *
+ * Shared by selling and renewing, because a renewal is a new term of the same
+ * agreement and has to owe exactly what a sale owes. Two copies of this would
+ * be a renewed member whose visits land on different days from a new one's,
+ * or whose instalments do not sum to the price, and nothing would compare
+ * them.
+ *
+ * Sequences carry on across terms rather than restarting at one, so "visit
+ * 3" names one row for the life of the agreement and the term column says
+ * which year it belongs to.
+ */
+async function writeTerm(
+  tx: Database,
+  ctx: ServiceContext,
+  input: {
+    agreementId: string;
+    plan: typeof schema.agreementPlan.$inferSelect;
+    startedOn: string;
+    endsOn: string;
+    price: m.Money;
+    term: number;
+    /**
+     * The agreement's own, not the plan's. A plan's frequency can be edited
+     * now, and a member sold annual billing keeps annual billing on every
+     * renewal; reading the plan here would have changed how they are billed
+     * on the night the worker renewed them.
+     */
+    billingFrequency: string;
+  },
+): Promise<{ visits: number; instalments: number }> {
+  const { plan, startedOn, endsOn, price } = input;
+
+  const [counts] = await tx.execute<{ visits: number; billing: number }>(sql`
+    select
+      (select coalesce(max(sequence), 0) from public.agreement_visit
+        where agreement_id = ${input.agreementId})::int as visits,
+      (select coalesce(max(sequence), 0) from public.agreement_billing
+        where agreement_id = ${input.agreementId})::int as billing`);
+  const visitBase = Number(counts?.visits ?? 0);
+  const billingBase = Number(counts?.billing ?? 0);
+
+  const dues = visitDueDates({
+    startedOn,
+    termMonths: plan.termMonths,
+    count: plan.includedVisitsPerTerm,
+    anchorMonths: plan.visitAnchorMonths ?? [],
+    anchorDay: plan.visitAnchorDay,
+    intervalDays: plan.visitIntervalDays,
+  });
+
+  /**
+   * What each visit is worth, allocated at cent precision so the slices sum
+   * exactly to the term price. The alternative, dividing and rounding each
+   * one, leaves a cent in deferred revenue that nothing will ever release.
+   */
+  const slices = ledger.recognitionSchedule(price, dues.length);
+
+  for (const [index, dueOn] of dues.entries()) {
+    const [visit] = await tx.insert(schema.agreementVisit).values({
+      organizationId: ctx.actor.organizationId,
+      agreementId: input.agreementId,
+      sequence: visitBase + index + 1,
+      term: input.term,
+      dueOn,
+      recognitionAmount: m.toString(slices[index]!),
+    }).returning();
+
+    await tx.insert(schema.deferredRevenueEntry).values({
+      organizationId: ctx.actor.organizationId,
+      agreementId: input.agreementId,
+      agreementVisitId: visit!.id,
+      amount: m.toString(slices[index]!),
+      scheduledFor: dueOn,
+    });
+  }
+
+  /**
+   * A plan with no included visits still defers its price over the term.
+   * Otherwise a discount-only membership would recognise a year of revenue
+   * on the day it was sold, which is the exact error this module exists to
+   * avoid.
+   */
+  if (dues.length === 0) {
+    await tx.insert(schema.deferredRevenueEntry).values({
+      organizationId: ctx.actor.organizationId,
+      agreementId: input.agreementId,
+      amount: m.toString(price),
+      scheduledFor: endsOn,
+    });
+  }
+
+  const instalments = billingSchedule({
+    startedOn, termMonths: plan.termMonths,
+    frequency: input.billingFrequency, price,
+  });
+  for (const [index, instalment] of instalments.entries()) {
+    await tx.insert(schema.agreementBilling).values({
+      organizationId: ctx.actor.organizationId,
+      agreementId: input.agreementId,
+      sequence: billingBase + index + 1,
+      term: input.term,
+      dueOn: instalment.dueOn,
+      amount: m.toString(instalment.amount),
+    });
+  }
+
+  return { visits: dues.length, instalments: instalments.length };
+}
+
 async function organizationTimezone(tx: Database, organizationId: string): Promise<string> {
   const [row] = await tx.execute<{ timezone: string | null }>(
     sql`select timezone from public.organization where id = ${organizationId} limit 1`,
@@ -389,7 +588,7 @@ async function organizationTimezone(tx: Database, organizationId: string): Promi
 // Reading the book
 // ---------------------------------------------------------------------------
 
-export async function list(ctx: ServiceContext, input: { status?: string } = {}) {
+export async function list(ctx: ServiceContext, input: { status?: string | undefined; customerId?: string | undefined } = {}) {
   return guardedRead(ctx, "membership:read", async (tx) =>
     tx.select({
       agreement: schema.agreement,
@@ -399,9 +598,10 @@ export async function list(ctx: ServiceContext, input: { status?: string } = {})
       .from(schema.agreement)
       .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
       .innerJoin(schema.customer, eq(schema.customer.id, schema.agreement.customerId))
-      .where(input.status
-        ? eq(schema.agreement.status, input.status as "active")
-        : undefined)
+      .where(and(
+        input.status ? eq(schema.agreement.status, input.status as "active") : undefined,
+        input.customerId ? eq(schema.agreement.customerId, input.customerId) : undefined,
+      ))
       .orderBy(desc(schema.agreement.startedOn)));
 }
 
@@ -500,89 +700,91 @@ export async function owed(ctx: ServiceContext, input: { through?: string } = {}
  * and lets the obligation be skipped without deleting a job somebody did.
  */
 export async function book(ctx: ServiceContext, input: { agreementVisitId: string; propertyId?: string }) {
-  return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [row] = await tx.select({
-      visit: schema.agreementVisit,
-      agreement: schema.agreement,
-      planName: schema.agreementPlan.name,
-    })
-      .from(schema.agreementVisit)
-      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
-      .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
-      .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
-    if (!row) throw new NotFoundError("Agreement visit");
+  return guardedWrite(ctx, "membership:write", (tx) => bookWithin(tx, ctx, input));
+}
 
-    const propertyId = input.propertyId ?? row.agreement.propertyId;
-    if (!propertyId) {
-      throw new ConflictError("This agreement has no property, so the visit needs one.");
-    }
+async function bookWithin(tx: Database, ctx: ServiceContext, input: { agreementVisitId: string; propertyId?: string }) {
+  const [row] = await tx.select({
+    visit: schema.agreementVisit,
+    agreement: schema.agreement,
+    planName: schema.agreementPlan.name,
+  })
+    .from(schema.agreementVisit)
+    .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
+    .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+    .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
+  if (!row) throw new NotFoundError("Agreement visit");
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "job");
-    const [job] = await tx.insert(schema.job).values({
-      organizationId: ctx.actor.organizationId,
-      number,
-      customerId: row.agreement.customerId,
-      propertyId,
-      status: "scheduled",
-      summary: `${row.planName}: included visit ${row.visit.sequence}`,
-      /**
-       * Zero, and deliberately. The customer has already been billed for
-       * this under the agreement; putting the plan price on the job would
-       * bill them twice and overstate the month.
-       */
-      total: "0.0000",
-    }).returning();
+  const propertyId = input.propertyId ?? row.agreement.propertyId;
+  if (!propertyId) {
+    throw new ConflictError("This agreement has no property, so the visit needs one.");
+  }
 
+  const number = await nextNumber(tx, ctx.actor.organizationId, "job");
+  const [job] = await tx.insert(schema.job).values({
+    organizationId: ctx.actor.organizationId,
+    number,
+    customerId: row.agreement.customerId,
+    propertyId,
+    status: "scheduled",
+    summary: `${row.planName}: included visit ${row.visit.sequence}`,
     /**
-     * THE CLAIM IS THE ONLY DECISION.
-     *
-     * An earlier version read the row, checked whether it was already booked
-     * or skipped, and then repeated both conditions in the update. Two copies
-     * of one decision, and the read was the one the tests exercised: taking
-     * the condition off the update changed nothing any test could see.
-     *
-     * Now the update decides, so two people working the owed list at the same
-     * moment cannot both create a job for the same obligation. Throwing rolls
-     * back the job this transaction just inserted, so the loser leaves
-     * nothing behind.
+     * Zero, and deliberately. The customer has already been billed for
+     * this under the agreement; putting the plan price on the job would
+     * bill them twice and overstate the month.
      */
-    const claimed = await tx.update(schema.agreementVisit)
-      .set({ jobId: job!.id, updatedAt: new Date() })
-      .where(and(
-        eq(schema.agreementVisit.id, input.agreementVisitId),
-        isNull(schema.agreementVisit.jobId),
-        isNull(schema.agreementVisit.skippedOn),
-      ))
-      .returning({ id: schema.agreementVisit.id });
+    total: "0.0000",
+  }).returning();
 
-    if (claimed.length === 0) {
-      // One read, only to say which of the two it was. Nothing branches on it.
-      throw new ConflictError(
-        row.visit.skippedOn ? "That visit was skipped." : "That visit is already booked.",
-      );
-    }
+  /**
+   * THE CLAIM IS THE ONLY DECISION.
+   *
+   * An earlier version read the row, checked whether it was already booked
+   * or skipped, and then repeated both conditions in the update. Two copies
+   * of one decision, and the read was the one the tests exercised: taking
+   * the condition off the update changed nothing any test could see.
+   *
+   * Now the update decides, so two people working the owed list at the same
+   * moment cannot both create a job for the same obligation. Throwing rolls
+   * back the job this transaction just inserted, so the loser leaves
+   * nothing behind.
+   */
+  const claimed = await tx.update(schema.agreementVisit)
+    .set({ jobId: job!.id, updatedAt: new Date() })
+    .where(and(
+      eq(schema.agreementVisit.id, input.agreementVisitId),
+      isNull(schema.agreementVisit.jobId),
+      isNull(schema.agreementVisit.skippedOn),
+    ))
+    .returning({ id: schema.agreementVisit.id });
 
-    /**
-     * WHO IS PAYING FOR THIS, WRITTEN DOWN AT THE MOMENT IT IS BOOKED.
-     *
-     * Without it, a zero dollar job under a plan and a zero dollar job that
-     * is our own rework are the same row on every revenue report, and they
-     * mean opposite things about the business. Recorded rather than derived,
-     * because a plan cancelled in June did not uncover a visit delivered in
-     * March.
-     */
-    await resolveIn(tx, ctx.actor.organizationId, {
-      jobId: job!.id,
-      source: "agreement",
-      grantingEntityType: "agreement",
-      grantingEntityId: row.agreement.id,
-      resolvedByUserId: ctx.actor.userId,
-    });
+  if (claimed.length === 0) {
+    // One read, only to say which of the two it was. Nothing branches on it.
+    throw new ConflictError(
+      row.visit.skippedOn ? "That visit was skipped." : "That visit is already booked.",
+    );
+  }
 
-    await audit(tx, ctx, "agreement_visit.booked", "agreement_visit", input.agreementVisitId,
-      row.visit, { ...row.visit, jobId: job!.id });
-    return { job: job!, agreementVisitId: input.agreementVisitId };
+  /**
+   * WHO IS PAYING FOR THIS, WRITTEN DOWN AT THE MOMENT IT IS BOOKED.
+   *
+   * Without it, a zero dollar job under a plan and a zero dollar job that
+   * is our own rework are the same row on every revenue report, and they
+   * mean opposite things about the business. Recorded rather than derived,
+   * because a plan cancelled in June did not uncover a visit delivered in
+   * March.
+   */
+  await resolveIn(tx, ctx.actor.organizationId, {
+    jobId: job!.id,
+    source: "agreement",
+    grantingEntityType: "agreement",
+    grantingEntityId: row.agreement.id,
+    resolvedByUserId: ctx.actor.userId,
   });
+
+  await audit(tx, ctx, "agreement_visit.booked", "agreement_visit", input.agreementVisitId,
+    row.visit, { ...row.visit, jobId: job!.id });
+  return { job: job!, agreementVisitId: input.agreementVisitId };
 }
 
 /**
@@ -595,71 +797,73 @@ export async function book(ctx: ServiceContext, input: { agreementVisitId: strin
  * deferred.
  */
 export async function deliver(ctx: ServiceContext, input: { agreementVisitId: string; on?: string }) {
-  return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [row] = await tx.select({
-      visit: schema.agreementVisit,
-      agreement: schema.agreement,
-    })
-      .from(schema.agreementVisit)
-      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
-      .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
-    if (!row) throw new NotFoundError("Agreement visit");
-    if (row.visit.deliveredOn) {
-      // Delivering twice would recognise the same slice twice, which is
-      // revenue out of thin air.
-      throw new ConflictError("That visit is already delivered.");
-    }
+  return guardedWrite(ctx, "membership:write", (tx) => deliverWithin(tx, ctx, input));
+}
 
-    const on = input.on ?? time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+async function deliverWithin(tx: Database, ctx: ServiceContext, input: { agreementVisitId: string; on?: string }) {
+  const [row] = await tx.select({
+    visit: schema.agreementVisit,
+    agreement: schema.agreement,
+  })
+    .from(schema.agreementVisit)
+    .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
+    .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
+  if (!row) throw new NotFoundError("Agreement visit");
+  if (row.visit.deliveredOn) {
+    // Delivering twice would recognise the same slice twice, which is
+    // revenue out of thin air.
+    throw new ConflictError("That visit is already delivered.");
+  }
 
-    const delivered = await tx.update(schema.agreementVisit)
-      .set({ deliveredOn: on, recognizedOn: on, updatedAt: new Date() })
+  const on = input.on ?? time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+
+  const delivered = await tx.update(schema.agreementVisit)
+    .set({ deliveredOn: on, recognizedOn: on, updatedAt: new Date() })
+    .where(and(
+      eq(schema.agreementVisit.id, input.agreementVisitId),
+      isNull(schema.agreementVisit.deliveredOn),
+    ))
+    .returning({ id: schema.agreementVisit.id });
+  if (delivered.length === 0) throw new ConflictError("That visit is already delivered.");
+
+  await tx.update(schema.agreement).set({
+    visitsDeliveredThisTerm: sql`${schema.agreement.visitsDeliveredThisTerm} + 1`,
+    updatedAt: new Date(),
+  }).where(eq(schema.agreement.id, row.agreement.id));
+
+  const amount = usd(row.visit.recognitionAmount ?? "0");
+  if (m.isPositive(amount)) {
+    await tx.update(schema.deferredRevenueEntry)
+      .set({ recognizedOn: on, updatedAt: new Date() })
       .where(and(
-        eq(schema.agreementVisit.id, input.agreementVisitId),
-        isNull(schema.agreementVisit.deliveredOn),
-      ))
-      .returning({ id: schema.agreementVisit.id });
-    if (delivered.length === 0) throw new ConflictError("That visit is already delivered.");
+        eq(schema.deferredRevenueEntry.agreementVisitId, input.agreementVisitId),
+        isNull(schema.deferredRevenueEntry.recognizedOn),
+      ));
 
-    await tx.update(schema.agreement).set({
-      visitsDeliveredThisTerm: sql`${schema.agreement.visitsDeliveredThisTerm} + 1`,
-      updatedAt: new Date(),
-    }).where(eq(schema.agreement.id, row.agreement.id));
+    await writePosting(tx, ctx, ledger.postAgreementRecognition({
+      agreementVisitId: input.agreementVisitId,
+      occurredAt: new Date(),
+      amount,
+      customerId: row.agreement.customerId,
+      ...(row.visit.jobId ? { jobId: row.visit.jobId } : {}),
+    }));
+  }
 
-    const amount = usd(row.visit.recognitionAmount ?? "0");
-    if (m.isPositive(amount)) {
-      await tx.update(schema.deferredRevenueEntry)
-        .set({ recognizedOn: on, updatedAt: new Date() })
-        .where(and(
-          eq(schema.deferredRevenueEntry.agreementVisitId, input.agreementVisitId),
-          isNull(schema.deferredRevenueEntry.recognizedOn),
-        ));
-
-      await writePosting(tx, ctx, ledger.postAgreementRecognition({
-        agreementVisitId: input.agreementVisitId,
-        occurredAt: new Date(),
-        amount,
-        customerId: row.agreement.customerId,
-        ...(row.visit.jobId ? { jobId: row.visit.jobId } : {}),
-      }));
-    }
-
-    await emit(tx, ctx, {
-      name: "agreement.visit_delivered",
-      entityType: "agreement",
-      entityId: row.agreement.id,
-      payload: {
-        agreementId: row.agreement.id,
-        agreementVisitId: input.agreementVisitId,
-        customerId: row.agreement.customerId,
-        recognized: m.toString(amount),
-      },
-    });
-
-    await audit(tx, ctx, "agreement_visit.delivered", "agreement_visit",
-      input.agreementVisitId, row.visit, { ...row.visit, deliveredOn: on });
-    return { recognized: m.toString(amount) };
+  await emit(tx, ctx, {
+    name: "agreement.visit_delivered",
+    entityType: "agreement",
+    entityId: row.agreement.id,
+    payload: {
+      agreementId: row.agreement.id,
+      agreementVisitId: input.agreementVisitId,
+      customerId: row.agreement.customerId,
+      recognized: m.toString(amount),
+    },
   });
+
+  await audit(tx, ctx, "agreement_visit.delivered", "agreement_visit",
+    input.agreementVisitId, row.visit, { ...row.visit, deliveredOn: on });
+  return { recognized: m.toString(amount) };
 }
 
 /**
@@ -699,80 +903,85 @@ export async function skip(
   ctx: ServiceContext,
   input: { agreementVisitId: string; reason: string; on?: string },
 ) {
-  return guardedWrite(ctx, "membership:write", async (tx) => {
-    const reason = input.reason.trim();
-    if (reason === "") {
+  return guardedWrite(ctx, "membership:write", (tx) => skipWithin(tx, ctx, input));
+}
+
+async function skipWithin(
+  tx: Database, ctx: ServiceContext,
+  input: { agreementVisitId: string; reason: string; on?: string },
+) {
+  const reason = input.reason.trim();
+  if (reason === "") {
+    /**
+     * A skip with no reason is indistinguishable from a mistake, and this
+     * is the field somebody reads a year later when the member says they
+     * never agreed to it.
+     */
+    throw new ConflictError(
+      "A skipped visit needs a reason. It is the only record of why the member did not get what they paid for.",
+    );
+  }
+
+  const [row] = await tx.select({
+    visit: schema.agreementVisit,
+    agreement: schema.agreement,
+  })
+    .from(schema.agreementVisit)
+    .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
+    .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
+  if (!row) throw new NotFoundError("Agreement visit");
+
+  if (row.visit.deliveredOn) {
+    throw new ConflictError(
+      "That visit was delivered. Work that happened cannot be skipped: it can be credited, which is a decision about money.",
+    );
+  }
+  if (row.visit.skippedOn) throw new ConflictError("That visit is already skipped.");
+  if (row.visit.jobId) {
+    throw new ConflictError(
+      "That visit is booked. Cancel or unbook the job first, so whoever is scheduled for it finds out.",
+    );
+  }
+
+  const on = input.on ?? time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+
+  const [after] = await tx.update(schema.agreementVisit)
+    .set({ skippedOn: on, skipReason: reason, updatedAt: new Date() })
+    .where(and(
+      eq(schema.agreementVisit.id, input.agreementVisitId),
+      isNull(schema.agreementVisit.skippedOn),
+      isNull(schema.agreementVisit.deliveredOn),
+    ))
+    .returning();
+  if (!after) throw new ConflictError("That visit is already skipped.");
+
+  await emit(tx, ctx, {
+    name: "agreement.visit_skipped",
+    entityType: "agreement",
+    entityId: row.agreement.id,
+    payload: {
+      agreementId: row.agreement.id,
+      agreementVisitId: input.agreementVisitId,
+      customerId: row.agreement.customerId,
+      reason,
       /**
-       * A skip with no reason is indistinguishable from a mistake, and this
-       * is the field somebody reads a year later when the member says they
-       * never agreed to it.
+       * Carried on the event so a workflow can act on the amount still
+       * sitting deferred, rather than assuming a skip settled it.
        */
-      throw new ConflictError(
-        "A skipped visit needs a reason. It is the only record of why the member did not get what they paid for.",
-      );
-    }
-
-    const [row] = await tx.select({
-      visit: schema.agreementVisit,
-      agreement: schema.agreement,
-    })
-      .from(schema.agreementVisit)
-      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
-      .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
-    if (!row) throw new NotFoundError("Agreement visit");
-
-    if (row.visit.deliveredOn) {
-      throw new ConflictError(
-        "That visit was delivered. Work that happened cannot be skipped: it can be credited, which is a decision about money.",
-      );
-    }
-    if (row.visit.skippedOn) throw new ConflictError("That visit is already skipped.");
-    if (row.visit.jobId) {
-      throw new ConflictError(
-        "That visit is booked. Cancel or unbook the job first, so whoever is scheduled for it finds out.",
-      );
-    }
-
-    const on = input.on ?? time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
-
-    const [after] = await tx.update(schema.agreementVisit)
-      .set({ skippedOn: on, skipReason: reason, updatedAt: new Date() })
-      .where(and(
-        eq(schema.agreementVisit.id, input.agreementVisitId),
-        isNull(schema.agreementVisit.skippedOn),
-        isNull(schema.agreementVisit.deliveredOn),
-      ))
-      .returning();
-    if (!after) throw new ConflictError("That visit is already skipped.");
-
-    await emit(tx, ctx, {
-      name: "agreement.visit_skipped",
-      entityType: "agreement",
-      entityId: row.agreement.id,
-      payload: {
-        agreementId: row.agreement.id,
-        agreementVisitId: input.agreementVisitId,
-        customerId: row.agreement.customerId,
-        reason,
-        /**
-         * Carried on the event so a workflow can act on the amount still
-         * sitting deferred, rather than assuming a skip settled it.
-         */
-        stillDeferred: row.visit.recognitionAmount ?? "0",
-      },
-    });
-
-    await audit(tx, ctx, "agreement_visit.skipped", "agreement_visit",
-      input.agreementVisitId, row.visit, after);
-
-    return {
-      id: after.id,
-      skippedOn: after.skippedOn,
-      skipReason: after.skipReason,
-      /** Unrecognised and unreleased. Skipped is not the same as settled. */
       stillDeferred: row.visit.recognitionAmount ?? "0",
-    };
+    },
   });
+
+  await audit(tx, ctx, "agreement_visit.skipped", "agreement_visit",
+    input.agreementVisitId, row.visit, after);
+
+  return {
+    id: after.id,
+    skippedOn: after.skippedOn,
+    skipReason: after.skipReason,
+    /** Unrecognised and unreleased. Skipped is not the same as settled. */
+    stillDeferred: row.visit.recognitionAmount ?? "0",
+  };
 }
 
 /**
@@ -788,40 +997,42 @@ export async function skip(
  * anything on the way in.
  */
 export async function unskip(ctx: ServiceContext, input: { agreementVisitId: string }) {
-  return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [row] = await tx.select({
-      visit: schema.agreementVisit,
-      agreement: schema.agreement,
-    })
-      .from(schema.agreementVisit)
-      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
-      .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
-    if (!row) throw new NotFoundError("Agreement visit");
-    if (!row.visit.skippedOn) throw new ConflictError("That visit is not skipped.");
+  return guardedWrite(ctx, "membership:write", (tx) => unskipWithin(tx, ctx, input));
+}
 
-    const [after] = await tx.update(schema.agreementVisit)
-      .set({ skippedOn: null, skipReason: null, updatedAt: new Date() })
-      .where(eq(schema.agreementVisit.id, input.agreementVisitId))
-      .returning();
+async function unskipWithin(tx: Database, ctx: ServiceContext, input: { agreementVisitId: string }) {
+  const [row] = await tx.select({
+    visit: schema.agreementVisit,
+    agreement: schema.agreement,
+  })
+    .from(schema.agreementVisit)
+    .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
+    .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
+  if (!row) throw new NotFoundError("Agreement visit");
+  if (!row.visit.skippedOn) throw new ConflictError("That visit is not skipped.");
 
-    await emit(tx, ctx, {
-      name: "agreement.visit_unskipped",
-      entityType: "agreement",
-      entityId: row.agreement.id,
-      payload: {
-        agreementId: row.agreement.id,
-        agreementVisitId: input.agreementVisitId,
-        customerId: row.agreement.customerId,
-        /** What it said before, because that is the part somebody disputes. */
-        wasSkippedFor: row.visit.skipReason,
-      },
-    });
+  const [after] = await tx.update(schema.agreementVisit)
+    .set({ skippedOn: null, skipReason: null, updatedAt: new Date() })
+    .where(eq(schema.agreementVisit.id, input.agreementVisitId))
+    .returning();
 
-    await audit(tx, ctx, "agreement_visit.unskipped", "agreement_visit",
-      input.agreementVisitId, row.visit, after!);
-
-    return { id: after!.id, dueOn: after!.dueOn };
+  await emit(tx, ctx, {
+    name: "agreement.visit_unskipped",
+    entityType: "agreement",
+    entityId: row.agreement.id,
+    payload: {
+      agreementId: row.agreement.id,
+      agreementVisitId: input.agreementVisitId,
+      customerId: row.agreement.customerId,
+      /** What it said before, because that is the part somebody disputes. */
+      wasSkippedFor: row.visit.skipReason,
+    },
   });
+
+  await audit(tx, ctx, "agreement_visit.unskipped", "agreement_visit",
+    input.agreementVisitId, row.visit, after!);
+
+  return { id: after!.id, dueOn: after!.dueOn };
 }
 
 /**
@@ -833,70 +1044,72 @@ export async function unskip(ctx: ServiceContext, input: { agreementVisitId: str
  * on the day the customer paid.
  */
 export async function bill(ctx: ServiceContext, input: { agreementBillingId: string }) {
-  return guardedWrite(ctx, "invoice:write", async (tx) => {
-    const [row] = await tx.select({
-      billing: schema.agreementBilling,
-      agreement: schema.agreement,
-      planName: schema.agreementPlan.name,
-    })
-      .from(schema.agreementBilling)
-      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementBilling.agreementId))
-      .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
-      .where(eq(schema.agreementBilling.id, input.agreementBillingId)).limit(1);
-    if (!row) throw new NotFoundError("Instalment");
-    if (row.billing.invoiceId) throw new ConflictError("That instalment is already invoiced.");
+  return guardedWrite(ctx, "invoice:write", (tx) => billWithin(tx, ctx, input));
+}
 
-    const amount = usd(row.billing.amount);
-    const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
+async function billWithin(tx: Database, ctx: ServiceContext, input: { agreementBillingId: string }) {
+  const [row] = await tx.select({
+    billing: schema.agreementBilling,
+    agreement: schema.agreement,
+    planName: schema.agreementPlan.name,
+  })
+    .from(schema.agreementBilling)
+    .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementBilling.agreementId))
+    .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+    .where(eq(schema.agreementBilling.id, input.agreementBillingId)).limit(1);
+  if (!row) throw new NotFoundError("Instalment");
+  if (row.billing.invoiceId) throw new ConflictError("That instalment is already invoiced.");
 
-    const [invoice] = await tx.insert(schema.invoice).values({
-      organizationId: ctx.actor.organizationId,
-      number,
-      customerId: row.agreement.customerId,
-      status: "open",
-      issuedOn: row.billing.dueOn,
-      dueOn: row.billing.dueOn,
-      subtotal: m.toString(amount),
-      discountTotal: "0.0000",
-      taxTotal: "0.0000",
-      total: m.toString(amount),
-      balance: m.toString(amount),
-      memo: `${row.planName}, instalment ${row.billing.sequence}`,
-    }).returning();
+  const amount = usd(row.billing.amount);
+  const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
 
-    await tx.insert(schema.invoiceLine).values({
-      organizationId: ctx.actor.organizationId,
-      invoiceId: invoice!.id,
-      origin: "manual",
-      sortOrder: 0,
-      name: row.planName,
-      description: `Instalment ${row.billing.sequence}`,
-      quantity: "1",
-      unitPrice: m.toString(amount),
-      discountAmount: "0.0000",
-      taxable: false,
-      taxAmount: "0.0000",
-      lineTotal: m.toString(amount),
-    });
+  const [invoice] = await tx.insert(schema.invoice).values({
+    organizationId: ctx.actor.organizationId,
+    number,
+    customerId: row.agreement.customerId,
+    status: "open",
+    issuedOn: row.billing.dueOn,
+    dueOn: row.billing.dueOn,
+    subtotal: m.toString(amount),
+    discountTotal: "0.0000",
+    taxTotal: "0.0000",
+    total: m.toString(amount),
+    balance: m.toString(amount),
+    memo: `${row.planName}, instalment ${row.billing.sequence}`,
+  }).returning();
 
-    const claimed = await tx.update(schema.agreementBilling).set({
-      invoiceId: invoice!.id, status: "invoiced", updatedAt: new Date(),
-    }).where(and(
-      eq(schema.agreementBilling.id, input.agreementBillingId),
-      isNull(schema.agreementBilling.invoiceId),
-    )).returning({ id: schema.agreementBilling.id });
-    if (claimed.length === 0) throw new ConflictError("That instalment is already invoiced.");
-
-    await writePosting(tx, ctx, ledger.postAgreementBilling({
-      invoiceId: invoice!.id,
-      occurredAt: new Date(),
-      amount,
-      customerId: row.agreement.customerId,
-    }));
-
-    await audit(tx, ctx, "agreement.billed", "invoice", invoice!.id, null, invoice);
-    return invoice!;
+  await tx.insert(schema.invoiceLine).values({
+    organizationId: ctx.actor.organizationId,
+    invoiceId: invoice!.id,
+    origin: "manual",
+    sortOrder: 0,
+    name: row.planName,
+    description: `Instalment ${row.billing.sequence}`,
+    quantity: "1",
+    unitPrice: m.toString(amount),
+    discountAmount: "0.0000",
+    taxable: false,
+    taxAmount: "0.0000",
+    lineTotal: m.toString(amount),
   });
+
+  const claimed = await tx.update(schema.agreementBilling).set({
+    invoiceId: invoice!.id, status: "invoiced", updatedAt: new Date(),
+  }).where(and(
+    eq(schema.agreementBilling.id, input.agreementBillingId),
+    isNull(schema.agreementBilling.invoiceId),
+  )).returning({ id: schema.agreementBilling.id });
+  if (claimed.length === 0) throw new ConflictError("That instalment is already invoiced.");
+
+  await writePosting(tx, ctx, ledger.postAgreementBilling({
+    invoiceId: invoice!.id,
+    occurredAt: new Date(),
+    amount,
+    customerId: row.agreement.customerId,
+  }));
+
+  await audit(tx, ctx, "agreement.billed", "invoice", invoice!.id, null, invoice);
+  return invoice!;
 }
 
 /**
@@ -912,81 +1125,86 @@ export async function cancel(
   ctx: ServiceContext,
   input: { id: string; reason: string; keepThePrepayment?: boolean },
 ) {
-  return guardedWrite(ctx, "membership:write", async (tx) => {
-    const [before] = await tx.select().from(schema.agreement)
-      .where(eq(schema.agreement.id, input.id)).limit(1);
-    if (!before) throw new NotFoundError("Agreement");
-    if (before.status === "cancelled") throw new ConflictError("That agreement is already cancelled.");
-    if (input.reason.trim() === "") {
-      // A cancellation with no reason is indistinguishable from a mistake,
-      // and the reason is the whole of a win-back campaign.
-      throw new ConflictError("A cancellation needs a reason.");
-    }
+  return guardedWrite(ctx, "membership:write", (tx) => cancelWithin(tx, ctx, input));
+}
 
-    const timezone = await organizationTimezone(tx, ctx.actor.organizationId);
-    const on = time.dateIn(new Date(), timezone);
+async function cancelWithin(
+  tx: Database, ctx: ServiceContext,
+  input: { id: string; reason: string; keepThePrepayment?: boolean },
+) {
+  const [before] = await tx.select().from(schema.agreement)
+    .where(eq(schema.agreement.id, input.id)).limit(1);
+  if (!before) throw new NotFoundError("Agreement");
+  if (before.status === "cancelled") throw new ConflictError("That agreement is already cancelled.");
+  if (input.reason.trim() === "") {
+    // A cancellation with no reason is indistinguishable from a mistake,
+    // and the reason is the whole of a win-back campaign.
+    throw new ConflictError("A cancellation needs a reason.");
+  }
 
-    const [after] = await tx.update(schema.agreement).set({
-      status: "cancelled", cancelledOn: on,
-      cancellationReason: input.reason.trim(), autoRenews: false,
-      updatedAt: new Date(),
-    }).where(eq(schema.agreement.id, input.id)).returning();
+  const timezone = await organizationTimezone(tx, ctx.actor.organizationId);
+  const on = time.dateIn(new Date(), timezone);
 
-    /**
-     * Instalments not yet invoiced are cancelled. An invoiced one stands:
-     * the customer owes it, and voiding an issued invoice is a different
-     * decision made on the invoice.
-     */
-    await tx.update(schema.agreementBilling)
-      .set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(
-        eq(schema.agreementBilling.agreementId, input.id),
-        eq(schema.agreementBilling.status, "scheduled"),
-      ));
+  const [after] = await tx.update(schema.agreement).set({
+    status: "cancelled", cancelledOn: on,
+    cancellationReason: input.reason.trim(), autoRenews: false,
+    updatedAt: new Date(),
+  }).where(eq(schema.agreement.id, input.id)).returning();
 
-    const open = await tx.select().from(schema.deferredRevenueEntry)
-      .where(and(
-        eq(schema.deferredRevenueEntry.agreementId, input.id),
-        isNull(schema.deferredRevenueEntry.recognizedOn),
-        isNull(schema.deferredRevenueEntry.releasedOn),
-      ));
+  /**
+   * Instalments not yet invoiced are cancelled. An invoiced one stands:
+   * the customer owes it, and voiding an issued invoice is a different
+   * decision made on the invoice.
+   */
+  await tx.update(schema.agreementBilling)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(and(
+      eq(schema.agreementBilling.agreementId, input.id),
+      eq(schema.agreementBilling.status, "scheduled"),
+    ));
 
-    const balance = open.reduce(
-      (total: m.Money, e: typeof schema.deferredRevenueEntry.$inferSelect) => m.add(total, usd(e.amount)),
-      m.zero("USD"),
-    );
+  const open = await tx.select().from(schema.deferredRevenueEntry)
+    .where(and(
+      eq(schema.deferredRevenueEntry.agreementId, input.id),
+      isNull(schema.deferredRevenueEntry.recognizedOn),
+      isNull(schema.deferredRevenueEntry.releasedOn),
+    ));
 
-    if (m.isPositive(balance)) {
-      await tx.update(schema.deferredRevenueEntry).set({
-        releasedOn: on, releaseReason: input.reason.trim(), updatedAt: new Date(),
-      }).where(and(
-        eq(schema.deferredRevenueEntry.agreementId, input.id),
-        isNull(schema.deferredRevenueEntry.recognizedOn),
-        isNull(schema.deferredRevenueEntry.releasedOn),
-      ));
+  const balance = open.reduce(
+    (total: m.Money, e: typeof schema.deferredRevenueEntry.$inferSelect) => m.add(total, usd(e.amount)),
+    m.zero("USD"),
+  );
 
-      await writePosting(tx, ctx, ledger.postDeferredRelease({
-        agreementId: input.id,
-        occurredAt: new Date(),
-        amount: balance,
-        toRevenue: input.keepThePrepayment ?? false,
-        customerId: before.customerId,
-      }));
-    }
+  if (m.isPositive(balance)) {
+    await tx.update(schema.deferredRevenueEntry).set({
+      releasedOn: on, releaseReason: input.reason.trim(), updatedAt: new Date(),
+    }).where(and(
+      eq(schema.deferredRevenueEntry.agreementId, input.id),
+      isNull(schema.deferredRevenueEntry.recognizedOn),
+      isNull(schema.deferredRevenueEntry.releasedOn),
+    ));
 
-    await emit(tx, ctx, {
-      name: "agreement.cancelled",
-      entityType: "agreement",
-      entityId: input.id,
-      payload: {
-        agreementId: input.id, customerId: before.customerId,
-        reason: input.reason.trim(), released: m.toString(balance),
-      },
-    });
+    await writePosting(tx, ctx, ledger.postDeferredRelease({
+      agreementId: input.id,
+      occurredAt: new Date(),
+      amount: balance,
+      toRevenue: input.keepThePrepayment ?? false,
+      customerId: before.customerId,
+    }));
+  }
 
-    await audit(tx, ctx, "agreement.cancelled", "agreement", input.id, before, after);
-    return { ...after!, released: m.toString(balance) };
+  await emit(tx, ctx, {
+    name: "agreement.cancelled",
+    entityType: "agreement",
+    entityId: input.id,
+    payload: {
+      agreementId: input.id, customerId: before.customerId,
+      reason: input.reason.trim(), released: m.toString(balance),
+    },
   });
+
+  await audit(tx, ctx, "agreement.cancelled", "agreement", input.id, before, after);
+  return { ...after!, released: m.toString(balance) };
 }
 
 /**
@@ -1009,3 +1227,903 @@ export async function unearned(ctx: ServiceContext) {
   });
 }
 
+
+// ---------------------------------------------------------------------------
+// Renewing it
+// ---------------------------------------------------------------------------
+
+/**
+ * A replayed request is the call that already happened, read back.
+ *
+ * Renewing and selling both write a term of obligations, so a retry from a
+ * phone on one bar that ran them twice would owe the customer a second year
+ * of visits and bill them for it. Same table and shape every other service
+ * uses for this.
+ */
+async function replayed(tx: Database, ctx: ServiceContext, entityType: string): Promise<string | null> {
+  if (!ctx.idempotencyKey) return null;
+  const [row] = await tx.select({ entityId: schema.integrationEvent.entityId })
+    .from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+      eq(schema.integrationEvent.entityType, entityType),
+    )).limit(1);
+  return row?.entityId ?? null;
+}
+
+async function remember(tx: Database, ctx: ServiceContext, entityType: string, entityId: string) {
+  if (!ctx.idempotencyKey) return;
+  await tx.insert(schema.integrationEvent).values({
+    organizationId: ctx.actor.organizationId,
+    idempotencyKey: ctx.idempotencyKey,
+    entityType,
+    entityId,
+    direction: "inbound",
+    provider: "api",
+    eventType: `${entityType}.created`,
+    status: "succeeded",
+  });
+}
+
+/** The statuses a person may renew from. A lapsed member renewing is the win back. */
+const RENEWABLE = ["active", "lapsed"] as const;
+
+/**
+ * Add a term to an agreement, inside a transaction the caller holds.
+ *
+ * THE NEW TERM STARTS THE DAY THE OLD ONE ENDS, whenever it is renewed. A
+ * member renewed a fortnight early keeps the fortnight they paid for, and one
+ * renewed a fortnight late does not get a fortnight free: the anniversary is
+ * the agreement's, not the day somebody got round to it.
+ *
+ * THE PRICE IS THE AGREEMENT'S unless a new one is given. Frozen at sale is
+ * the rule this module is built on, and a renewal that quietly picked up the
+ * plan's new price would be a price rise nobody agreed to, applied to four
+ * hundred members on the same night by a worker. A person renewing by hand can
+ * type a new price, which is the conversation with the customer having
+ * happened.
+ *
+ * THE CLAIM IS THE UPDATE, on the end date the caller read. Two people
+ * pressing renew, or a person and the worker on the same morning, cannot both
+ * add a year: the second update matches nothing and is refused in words.
+ *
+ * THE EARLIER TERMS STAND. A visit the member was owed last year and never had
+ * is still owed, still on the owed list and still deferred, and renewing does
+ * not settle it by moving it into a new year or by writing it off.
+ */
+export async function renewWithin(
+  tx: Database,
+  ctx: ServiceContext,
+  input: { agreementId: string; price?: string | undefined; by: "office" | "automatic"; today: string },
+) {
+  const [row] = await tx.select({ agreement: schema.agreement, plan: schema.agreementPlan })
+    .from(schema.agreement)
+    .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+    .where(eq(schema.agreement.id, input.agreementId)).limit(1);
+  if (!row) throw new NotFoundError("Agreement");
+  const { agreement: before, plan } = row;
+
+  if (!(RENEWABLE as readonly string[]).includes(before.status)) {
+    throw new ConflictError(
+      before.status === "cancelled"
+        ? "This agreement was cancelled. Sell them a new one rather than renewing a cancelled one, so the reason it was cancelled stays on the record."
+        : `This agreement is ${before.status.replace(/_/g, " ")}, and only an active or lapsed agreement can be renewed.`,
+    );
+  }
+  if (!before.endsOn) {
+    throw new ConflictError("This agreement has no end date, so there is no next term to add.");
+  }
+
+  let price = usd(before.price);
+  if (input.price !== undefined && input.price.trim() !== "") {
+    const typed = input.price.replace(/[$,\s]/g, "");
+    if (!/^\d+(\.\d{1,4})?$/.test(typed)) {
+      throw new ConflictError("The new price has to be an amount, like 228.00.");
+    }
+    price = usd(typed);
+  }
+
+  const term = membership.nextTerm(before.endsOn, plan.termMonths);
+  const termNumber = before.renewalCount + 2;
+
+  const [after] = await tx.update(schema.agreement).set({
+    status: "active",
+    endsOn: term.endsOn,
+    price: m.toString(price),
+    renewalCount: sql`${schema.agreement.renewalCount} + 1`,
+    lastRenewedOn: input.today,
+    /** The next term owes its own notice, so this term's record is cleared. */
+    renewalNoticeSentAt: null,
+    renewalNoticeOutcome: null,
+    visitsIncludedThisTerm: plan.includedVisitsPerTerm,
+    visitsDeliveredThisTerm: 0,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(schema.agreement.id, input.agreementId),
+    eq(schema.agreement.endsOn, before.endsOn),
+    eq(schema.agreement.status, before.status),
+  )).returning();
+  if (!after) throw new ConflictError("This agreement has just been renewed by somebody else.");
+
+  const written = await writeTerm(tx, ctx, {
+    agreementId: before.id, plan, startedOn: term.startsOn, endsOn: term.endsOn, price, term: termNumber,
+    billingFrequency: before.billingFrequency,
+  });
+
+  await emit(tx, ctx, {
+    name: "agreement.renewed",
+    entityType: "agreement",
+    entityId: before.id,
+    payload: {
+      agreement: {
+        id: before.id, customerId: before.customerId, planId: plan.id, planName: plan.name,
+        price: m.toString(price), startedOn: term.startsOn, endsOn: term.endsOn, term: termNumber,
+      },
+      customer: { id: before.customerId },
+      renewedBy: input.by,
+    },
+    previous: { agreement: { endsOn: before.endsOn, price: before.price, status: before.status } },
+  });
+
+  await audit(tx, ctx, input.by === "automatic" ? "agreement.auto_renewed" : "agreement.renewed",
+    "agreement", before.id, before, after);
+
+  return {
+    id: after.id,
+    term: termNumber,
+    startsOn: term.startsOn,
+    endsOn: term.endsOn,
+    price: m.toString(price),
+    visits: written.visits,
+    instalments: written.instalments,
+  };
+}
+
+/** Renew one from the agreement screen, or the API. */
+export async function renew(ctx: ServiceContext, input: { id: string; price?: string | undefined }) {
+  return guardedWrite(ctx, "membership:write", async (tx) => {
+    const seen = await replayed(tx, ctx, "agreement_renewal");
+    if (seen) {
+      const [row] = await tx.select().from(schema.agreement).where(eq(schema.agreement.id, seen)).limit(1);
+      if (!row) throw new NotFoundError("Agreement");
+      return {
+        id: row.id, term: row.renewalCount + 1, startsOn: row.lastRenewedOn ?? row.startedOn,
+        endsOn: row.endsOn!, price: row.price, visits: row.visitsIncludedThisTerm, instalments: 0,
+      };
+    }
+    const today = time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+    const result = await renewWithin(tx, ctx, {
+      agreementId: input.id, price: input.price, by: "office", today,
+    });
+    await remember(tx, ctx, "agreement_renewal", input.id);
+    return result;
+  });
+}
+
+export interface ExpiringAgreement {
+  id: string;
+  customerId: string;
+  customerName: string;
+  planName: string;
+  status: string;
+  endsOn: string;
+  /** Negative when the end has passed and nothing renewed it. */
+  daysLeft: number;
+  price: string;
+  billingFrequency: string;
+  /** Both the plan's switch and the agreement's. */
+  renewsAutomatically: boolean;
+  renewalNoticeSentAt: Date | null;
+  renewalNoticeOutcome: string | null;
+  renewalCount: number;
+}
+
+/**
+ * AGREEMENTS ENDING SOON, and the ones that ended and nobody renewed.
+ *
+ * The renewal conversation is the one this whole module exists for, and the
+ * list that starts it is "who ends in the next thirty days". Ordered by the
+ * end date, soonest first, because that is the order the calls get made in.
+ *
+ * Lapsed ones from the last thirty days are on it too, at the top. A member
+ * whose plan ran out last week without anybody ringing is the most valuable
+ * call on the list, and a list of only the future would have dropped them the
+ * day after it mattered.
+ */
+export async function expiring(ctx: ServiceContext, input: { withinDays?: number } = {}) {
+  return guardedRead(ctx, "membership:read", async (tx): Promise<ExpiringAgreement[]> => {
+    const days = Math.min(Math.max(Math.trunc(input.withinDays ?? 30), 1), 366);
+    const today = time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+    const until = recurrence.addDays(today, days);
+    const since = recurrence.addDays(today, -30);
+
+    const rows = await tx.select({
+      agreement: schema.agreement,
+      planName: schema.agreementPlan.name,
+      planAutoRenews: schema.agreementPlan.autoRenews,
+      customerName: schema.customer.name,
+    })
+      .from(schema.agreement)
+      .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.agreement.customerId))
+      .where(and(
+        inArray(schema.agreement.status, ["active", "past_due", "lapsed"]),
+        sql`${schema.agreement.endsOn} is not null`,
+        lte(schema.agreement.endsOn, until),
+        gte(schema.agreement.endsOn, since),
+      ))
+      .orderBy(asc(schema.agreement.endsOn));
+
+    return rows.map((r) => ({
+      id: r.agreement.id,
+      customerId: r.agreement.customerId,
+      customerName: r.customerName,
+      planName: r.planName,
+      status: r.agreement.status,
+      endsOn: r.agreement.endsOn!,
+      daysLeft: membership.daysBetween(today, r.agreement.endsOn!),
+      price: r.agreement.price,
+      billingFrequency: r.agreement.billingFrequency,
+      renewsAutomatically: r.agreement.autoRenews && r.planAutoRenews && r.agreement.status !== "lapsed",
+      renewalNoticeSentAt: r.agreement.renewalNoticeSentAt,
+      renewalNoticeOutcome: r.agreement.renewalNoticeOutcome,
+      renewalCount: r.agreement.renewalCount,
+    }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Member pricing
+// ---------------------------------------------------------------------------
+
+/**
+ * Which of this customer's agreements discounts work on a day, read inside a
+ * transaction somebody already holds.
+ *
+ * Read by estimates and invoices as they are priced, which is why it takes a
+ * transaction rather than a context: the estimate being written is not
+ * visible to a second connection, and the authority to price it was settled
+ * by the guard on the call that is writing it. The decision is core's.
+ */
+export async function memberPricingWithin(
+  tx: Database,
+  input: { customerId: string; propertyId?: string | null | undefined; on: string },
+): Promise<membership.MemberPricing | null> {
+  const rows = await memberCandidates(tx, [input.customerId]);
+  return membership.memberPricingFor(rows, { on: input.on, propertyId: input.propertyId ?? null });
+}
+
+/**
+ * Every running agreement these customers hold, as core's decisions read
+ * them: the discount FROZEN ON THE AGREEMENT, and the perks from the plan.
+ *
+ * The rate is the agreement's because it was frozen at sale and an edit to
+ * the plan must not reach a member mid term. The perks are the plan's,
+ * because they are the company's standing promise and `updatePlan` says so.
+ */
+async function memberCandidates(tx: Database, customerIds: string[]): Promise<(membership.MemberCandidate & { customerId: string })[]> {
+  if (customerIds.length === 0) return [];
+  return tx.select({
+    agreementId: schema.agreement.id,
+    customerId: schema.agreement.customerId,
+    planName: schema.agreementPlan.name,
+    discountRate: schema.agreement.discountRate,
+    status: schema.agreement.status,
+    startedOn: schema.agreement.startedOn,
+    endsOn: schema.agreement.endsOn,
+    propertyId: schema.agreement.propertyId,
+    waivesDiagnosticFee: schema.agreementPlan.waivesDiagnosticFee,
+    waivesAfterHoursRate: schema.agreementPlan.waivesAfterHoursRate,
+    priorityDispatch: schema.agreementPlan.priorityDispatch,
+  })
+    .from(schema.agreement)
+    .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+    .where(and(
+      inArray(schema.agreement.customerId, [...new Set(customerIds)]),
+      eq(schema.agreement.status, "active"),
+    ));
+}
+
+/**
+ * Which pieces of work go to the front of the dispatch queue, and on whose
+ * plan, read inside a transaction the caller holds.
+ *
+ * For the board, which asks for a whole day at once: one read for every
+ * customer on it rather than one per visit. The decision is core's
+ * `priorityFor`, the same cover rule the discount uses.
+ */
+export async function priorityWithin(
+  tx: Database,
+  work: readonly { key: string; customerId: string; propertyId: string | null; on: string }[],
+): Promise<Map<string, string>> {
+  const candidates = await memberCandidates(tx, work.map((w) => w.customerId));
+  const out = new Map<string, string>();
+  for (const piece of work) {
+    const found = membership.priorityFor(
+      candidates.filter((c) => c.customerId === piece.customerId),
+      { on: piece.on, propertyId: piece.propertyId },
+    );
+    if (found) out.set(piece.key, found.planName);
+  }
+  return out;
+}
+
+/**
+ * The member pricing that would apply to work for this customer today.
+ *
+ * For a screen writing an estimate, so it can say before the save that a
+ * discount will be taken and why. `customer:read`, not `membership:read`: the
+ * technician quoting at a kitchen table needs to know the customer is a member
+ * and does not need to read the agreement book to find out.
+ */
+export async function memberPricing(
+  ctx: ServiceContext, input: { customerId: string; propertyId?: string | undefined },
+) {
+  return guardedRead(ctx, "customer:read", async (tx) => {
+    const today = time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+    const found = await memberPricingWithin(tx, { customerId: input.customerId, propertyId: input.propertyId, on: today });
+    return found
+      ? { applies: true as const, ...found, percent: percentOf(found.rate) }
+      : {
+        applies: false as const, agreementId: null, planName: null, rate: null, percent: null,
+        waivesDiagnosticFee: false, waivesAfterHoursRate: false,
+      };
+  });
+}
+
+/**
+ * The plan behind each agreement a priced line names, for a screen showing
+ * why a line is cheaper.
+ *
+ * `customer:read` for the reason `memberPricing` gives: whoever can see the
+ * estimate or invoice can see which membership priced it, without reading the
+ * agreement book.
+ */
+export async function planNamesFor(ctx: ServiceContext, input: { agreementIds: string[] }) {
+  return guardedRead(ctx, "customer:read", async (tx) => {
+    const ids = [...new Set(input.agreementIds)];
+    if (ids.length === 0) return new Map<string, string>();
+    const rows = await tx.select({ id: schema.agreement.id, planName: schema.agreementPlan.name })
+      .from(schema.agreement)
+      .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+      .where(inArray(schema.agreement.id, ids));
+    return new Map(rows.map((r) => [r.id, r.planName] as const));
+  });
+}
+
+/** "0.150000" as "15%", for a sentence. */
+export const percentOf = (rate: string): string =>
+  `${Number((Number(rate) * 100).toFixed(2))}%`;
+
+// ---------------------------------------------------------------------------
+// The worker's part: renewals, lapses and the notices before them
+// ---------------------------------------------------------------------------
+
+/**
+ * The actor the renewal pass acts as.
+ *
+ * The system user, holding exactly the two things this pass does: add terms
+ * to agreements and tell members about it. Nothing else, so a bug here cannot
+ * reach a part of the product the pass has no business in.
+ */
+function renewalActor(organizationId: string): Actor {
+  return {
+    userId: SYSTEM_USER_ID,
+    organizationId,
+    roles: [],
+    grants: ["membership:write", "message:send"],
+    agentId: "renewals",
+  };
+}
+
+const longDay = (iso: string): string =>
+  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+  });
+
+/**
+ * The notice the plan owes, in words a member reads.
+ *
+ * Says the last covered day rather than the exclusive end date, the price and
+ * what to do about it, and nothing else. A renewal notice is a legal notice in
+ * a number of states for an automatically renewing contract, and the parts
+ * that matter there are the date, the price and how to stop it.
+ */
+export function renewalNoticeText(input: {
+  customerName: string; organizationName: string; planName: string;
+  endsOn: string; price: string; termMonths: number; renewsAutomatically: boolean;
+}): string {
+  const first = input.customerName.split(" ")[0] || input.customerName;
+  const price = m.format(usd(input.price));
+  if (input.renewsAutomatically) {
+    return `Hi ${first}, your ${input.planName} with ${input.organizationName} renews on `
+      + `${longDay(input.endsOn)} for another ${input.termMonths} months at ${price}. `
+      + "Reply to this message if you would like to change or cancel it.";
+  }
+  return `Hi ${first}, your ${input.planName} with ${input.organizationName} covers you until `
+    + `${longDay(membership.lastCoveredDay(input.endsOn))}. Reply to this message if you would like to renew it.`;
+}
+
+export interface RenewalPassResult {
+  organizationId: string;
+  renewed: string[];
+  lapsed: string[];
+  noticed: { agreementId: string; outcome: string }[];
+  failed: { agreementId: string; reason: string }[];
+}
+
+/**
+ * One company's renewals, lapses and notices, each agreement in its own
+ * transaction so one that fails does not undo the others.
+ *
+ * Exported so a test can run it for one company at a chosen date without
+ * reaching across tenants.
+ */
+export async function renewalsFor(
+  db: Database,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<RenewalPassResult> {
+  const ctx: ServiceContext = { actor: renewalActor(organizationId), db };
+  const result: RenewalPassResult = { organizationId, renewed: [], lapsed: [], noticed: [], failed: [] };
+
+  const { today, candidates } = await inTenant(ctx, async (tx) => {
+    const zone = await organizationTimezone(tx, organizationId);
+    const day = time.dateIn(now, zone);
+    const rows = await tx.select({ agreement: schema.agreement, plan: schema.agreementPlan })
+      .from(schema.agreement)
+      .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+      .where(and(
+        eq(schema.agreement.status, "active"),
+        sql`${schema.agreement.endsOn} is not null`,
+        /**
+         * Inside the longest notice window anybody could have set. The
+         * decision is core's, per agreement; this only keeps the read from
+         * being the whole book every pass.
+         */
+        lte(schema.agreement.endsOn, recurrence.addDays(day, 366)),
+      ));
+    return { today: day, candidates: rows };
+  });
+
+  for (const { agreement, plan } of candidates) {
+    const state: membership.RenewalState = {
+      status: agreement.status,
+      endsOn: agreement.endsOn,
+      autoRenews: agreement.autoRenews,
+      planAutoRenews: plan.autoRenews,
+      renewalNoticeDays: plan.renewalNoticeDays,
+      renewalNoticeSentAt: agreement.renewalNoticeSentAt,
+    };
+
+    try {
+      if (membership.renewalDue(state, today).renew) {
+        await inTenant(ctx, (tx) => renewWithin(tx, ctx, { agreementId: agreement.id, by: "automatic", today }));
+        result.renewed.push(agreement.id);
+        continue;
+      }
+
+      /**
+       * PAST ITS END AND NOT RENEWING: LAPSED.
+       *
+       * `lapsed` has been in the status list since the first migration, the
+       * campaign audience "their plan lapsed" reads it, and nothing ever set
+       * it, so that audience was always empty and every expired member read
+       * as active in the book. The end date is the first day without cover,
+       * so this is the day it becomes true.
+       */
+      if (agreement.endsOn && membership.daysBetween(today, agreement.endsOn) <= 0) {
+        await inTenant(ctx, async (tx) => {
+          const [after] = await tx.update(schema.agreement)
+            .set({ status: "lapsed", updatedAt: new Date() })
+            .where(and(eq(schema.agreement.id, agreement.id), eq(schema.agreement.status, "active")))
+            .returning();
+          if (after) await audit(tx, ctx, "agreement.lapsed", "agreement", agreement.id, agreement, after);
+        });
+        result.lapsed.push(agreement.id);
+        continue;
+      }
+
+      if (membership.noticeDue(state, today)) {
+        const outcome = await inTenant(ctx, (tx) => sendRenewalNotice(tx, ctx, {
+          agreement, plan, renewsAutomatically: agreement.autoRenews && plan.autoRenews,
+        }));
+        if (outcome) result.noticed.push({ agreementId: agreement.id, outcome });
+      }
+    } catch (error) {
+      result.failed.push({ agreementId: agreement.id, reason: (error as Error).message });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Send this term's notice, once, and say what happened.
+ *
+ * CLAIMED FIRST. The notice's own column is set by a conditional update before
+ * anything is queued, so two workers reaching the same agreement send one
+ * notice, and the loser returns null having done nothing.
+ *
+ * THROUGH THE SAME GATES AS EVERYTHING ELSE. A text goes through
+ * `sendTransactional`, which checks consent and the suppression list; with no
+ * number, or no way to text it, an email goes through `email.queue`, which
+ * does the same for mail. A notice is an account message rather than
+ * marketing, and it still does not go to somebody who replied STOP.
+ *
+ * WHEN NOTHING CAN GO, A PERSON IS TOLD. The refusal is the outcome on the
+ * agreement and a task in the office queue, because an automatic renewal the
+ * member was never told about is the complaint, the chargeback and in some
+ * states the refund.
+ */
+async function sendRenewalNotice(
+  tx: Database,
+  ctx: ServiceContext,
+  input: {
+    agreement: typeof schema.agreement.$inferSelect;
+    plan: typeof schema.agreementPlan.$inferSelect;
+    renewsAutomatically: boolean;
+  },
+): Promise<string | null> {
+  const { agreement, plan } = input;
+  const claimed = await tx.update(schema.agreement)
+    .set({ renewalNoticeSentAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(schema.agreement.id, agreement.id),
+      isNull(schema.agreement.renewalNoticeSentAt),
+      eq(schema.agreement.endsOn, agreement.endsOn!),
+    ))
+    .returning({ id: schema.agreement.id });
+  if (claimed.length === 0) return null;
+
+  const [customer] = await tx.select().from(schema.customer)
+    .where(eq(schema.customer.id, agreement.customerId)).limit(1);
+  const [org] = await tx.select({ name: schema.organization.name })
+    .from(schema.organization).where(eq(schema.organization.id, agreement.organizationId)).limit(1);
+
+  const body = renewalNoticeText({
+    customerName: customer?.name ?? "",
+    organizationName: org?.name ?? "",
+    planName: plan.name,
+    endsOn: agreement.endsOn!,
+    price: agreement.price,
+    termMonths: plan.termMonths,
+    renewsAutomatically: input.renewsAutomatically,
+  });
+
+  let outcome = "No phone number or email address on the customer, so there is nowhere to send it.";
+  let sent = false;
+  if (customer?.phone) {
+    const text = await sendTransactional(tx, {
+      organizationId: agreement.organizationId,
+      address: customer.phone,
+      body,
+      customerId: customer.id,
+    });
+    if (text.sent) {
+      sent = true;
+      outcome = "queued";
+    } else {
+      outcome = `Not texted: ${text.explanation}`;
+    }
+  }
+  if (!sent && customer?.email) {
+    const mail = await email.queue({ ...ctx, db: tx }, {
+      to: customer.email,
+      subject: input.renewsAutomatically
+        ? `Your ${plan.name} renews on ${longDay(agreement.endsOn!)}`
+        : `Your ${plan.name} is coming to an end`,
+      text: body,
+      customerId: customer.id,
+    });
+    if (mail.queued) {
+      sent = true;
+      outcome = "queued";
+    } else {
+      outcome = `${outcome === "queued" ? "" : `${outcome} `}Not emailed: ${mail.explanation}`.trim();
+    }
+  }
+
+  await tx.update(schema.agreement)
+    .set({ renewalNoticeOutcome: outcome, updatedAt: new Date() })
+    .where(eq(schema.agreement.id, agreement.id));
+
+  if (!sent) {
+    await tx.insert(schema.task).values({
+      organizationId: agreement.organizationId,
+      title: `Tell ${customer?.name ?? "this member"} their ${plan.name} `
+        + `${input.renewsAutomatically ? "renews" : "ends"} on ${longDay(agreement.endsOn!)}`,
+      body: `The renewal notice the plan owes could not be sent. ${outcome}`,
+      priority: "high",
+      entityType: "agreement",
+      entityId: agreement.id,
+      queue: "office",
+    });
+  }
+
+  /**
+   * An event, and not only for automations. The outbox is flushed for the
+   * companies whose log moved, so a notice queued with nothing written to the
+   * log would sit in the outbox until that company next did something.
+   */
+  await emit(tx, ctx, {
+    name: "agreement.renewal_noticed",
+    entityType: "agreement",
+    entityId: agreement.id,
+    payload: {
+      agreement: { id: agreement.id, customerId: agreement.customerId, endsOn: agreement.endsOn, planName: plan.name },
+      customer: { id: agreement.customerId },
+      sent,
+      outcome,
+    },
+  });
+
+  await audit(tx, ctx, "agreement.renewal_notice", "agreement", agreement.id, null, { outcome });
+  return outcome;
+}
+
+/**
+ * One pass over every company with an agreement ending inside a notice window.
+ *
+ * Finding them is a cross tenant read and goes through
+ * `app.agreement_renewal_organizations`, which returns ids and nothing else,
+ * exactly like the workflow sweeps beside it.
+ */
+export async function renewalsPass(
+  db: Database,
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
+): Promise<RenewalPassResult[]> {
+  const rows = within(options.only, await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.agreement_renewal_organizations(${options.limit ?? 100})`,
+  ));
+  const results: RenewalPassResult[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    try {
+      results.push(await renewalsFor(db, row.organization_id, options.now));
+    } catch (error) {
+      results.push({
+        organizationId: row.organization_id, renewed: [], lapsed: [], noticed: [],
+        failed: [{ agreementId: "", reason: (error as Error).message }],
+      });
+    }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// The API's shapes
+// ---------------------------------------------------------------------------
+
+const planView = (row: typeof schema.agreementPlan.$inferSelect) => ({
+  id: row.id,
+  name: row.name,
+  code: row.code,
+  description: row.description,
+  price: row.price,
+  billingFrequency: row.billingFrequency,
+  termMonths: row.termMonths,
+  includedVisitsPerTerm: row.includedVisitsPerTerm,
+  visitAnchorMonths: row.visitAnchorMonths ?? [],
+  visitAnchorDay: row.visitAnchorDay,
+  autoRenews: row.autoRenews,
+  renewalNoticeDays: row.renewalNoticeDays,
+  discountRate: row.discountRate,
+  priorityDispatch: row.priorityDispatch,
+  waivesDiagnosticFee: row.waivesDiagnosticFee,
+  waivesAfterHoursRate: row.waivesAfterHoursRate,
+  benefits: row.benefits ?? [],
+  active: row.active,
+});
+
+const agreementView = (row: typeof schema.agreement.$inferSelect) => ({
+  id: row.id,
+  planId: row.planId,
+  customerId: row.customerId,
+  propertyId: row.propertyId,
+  status: row.status,
+  startedOn: row.startedOn,
+  endsOn: row.endsOn,
+  price: row.price,
+  discountRate: row.discountRate,
+  billingFrequency: row.billingFrequency,
+  autoRenews: row.autoRenews,
+  renewalCount: row.renewalCount,
+  cancelledOn: row.cancelledOn,
+  cancellationReason: row.cancellationReason,
+  visitsIncludedThisTerm: row.visitsIncludedThisTerm,
+  visitsDeliveredThisTerm: row.visitsDeliveredThisTerm,
+});
+
+const visitView = (row: typeof schema.agreementVisit.$inferSelect) => ({
+  id: row.id,
+  sequence: row.sequence,
+  term: row.term,
+  dueOn: row.dueOn,
+  jobId: row.jobId,
+  deliveredOn: row.deliveredOn,
+  skippedOn: row.skippedOn,
+  skipReason: row.skipReason,
+  recognitionAmount: row.recognitionAmount,
+});
+
+const instalmentView = (row: typeof schema.agreementBilling.$inferSelect) => ({
+  id: row.id,
+  sequence: row.sequence,
+  term: row.term,
+  dueOn: row.dueOn,
+  amount: row.amount,
+  status: row.status,
+  invoiceId: row.invoiceId,
+});
+
+/**
+ * A write from the API that a retry must not repeat, inside one transaction.
+ *
+ * Booking a visit twice is two jobs and two technicians at one door; billing
+ * an instalment twice is two invoices; delivering twice would be refused, but
+ * refused to the caller whose first attempt worked and whose response was
+ * lost on a bad connection. So the answer is kept with the key, and a retry
+ * gets the first answer back. The memory and the write commit together, so a
+ * write that failed leaves nothing remembered and can be tried again.
+ */
+function onceOver<T extends object>(
+  ctx: ServiceContext,
+  permission: "membership:write" | "invoice:write",
+  entityType: string,
+  entityId: string,
+  write: (tx: Database) => Promise<T>,
+): Promise<T> {
+  return guardedWrite(ctx, permission, async (tx) => {
+    const seen = await once.replayed<T>(tx, ctx, entityType);
+    if (seen) return seen;
+    const answer = await write(tx);
+    await once.remember(tx, ctx, entityType, entityId, answer);
+    return answer;
+  });
+}
+
+/**
+ * A replay of either write reads back what the first call made rather than
+ * defining a second plan or selling a second year. Recorded in a separate
+ * transaction after the write, which leaves a sliver where a crash between
+ * the two lets a retry write again; the same sliver every other idempotent
+ * route here has, and a far smaller one than none.
+ */
+async function idempotently<T extends { id: string }>(
+  ctx: ServiceContext,
+  entityType: string,
+  replay: (id: string) => Promise<T>,
+  write: () => Promise<T>,
+): Promise<T> {
+  if (ctx.idempotencyKey) {
+    const seen = await inTenant(ctx, (tx) => replayed(tx, ctx, entityType));
+    if (seen) return replay(seen);
+  }
+  const made = await write();
+  if (ctx.idempotencyKey) await inTenant(ctx, (tx) => remember(tx, ctx, entityType, made.id));
+  return made;
+}
+
+export const handlers = {
+  createAgreementPlan: (ctx: ServiceContext, input: PlanInput) =>
+    idempotently(ctx, "agreement_plan",
+      async (id) => planView((await plans(ctx, { includeInactive: true })).find((p) => p.id === id)!),
+      async () => planView(await createPlan(ctx, input))),
+
+  sellAgreement: (ctx: ServiceContext, input: {
+    planId: string; customerId: string; propertyId?: string | undefined;
+    startedOn?: string | undefined; price?: string | undefined;
+  }) =>
+    idempotently(ctx, "agreement",
+      async (id) => agreementView((await get(ctx, { id })).agreement),
+      async () => agreementView(await sell(ctx, {
+        planId: input.planId,
+        customerId: input.customerId,
+        ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+        ...(input.startedOn ? { startedOn: input.startedOn } : {}),
+        ...(input.price ? { price: input.price } : {}),
+      }))),
+
+  renewAgreement: (ctx: ServiceContext, input: { id: string; price?: string | undefined }) =>
+    renew(ctx, input),
+
+  listAgreementRenewals: async (ctx: ServiceContext, input: { withinDays?: number | undefined }) => ({
+    agreements: (await expiring(ctx, input.withinDays ? { withinDays: input.withinDays } : {}))
+      .map((row) => ({ ...row, renewalNoticeSentAt: row.renewalNoticeSentAt?.toISOString() ?? null })),
+  }),
+
+  getMemberPricing: (ctx: ServiceContext, input: { id: string; propertyId?: string | undefined }) =>
+    memberPricing(ctx, { customerId: input.id, ...(input.propertyId ? { propertyId: input.propertyId } : {}) }),
+
+  listAgreementPlans: async (ctx: ServiceContext, input: { includeRetired?: boolean | undefined }) => ({
+    plans: (await plans(ctx, { includeInactive: input.includeRetired ?? false })).map(planView),
+  }),
+
+  getAgreementPlan: async (ctx: ServiceContext, input: { id: string }) => {
+    const plan = await getPlan(ctx, input);
+    return { ...planView(plan), members: plan.members };
+  },
+
+  updateAgreementPlan: async (ctx: ServiceContext, input: { id: string; active?: boolean | undefined } & PlanPatch) =>
+    planView(await updatePlan(ctx, input)),
+
+  /** Retiring twice is retired, so a retry needs no memory. */
+  retireAgreementPlan: async (ctx: ServiceContext, input: { id: string }) =>
+    planView(await retirePlan(ctx, input)),
+
+  listAgreements: async (ctx: ServiceContext, input: { status?: string | undefined; customerId?: string | undefined }) => ({
+    agreements: (await list(ctx, input)).map((row) => ({
+      ...agreementView(row.agreement), planName: row.planName, customerName: row.customerName,
+    })),
+  }),
+
+  getAgreement: async (ctx: ServiceContext, input: { id: string }) => {
+    const found = await get(ctx, input);
+    return {
+      ...agreementView(found.agreement),
+      planName: found.plan.name,
+      customerName: found.customerName,
+      unearned: found.unearned,
+      visits: found.visits.map(visitView),
+      instalments: found.billing.map(instalmentView),
+    };
+  },
+
+  listOwedAgreementVisits: async (ctx: ServiceContext, input: { through?: string | undefined }) => ({
+    visits: (await owed(ctx, input.through ? { through: input.through } : {})).map((row) => ({
+      ...visitView(row.visit),
+      agreementId: row.agreementId,
+      customerId: row.customerId,
+      customerName: row.customerName,
+      propertyId: row.propertyId,
+      planName: row.planName,
+    })),
+  }),
+
+  bookAgreementVisit: (ctx: ServiceContext, input: { id: string; propertyId?: string | undefined }) =>
+    onceOver(ctx, "membership:write", "agreement_visit.book", input.id, async (tx) => {
+      const booked = await bookWithin(tx, ctx, {
+        agreementVisitId: input.id, ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+      });
+      return { agreementVisitId: input.id, jobId: booked.job.id, jobNumber: booked.job.number };
+    }),
+
+  deliverAgreementVisit: (ctx: ServiceContext, input: { id: string; on?: string | undefined }) =>
+    onceOver(ctx, "membership:write", "agreement_visit.deliver", input.id, async (tx) => {
+      const delivered = await deliverWithin(tx, ctx, {
+        agreementVisitId: input.id, ...(input.on ? { on: input.on } : {}),
+      });
+      return { agreementVisitId: input.id, recognized: delivered.recognized };
+    }),
+
+  skipAgreementVisit: (ctx: ServiceContext, input: { id: string; reason: string }) =>
+    onceOver(ctx, "membership:write", "agreement_visit.skip", input.id, async (tx) => {
+      const skipped = await skipWithin(tx, ctx, { agreementVisitId: input.id, reason: input.reason });
+      return {
+        agreementVisitId: input.id, skippedOn: skipped.skippedOn!, skipReason: skipped.skipReason!,
+        stillDeferred: skipped.stillDeferred,
+      };
+    }),
+
+  unskipAgreementVisit: (ctx: ServiceContext, input: { id: string }) =>
+    onceOver(ctx, "membership:write", "agreement_visit.unskip", input.id, async (tx) => {
+      const back = await unskipWithin(tx, ctx, { agreementVisitId: input.id });
+      return { agreementVisitId: input.id, dueOn: back.dueOn };
+    }),
+
+  invoiceAgreementInstalment: (ctx: ServiceContext, input: { id: string }) =>
+    onceOver(ctx, "invoice:write", "agreement_billing.invoice", input.id, async (tx) => {
+      const invoice = await billWithin(tx, ctx, { agreementBillingId: input.id });
+      return { instalmentId: input.id, invoiceId: invoice.id, number: invoice.number, total: invoice.total };
+    }),
+
+  cancelAgreement: (ctx: ServiceContext, input: { id: string; reason: string; keepThePrepayment?: boolean | undefined }) =>
+    onceOver(ctx, "membership:write", "agreement.cancel", input.id, async (tx) => {
+      const cancelled = await cancelWithin(tx, ctx, {
+        id: input.id, reason: input.reason,
+        ...(input.keepThePrepayment !== undefined ? { keepThePrepayment: input.keepThePrepayment } : {}),
+      });
+      return { ...agreementView(cancelled), released: cancelled.released };
+    }),
+} as const;

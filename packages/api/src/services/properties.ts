@@ -4,7 +4,7 @@ import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, cleanAll, decodeCursor, paginate, NotFoundError,
 } from "./context";
-import { enforceWithin } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
@@ -120,6 +120,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       byCustomer,
       input.territoryId ? eq(schema.property.territoryId, input.territoryId) : undefined,
       byExternal(schema.property, input),
+      await listFilter(tx, ctx.actor.organizationId, "property", input, sql`${schema.property.customFields}`),
       // What a dispatcher types: a street, a city, or a postal code.
       input.q
         ? or(

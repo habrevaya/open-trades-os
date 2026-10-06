@@ -6,6 +6,7 @@ import * as jobs from "../src/services/jobs";
 import * as customers from "../src/services/customers";
 import * as billing from "../src/services/billing";
 import * as estimates from "../src/services/estimates";
+import * as proposals from "../src/services/proposals";
 import * as properties from "../src/services/properties";
 import { inTenant, type ServiceContext } from "../src/services/context";
 import { jobScopeFilter, type ScopeContext } from "../src/services/scope";
@@ -322,6 +323,22 @@ run("customers, invoices and estimates", () => {
     const ids = page.data.map((e) => e.id);
     expect(ids).toContain(myEstimate);
     expect(ids).not.toContain(theirEstimate);
+  });
+
+  /**
+   * The list is not the only door: an invoice or estimate opened by its id is
+   * held to the same scope, and one out of it is the same not found as one
+   * that does not exist, so a guessed or forwarded id tells nothing.
+   */
+  it("opens a technician's own invoice by its id and not another's", async () => {
+    await expect(billing.get(tech(), { id: myInvoice })).resolves.toMatchObject({ id: myInvoice });
+    await expect(billing.get(tech(), { id: theirInvoice })).rejects.toThrow(/not found/i);
+  });
+
+  it("opens a technician's own estimate and proposal by id and not another's", async () => {
+    await expect(estimates.get(tech(), { id: myEstimate })).resolves.toMatchObject({ id: myEstimate });
+    await expect(estimates.get(tech(), { id: theirEstimate })).rejects.toThrow(/not found/i);
+    await expect(proposals.proposal(tech(), { id: theirEstimate })).rejects.toThrow(/not found/i);
   });
 });
 

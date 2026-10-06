@@ -1,9 +1,10 @@
-import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, boolean, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
-import { organization, user, location } from "./tenancy";
+import { organization, user, location, memberRole, role } from "./tenancy";
 import { priceBookItem } from "./pricebook";
 import { job } from "./work";
+import { equipment } from "./crm";
 
 /**
  * PURCHASING, VENDORS AND INVENTORY
@@ -78,6 +79,49 @@ export const vendor = pgTable("vendor", {
 }));
 
 /**
+ * WHAT A VENDOR CALLS ONE OF OUR ITEMS, AND WHAT THEY CHARGE FOR IT.
+ *
+ * Our code for a part and the supplier's are different strings, and every
+ * supplier's is different again: the same capacitor is "CAP-45-5" in our
+ * book, "C455R" at one supply house and "8401-2210" at the other. A purchase
+ * order goes to the supplier, so it has to carry THEIR number, and without a
+ * place to keep it somebody typed it from memory onto every order.
+ *
+ * One row per item per vendor. The cost here is the vendor's price to us,
+ * which is a different number from the item's own cost (the one job costing
+ * reads) whenever a part is bought from more than one place. A catalogue
+ * import writes both when asked to, and writes this one always.
+ */
+export const vendorItem = pgTable("vendor_item", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  vendorId: uuid("vendor_id").notNull().references(() => vendor.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  /** The vendor's own part number or SKU, as printed in their catalogue. */
+  partNumber: text("part_number").notNull(),
+  /** Their description, which is often more exact than ours and is what their counter staff read. */
+  description: text("description"),
+  /** What one costs from this vendor. Null when nobody has said. */
+  cost: money("cost"),
+  /** When the cost was last stated, by a person or a catalogue, so a stale one can be seen as stale. */
+  costUpdatedAt: timestamp("cost_updated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /**
+   * One part number per item per vendor, and one item per part number per
+   * vendor. Either collision makes a purchase order line ambiguous: two of
+   * our items answering to "C455R" means the receipt lands on whichever one a
+   * query read first. Case blind, because a catalogue in capitals and a
+   * person typing in lower case mean the same part.
+   */
+  vendorItemIdx: uniqueIndex("vendor_item_vendor_item_idx").on(t.organizationId, t.vendorId, t.itemId),
+  partNumberIdx: uniqueIndex("vendor_item_part_number_idx")
+    .on(t.organizationId, t.vendorId, sql`lower(${t.partNumber})`),
+  itemIdx: index("vendor_item_item_idx").on(t.organizationId, t.itemId),
+}));
+
+/**
  * THE HISTORY EVERY QUANTITY IS DERIVED FROM.
  *
  * Append only. There is no update path in the service and no soft delete
@@ -124,6 +168,25 @@ export const stockMovement = pgTable("stock_movement", {
   purchaseOrderId: uuid("purchase_order_id"),
   purchaseOrderLineId: uuid("purchase_order_line_id"),
   /**
+   * WHICH SERIAL NUMBER OR LOT, for an item tracked by one.
+   *
+   * A serialised part moves one unit to a movement, so the history of a
+   * compressor is the list of movements naming its serial: received on this
+   * order, moved to Van 4, issued to job 1042. Where a serial IS is folded
+   * from that list exactly as a level is, and stored nowhere.
+   */
+  lotId: uuid("lot_id").references(() => stockLot.id, { onDelete: "restrict" }),
+  /**
+   * The part of `total_cost` that is freight and fees spread onto this line,
+   * not the price paid for the goods. Kept apart so a receipt can say "four
+   * hundred of parts and twelve of the freight" rather than a total nobody
+   * can reconcile against the vendor's bill. Included in `total_cost`, which
+   * is what costing reads.
+   */
+  landedCost: money("landed_cost"),
+  /** The delivery this arrived on, when it was received against an order. */
+  receiptId: uuid("receipt_id").references(() => purchaseOrderReceipt.id, { onDelete: "restrict" }),
+  /**
    * A total order within the organization, assigned by the database.
    *
    * `occurred_at` alone is not enough: a delivery that happened on Monday and
@@ -142,6 +205,7 @@ export const stockMovement = pgTable("stock_movement", {
   jobIdx: index("stock_movement_job_idx").on(t.organizationId, t.jobId).where(sql`${t.jobId} is not null`),
   transferIdx: index("stock_movement_transfer_idx").on(t.transferId).where(sql`${t.transferId} is not null`),
   poIdx: index("stock_movement_po_idx").on(t.purchaseOrderId).where(sql`${t.purchaseOrderId} is not null`),
+  lotIdx: index("stock_movement_lot_idx").on(t.organizationId, t.lotId).where(sql`${t.lotId} is not null`),
   sequenceIdx: uniqueIndex("stock_movement_sequence_idx").on(t.organizationId, t.sequence),
 }));
 
@@ -229,8 +293,250 @@ export const purchaseOrderLine = pgTable("purchase_order_line", {
   quantityReceived: quantity("quantity_received").notNull().default("0"),
   /** What the vendor charges for one, which is how a vendor quotes. */
   unitPrice: money("unit_price").notNull(),
+  /**
+   * The vendor's part number AS IT WAS when the order was written.
+   *
+   * Copied rather than joined, for the reason a price is copied onto an
+   * invoice: the order went to the supplier saying this, and a part number
+   * corrected next month must not change what the order we sent them said.
+   * Null when the item has no number recorded for this vendor.
+   */
+  vendorPartNumber: text("vendor_part_number"),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
 }, (t) => ({
   orderIdx: index("purchase_order_line_order_idx").on(t.purchaseOrderId, t.sortOrder),
+}));
+
+/* ===================================================================== */
+/* Serial numbers and lots                                                */
+/* ===================================================================== */
+
+/**
+ * HOW AN ITEM IS TRACKED, when it is tracked beyond a count.
+ *
+ * `serial`: every unit has its own number and moves on its own. A compressor,
+ * a furnace, a water heater: the number the manufacturer's warranty is keyed
+ * to and the one a customer reads off the label in five years.
+ *
+ * `lot`: units arrive in batches that share a number, and the batch is what
+ * matters. Refrigerant by cylinder lot, adhesive by batch with an expiry: a
+ * recall names a lot, never a unit.
+ */
+export const stockTrackingMode = pgEnum("stock_tracking_mode", ["serial", "lot"]);
+
+/**
+ * WHICH ITEMS ARE TRACKED, AND HOW.
+ *
+ * A row of its own rather than a column on the price book item, because it
+ * is a statement about stock rather than about what we sell: the price book
+ * does not change when the warehouse starts writing serials down. No row
+ * means counted only, which is what nearly every part is.
+ */
+export const stockTracking = pgTable("stock_tracking", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  mode: stockTrackingMode("mode").notNull(),
+  setByUserId: uuid("set_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  itemIdx: uniqueIndex("stock_tracking_item_idx").on(t.organizationId, t.itemId),
+}));
+
+/**
+ * ONE SERIAL NUMBER, OR ONE LOT.
+ *
+ * The number and what it is of. NOT where it is: that is folded from the
+ * movements that name it, for the reason at the top of this file. The one
+ * fact stored here that movements cannot carry is the customer's equipment
+ * record a serialised unit became when it was installed, which is the trace
+ * from our shelf to their basement.
+ */
+export const stockLot = pgTable("stock_lot", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "restrict" }),
+  mode: stockTrackingMode("mode").notNull(),
+  /** As printed on the unit or the batch label. */
+  number: text("number").notNull(),
+  /** A lot's use by date, where the batch has one. Never set on a serial. */
+  expiresOn: date("expires_on"),
+  /**
+   * The customer's equipment record this unit was installed as, or into.
+   * Set when a serialised unit is issued to a job and the technician says
+   * which unit at the property it is.
+   */
+  equipmentId: uuid("equipment_id").references(() => equipment.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  /**
+   * One row per number per item. Two rows for serial 4471 of the same model
+   * would split its history in two and the trace would answer with whichever
+   * was read first. Case blind, because a label read aloud and typed in is
+   * the same number either way.
+   */
+  numberIdx: uniqueIndex("stock_lot_number_idx").on(t.organizationId, t.itemId, sql`lower(${t.number})`),
+  equipmentIdx: index("stock_lot_equipment_idx").on(t.organizationId, t.equipmentId)
+    .where(sql`${t.equipmentId} is not null`),
+}));
+
+/* ===================================================================== */
+/* Receiving with freight: landed cost                                    */
+/* ===================================================================== */
+
+/** Spread by what each line cost, or by how many of each arrived. */
+export const landedCostBasis = pgEnum("landed_cost_basis", ["value", "quantity"]);
+
+/**
+ * ONE DELIVERY AGAINST A PURCHASE ORDER.
+ *
+ * The receiving event, so freight and fees that came with it have something
+ * to belong to. A purchase order received in three drops has three of these,
+ * each with its own freight, and each spread over only what came on that
+ * truck: freight on the second drop has nothing to do with the first.
+ */
+export const purchaseOrderReceipt = pgTable("purchase_order_receipt", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+  receivedByUserId: uuid("received_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  basis: landedCostBasis("basis").notNull().default("value"),
+  /** Every charge below added up, and spread onto the movements. */
+  chargesTotal: money("charges_total").notNull().default("0"),
+  ...timestamps,
+}, (t) => ({
+  orderIdx: index("purchase_order_receipt_order_idx").on(t.purchaseOrderId, t.receivedAt),
+}));
+
+/** Freight, a fuel surcharge, a hazmat fee: one line each, as the vendor's bill shows them. */
+export const purchaseOrderReceiptCharge = pgTable("purchase_order_receipt_charge", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  receiptId: uuid("receipt_id").notNull().references(() => purchaseOrderReceipt.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  amount: money("amount").notNull(),
+  ...timestamps,
+}, (t) => ({
+  receiptIdx: index("purchase_order_receipt_charge_receipt_idx").on(t.receiptId),
+}));
+
+/* ===================================================================== */
+/* Approval rules for spending                                            */
+/* ===================================================================== */
+
+/**
+ * ONE STEP OF APPROVAL, and the order size that needs it.
+ *
+ * An order at or over `minimum_total` needs this step, approved by somebody
+ * holding the role named. Steps are approved in `step` order, so a company
+ * that says "over a thousand, the office manager; over five thousand, the
+ * owner as well" writes two rows and a six thousand dollar order needs both,
+ * the office manager first.
+ *
+ * The role is a preset OR one of the company's own roles, exactly one of the
+ * two: a custom role replaces the preset on a membership, so a step naming
+ * the preset would never match somebody on a custom role.
+ */
+export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  step: integer("step").notNull(),
+  minimumTotal: money("minimum_total").notNull(),
+  approverRole: memberRole("approver_role"),
+  approverRoleId: uuid("approver_role_id").references(() => role.id, { onDelete: "restrict" }),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  stepIdx: uniqueIndex("purchase_approval_rule_step_idx").on(t.organizationId, t.step)
+    .where(sql`${t.deletedAt} is null`),
+}));
+
+export const approvalDecision = pgEnum("purchase_approval_decision", ["approved", "rejected"]);
+
+/**
+ * WHO APPROVED WHICH STEP OF WHICH ORDER, and at what total.
+ *
+ * The step, its threshold and the role are copied from the rule, because a
+ * rule changed next month must not change what was required of an order this
+ * month. The total is copied for the same reason an invoice copies a price.
+ */
+export const purchaseOrderApproval = pgTable("purchase_order_approval", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  ruleId: uuid("rule_id").references(() => purchaseApprovalRule.id, { onDelete: "set null" }),
+  step: integer("step").notNull(),
+  minimumTotal: money("minimum_total").notNull(),
+  /** The role the step asked for, in words, as it was named on the day. */
+  roleLabel: text("role_label").notNull(),
+  orderTotal: money("order_total").notNull(),
+  decision: approvalDecision("decision").notNull(),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  stepIdx: uniqueIndex("purchase_order_approval_step_idx").on(t.purchaseOrderId, t.step),
+}));
+
+/* ===================================================================== */
+/* Sending an order to the vendor                                         */
+/* ===================================================================== */
+
+/**
+ * EVERY TIME AN ORDER WAS EMAILED, whether it went or not.
+ *
+ * The email carries a link to the order printable as the vendor reads it,
+ * and the link is a token whose hash is all that is kept here. A vendor with
+ * no address on file, or one the mail provider would not take, is a row
+ * saying so, which is how a buyer sees the order never reached the counter.
+ */
+export const purchaseOrderSend = pgTable("purchase_order_send", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  destination: text("destination"),
+  /** `queued` or `refused`. Queued is not delivered, and the screen says queued. */
+  state: text("state").notNull(),
+  explanation: text("explanation"),
+  messageId: uuid("message_id"),
+  linkTokenHash: text("link_token_hash"),
+  linkExpiresAt: timestamp("link_expires_at", { withTimezone: true }),
+  sentByUserId: uuid("sent_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  orderIdx: index("purchase_order_send_order_idx").on(t.purchaseOrderId, t.createdAt),
+  tokenIdx: uniqueIndex("purchase_order_send_token_idx").on(t.linkTokenHash)
+    .where(sql`${t.linkTokenHash} is not null`),
+}));
+
+/* ===================================================================== */
+/* Truck stock minimums                                                   */
+/* ===================================================================== */
+
+/**
+ * WHAT EACH TRUCK SHOULD CARRY.
+ *
+ * Not a reorder point. A truck is not bought for, it is filled from the
+ * warehouse, so falling under its minimum suggests a transfer from the shelf
+ * rather than a purchase order, and the warehouse's own reorder point then
+ * decides whether to buy. Per item per truck, because the capacitor that
+ * fails on every third call wants six on every van and the blower motor
+ * wants none.
+ */
+export const truckStockMinimum = pgTable("truck_stock_minimum", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").notNull().references(() => location.id, { onDelete: "cascade" }),
+  /** At or below this, restock. */
+  minimum: quantity("minimum").notNull(),
+  /** Fill back up to this. */
+  target: quantity("target").notNull(),
+  ...timestamps,
+}, (t) => ({
+  itemLocationIdx: uniqueIndex("truck_stock_minimum_item_location_idx")
+    .on(t.organizationId, t.itemId, t.locationId)
+    .where(sql`${t.deletedAt} is null`),
 }));

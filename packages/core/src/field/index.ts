@@ -50,6 +50,22 @@ export const OPERATION_KINDS = [
   // Attachments. The blob syncs separately; this is the record that it exists.
   "attachment.attach",
   "signature.capture",
+  // Money taken on site: cash or a check, handed over in a driveway.
+  "payment.collect",
+  // An inspection against a programme, filed whole: answers, findings, signature.
+  "inspection.record",
+  // Selling on site: good, better and best built on the phone, and the
+  // customer's choice and signature taken on its glass.
+  "estimate.create",
+  "estimate.approve",
+  "estimate.decline",
+  // The invoice raised from the visit's work and signed for on site.
+  "invoice.raise",
+  // The office queue, from the phone: taking a task and finishing it.
+  "task.claim",
+  "task.close",
+  // A cash tip handed to the technician and kept, recorded for payroll.
+  "tip.record",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -98,6 +114,64 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
   "equipment.record": "append",
   "attachment.attach": "append",
   "signature.capture": "append",
+
+  /**
+   * Money that changed hands is a fact about money, not about the visit. A
+   * customer who paid cash for a job the office has since cancelled still
+   * paid, and the record of it is a new payment row that nothing else can
+   * contradict, so it always applies and the office sorts out where the
+   * money belongs.
+   */
+  "payment.collect": "append",
+
+  /**
+   * An inspection is what somebody looked at and what they saw, at a time,
+   * and it adds rows: the inspection, its findings. Nothing the office did
+   * meanwhile makes it not have happened, so it always applies. Filing the
+   * same one twice is a replay of its id and files it once.
+   */
+  "inspection.record": "append",
+
+  /**
+   * An estimate written on the phone adds rows nothing else has seen yet:
+   * its id was made on the phone, so a retry is a replay of that id and
+   * writes it once. Nothing the office did meanwhile can contradict it.
+   */
+  "estimate.create": "append",
+
+  /**
+   * A decision on an estimate MOVES it, and only makes sense from a state
+   * where it can still be decided: approved on another option by the
+   * customer's own link, declined by the office, or already turned into
+   * work, and the phone's yes is refused and said in words rather than
+   * forced over the top. The state is the estimate's, which this module does
+   * not model, so `allowedFrom` names nothing and the estimate service's own
+   * check refuses, in the sentence the office would read.
+   */
+  "estimate.approve": "transition",
+  "estimate.decline": "transition",
+
+  /**
+   * Raising an invoice moves the work to invoiced and the approved estimate
+   * to converted. Two phones invoicing the same parts would bill the customer
+   * twice, so the second is refused by the billing rules (a job line bills
+   * once) rather than recorded.
+   */
+  "invoice.raise": "transition",
+
+  /**
+   * A task is claimed only while nobody has it, and closed only while it is
+   * open. Two people taking the same task offline is the case this refuses:
+   * the second is told somebody else has it, rather than both doing the work.
+   */
+  "task.claim": "transition",
+  "task.close": "transition",
+
+  /**
+   * Money a customer handed the technician for themselves. It happened, it
+   * adds a row, and nothing anybody did meanwhile makes it not have.
+   */
+  "tip.record": "append",
 };
 
 export interface FieldOperation {
@@ -208,6 +282,8 @@ export function orderOperations(ops: FieldOperation[]): FieldOperation[] {
 export function findSequenceGaps(
   ops: FieldOperation[],
   lastAppliedSequence: Record<string, number>,
+  /** Sequences the device has said will never come. See `applicablePrefix`. */
+  skipped: Record<string, readonly number[]> = {},
 ): { deviceId: string; missing: number[] }[] {
   const byDevice = new Map<string, number[]>();
   for (const op of ops) {
@@ -220,8 +296,9 @@ export function findSequenceGaps(
     const from = (lastAppliedSequence[deviceId] ?? 0) + 1;
     const missing: number[] = [];
 
+    const declared = new Set(skipped[deviceId] ?? []);
     for (let n = from; n < (sorted[sorted.length - 1] ?? from); n++) {
-      if (!sorted.includes(n)) missing.push(n);
+      if (!sorted.includes(n) && !declared.has(n)) missing.push(n);
     }
     if (missing.length > 0) gaps.push({ deviceId, missing });
   }
@@ -238,10 +315,28 @@ export function findSequenceGaps(
 export function applicablePrefix(
   ops: FieldOperation[],
   lastAppliedSequence: Record<string, number>,
+  /**
+   * Sequences a device has declared it will never send, per device.
+   *
+   * A device can number an operation and then lose it: the phone died between
+   * advancing its counter and writing the operation, or the technician
+   * discarded one that had never got through. Without a way to say so, every
+   * operation after that number was held for ever, waiting on something that
+   * did not exist. A declared number is stepped over as if it had been
+   * applied, and if the operation does turn up later it is applied as a late
+   * arrival, which is what it would be.
+   */
+  skipped: Record<string, readonly number[]> = {},
 ): { applicable: FieldOperation[]; held: FieldOperation[] } {
   const ordered = orderOperations(ops);
   const nextExpected = new Map<string, number>();
   const blocked = new Set<string>();
+  const declared = new Map(Object.entries(skipped).map(([d, seqs]) => [d, new Set(seqs)]));
+  const past = (deviceId: string, n: number): number => {
+    let next = n;
+    while (declared.get(deviceId)?.has(next)) next += 1;
+    return next;
+  };
 
   const applicable: FieldOperation[] = [];
   const held: FieldOperation[] = [];
@@ -252,7 +347,10 @@ export function applicablePrefix(
       continue;
     }
 
-    const expected = nextExpected.get(op.deviceId) ?? (lastAppliedSequence[op.deviceId] ?? 0) + 1;
+    const expected = past(
+      op.deviceId,
+      nextExpected.get(op.deviceId) ?? (lastAppliedSequence[op.deviceId] ?? 0) + 1,
+    );
 
     if (op.sequence < expected) {
       // Already applied. A replay, which is normal on a flaky connection: the
@@ -425,3 +523,12 @@ export function allowedFrom(kind: OperationKind): readonly string[] | undefined 
   if (kind === "service_report.submit") return REPORT_TRANSITIONS;
   return VISIT_TRANSITIONS[kind];
 }
+
+/** The notice a change to somebody's day becomes, and when it may ring. */
+export * from "./push.js";
+/** Signing the phone in with a one time code. */
+export * from "./codes.js";
+/** What a customer is shown on the phone, priced the way the server prices it. */
+export * from "./pricing.js";
+/** A unit recorded on site, matched by its serial across the company. */
+export * from "./equipment.js";

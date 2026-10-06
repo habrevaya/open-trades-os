@@ -1446,7 +1446,7 @@ export function checkPeriod(period: PayPeriod, policy: OvertimePolicy): PolicyVe
 
 export type StatementLineKind =
   | "regular" | "overtime" | "double_time" | "on_call"
-  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward";
+  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward" | "tip" | "cash_tip";
 
 export interface StatementLine {
   kind: StatementLineKind;
@@ -1508,6 +1508,21 @@ export interface StatementInput {
    * and is carried only so the technician can see which job it came from.
    */
   clawbacks?: readonly { creditId: string; line: ClawbackLine; occurredAt: Date; earnedAt: Date }[] | undefined;
+  /**
+   * Tips customers gave this person, already split. Only this person's, and
+   * only the ones whose `occurredAt` falls inside this period, for the reason
+   * commissions are filtered: a caller handing over somebody's whole tip
+   * history would otherwise pay all of it every period.
+   */
+  tips?: readonly { tipId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
+  /**
+   * Cash a customer handed this person for themselves, which they kept and
+   * recorded on the phone. Already in their pocket, so the company pays none
+   * of it; it is on the statement because a tip a person keeps is still pay
+   * the company has to report, and a payroll bureau taxes it from the
+   * `cash_tip` category without paying it out again.
+   */
+  cashTips?: readonly { tipId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
   currency?: string | undefined;
   now: Date;
 }
@@ -1748,6 +1763,66 @@ export function buildStatement(input: StatementInput): StatementVerdict {
     warnings.push(`A commission reversal of ${moneyToString(negateMoney(carriedForward))} was more than this period could absorb. It has been carried forward rather than issuing a negative statement.`);
   }
 
+  /**
+   * TIPS GO ON AFTER THE CLAWBACK HAS BEEN SETTLED, and the order is the rule.
+   *
+   * A tip is the technician's money that a customer handed to the company to
+   * pass on. Letting a commission reversal be absorbed by it would be the
+   * company keeping part of a tip to recover its own overpayment, which US
+   * federal law forbids an employer to do with an employee's tips. So the
+   * clawback is measured against wages alone, carried forward if wages cannot
+   * take it, and the tips are added whole afterwards.
+   */
+  for (const tip of input.tips ?? []) {
+    if (tip.personId !== personId) continue;
+    if (!inPeriod(tip.occurredAt)) continue;
+    if (isZero(tip.amount)) continue;
+    if (tip.amount.currency !== currency) {
+      return {
+        ok: false,
+        refusals: [{
+          code: "currency_mismatch",
+          message: `Tip ${tip.tipId} is in ${tip.amount.currency} and this statement is in ${currency}. Converting it here would bake a rate nobody chose into somebody's tips.`,
+        }],
+      };
+    }
+    lines.push({
+      kind: "tip",
+      label: tip.label,
+      explanation: `${moneyToString(tip.amount)} a customer added for the technicians when they paid, on ${dateIn(tip.occurredAt, policy.timeZone)}. The company held it for you and passes it on whole.`,
+      amount: round(tip.amount, 2),
+    });
+    gross = add(gross, round(tip.amount, 2));
+  }
+
+  /**
+   * Cash tips the person kept. On the statement and in the gross, because
+   * that is how pay is reported and taxed, and said plainly to be already in
+   * their hand: the bureau reading the `cash_tip` category withholds on it
+   * and pays none of it out a second time.
+   */
+  for (const tip of input.cashTips ?? []) {
+    if (tip.personId !== personId) continue;
+    if (!inPeriod(tip.occurredAt)) continue;
+    if (isZero(tip.amount)) continue;
+    if (tip.amount.currency !== currency) {
+      return {
+        ok: false,
+        refusals: [{
+          code: "currency_mismatch",
+          message: `Cash tip ${tip.tipId} is in ${tip.amount.currency} and this statement is in ${currency}. Converting it here would bake a rate nobody chose into somebody's tips.`,
+        }],
+      };
+    }
+    lines.push({
+      kind: "cash_tip",
+      label: tip.label,
+      explanation: `${moneyToString(tip.amount)} in cash a customer handed you on ${dateIn(tip.occurredAt, policy.timeZone)}, which you kept. It is already in your hand; it is here because it is reported as pay.`,
+      amount: round(tip.amount, 2),
+    });
+    gross = add(gross, round(tip.amount, 2));
+  }
+
   return {
     ok: true,
     statement: {
@@ -1769,3 +1844,48 @@ const negateMoney = (m: Money): Money => subtract(zero(m.currency), m);
 /** The instant a calendar date begins in the policy's zone. Re exported for callers assembling periods. */
 export const startOfPolicyDay = (date: string, policy: OvertimePolicy): Date =>
   startOfDayIn(date, policy.timeZone);
+
+/* ------------------------------------------------------------ wage scales */
+
+/**
+ * A WAGE SCALE CHANGED FROM A DATE: where the old one stops.
+ *
+ * A rate is never edited, because every entry already costed against it
+ * would be repriced and last quarter's job costing would move. A change is
+ * the old scale closed the day before the new rate starts and a new scale
+ * from that day, so an entry worked on the third keeps the rate of the third
+ * whatever happens on the fourth.
+ *
+ * Refused when the change would start on or before the day the scale it
+ * replaces began, because then the two do not follow one another: one of
+ * them was simply wrong, and the honest record of that is retiring the wrong
+ * one and loading the right one, not a revision dated before the original.
+ * Refused too when the scale already ended before the change would start,
+ * because there is nothing in effect then to change.
+ */
+export type ScaleRevision = { ok: true; closeOn: string } | { ok: false; reason: string };
+
+export function scaleRevision(
+  current: { effectiveFrom: string | null; effectiveTo: string | null },
+  from: string,
+): ScaleRevision {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || Number.isNaN(Date.parse(`${from}T00:00:00Z`))) {
+    return { ok: false, reason: `"${from}" is not a date. Say the day the new rate starts, like 2026-11-01.` };
+  }
+  if (current.effectiveFrom && from <= current.effectiveFrom) {
+    return {
+      ok: false,
+      reason: `This scale started on ${current.effectiveFrom}, so a change has to start after that. `
+        + "If the rate was wrong from the beginning, retire this scale and load the right one.",
+    };
+  }
+  const closeOn = new Date(Date.parse(`${from}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (current.effectiveTo && closeOn > current.effectiveTo) {
+    return {
+      ok: false,
+      reason: `This scale already ended on ${current.effectiveTo}, so there is nothing in effect on ${from} to change. `
+        + "Load a new scale instead.",
+    };
+  }
+  return { ok: true, closeOn };
+}

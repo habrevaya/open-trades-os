@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import {
   constantTimeEquals, registerEmailProvider,
-  type DeliveryFeedback, type EmailEvent, type EmailProvider,
+  type DeliveryFeedback, type EmailEvent, type EmailProvider, type InboundEmail, type InboundFeedback,
   type OutboundEmail, type ProviderSecrets, type SendResult, type WebhookRequest,
 } from "./provider";
 
@@ -164,6 +164,63 @@ function firstRecipient(data: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : [];
+
+const headerMap = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object") return {};
+  /** Either an object of name to value, or a list of `{ name, value }`, which Resend has used both of. */
+  if (Array.isArray(value)) {
+    return Object.fromEntries(value
+      .filter((h): h is { name: string; value: string } =>
+        Boolean(h) && typeof h.name === "string" && typeof h.value === "string")
+      .map((h) => [h.name.toLowerCase(), h.value]));
+  }
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => typeof v === "string")
+    .map(([k, v]) => [k.toLowerCase(), v as string]));
+};
+
+/**
+ * An `email.received` event: somebody wrote to an address on a domain this
+ * Resend account receives for.
+ *
+ * Resend's webhook carries the envelope (who, to whom, the subject, the
+ * names of any files) and not the words, which are fetched from its
+ * received emails API by id. Words that are in the payload are used as they
+ * are, so a provider version that starts sending them costs nothing.
+ */
+export function parseResendInbound(body: string): InboundEmail | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== "object") return null;
+  const envelope = payload as Record<string, unknown>;
+  if (envelope["type"] !== "email.received") return null;
+  const data = (envelope["data"] ?? {}) as Record<string, unknown>;
+  const id = data["email_id"] ?? data["id"];
+  const from = data["from"];
+  if (typeof id !== "string" || typeof from !== "string") return null;
+  const attachments = Array.isArray(data["attachments"]) ? data["attachments"] as Record<string, unknown>[] : [];
+  return {
+    providerMessageId: id,
+    from,
+    to: strings(data["to"]),
+    cc: strings(data["cc"]),
+    subject: typeof data["subject"] === "string" ? data["subject"] : "",
+    text: typeof data["text"] === "string" ? data["text"] : null,
+    html: typeof data["html"] === "string" ? data["html"] : null,
+    headers: headerMap(data["headers"]),
+    attachments: attachments.map((a) => ({
+      fileName: typeof a["filename"] === "string" ? a["filename"] : "attachment",
+      contentType: typeof a["content_type"] === "string" ? a["content_type"] : "application/octet-stream",
+    })),
+  };
+}
+
 /**
  * `secrets.webhookSecret` is the Svix endpoint secret from the Resend
  * dashboard, `whsec_` prefixed, read from the secret store under the name in
@@ -236,9 +293,48 @@ export function createResendProvider(
           + "connection its name as the webhook signing secret to turn delivery reporting on.",
       };
 
+  /**
+   * Replies come in on the same endpoint and the same signing secret as
+   * delivery callbacks, so without that secret there is no inbound either.
+   */
+  const inbound: InboundFeedback = delivery.kind === "webhook"
+    ? {
+        kind: "webhook",
+        parse: (request) => parseResendInbound(request.body),
+        async fetchBody(id) {
+          let response: Response;
+          try {
+            response = await fetch(`${base}/emails/receiving/${encodeURIComponent(id)}`, {
+              headers: { Authorization: `Bearer ${apiKey}` },
+            });
+          } catch (error) {
+            return {
+              ok: false, code: "network", retryable: true,
+              message: `Resend could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+          const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+          if (!response.ok) {
+            return {
+              ok: false, code: String(payload["name"] ?? response.status),
+              retryable: response.status >= 500 || response.status === 429,
+              message: String(payload["message"] ?? response.statusText),
+            };
+          }
+          return {
+            ok: true,
+            text: typeof payload["text"] === "string" ? payload["text"] : null,
+            html: typeof payload["html"] === "string" ? payload["html"] : null,
+            headers: headerMap(payload["headers"]),
+          };
+        },
+      }
+    : { kind: "none", because: delivery.because };
+
   return {
     name: "resend",
     delivery,
+    inbound,
 
     async send(message: OutboundEmail): Promise<SendResult> {
       const response = await fetch(`${base}/emails`, {
@@ -263,6 +359,20 @@ export function createResendProvider(
           ...(message.replyTo ? { reply_to: message.replyTo } : {}),
           ...(message.headers && Object.keys(message.headers).length > 0
             ? { headers: message.headers }
+            : {}),
+          /**
+           * Base64 in the JSON body, which is how Resend's API takes a file.
+           * Its other form is a URL it fetches, and the file here exists only
+           * in this database.
+           */
+          ...(message.attachments && message.attachments.length > 0
+            ? {
+                attachments: message.attachments.map((file) => ({
+                  filename: file.filename,
+                  content: file.content.toString("base64"),
+                  content_type: file.contentType,
+                })),
+              }
             : {}),
           /**
            * Our id, carried back on the delivery callback.

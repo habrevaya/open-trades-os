@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 /**
  * WHOSE PRICE GOVERNS.
@@ -62,12 +63,21 @@ export const Visit = z.object({
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
   technicianNotes: z.string().nullable(),
+  /** What the customer reads about the visit on their account, as the office chose to share it. */
+  customerNotes: z.string().nullable(),
+  customerNotesSharedAt: z.string().datetime().nullable(),
   externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const Job = z.object({
   id: Uuid,
   number: z.number().int(),
+  /**
+   * The branch's code printed in front of the number ("AUS-1042"), when the
+   * company prints branch codes and this was made in a branch with one.
+   * Written once, when it was made: see `/v1/branch-numbering`.
+   */
+  numberPrefix: z.string().nullable().optional(),
   status: JobStatus,
   summary: z.string(),
   description: z.string().nullable(),
@@ -78,7 +88,13 @@ export const Job = z.object({
   jobTypeId: Uuid.nullable(),
   territoryId: Uuid.nullable(),
   equipmentId: Uuid.nullable(),
+  /** A key from the lead source catalogue, for the screens that show one word. */
   leadSource: z.string().nullable(),
+  /** `manual` when somebody chose it, `derived` when the attribution filled it, `imported` from a migration. */
+  leadSourceOrigin: z.string().nullable().optional(),
+  /** The channel and tracking campaign the job is credited to. */
+  channelId: Uuid.nullable().optional(),
+  acquisitionCampaignId: Uuid.nullable().optional(),
   isWarranty: z.boolean(),
   parentJobId: Uuid.nullable(),
   /** Whose price governs. See the commercial schema. */
@@ -88,6 +104,12 @@ export const Job = z.object({
   total: MoneyString.nullable(),
   tags: z.array(z.string()),
   customFields: z.record(z.unknown()),
+  /**
+   * The branch (business unit) this job belongs to, or null for none. A
+   * branch scoped person sees only their branch's jobs, so a job with none is
+   * seen by the people who see the whole company.
+   */
+  businessUnitId: Uuid.nullable().optional(),
   visits: z.array(Visit),
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),
@@ -111,7 +133,17 @@ export const JobCreate = z.object({
   description: z.string().max(5000).optional(),
   customerComplaint: z.string().max(5000).optional(),
   equipmentId: Uuid.optional(),
+  /**
+   * Where the work came from, if somebody knows: a catalogue key or anything
+   * its alias list places, a channel, or a tracking campaign. Recorded as a
+   * declared touch. Leave it out and the job is credited from what the
+   * customer did before it (the call, the click), under the company's model.
+   */
   leadSource: z.string().max(100).optional(),
+  channelId: Uuid.optional(),
+  campaignId: Uuid.optional(),
+  /** The call this job was booked from, which links the two and credits the call. */
+  callId: Uuid.optional(),
   purchaseOrderNumber: z.string().max(100).optional(),
   costCode: z.string().max(50).optional(),
   /**
@@ -121,6 +153,12 @@ export const JobCreate = z.object({
   priority: z.number().int().min(0).max(2).optional(),
   tags: z.array(z.string()).default([]),
   customFields: z.record(z.unknown()).default({}),
+  /**
+   * The branch to put it in. Left out, it goes in the branch of the person
+   * booking it, then its job type's branch, otherwise none. Somebody limited
+   * to their own branch can only name that one.
+   */
+  businessUnitId: Uuid.optional(),
   /**
    * THE JOB THIS ONE IS A RETURN VISIT FOR.
    *
@@ -189,8 +227,14 @@ export const listJobs = defineRoute({
     technicianId: Uuid.optional(),
     scheduledFrom: z.string().datetime().optional(),
     scheduledTo: z.string().datetime().optional(),
+    /**
+     * One branch, or `none` for jobs nobody has put in a branch. Narrows what
+     * the caller's own scope already lets them see; never widens it.
+     */
+    businessUnitId: z.union([Uuid, z.literal("none")]).optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Job.omit({ visits: true }).extend({
     customerName: z.string(),
@@ -226,9 +270,20 @@ export const updateJob = defineRoute({
   summary: "Update a job",
   module: "M10",
   permissions: ["job:write"],
-  input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true, number: true, externalRef: true }).extend({
+  input: JobCreate.partial().omit({
+    visit: true, parties: true, coverage: true, number: true, externalRef: true, callId: true,
+  }).extend({
     id: Uuid,
     status: JobStatus.optional(),
+    /** Null clears the job's lead source; a value is checked against the channel list. */
+    leadSource: z.string().max(100).nullable().optional(),
+    /**
+     * Move the job to another branch, or out of every branch with null. Only
+     * somebody who sees the whole company may move work out of their own.
+     */
+    businessUnitId: Uuid.nullable().optional(),
+    channelId: Uuid.nullable().optional(),
+    campaignId: Uuid.nullable().optional(),
     /**
      * When the work was finished, sent with `status: "completed"` and only
      * then. Omit for now. A completion more than a week back is history and

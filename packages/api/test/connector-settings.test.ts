@@ -20,7 +20,7 @@ const ADAPTERS: Record<string, string[]> = {
   stripe: ["payments/stripe.ts"],
   quickbooks: ["accounting/quickbooks.ts"],
   xero: ["accounting/xero.ts"],
-  twilio: ["comms/twilio.ts"],
+  twilio: ["comms/twilio.ts", "voice/twilio.ts"],
   justcall: ["comms/justcall.ts"],
   resend: ["email/resend.ts"],
   smtp: ["email/smtp.ts"],
@@ -28,6 +28,26 @@ const ADAPTERS: Record<string, string[]> = {
   openai: ["ai/openai.ts"],
   google: ["ai/google.ts"],
   callrail: ["call-tracking/callrail.ts"],
+  nominatim: ["maps/nominatim.ts"],
+  mapbox: ["maps/mapbox.ts"],
+  whisper: ["voice/whisper.ts"],
+  osrm: ["routing/osrm.ts"],
+  mapbox_directions: ["routing/mapbox.ts"],
+  openrouteservice: ["routing/openrouteservice.ts"],
+  wisetack: ["financing/wisetack.ts"],
+  lob: ["direct-mail/lob.ts"],
+  angi: ["marketplaces/angi.ts"],
+  thumbtack: ["marketplaces/thumbtack.ts"],
+  yelp: ["marketplaces/yelp.ts"],
+  ga4: ["ads/ga4.ts"],
+  ga4_data: ["ads/ga4-data.ts"],
+  meta_ads: ["ads/meta-ads.ts"],
+  meta_lead_ads: ["ads/meta-lead-ads.ts"],
+  google_ads: ["ads/google-ads.ts"],
+  search_console: ["ads/search-console.ts"],
+  bing_ads: ["ads/microsoft-ads.ts"],
+  google_business_profile: ["ads/google-business-profile.ts"],
+  facebook_page: ["ads/facebook-page.ts"],
 };
 
 function keysRead(file: string): Set<string> {
@@ -35,6 +55,8 @@ function keysRead(file: string): Set<string> {
   const keys = new Set<string>();
   for (const m of source.matchAll(/\b(?:settings|config)\??\.(\w+)/g)) keys.add(m[1]!);
   for (const m of source.matchAll(/\b(?:settings|config)\[\s*"(\w+)"\s*\]/g)) keys.add(m[1]!);
+  // The ad platforms and marketplaces read through a helper.
+  for (const m of source.matchAll(/\btextSetting\(\s*[\w.]+,\s*"(\w+)"\s*\)/g)) keys.add(m[1]!);
   return keys;
 }
 

@@ -11,6 +11,15 @@ export const dynamic = "force-dynamic";
 
 const edit = (value: string) => money.edit(money.money(value, "USD"));
 
+/** A line's discount less the part member pricing gave, or null when that leaves nothing. */
+function handDiscount(line: { discountAmount: string; memberDiscountAmount?: string | undefined }): string | null {
+  const hand = money.subtract(
+    money.money(line.discountAmount, "USD"),
+    money.money(line.memberDiscountAmount ?? "0", "USD"),
+  );
+  return money.isPositive(hand) ? money.toString(hand) : null;
+}
+
 /**
  * EDITING A DRAFT. An issued invoice is never edited, so this page sends one
  * back to the invoice, where voiding and raising another is offered instead.
@@ -63,7 +72,12 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       name: line.name,
       quantity: edit(line.quantity),
       unitPrice: edit(line.unitPrice),
-      discountAmount: Number(line.discountAmount) > 0 ? edit(line.discountAmount) : "",
+      /**
+       * What somebody typed, without the member discount. The member part is
+       * worked out again by the service when the draft is saved, so putting
+       * it back in this box would take it off twice.
+       */
+      discountAmount: handDiscount(line) ? edit(handDiscount(line)!) : "",
       taxable: line.taxable,
     }));
 

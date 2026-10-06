@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { pk, timestamps } from "./_shared";
+import { pk, timestamps, geocodeColumns } from "./_shared";
 
 /**
  * TENANCY SPINE
@@ -57,6 +57,20 @@ export const organization = pgTable("organization", {
   currency: text("currency").notNull().default("USD"),
   logoUrl: text("logo_url"),
   brandColor: text("brand_color"),
+  /**
+   * How a customer reaches the company, printed on its proposals, invoices,
+   * statements and portal pages. All optional, all written only through
+   * `setup.updateDetails`, which normalises the phone to E.164 and refuses an
+   * address with no street or town. Without these every document went out
+   * with no way to call anybody.
+   */
+  phone: text("phone"),
+  email: text("email"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
   /** Trade pack applied at setup. Drives seeded price book, checklists, KPIs. */
   primaryTrade: text("primary_trade"),
   setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
@@ -108,6 +122,25 @@ export const organization = pgTable("organization", {
    * could also unmark the demo.
    */
   demoUserId: uuid("demo_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
+  /**
+   * A SANDBOX: a practice copy of a company's configuration, set on the copy
+   * and naming the company it was copied from.
+   *
+   * A real tenant rather than a flag on records, so everything row level
+   * security already guarantees about two companies is what keeps practice
+   * data out of the real one: nothing tried in a sandbox can reach a real
+   * customer's record, because no query in the sandbox can see one. See
+   * `services/sandbox.ts`.
+   */
+  sandboxOfOrganizationId: uuid("sandbox_of_organization_id").references((): AnyPgColumn => organization.id, { onDelete: "set null" }),
+  /**
+   * On the real company, its current sandbox. Kept on this side too because
+   * row level security hides the sandbox's own row from the real company,
+   * and "open my sandbox" has to find it from here.
+   */
+  sandboxOrganizationId: uuid("sandbox_organization_id").references((): AnyPgColumn => organization.id, { onDelete: "set null" }),
+  /** When the sandbox was thrown away. Its people are signed out of it and it is never opened again. */
+  sandboxDiscardedAt: timestamp("sandbox_discarded_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("organization_slug_idx").on(t.slug),
@@ -157,6 +190,14 @@ export const location = pgTable("location", {
   timezone: text("timezone"),
   isWarehouse: boolean("is_warehouse").notNull().default(false),
   active: boolean("active").notNull().default(true),
+  /**
+   * Where it is, the same way a property is. A location is where a
+   * technician's day starts and ends (`technician.home_location_id`, or the
+   * company's first location when somebody has none), so the route optimiser
+   * cannot order a day without it. Geocoded by the same worker and pinnable
+   * by hand the same way.
+   */
+  ...geocodeColumns(),
   ...timestamps,
 }, (t) => ({ orgIdx: index("location_org_idx").on(t.organizationId) }));
 
@@ -189,12 +230,18 @@ export const memberRole = pgEnum("member_role", [
   "crew_lead",
   "accountant",
   "readonly",
+  /**
+   * An office manager for one branch. Last rather than beside the office
+   * manager, because a value added to a Postgres enum goes on the end and the
+   * order here is the order the database holds.
+   */
+  "branch_manager",
 ]);
 
 /**
  * A role a company defined for itself.
  *
- * The nine presets are starting points, not a taxonomy. A company with four
+ * The ten presets are starting points, not a taxonomy. A company with four
  * branches wants a branch manager, and one with a warehouse wants somebody
  * who reads inventory and nothing else, and neither is a preset with extras
  * bolted on.
@@ -266,6 +313,16 @@ export const membership = pgTable("membership", {
   scopeOverrides: jsonb("scope_overrides").$type<Record<string, string>>().notNull().default({}),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
+  /**
+   * Who this person answers to, when the company has said.
+   *
+   * Read by task escalation and nothing else: "tell the assignee's manager"
+   * needs somebody to tell, and a role preset is not a person. Nullable,
+   * because most companies of four people have never written it down, and
+   * an escalation with no manager recorded goes to the owners and says why
+   * rather than going nowhere.
+   */
+  reportsToUserId: uuid("reports_to_user_id").references(() => user.id, { onDelete: "set null" }),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({
@@ -379,6 +436,26 @@ export const technician = pgTable("technician", {
   licenses: jsonb("licenses").$type<Array<{ type: string; number: string; expiresOn: string }>>().notNull().default([]),
   homeLocationId: uuid("home_location_id").references(() => location.id, { onDelete: "set null" }),
   /**
+   * The hours of this person's working day, local time, when they are not
+   * the company's. The rebalance plans their day inside these and counts
+   * anything past `endsAt` as overtime. Null is the company's day.
+   */
+  workday: jsonb("workday").$type<{ startsAt: string; endsAt: string } | null>(),
+  /**
+   * Whether this person's phone shares where they are while they work, when
+   * the company shares locations at all. On by default once the company
+   * turns sharing on; the office turns it off for somebody, and the person
+   * sees which it is on their own phone. Never shared off the clock either
+   * way: see `packages/core/src/location`.
+   */
+  shareLocation: boolean("share_location").notNull().default(true),
+  /**
+   * The photograph a customer sees on their tracking link, a `stored_file`
+   * id. No foreign key, because `stored_file` is declared in a file that
+   * imports this one; a photo whose file has gone is simply not shown.
+   */
+  photoFileId: uuid("photo_file_id"),
+  /**
    * The wage classification this person is normally paid at.
    *
    * It is a name rather than a foreign key to `wage_scale`, because a scale
@@ -392,6 +469,20 @@ export const technician = pgTable("technician", {
    * and the reconstruction it exists to avoid was the only option available.
    */
   wageClassification: text("wage_classification"),
+  /**
+   * The mobile number a sign in code for the field app is texted to.
+   *
+   * On the technician rather than on `user.phone`, because a person can work
+   * for two companies and each one decides for itself which number it texts
+   * a code to. And set by the office, never by whoever is asking for a code,
+   * because a sign in sent to a number the asker chose is not a sign in.
+   */
+  mobilePhone: text("mobile_phone"),
   active: boolean("active").notNull().default(true),
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({ orgIdx: index("technician_org_idx").on(t.organizationId) }));
