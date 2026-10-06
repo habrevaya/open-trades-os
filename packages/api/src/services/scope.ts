@@ -111,12 +111,15 @@ export function jobVisibility(scope: Scope, actor: ScopeContext, jobId: SQL): SQ
      * one job can be served from two shops, so this asks whether any of its
      * visits were.
      *
-     * A visit is the shop's when it says so (`visit.location_id`), or when
-     * somebody based at the shop is on it: a technician whose day starts
-     * there or whose membership is there, or a crew based there. Nothing
-     * writes a visit's own shop yet, so with only the first test this scope
-     * matched nothing at all, and a "their shop's work" role read as a shop
-     * with no work.
+     * A visit is the shop's when it says so: `visit.location_id`, written
+     * when it is booked with somebody or assigned (`visit-shop.ts`). Read
+     * there and nowhere else once written, so a technician who moves shops
+     * does not take the work they did from the old one with them.
+     *
+     * A visit that carries no shop (one booked before the shop was written,
+     * which nothing filled in afterwards, or one nobody has yet) is the
+     * shop's when somebody based there is on it: a technician whose day
+     * starts there or whose membership is there, or a crew based there.
      */
     case "location": {
       if (!actor.locationId) return NOTHING;
@@ -126,14 +129,16 @@ export function jobVisibility(scope: Scope, actor: ScopeContext, jobId: SQL): SQ
         where v.job_id = ${jobId}
           and (
             v.location_id = ${shop}
-            or exists (select 1 from public.crew lc where lc.id = v.crew_id and lc.home_location_id = ${shop})
-            or exists (
-              select 1 from public.visit_assignment lva
-              join public.technician lt on lt.id = lva.technician_id
-              left join public.membership lm on lm.id = lt.membership_id
-              where lva.visit_id = v.id
-                and (lt.home_location_id = ${shop} or lm.location_id = ${shop})
-            )
+            or (v.location_id is null and (
+              exists (select 1 from public.crew lc where lc.id = v.crew_id and lc.home_location_id = ${shop})
+              or exists (
+                select 1 from public.visit_assignment lva
+                join public.technician lt on lt.id = lva.technician_id
+                left join public.membership lm on lm.id = lt.membership_id
+                where lva.visit_id = v.id
+                  and (lt.home_location_id = ${shop} or lm.location_id = ${shop})
+              )
+            ))
           )
       )`;
     }

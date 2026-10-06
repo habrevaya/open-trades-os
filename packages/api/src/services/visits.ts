@@ -3,6 +3,7 @@ import { schema } from "@opentradesos/db";
 import { can } from "@opentradesos/core";
 import { guardedRead, NotFoundError, scopeOf, type ServiceContext } from "./context";
 import { jobVisibility } from "./scope";
+import { shopNames } from "./visit-shop";
 
 /**
  * ONE VISIT, ON ITS OWN
@@ -130,6 +131,8 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       checklist: visit.checklist,
       signed: visit.signatureUrl !== null,
       rentalEvent: visit.rentalEvent,
+      /** The shop it goes out from, written when it was given to somebody (`visit-shop.ts`). */
+      shop: visit.locationId ? (await shopNames(tx, [visit.locationId])).get(visit.locationId) ?? null : null,
       /** The days the customer agreed this visit may happen on, which the multi day rebalance reads. */
       movableFrom: visit.movableFrom,
       movableUntil: visit.movableUntil,

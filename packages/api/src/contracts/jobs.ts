@@ -59,6 +59,14 @@ export const Visit = z.object({
   routeOrder: z.number().int().nullable(),
   technicianIds: z.array(Uuid),
   crewId: Uuid.nullable(),
+  /**
+   * The shop it goes out from: the lead's or the crew's, written when it is
+   * booked with somebody or assigned. Null for a visit nobody has yet, and
+   * for one booked before the shop was written.
+   */
+  locationId: Uuid.nullable(),
+  /** That shop's name, for a screen that says where the visit goes out from. */
+  locationName: z.string().nullable(),
   dispatchedAt: z.string().datetime().nullable(),
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),

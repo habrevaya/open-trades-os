@@ -74,6 +74,7 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
             ? visit.team.map((t) => `${t.name}${t.isLead && visit.team.length > 1 ? " (lead)" : ""}`).join(", ")
             : visit.crew ?? "Nobody yet"}
         </Fact>
+        <Fact label="Goes out from">{visit.shop}</Fact>
         <Fact label="Rental">{visit.rentalEvent ? enumText(visit.rentalEvent) : null}</Fact>
         <Fact label="May move">
           {visit.movableFrom || visit.movableUntil

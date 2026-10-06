@@ -437,6 +437,10 @@ export default async function JobPage({ params, searchParams }: {
                 {visit.technicianIds.length === 0
                   ? <span className="text-ink-500">Nobody yet</span>
                   : visit.technicianIds.map((t) => nameOf.get(t) ?? "A technician").join(", ")}
+                {/* The shop it goes out from, written when it was given to somebody. */}
+                {visit.locationName ? (
+                  <span className="block text-xs text-ink-500">From {visit.locationName}</span>
+                ) : null}
               </Td>
               <Td>
                 <Chip tone={tone(VISIT_TONE, visit.status)}>
