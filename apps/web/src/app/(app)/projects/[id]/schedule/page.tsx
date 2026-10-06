@@ -18,7 +18,9 @@ export const dynamic = "force-dynamic";
  * The phases on a timeline with what each waits for, the critical path in
  * red (with the word as well as the colour), and who is booked on each
  * phase, read from the visits on its jobs. The sentence at the top is
- * core's: when the job finishes and how many phases decide that.
+ * core's: when the job finishes and how many phases decide that. Somebody
+ * booked on two phases that run at once is marked on the timeline and
+ * named under it; the schedule never moves them.
  */
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireSetupUser();
@@ -56,6 +58,11 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
           id: p.id, sequence: p.sequence, name: p.name, status: p.status, dependsOnPhaseId: p.dependsOnPhaseId,
           startsOn: p.startsOn, endsOn: p.endsOn, floatDays: p.floatDays, critical: p.critical,
           overlapsPredecessor: p.overlapsPredecessor, people: people(p),
+          clashNames: [...new Set(p.clashes.map((c) => c.name))],
+        }))}
+        clashes={schedule.clashes.map((c) => ({
+          key: `${c.kind}-${c.id}-${c.phaseIds.join("-")}`, name: c.name, phaseIds: c.phaseIds,
+          from: c.from, to: c.to, statement: c.statement,
         }))}
       />
 
@@ -69,6 +76,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
                 {PHASE_STATUS[phase.status] ?? phase.status}
               </Chip>
               {phase.critical && <Chip tone="danger">Critical path</Chip>}
+              {phase.clashes.length > 0 && <Chip tone="warning">Booked twice</Chip>}
               {phase.overlapsPredecessor && <Chip tone="warning">Starts before {names.get(phase.dependsOnPhaseId ?? "") ?? "the phase it waits for"} ends</Chip>}
             </div>
             <p className="mt-1 text-sm text-ink-700">

@@ -85033,6 +85033,257 @@
         ]
       }
     },
+    "/v1/project-change-orders/{id}/schedule-days": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyChangeOrderScheduleDays",
+        "summary": "Apply a change order's days to the schedule, as proposed",
+        "description": "A person applies exactly the proposal they were shown: send back its `key`. The proposal is worked out again against the schedule as it stands, and if somebody has moved a phase since, nothing is applied and the call says so. Applied once: a retry, or a second person, gets back what was done and moves nothing further. Phases already booked are not moved, and the schedule flags anyone left booked twice.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M12"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyChangeOrderScheduleDaysInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Apply a change order's days to the schedule, as proposed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyChangeOrderScheduleDaysOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      },
+      "get": {
+        "operationId": "getChangeOrderScheduleDays",
+        "summary": "What the days on a change order would do to the schedule",
+        "description": "A proposal, and nothing moves. For an agreed change order with days, the phase the work lands on (or the one named in `phaseId`) ends later by those days and every phase waiting for it moves by the same days and keeps its length, with the finish date before and after. Says why when it cannot be applied: not agreed yet, no days, no phase named, a complete phase, a complete follower, or already applied.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M12"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "phaseId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the days on a change order would do to the schedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetChangeOrderScheduleDaysOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      }
+    },
     "/v1/project-change-orders/{id}/send": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -128813,6 +129064,219 @@
           "createdAt"
         ]
       },
+      "ApplyChangeOrderScheduleDaysInput": {
+        "type": "object",
+        "properties": {
+          "phaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposalKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "proposalKey"
+        ]
+      },
+      "ApplyChangeOrderScheduleDaysOutput": {
+        "type": "object",
+        "properties": {
+          "changeOrderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "phaseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "phaseName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applied": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "phaseId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "wasStartsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "wasEndsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "startsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "endsOn": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "wasStartsOn",
+                    "wasEndsOn",
+                    "startsOn",
+                    "endsOn"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "at",
+              "phaseId",
+              "days",
+              "changes"
+            ]
+          },
+          "canApply": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposal": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "wasStartsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "wasEndsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "startsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "endsOn": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "wasStartsOn",
+                    "wasEndsOn",
+                    "startsOn",
+                    "endsOn"
+                  ]
+                }
+              },
+              "finishBefore": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "finishAfter": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "statement": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "changes",
+              "finishBefore",
+              "finishAfter",
+              "statement",
+              "key"
+            ]
+          },
+          "alreadyApplied": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changeOrderId",
+          "number",
+          "title",
+          "days",
+          "phaseId",
+          "phaseName",
+          "applied",
+          "canApply",
+          "reason",
+          "proposal",
+          "alreadyApplied"
+        ]
+      },
       "ApplyContractEscalationInput": {
         "type": "object",
         "properties": {
@@ -156836,6 +157300,199 @@
           "lines"
         ]
       },
+      "GetChangeOrderScheduleDaysOutput": {
+        "type": "object",
+        "properties": {
+          "changeOrderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "phaseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "phaseName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applied": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "phaseId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "wasStartsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "wasEndsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "startsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "endsOn": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "wasStartsOn",
+                    "wasEndsOn",
+                    "startsOn",
+                    "endsOn"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "at",
+              "phaseId",
+              "days",
+              "changes"
+            ]
+          },
+          "canApply": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposal": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "wasStartsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "wasEndsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "startsOn": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "endsOn": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "wasStartsOn",
+                    "wasEndsOn",
+                    "startsOn",
+                    "endsOn"
+                  ]
+                }
+              },
+              "finishBefore": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "finishAfter": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "statement": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "changes",
+              "finishBefore",
+              "finishAfter",
+              "statement",
+              "key"
+            ]
+          }
+        },
+        "required": [
+          "changeOrderId",
+          "number",
+          "title",
+          "days",
+          "phaseId",
+          "phaseName",
+          "applied",
+          "canApply",
+          "reason",
+          "proposal"
+        ]
+      },
       "GetChatWidgetOutput": {
         "type": "object",
         "properties": {
@@ -173657,6 +174314,73 @@
           "statement": {
             "type": "string"
           },
+          "clashes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "technician",
+                    "crew"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "phaseIds": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  ]
+                },
+                "from": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "to": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "visits": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "statement": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id",
+                "name",
+                "phaseIds",
+                "from",
+                "to",
+                "visits",
+                "statement"
+              ]
+            }
+          },
           "phases": {
             "type": "array",
             "items": {
@@ -173778,6 +174502,73 @@
                     "crews",
                     "unassignedVisits"
                   ]
+                },
+                "clashes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "technician",
+                          "crew"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "phaseIds": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        ]
+                      },
+                      "from": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "to": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "visits": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "statement": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id",
+                      "name",
+                      "phaseIds",
+                      "from",
+                      "to",
+                      "visits",
+                      "statement"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -173792,7 +174583,8 @@
                 "floatDays",
                 "critical",
                 "overlapsPredecessor",
-                "booked"
+                "booked",
+                "clashes"
               ]
             }
           }
@@ -173805,6 +174597,7 @@
           "targetCompletionOn",
           "criticalPath",
           "statement",
+          "clashes",
           "phases"
         ]
       },

@@ -284,6 +284,57 @@ export const declinePortalChangeOrder = defineRoute({
 
 /* ------------------------------------------------------------ the schedule */
 
+const PhaseClash = z.object({
+  kind: z.enum(["technician", "crew"]),
+  id: Uuid,
+  name: z.string(),
+  /** The two phases the person is booked on. */
+  phaseIds: z.tuple([Uuid, Uuid]),
+  /** The days both phases are planned to run. */
+  from: IsoDate,
+  to: IsoDate,
+  /** How many of their visits still to come fall on those days, on each phase. */
+  visits: z.tuple([z.number().int(), z.number().int()]),
+  statement: z.string(),
+});
+
+const DayChange = z.object({
+  id: Uuid,
+  name: z.string(),
+  wasStartsOn: IsoDate,
+  wasEndsOn: IsoDate,
+  startsOn: IsoDate,
+  endsOn: IsoDate,
+});
+
+const ScheduleDaysProposal = z.object({
+  changeOrderId: Uuid,
+  number: z.number().int(),
+  title: z.string(),
+  days: z.number().int().nullable(),
+  phaseId: Uuid.nullable(),
+  phaseName: z.string().nullable(),
+  /** Set once the days have been applied. They are never applied twice. */
+  applied: z.object({
+    at: z.string().datetime(),
+    phaseId: Uuid,
+    days: z.number().int(),
+    changes: z.array(DayChange),
+  }).nullable(),
+  canApply: z.boolean(),
+  /** When it cannot be applied, why, in a sentence. */
+  reason: z.string().nullable(),
+  proposal: z.object({
+    /** The phase first, then everything that waits for it. */
+    changes: z.array(DayChange),
+    finishBefore: IsoDate.nullable(),
+    finishAfter: IsoDate.nullable(),
+    statement: z.string(),
+    /** Hand this back to apply exactly what was shown. */
+    key: z.string(),
+  }).nullable(),
+});
+
 export const getProjectSchedule = defineRoute({
   method: "get",
   path: "/v1/projects/{projectId}/schedule",
@@ -301,6 +352,8 @@ export const getProjectSchedule = defineRoute({
     targetCompletionOn: IsoDate.nullable(),
     criticalPath: z.array(Uuid),
     statement: z.string(),
+    /** Somebody booked on two phases that run on the same days. Nobody is moved. */
+    clashes: z.array(PhaseClash),
     phases: z.array(z.object({
       id: Uuid,
       sequence: z.number().int(),
@@ -318,6 +371,8 @@ export const getProjectSchedule = defineRoute({
         crews: z.array(z.object({ id: Uuid, name: z.string(), visits: z.number().int() })),
         unassignedVisits: z.number().int(),
       }),
+      /** The clashes this phase is one of the two in. */
+      clashes: z.array(PhaseClash),
     })),
   }),
 });
@@ -348,6 +403,31 @@ export const setProjectPhaseDates = defineRoute({
   idempotent: true,
   input: z.object({ id: Uuid, startsOn: IsoDate.nullable(), endsOn: IsoDate.nullable() }),
   output: z.object({ id: Uuid, startsOn: IsoDate.nullable(), endsOn: IsoDate.nullable() }),
+});
+
+export const getChangeOrderScheduleDays = defineRoute({
+  method: "get",
+  path: "/v1/project-change-orders/{id}/schedule-days",
+  summary: "What the days on a change order would do to the schedule",
+  description:
+    "A proposal, and nothing moves. For an agreed change order with days, the phase the work lands on (or the one named in `phaseId`) ends later by those days and every phase waiting for it moves by the same days and keeps its length, with the finish date before and after. Says why when it cannot be applied: not agreed yet, no days, no phase named, a complete phase, a complete follower, or already applied.",
+  module: "M12",
+  permissions: ["job:read"],
+  input: z.object({ id: Uuid, phaseId: Uuid.optional() }),
+  output: ScheduleDaysProposal,
+});
+
+export const applyChangeOrderScheduleDays = defineRoute({
+  method: "post",
+  path: "/v1/project-change-orders/{id}/schedule-days",
+  summary: "Apply a change order's days to the schedule, as proposed",
+  description:
+    "A person applies exactly the proposal they were shown: send back its `key`. The proposal is worked out again against the schedule as it stands, and if somebody has moved a phase since, nothing is applied and the call says so. Applied once: a retry, or a second person, gets back what was done and moves nothing further. Phases already booked are not moved, and the schedule flags anyone left booked twice.",
+  module: "M12",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, phaseId: Uuid.optional(), proposalKey: z.string().min(1) }),
+  output: ScheduleDaysProposal.extend({ alreadyApplied: z.boolean() }),
 });
 
 /* ------------------------------------------------ applications for payment */
@@ -608,6 +688,7 @@ export const projectDocumentRoutes = {
   addChangeOrderLine, removeChangeOrderLine, sendChangeOrder, decideChangeOrder, withdrawChangeOrder,
   viewPortalChangeOrder, approvePortalChangeOrder, declinePortalChangeOrder,
   getProjectSchedule, moveProjectPhase, setProjectPhaseDates,
+  getChangeOrderScheduleDays, applyChangeOrderScheduleDays,
   listProjectApplications, createProjectApplication, getProjectApplication,
   updateProjectApplication, deleteProjectApplication, raiseProjectApplication,
   listProjectLienRecords, recordProjectLienRecord, deleteProjectLienRecord,

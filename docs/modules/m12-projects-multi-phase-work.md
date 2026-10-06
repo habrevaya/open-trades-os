@@ -94,6 +94,35 @@ same days and keeps their lengths, and a start on or before the day the phase it
 waits for ends is refused with the earliest day it could start. Who is booked on
 a phase is read from the visits on its jobs, never kept as a second list.
 
+**The days a change order adds move the schedule only when a person applies them,
+as they were shown.** An agreed change order with days has a proposal: the phase
+it lands on ends later by those days (or sooner, for days taken off), everything
+that waits for that phase moves by the same days and keeps its length, and the
+finish date is said before and after. Looking at the proposal moves nothing.
+Applying it takes the proposal's key back, works the proposal out again against
+the schedule as it stands, and refuses if somebody has moved a phase since the
+person looked, so "apply what I was shown" can never become "apply something
+else". Only an agreed change order can move the schedule: a priced or sent one
+may still be declined, and a plan pushed out for work nobody agreed to is a plan
+the crews and the customer were told is wrong. A change order that names no phase
+asks which one the days land on. A complete phase, or one with a complete phase
+waiting for it, is refused in words (their dates are what happened), and so is a
+credit of more days than the phase has. The days are applied once: the change
+order keeps who applied them, when, and exactly what moved, and a retry or a
+second person gets that back instead of pushing every later phase out again.
+Visits already booked are not moved; the schedule flags anyone left booked twice.
+
+**A person booked on two phases at once is flagged, never moved.** The schedule
+marks it on the timeline (an amber strip under both bars across the days the two
+phases overlap, the words "Booked twice" and the name on each bar) and says it in a
+sentence under the chart: who, which two phases, and which days. The rule is two
+phases planned to run on the same days and one technician or crew with a visit
+still to come on each of them inside those days, read from the visits on the
+phases' jobs on the company's calendar. A visit that is finished, cancelled or
+missed, a visit with no day, a complete phase and a phase with no dates are not
+counted. It is a flag because whether Ray can do both mornings is not something
+the schedule knows; changing who is booked is the dispatch board's.
+
 **An application for payment states the whole position every period.** The
 schedule of values line by line, work from earlier applications, work this
 period, materials stored and not yet installed, completed and stored to date,
@@ -185,7 +214,14 @@ Each change order prints at `/projects/{id}/change-orders/{changeOrderId}/docume
 
 `/projects/{id}/schedule` is the timeline. `GET /v1/projects/{projectId}/schedule`
 reads it, `POST /v1/project-phases/{id}/move` drags a phase, and
-`POST /v1/project-phases/{id}/dates` gives one its own dates.
+`POST /v1/project-phases/{id}/dates` gives one its own dates. The same read
+carries `clashes`, each person or crew booked on two phases at once with the days.
+`GET /v1/project-change-orders/{id}/schedule-days` is the proposal for the days on
+an agreed change order (pass `phaseId` when it names none), and
+`POST /v1/project-change-orders/{id}/schedule-days` applies it with the proposal's
+`key`. The change order's page, `/projects/{id}/change-orders/{changeOrderId}`, shows
+the proposal under "The schedule", with what would move and the finish before and
+after, and an "Apply to the schedule" button for whoever holds `job:write`.
 
 ### Apply for payment
 
@@ -245,6 +281,8 @@ payment.
 | `GET /v1/projects/{projectId}/schedule` | `job:read` |
 | `POST /v1/project-phases/{id}/move` | `job:write` |
 | `POST /v1/project-phases/{id}/dates` | `job:write` |
+| `GET /v1/project-change-orders/{id}/schedule-days` | `job:read` |
+| `POST /v1/project-change-orders/{id}/schedule-days` | `job:write` |
 | `GET /v1/projects/{projectId}/applications` | `invoice:read` |
 | `POST /v1/projects/{projectId}/applications` | `invoice:write` |
 | `GET /v1/project-applications/{id}` | `invoice:read` |
@@ -271,9 +309,12 @@ any other, held back until somebody raises it.
 **Can a change order be changed after it is sent?** No. The customer's signature
 covers the page as sent. Withdraw it and raise another.
 
-**Does a change order's extra days move the schedule?** No. They print on the
-change order; moving the phases is a drag on the timeline, which is somebody's
-decision.
+**Does a change order's extra days move the schedule?** Only when a person applies
+them. They print on the change order, and once it is agreed the change order's page
+proposes what would move; a person looks and presses apply. Nothing moves on its own.
+
+**Does the schedule move people who are booked twice?** No. It flags them and says
+who and when. Moving somebody is a decision on the dispatch board.
 
 **Is the application the AIA form?** No. It is the common two page shape that
 certifiers read (a summary and a continuation sheet), in our own words, with no
@@ -281,9 +322,13 @@ association's form, numbering or name.
 
 ## What is not built
 
-Resource levelling: the schedule shows who is booked on each phase and does not
-move people to resolve a clash. The days a change order adds are printed, not
-applied to the schedule. A project billed before retainage was booked to a
+Resource levelling: the schedule shows who is booked on each phase and flags a person
+booked on two phases that run at once, and does not move anybody to resolve it. The days
+a change order adds are applied by a person from a proposal, for an agreed change order
+only, and move the phase and what waits for it; they do not move visits already booked,
+and a change order that names no phase asks which one. A clash is a phase to phase
+reading: it does not count a person who is booked on two visits at the same hour, which is
+the dispatch board's check, and it does not read a crew's members. A project billed before retainage was booked to a
 receivable stays on the old way for good; there is no switch that moves it across
 with a catching up posting. Retainage receivable is not sent to QuickBooks or Xero:
 the books there carry an application's invoice as billed, net (M14). An

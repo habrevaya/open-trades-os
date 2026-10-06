@@ -610,6 +610,8 @@ export const handlers = {
   getProjectSchedule: projectSchedule.handlers.getProjectSchedule,
   moveProjectPhase: projectSchedule.handlers.moveProjectPhase,
   setProjectPhaseDates: projectSchedule.handlers.setProjectPhaseDates,
+  getChangeOrderScheduleDays: projectSchedule.handlers.getChangeOrderScheduleDays,
+  applyChangeOrderScheduleDays: projectSchedule.handlers.applyChangeOrderScheduleDays,
   listProjectApplications: projectApplications.handlers.listProjectApplications,
   createProjectApplication: projectApplications.handlers.createProjectApplication,
   getProjectApplication: projectApplications.handlers.getProjectApplication,

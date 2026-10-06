@@ -521,6 +521,50 @@ export interface AnswerPortalVisitChangeProposalOutput {
   createdAt: string;
 }
 
+export interface ApplyChangeOrderScheduleDaysInput {
+  phaseId?: string;
+  proposalKey: string;
+}
+
+export interface ApplyChangeOrderScheduleDaysOutput {
+  changeOrderId: string;
+  number: number;
+  title: string;
+  days: number | null;
+  phaseId: string | null;
+  phaseName: string | null;
+  applied: {
+    at: string;
+    phaseId: string;
+    days: number;
+    changes: Array<{
+      id: string;
+      name: string;
+      wasStartsOn: string;
+      wasEndsOn: string;
+      startsOn: string;
+      endsOn: string;
+    }>;
+  } | null;
+  canApply: boolean;
+  reason: string | null;
+  proposal: {
+    changes: Array<{
+      id: string;
+      name: string;
+      wasStartsOn: string;
+      wasEndsOn: string;
+      startsOn: string;
+      endsOn: string;
+    }>;
+    finishBefore: string | null;
+    finishAfter: string | null;
+    statement: string;
+    key: string;
+  } | null;
+  alreadyApplied: boolean;
+}
+
 export interface ApplyContractEscalationInput {
   anniversary: string;
   rate: string;
@@ -6055,6 +6099,44 @@ export interface GetChangeOrderOutput {
   }>;
 }
 
+export interface GetChangeOrderScheduleDaysOutput {
+  changeOrderId: string;
+  number: number;
+  title: string;
+  days: number | null;
+  phaseId: string | null;
+  phaseName: string | null;
+  applied: {
+    at: string;
+    phaseId: string;
+    days: number;
+    changes: Array<{
+      id: string;
+      name: string;
+      wasStartsOn: string;
+      wasEndsOn: string;
+      startsOn: string;
+      endsOn: string;
+    }>;
+  } | null;
+  canApply: boolean;
+  reason: string | null;
+  proposal: {
+    changes: Array<{
+      id: string;
+      name: string;
+      wasStartsOn: string;
+      wasEndsOn: string;
+      startsOn: string;
+      endsOn: string;
+    }>;
+    finishBefore: string | null;
+    finishAfter: string | null;
+    statement: string;
+    key: string;
+  } | null;
+}
+
 export interface GetChatWidgetOutput {
   enabled: boolean;
   companyName: string;
@@ -9229,6 +9311,16 @@ export interface GetProjectScheduleOutput {
   targetCompletionOn: string | null;
   criticalPath: string[];
   statement: string;
+  clashes: Array<{
+    kind: "technician" | "crew";
+    id: string;
+    name: string;
+    phaseIds: unknown[];
+    from: string;
+    to: string;
+    visits: unknown[];
+    statement: string;
+  }>;
   phases: Array<{
     id: string;
     sequence: number;
@@ -9254,6 +9346,16 @@ export interface GetProjectScheduleOutput {
       }>;
       unassignedVisits: number;
     };
+    clashes: Array<{
+      kind: "technician" | "crew";
+      id: string;
+      name: string;
+      phaseIds: unknown[];
+      from: string;
+      to: string;
+      visits: unknown[];
+      statement: string;
+    }>;
   }>;
 }
 
@@ -24068,6 +24170,10 @@ export interface AnswerNumberHereParams {
   id: string;
 }
 
+export interface ApplyChangeOrderScheduleDaysParams {
+  id: string;
+}
+
 export interface ApplyContractEscalationParams {
   contractId: string;
 }
@@ -24549,6 +24655,11 @@ export interface GetCampaignInput {
 
 export interface GetChangeOrderInput {
   id: string;
+}
+
+export interface GetChangeOrderScheduleDaysInput {
+  id: string;
+  phaseId?: string;
 }
 
 export interface GetChatWidgetInput {
@@ -27216,6 +27327,7 @@ export interface OperationTypes {
   annotateServiceReport: { input: AnnotateServiceReportParams & AnnotateServiceReportInput; output: AnnotateServiceReportOutput };
   answerNumberHere: { input: AnswerNumberHereParams & AnswerNumberHereInput; output: AnswerNumberHereOutput };
   answerPortalVisitChangeProposal: { input: AnswerPortalVisitChangeProposalInput; output: AnswerPortalVisitChangeProposalOutput };
+  applyChangeOrderScheduleDays: { input: ApplyChangeOrderScheduleDaysParams & ApplyChangeOrderScheduleDaysInput; output: ApplyChangeOrderScheduleDaysOutput };
   applyContractEscalation: { input: ApplyContractEscalationParams & ApplyContractEscalationInput; output: ApplyContractEscalationOutput };
   applyCreditNote: { input: ApplyCreditNoteParams & ApplyCreditNoteInput; output: ApplyCreditNoteOutput };
   applyDeposit: { input: ApplyDepositParams & ApplyDepositInput; output: ApplyDepositOutput };
@@ -27436,6 +27548,7 @@ export interface OperationTypes {
   getCallTrackingConnection: { input: GetCallTrackingConnectionInput; output: GetCallTrackingConnectionOutput };
   getCampaign: { input: GetCampaignInput; output: GetCampaignOutput };
   getChangeOrder: { input: GetChangeOrderInput; output: GetChangeOrderOutput };
+  getChangeOrderScheduleDays: { input: GetChangeOrderScheduleDaysInput; output: GetChangeOrderScheduleDaysOutput };
   getChatWidget: { input: GetChatWidgetInput; output: GetChatWidgetOutput };
   getClaim: { input: GetClaimInput; output: GetClaimOutput };
   getCompanyDetails: { input: GetCompanyDetailsInput; output: GetCompanyDetailsOutput };
@@ -28244,6 +28357,7 @@ export const OPERATIONS = {
   annotateServiceReport: { method: "PATCH", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   answerNumberHere: { method: "POST", path: "/v1/phone-numbers/{id}/answer-here", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   answerPortalVisitChangeProposal: { method: "POST", path: "/v1/portal/visit-change/answer", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  applyChangeOrderScheduleDays: { method: "POST", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   applyContractEscalation: { method: "POST", path: "/v1/contracts/{contractId}/escalation", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   applyCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   applyDeposit: { method: "POST", path: "/v1/deposits/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:collect","invoice:write"] },
@@ -28464,6 +28578,7 @@ export const OPERATIONS = {
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getCampaign: { method: "GET", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   getChangeOrder: { method: "GET", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getChangeOrderScheduleDays: { method: "GET", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: ["phaseId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getChatWidget: { method: "GET", path: "/v1/public/chat", pathParams: [], queryParams: ["companyKey"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getClaim: { method: "GET", path: "/v1/claims/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getCompanyDetails: { method: "GET", path: "/v1/company", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -29498,6 +29613,15 @@ export abstract class GeneratedOperations {
    */
   answerPortalVisitChangeProposal(input: AnswerPortalVisitChangeProposalInput, options?: CallOptions): Promise<AnswerPortalVisitChangeProposalOutput> {
     return this.call("answerPortalVisitChangeProposal", input, options);
+  }
+
+  /**
+   * Apply a change order's days to the schedule, as proposed.
+   *
+   * POST /v1/project-change-orders/{id}/schedule-days. Needs job:write.
+   */
+  applyChangeOrderScheduleDays(input: ApplyChangeOrderScheduleDaysParams & ApplyChangeOrderScheduleDaysInput, options?: CallOptions): Promise<ApplyChangeOrderScheduleDaysOutput> {
+    return this.call("applyChangeOrderScheduleDays", input, options);
   }
 
   /**
@@ -31478,6 +31602,15 @@ export abstract class GeneratedOperations {
    */
   getChangeOrder(input: GetChangeOrderInput, options?: CallOptions): Promise<GetChangeOrderOutput> {
     return this.call("getChangeOrder", input, options);
+  }
+
+  /**
+   * What the days on a change order would do to the schedule.
+   *
+   * GET /v1/project-change-orders/{id}/schedule-days. Needs job:read.
+   */
+  getChangeOrderScheduleDays(input: GetChangeOrderScheduleDaysInput, options?: CallOptions): Promise<GetChangeOrderScheduleDaysOutput> {
+    return this.call("getChangeOrderScheduleDays", input, options);
   }
 
   /**
