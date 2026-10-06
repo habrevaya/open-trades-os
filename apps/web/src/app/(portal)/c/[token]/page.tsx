@@ -1,3 +1,4 @@
+import { work } from "@opentradesos/core";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { portalAccount, referrals } from "@opentradesos/api/services";
@@ -51,7 +52,7 @@ export default async function AccountPage({
             balance={invoice.balance}
             currency={invoice.currency}
             tipping={invoice.tipping}
-            label={`invoice #${invoice.number}`}
+            label={`invoice #${work.documentNumber(invoice.numberPrefix, invoice.number)}`}
           />
         )}
       />

@@ -35,7 +35,12 @@ export async function act(_previous: CrewState, form: FormData): Promise<CrewSta
           productionRatePerDay: field(form, "productionRatePerDay") ?? null,
           productionUnit: field(form, "productionUnit") ?? null,
           skills: fields(form, "skill"),
+          /** None chosen is no branch, which only somebody who sees the whole company may pick. */
+          businessUnitId: field(form, "businessUnitId") ?? null,
         });
+        return;
+      case "branch":
+        await crews.update(ctx, { id, businessUnitId: field(form, "businessUnitId") ?? null });
         return;
       case "members":
         await crews.setMembers(ctx, {

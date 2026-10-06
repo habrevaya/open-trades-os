@@ -70,7 +70,7 @@ export const setMemberBranch = defineRoute({
   path: "/v1/memberships/{membershipId}/branch",
   summary: "Put somebody in a branch",
   description:
-    "Their branch is what a branch scope shows them and where a job they book lands. Taking it away is refused while their role or their own limits show them only their branch, because they would then see nothing at all.",
+    "Their branch is what a branch scope shows them and where a job they book lands. Taking it away is refused while their role or their own limits show them only their branch, because they would then see nothing at all. Moving somebody between branches is for somebody who sees the whole company, and another branch's person reads as not found.",
   module: "M01",
   permissions: ["membership:write"],
   /** Setting a state. */
@@ -84,7 +84,7 @@ export const setMemberLocation = defineRoute({
   path: "/v1/memberships/{membershipId}/location",
   summary: "Say which shop somebody works from",
   description:
-    "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them: the jobs worked from it, by somebody based there or on a visit sent from there, and the people based there. Taking it away is refused while their role or their own limits show them only their shop.",
+    "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them: the jobs worked from it, by somebody based there or on a visit sent from there, and the people based there. Taking it away is refused while their role or their own limits show them only their shop. Another branch's person reads as not found.",
   module: "M01",
   permissions: ["membership:write"],
   /** Setting a state. */

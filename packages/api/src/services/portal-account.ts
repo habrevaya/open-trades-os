@@ -129,6 +129,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       windowStart: schema.visit.windowStart,
       windowEnd: schema.visit.windowEnd,
       jobNumber: schema.job.number,
+      jobNumberPrefix: schema.job.numberPrefix,
       summary: schema.job.summary,
       technicianName: schema.technician.displayName,
     })
@@ -146,6 +147,8 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
     const invoiceRows = await tx.select({
       id: schema.invoice.id,
       number: schema.invoice.number,
+      /** The branch's code it was printed with, which the account prints too. */
+      numberPrefix: schema.invoice.numberPrefix,
       status: schema.invoice.status,
       issuedOn: schema.invoice.issuedOn,
       dueOn: schema.invoice.dueOn,
@@ -233,6 +236,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
     const jobRows = await tx.select({
       id: schema.job.id,
       number: schema.job.number,
+      numberPrefix: schema.job.numberPrefix,
       summary: schema.job.summary,
       status: schema.job.status,
       completedAt: schema.job.completedAt,
@@ -256,6 +260,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       visits: visitRows.map((v) => ({
         id: v.id,
         jobNumber: v.jobNumber,
+        jobNumberPrefix: v.jobNumberPrefix,
         summary: v.summary,
         status: v.status,
         windowStart: v.windowStart?.toISOString() ?? null,

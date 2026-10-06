@@ -1,3 +1,4 @@
+import { work } from "@opentradesos/core";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { payerDelivery } from "@opentradesos/api/services";
@@ -57,14 +58,14 @@ export default async function PayerPage({ params }: { params: Promise<{ token: s
         {portal.invoices.map((invoice) => (
           <li key={invoice.number} className="rounded-lg border border-steel-200 bg-canvas p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-semibold">Invoice #{invoice.number}</h2>
+              <h2 className="font-semibold">Invoice #{work.documentNumber(invoice.numberPrefix, invoice.number)}</h2>
               <span className="text-sm text-ink-700">{STATUS[invoice.status] ?? invoice.status}</span>
             </div>
             <p className="mt-1 text-xs text-ink-500">
               {[
                 invoice.issuedOn && `Issued ${day(invoice.issuedOn)}`,
                 invoice.dueOn && `due ${day(invoice.dueOn)}`,
-                invoice.jobNumber !== null && `job ${invoice.jobNumber}`,
+                invoice.jobNumber !== null && `job ${work.documentNumber(invoice.jobNumberPrefix, invoice.jobNumber)}`,
                 invoice.purchaseOrderNumber && `PO ${invoice.purchaseOrderNumber}`,
                 invoice.claimReference && `your claim ${invoice.claimReference}`,
               ].filter(Boolean).join(", ")}

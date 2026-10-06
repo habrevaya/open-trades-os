@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
 } from "./context";
+import * as scoped from "./people-scope";
 import { listFilter } from "./custom-fields";
 
 /**
@@ -876,6 +877,8 @@ export async function listPeople(
       .leftJoin(schema.technician, eq(schema.technician.membershipId, schema.membership.id))
       .where(and(
         eq(schema.membership.organizationId, ctx.actor.organizationId),
+        /** A branch manager's people, the way their timesheets are (`people-scope.ts`). */
+        scoped.members(ctx),
         await listFilter(tx, ctx.actor.organizationId, "technician", input, sql`${schema.technician.customFields}`),
       ))
       .orderBy(asc(schema.membership.createdAt));
@@ -925,6 +928,7 @@ export async function members(ctx: ServiceContext) {
       .where(and(
         eq(schema.membership.organizationId, ctx.actor.organizationId),
         eq(schema.membership.active, true),
+        scoped.members(ctx),
       ))
       .orderBy(asc(schema.membership.createdAt));
 

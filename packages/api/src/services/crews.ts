@@ -1,13 +1,17 @@
-import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assets as assetCore, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, scopeOf,
   type ServiceContext,
 } from "./context";
 import { skillStanding } from "./people";
 import { workSkills } from "./qualification";
 import { announce, sideOf } from "./visit-notices";
+import { jobVisibility } from "./scope";
+import { crewWithin, crews as crewsInView, dispatchPeople, peopleScopeOf, seesEverybody } from "./people-scope";
+import { shopOfCrew } from "./visit-shop";
+import { liveBranch } from "./branches";
 
 /**
  * CREWS: THE SECOND CAPACITY MODEL
@@ -77,6 +81,8 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
     if (name === "") throw new ConflictError("A crew needs a name.");
 
     assertRatePair(input.productionRatePerDay, input.productionUnit);
+    assertCrewPlaceable(ctx, input.businessUnitId ?? null);
+    if (input.businessUnitId) await liveBranch(tx, ctx, input.businessUnitId);
 
     const [row] = await tx.insert(schema.crew).values({
       organizationId: ctx.actor.organizationId,
@@ -98,6 +104,9 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
 export interface CrewUpdate {
   id: string;
   name?: string | undefined;
+  /** The branch and the shop it belongs to. Moving a crew between branches is for the whole company. */
+  businessUnitId?: string | null | undefined;
+  homeLocationId?: string | null | undefined;
   productionRatePerDay?: string | null | undefined;
   productionUnit?: string | null | undefined;
   requiredAssetIds?: string[] | undefined;
@@ -109,7 +118,22 @@ export interface CrewUpdate {
 /** Change what a crew is: its rate, its kit, whether it still exists. */
 export async function update(ctx: ServiceContext, input: CrewUpdate) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
-    const before = await loadCrew(tx, ctx.actor.organizationId, input.id);
+    const before = await crewWithin(tx, ctx, input.id);
+    if (input.businessUnitId !== undefined && input.businessUnitId !== before.businessUnitId) {
+      if (!seesEverybody(ctx)) {
+        throw new ConflictError(
+          "Moving a crew between branches is for somebody who sees the whole company, "
+          + "because you would not see the crew afterwards.",
+        );
+      }
+      if (input.businessUnitId) await liveBranch(tx, ctx, input.businessUnitId);
+    }
+    if (input.homeLocationId) {
+      const [shop] = await tx.select({ id: schema.location.id }).from(schema.location)
+        .where(and(eq(schema.location.id, input.homeLocationId), eq(schema.location.organizationId, ctx.actor.organizationId)))
+        .limit(1);
+      if (!shop) throw new NotFoundError("Shop");
+    }
 
     /**
      * The pair is checked against the RESULT of the edit rather than against
@@ -125,6 +149,8 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
 
     const [row] = await tx.update(schema.crew).set({
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
+      ...(input.homeLocationId !== undefined ? { homeLocationId: input.homeLocationId } : {}),
       ...(input.productionRatePerDay !== undefined
         ? { productionRatePerDay: input.productionRatePerDay } : {}),
       ...(input.productionUnit !== undefined ? { productionUnit: input.productionUnit } : {}),
@@ -138,6 +164,21 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
     await audit(tx, ctx, "crew.updated", "crew", before.id, before, row!);
     return row!;
   });
+}
+
+/**
+ * WHICH BRANCH A NEW CREW GOES IN. Anybody who sees the whole company puts
+ * it where they like, or in none. Anybody narrower puts it in their own
+ * branch, the rule a job follows (`branches.assertPlaceable`): a crew made
+ * somewhere else, or nowhere, is one they could not see again.
+ */
+function assertCrewPlaceable(ctx: ServiceContext, businessUnitId: string | null): void {
+  if (peopleScopeOf(ctx, "visit") === "all") return;
+  if (businessUnitId === null || businessUnitId !== ctx.actor.businessUnitId) {
+    throw new ConflictError(
+      "You can only make a crew in your own branch. Choose your branch, so you can see the crew afterwards.",
+    );
+  }
 }
 
 /** Half a production rate is not a production rate. See `create`. */
@@ -159,9 +200,11 @@ function assertRatePair(rate: string | null | undefined, unit: string | null | u
 
 export async function list(ctx: ServiceContext) {
   return guardedRead(ctx, "visit:read", async (tx) => {
+    /** A branch manager's crews are their branch's (`people-scope.ts`). */
     const crews = await tx.select().from(schema.crew)
       .where(and(
         eq(schema.crew.organizationId, ctx.actor.organizationId),
+        crewsInView(ctx),
       ))
       .orderBy(asc(schema.crew.name));
 
@@ -179,6 +222,7 @@ export async function list(ctx: ServiceContext) {
       id: crew.id,
       name: crew.name,
       businessUnitId: crew.businessUnitId,
+      homeLocationId: crew.homeLocationId,
       productionRatePerDay: crew.productionRatePerDay,
       productionUnit: crew.productionUnit,
       requiredAssetIds: crew.requiredAssetIds,
@@ -222,7 +266,7 @@ export async function setMembers(
   ctx: ServiceContext, input: { id: string; members: MemberInput[] },
 ) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
-    const crew = await loadCrew(tx, ctx.actor.organizationId, input.id);
+    const crew = await crewWithin(tx, ctx, input.id);
 
     const ids = input.members.map((m) => m.technicianId);
     const duplicated = ids.filter((id, i) => ids.indexOf(id) !== i);
@@ -241,12 +285,19 @@ export async function setMembers(
     }
 
     if (ids.length > 0) {
+      /**
+       * Only this person's own people. Putting somebody on a crew widens what
+       * they read (the `crew` scope), so a branch manager drafting another
+       * branch's technician onto theirs is refused, in the same words as an
+       * id that is not there, so the refusal says nothing about who exists.
+       */
       const found = await tx.select({ id: schema.technician.id })
         .from(schema.technician)
         .where(and(
           eq(schema.technician.organizationId, ctx.actor.organizationId),
           inArray(schema.technician.id, ids),
           eq(schema.technician.active, true),
+          dispatchPeople(ctx),
         ));
       if (found.length !== ids.length) {
         throw new ConflictError("One of those technicians is not active in this company.");
@@ -382,10 +433,10 @@ export async function canTake(
   ctx: ServiceContext, input: { id: string; jobId: string; on?: string | undefined },
 ): Promise<CrewVerdict> {
   return guardedRead(ctx, "visit:read", async (tx) => {
-    const crew = await loadCrew(tx, ctx.actor.organizationId, input.id);
+    const crew = await crewWithin(tx, ctx, input.id);
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const on = input.on ?? time.dateIn(new Date(), zone);
-    const job = await loadJob(tx, ctx.actor.organizationId, input.jobId);
+    const job = await loadJob(tx, ctx.actor.organizationId, input.jobId, ctx);
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
     return verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register);
   });
@@ -407,12 +458,14 @@ export async function crewsFor(
   return guardedRead(ctx, "visit:read", async (tx) => {
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const on = input.on ?? time.dateIn(new Date(), zone);
-    const job = await loadJob(tx, ctx.actor.organizationId, input.jobId);
+    const job = await loadJob(tx, ctx.actor.organizationId, input.jobId, ctx);
 
+    /** The crews this person may send, and no other branch's (`people-scope.ts`). */
     const crews = await tx.select().from(schema.crew)
       .where(and(
         eq(schema.crew.organizationId, ctx.actor.organizationId),
         eq(schema.crew.active, true),
+        crewsInView(ctx),
       ))
       .orderBy(asc(schema.crew.name));
 
@@ -823,8 +876,12 @@ export async function assign(
   ctx: ServiceContext, input: { id: string; crewId: string },
 ) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
+    /** A visit on this person's board, and nobody else's: the rule `dispatch.assign` follows. */
     const [visit] = await tx.select().from(schema.visit)
-      .where(eq(schema.visit.id, input.id)).limit(1);
+      .where(and(
+        eq(schema.visit.id, input.id),
+        jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.visit.jobId}`),
+      )).limit(1);
     if (!visit) throw new NotFoundError("Visit");
 
     // The same three terminal states `services/dispatch.ts` refuses to
@@ -833,7 +890,7 @@ export async function assign(
       throw new ConflictError(`This visit is ${visit.status} and cannot be reassigned.`);
     }
 
-    const crew = await loadCrew(tx, ctx.actor.organizationId, input.crewId);
+    const crew = await crewWithin(tx, ctx, input.crewId);
     const job = await loadJob(tx, ctx.actor.organizationId, visit.jobId);
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
 
@@ -877,6 +934,8 @@ export async function assign(
 
     await tx.update(schema.visit).set({
       crewId: crew.id,
+      /** The crew's shop (`visit-shop.ts`). */
+      locationId: await shopOfCrew(tx, crew.id),
       status,
       dispatchedAt: visit.dispatchedAt ?? new Date(),
       updatedAt: new Date(),
@@ -894,32 +953,6 @@ export async function assign(
 /* ----------------------------------------------------------------- loading */
 
 /**
- * NO SOFT DELETE FILTER ON THESE TABLES, AND THAT IS A DECISION.
- *
- * `crew`, `route`, `route_stop` and `on_call_rotation` all carry a
- * `deleted_at` column because every table in this schema does, and nothing in
- * this product sets one. `active` is the retire mechanism here and it is a
- * column something writes: `crews.update`, `routes.setStopActive` and the
- * route's own flag.
- *
- * `test/unwritten-columns.test.ts` makes the argument at length and counts
- * the tables that get it wrong. Its summary is the reason this filter is
- * absent rather than present: a filter on a column nothing sets is
- * decoration, it makes a query look guarded when it is not, and it is
- * indistinguishable in review from one that is doing work. The day one of
- * these tables gets a real delete, the filter goes in beside it.
- */
-async function loadCrew(tx: Database, organizationId: string, id: string) {
-  const [row] = await tx.select().from(schema.crew)
-    .where(and(
-      eq(schema.crew.id, id),
-      eq(schema.crew.organizationId, organizationId),
-    )).limit(1);
-  if (!row) throw new NotFoundError("Crew");
-  return row;
-}
-
-/**
  * The job, plus what its type says the work needs.
  *
  * A left join rather than two reads, and a job with no type is a real state
@@ -927,7 +960,7 @@ async function loadCrew(tx: Database, organizationId: string, id: string) {
  * The verdict says which case it was in `equipmentBasis` instead of
  * pretending an absent type is an empty requirement.
  */
-async function loadJob(tx: Database, organizationId: string, id: string): Promise<JobFacts> {
+async function loadJob(tx: Database, organizationId: string, id: string, ctx?: ServiceContext): Promise<JobFacts> {
   const [row] = await tx.select({
     id: schema.job.id,
     businessUnitId: schema.job.businessUnitId,
@@ -941,6 +974,8 @@ async function loadJob(tx: Database, organizationId: string, id: string): Promis
       eq(schema.job.id, id),
       eq(schema.job.organizationId, organizationId),
       isNull(schema.job.deletedAt),
+      /** Asked by a person, a job on their board; asked inside a planner, its guard decided. */
+      ctx ? jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.job.id}`) : undefined,
     )).limit(1);
   if (!row) throw new NotFoundError("Job");
 
@@ -967,7 +1002,7 @@ async function loadJob(tx: Database, organizationId: string, id: string): Promis
 export const handlers = {
   listCrews: async (ctx: ServiceContext): Promise<{
     crews: {
-      id: string; name: string; businessUnitId: string | null;
+      id: string; name: string; businessUnitId: string | null; homeLocationId: string | null;
       productionRatePerDay: string | null; productionUnit: string | null;
       requiredAssetIds: string[]; skills: string[]; color: string | null; active: boolean;
       members: { technicianId: string; displayName: string; isLead: boolean; active: boolean }[];
@@ -991,6 +1026,8 @@ export const handlers = {
   updateCrew: async (ctx: ServiceContext, input: {
     id: string;
     name?: string | undefined;
+    businessUnitId?: string | null | undefined;
+    homeLocationId?: string | null | undefined;
     productionRatePerDay?: string | null | undefined;
     productionUnit?: string | null | undefined;
     requiredAssetIds?: string[] | undefined;

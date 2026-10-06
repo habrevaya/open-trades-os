@@ -40,6 +40,15 @@ const payerIs = (customerId: string) =>
 interface ExportInvoice {
   id: string;
   number: number;
+  /**
+   * The branch's codes the invoice and its job were printed with, for the
+   * payer's page, which prints the numbers as the invoice does. The CSV and
+   * XML files keep the bare numbers in their own columns: a payer's system
+   * matches on that column, and changing what it holds is a change to their
+   * import nobody has asked for.
+   */
+  numberPrefix: string | null;
+  jobNumberPrefix: string | null;
   issuedOn: string | null;
   dueOn: string | null;
   purchaseOrderNumber: string | null;
@@ -68,6 +77,7 @@ async function invoicesFor(
     invoice: schema.invoice,
     customerName: schema.customer.name,
     jobNumber: schema.job.number,
+    jobNumberPrefix: schema.job.numberPrefix,
     line1: schema.property.addressLine1,
     city: schema.property.city,
     state: schema.property.state,
@@ -97,6 +107,8 @@ async function invoicesFor(
   return rows.map((row) => ({
     id: row.invoice.id,
     number: row.invoice.number,
+    numberPrefix: row.invoice.numberPrefix,
+    jobNumberPrefix: row.jobNumberPrefix,
     issuedOn: row.invoice.issuedOn,
     dueOn: row.invoice.dueOn,
     purchaseOrderNumber: row.invoice.purchaseOrderNumber,

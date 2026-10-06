@@ -224,6 +224,8 @@ export const viewPortalInvoice = defineRoute({
   output: z.object({
     organizationName: z.string(),
     number: z.number().int(),
+    /** The branch's code the invoice was printed with ("HOU"), or null; the page prints them together. */
+    numberPrefix: z.string().nullable(),
     status: z.string(),
     issuedOn: z.string().date().nullable(),
     dueOn: z.string().date().nullable(),

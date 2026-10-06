@@ -261,7 +261,8 @@ export function estimatePrompt(input: {
 
 export interface ReminderFacts {
   customerName: string;
-  invoiceNumber: number;
+  /** As the invoice is printed, with its branch's code in front when it has one ("HOU-1042"). */
+  invoiceNumber: number | string;
   amountOwed: string;
   dueDate: string;
   daysOverdue: number;

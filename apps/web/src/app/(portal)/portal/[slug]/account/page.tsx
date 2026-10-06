@@ -1,3 +1,4 @@
+import { work } from "@opentradesos/core";
 import { getDb } from "@/lib/db";
 import { portalAccount, referrals, savedCards } from "@opentradesos/api/services";
 import { requirePortalSession } from "@/lib/portal-session";
@@ -111,7 +112,7 @@ export default async function SignedInAccountPage({
             balance={invoice.balance}
             currency={invoice.currency}
             tipping={invoice.tipping}
-            label={`invoice #${invoice.number}`}
+            label={`invoice #${work.documentNumber(invoice.numberPrefix, invoice.number)}`}
             savedCards={usable}
             payWithSaved={payWithSavedCard.bind(null, slug, invoice.id)}
           />

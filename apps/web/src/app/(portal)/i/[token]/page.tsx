@@ -1,3 +1,4 @@
+import { work } from "@opentradesos/core";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { financing, invoiceDelivery } from "@opentradesos/api/services";
@@ -68,7 +69,7 @@ export default async function InvoicePage({
     <PortalBrand token={token}>
       <header className="text-center">
         <p className="text-sm font-medium text-ink-700">{invoice.organizationName}</p>
-        <h1 className="mt-1 text-2xl font-semibold">Invoice #{invoice.number}</h1>
+        <h1 className="mt-1 text-2xl font-semibold">Invoice #{work.documentNumber(invoice.numberPrefix, invoice.number)}</h1>
         {invoice.propertyAddress && (
           <p className="mt-1 text-sm text-ink-500">{invoice.propertyAddress}</p>
         )}

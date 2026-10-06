@@ -1,3 +1,4 @@
+import { work } from "@opentradesos/core";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { liveLocation, portal } from "@opentradesos/api/services";
@@ -53,7 +54,7 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
     <PortalBrand token={token}>
       <header className="text-center">
         <p className="text-sm font-medium text-ink-700">{job.organizationName}</p>
-        <h1 className="mt-1 text-2xl font-semibold">{job.summary ?? `Job #${job.jobNumber}`}</h1>
+        <h1 className="mt-1 text-2xl font-semibold">{job.summary ?? `Job #${work.documentNumber(job.jobNumberPrefix, job.jobNumber)}`}</h1>
         <p className="mt-1 text-sm text-ink-500">{job.propertyAddress}</p>
       </header>
 

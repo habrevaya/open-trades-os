@@ -32,6 +32,7 @@ covers. It is not an organizational wall and it is not in scope here.
 | `business_unit_id` on job, invoice, ledger entry, job type, crew, agreement plan, timeclock entry, business hours, on call rotation, bookable service | Yes |
 | The branch written on every ledger posting made from a branch's job or invoice, and on a journal line that names one; the trial balance and the journal filtered by it | Yes. Postings made before this have none and are not migrated, and the reports say how many (`docs/modules/m14-accounting-general-ledger.md`) |
 | `location_id` on visit and membership | Yes |
+| A visit's own shop written when it is booked with somebody or assigned, and shown on the visit | Yes, `services/visit-shop.ts`. Visits from before carry none and are not filled in |
 | `Actor` carries `businessUnitId` and `locationId`, resolved with the session | Yes |
 | Scope ladder includes `business_unit` and `location` | Yes |
 | Job reads filter by branch or shop when the scope asks for it | Yes, `services/scope.ts`, the list and now a job opened by its id or edited |
@@ -42,9 +43,11 @@ covers. It is not an organizational wall and it is not in scope here.
 | Scope applied to customer, invoice and estimate reads | Yes |
 | Scope applied to the visits report dataset | Yes, through the visit's job |
 | Scope applied to the dispatch board, the map, service reports, timesheets and time off | Yes |
+| Scope applied to people, crews and routes: the technicians list, crews, routes, Team and People, and every place the board, the map, the rebalance and the suggestions offer somebody | Yes, `services/people-scope.ts` |
 | A branch filter on the job, customer, invoice and estimate lists and on reports | Yes, for people who see the whole company; it narrows and never widens |
 | Reports grouped by branch | Yes, a Branch column on the jobs, invoices, estimates, visits and job profitability datasets |
-| Numbering, sequences and documents per branch | One sequence per company, decided; a branch's code can be printed in front of new job and invoice numbers, as a company setting |
+| Numbering, sequences and documents per branch | One sequence per company, decided; a branch's code can be printed in front of new job and invoice numbers, as a company setting, and is printed wherever the number is shown: screens, the invoice and statement PDFs, the invoice email, reminders, templates and the portal. A sequence per branch is not decided and not built |
+| A price book per branch | **No**, not decided |
 | Cross branch elimination | **No** |
 
 ## The bug this came out of
@@ -167,6 +170,15 @@ job's. People are scoped by where they belong: a branch, a shop (their day
 starts there or their membership names it), a crew, or themselves. Somebody
 from another branch appears on a branch's board only on that branch's visits.
 
-A shop scope reads a visit as the shop's when it says so or when somebody or
-a crew based at the shop is on it, because nothing writes a visit's own shop
-yet, and a scope that matched only that would match nothing.
+A shop scope reads a visit as the shop's when it says so: its own shop is
+written when it is booked with somebody or assigned, from the lead's start or
+membership, or the crew's base. A visit that carries none (one booked before
+that was written, which nothing filled in, or one nobody has yet) is the
+shop's when somebody or a crew based at the shop is on it.
+
+People, crews and routes are scoped too, so a branch manager is never offered
+somebody from another branch. A crew belongs to the branch it says it is in,
+not to its members' branches, so a mixed crew has one owner; a crew in no
+branch is the office's, like a job in no branch. A route is whoever runs it. A
+person's record is read with the timesheet scope and the dispatch side with
+the visit scope, the two precedents that were already there.

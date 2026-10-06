@@ -92,6 +92,8 @@ export const getDispatchMap = defineRoute({
       start: z.object({ locationId: Uuid, name: z.string(), position: Position.nullable() }).nullable(),
       /** True when this is the company's first location rather than one set for this person. */
       startIsCompanyDefault: z.boolean(),
+      /** One of the reader's own people, rather than another branch's on one of its visits. Only these are offered work. */
+      inScope: z.boolean(),
       /** This technician's visits in the order they will drive them. */
       route: z.array(Uuid),
     })),

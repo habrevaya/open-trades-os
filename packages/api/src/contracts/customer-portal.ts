@@ -127,7 +127,7 @@ export const AccountExtras = z.object({
     declared: z.boolean(),
   })),
   history: z.array(z.object({
-    visitId: Uuid, jobId: Uuid, jobNumber: z.number().int(), summary: z.string(),
+    visitId: Uuid, jobId: Uuid, jobNumber: z.number().int(), jobNumberPrefix: z.string().nullable(), summary: z.string(),
     date: z.string().datetime().nullable(), status: z.string(), technicianName: z.string().nullable(),
     /** What the office shared about the visit, never the technician's own notes. */
     notes: z.string().nullable(),
@@ -178,17 +178,18 @@ export const viewPortalAccount = defineRoute({
       id: Uuid, line1: z.string(), line2: z.string().nullable(),
       city: z.string(), state: z.string(), postalCode: z.string(),
     })),
+    /** `numberPrefix` is the branch's code the job or invoice was printed with ("HOU"), or null. */
     jobs: z.array(z.object({
-      id: Uuid, number: z.number().int(), summary: z.string(), status: z.string(),
+      id: Uuid, number: z.number().int(), numberPrefix: z.string().nullable(), summary: z.string(), status: z.string(),
       completedAt: z.string().datetime().nullable(),
     })),
     visits: z.array(z.object({
-      id: Uuid, jobNumber: z.number().int(), summary: z.string(), status: z.string(),
+      id: Uuid, jobNumber: z.number().int(), jobNumberPrefix: z.string().nullable(), summary: z.string(), status: z.string(),
       windowStart: z.string().datetime().nullable(), windowEnd: z.string().datetime().nullable(),
       technicianName: z.string().nullable(),
     })),
     invoices: z.array(z.object({
-      id: Uuid, number: z.number().int(), status: z.string(),
+      id: Uuid, number: z.number().int(), numberPrefix: z.string().nullable(), status: z.string(),
       issuedOn: z.string().date().nullable(), dueOn: z.string().date().nullable(),
       currency: z.string(), total: MoneyString, balance: MoneyString, payable: z.boolean(),
       /** A bank payment for it is on its way, so it is not offered for payment again until it arrives or fails. */

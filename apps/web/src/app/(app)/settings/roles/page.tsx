@@ -5,7 +5,7 @@ import { can, ROLE_IDS, ROLE_PRESETS } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
-import { createRole, removeRole } from "./actions";
+import { createRole, giveWholeCompany, removeRole } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +61,13 @@ export default async function RolesPage() {
   }
 
   const custom = await roleService.list(ctx);
+  /**
+   * Roles that name no scope: saved, before the screen wrote that choice
+   * out, as "the whole company", and seeing only their holders' own work
+   * since. Or made that way on purpose; nothing can tell which, so the
+   * screen asks rather than changing anybody's access.
+   */
+  const unclear = custom.filter((role) => roleService.namesNoScope(role));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -72,6 +79,32 @@ export default async function RolesPage() {
         shop set, and Team refuses it for somebody who has neither. The Branch manager preset is already a
         branch&apos;s office manager.
       </p>
+
+      {unclear.length > 0 ? (
+        <section className="mt-6 max-w-3xl rounded-md border border-amber-700 bg-amber-tint p-4" aria-label="Roles to check">
+          <h2 className="text-base font-semibold">
+            {unclear.length === 1 ? "One role may need fixing" : `${unclear.length} roles may need fixing`}
+          </h2>
+          <p className="mt-1 text-sm text-ink-700">
+            A role made here before a recent change, with &quot;The whole company&quot; chosen, was saved without it.
+            People with it have been seeing only their own work. If that is not what you meant, give it the whole
+            company. Their access changes as soon as you do.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {unclear.map((role) => (
+              <li key={role.id}>
+                <ActionForm action={giveWholeCompany} submit={`Give ${role.name} the whole company`}
+                            hidden={{ id: role.id }} className="space-y-2">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="confirm" value="yes" required className="mt-0.5 h-4 w-4" />
+                    <span>Yes, people with {role.name} should see every job, customer, invoice and report.</span>
+                  </label>
+                </ActionForm>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {custom.length === 0 ? (
         <Empty title="No roles of your own yet">
@@ -86,7 +119,10 @@ export default async function RolesPage() {
                 {role.description ? <span className="block text-xs text-ink-500">{role.description}</span> : null}
               </Td>
               <Td className="text-ink-700">{role.basedOn ? ROLE_PRESETS[role.basedOn]?.label ?? role.basedOn : ""}</Td>
-              <Td><Chip tone="info">{seesLabel(role.scopes)}</Chip></Td>
+              <Td>
+                <Chip tone="info">{seesLabel(role.scopes)}</Chip>
+                {roleService.namesNoScope(role) ? <Chip tone="warning" className="ml-2">Check this</Chip> : null}
+              </Td>
               <Td className="text-right tabular-nums">{role.permissions.length}</Td>
               <Td>
                 <ActionForm action={removeRole} tone="danger" submit={`Remove ${role.name}`}

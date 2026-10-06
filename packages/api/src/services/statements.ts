@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { ledger, money as m, time } from "@opentradesos/core";
+import { ledger, money as m, time, work } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, contactOf, guardedRead, NotFoundError, UnprocessableError, timezoneOf,
@@ -116,7 +116,8 @@ export async function buildStatement(
     }
 
     const open = await tx.select({
-      id: schema.invoice.id, number: schema.invoice.number, issuedOn: schema.invoice.issuedOn,
+      id: schema.invoice.id, number: schema.invoice.number, numberPrefix: schema.invoice.numberPrefix,
+      issuedOn: schema.invoice.issuedOn,
       dueOn: schema.invoice.dueOn, total: schema.invoice.total, balance: schema.invoice.balance,
     }).from(schema.invoice).where(and(
       sql`coalesce(${schema.invoice.payerCustomerId}, ${schema.invoice.customerId}) = ${customer.id}`,
@@ -195,13 +196,16 @@ async function describe(tx: Database, items: Array<{ sourceType: string; sourceI
 
   const invoiceIds = ids([...INVOICE_SOURCES]);
   if (invoiceIds.length > 0) {
-    const invoices = await tx.select({ id: schema.invoice.id, number: schema.invoice.number })
-      .from(schema.invoice).where(inArray(schema.invoice.id, invoiceIds));
+    const invoices = await tx.select({
+      id: schema.invoice.id, number: schema.invoice.number, prefix: schema.invoice.numberPrefix,
+    }).from(schema.invoice).where(inArray(schema.invoice.id, invoiceIds));
     for (const invoice of invoices) {
-      names.set(`invoice:${invoice.id}`, `Invoice ${invoice.number}`);
-      names.set(`agreement_billing:${invoice.id}`, `Agreement invoice ${invoice.number}`);
-      names.set(`void:${invoice.id}`, `Invoice ${invoice.number} voided`);
-      names.set(`write_off:${invoice.id}`, `Invoice ${invoice.number} written off`);
+      /** As the invoice itself is printed, its branch's code in front when it has one. */
+      const number = work.documentNumber(invoice.prefix, invoice.number);
+      names.set(`invoice:${invoice.id}`, `Invoice ${number}`);
+      names.set(`agreement_billing:${invoice.id}`, `Agreement invoice ${number}`);
+      names.set(`void:${invoice.id}`, `Invoice ${number} voided`);
+      names.set(`write_off:${invoice.id}`, `Invoice ${number} written off`);
     }
   }
   const paymentIds = ids(["payment", "refund"]);

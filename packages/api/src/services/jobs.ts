@@ -14,6 +14,8 @@ import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
 import { assertPlaceable } from "./branches";
+import { crews as crewsInView, dispatchPeople } from "./people-scope";
+import { shopNames, shopOfCrew, shopOfPeople } from "./visit-shop";
 import { emit } from "./events";
 import { announce, NEW_VISIT, sideOf } from "./visit-notices";
 import { awayBetween } from "./time-off";
@@ -210,10 +212,17 @@ async function visitsOf(tx: Database, jobId: string) {
   }).from(schema.visitAssignment)
     .where(inArray(schema.visitAssignment.visitId, visits.map((v) => v.id)))
     .orderBy(desc(schema.visitAssignment.isLead));
+  const shops = await shopNames(tx, visits.map((v) => v.locationId));
   return visits.map((v) => ({
     ...withProvenance(v),
     technicianIds: assigned.filter((a) => a.visitId === v.id).map((a) => a.technicianId),
+    locationName: v.locationId ? shops.get(v.locationId) ?? null : null,
   }));
+}
+
+/** One visit's shop by name, or null. */
+async function shopName(tx: Database, locationId: string | null): Promise<string | null> {
+  return locationId ? (await shopNames(tx, [locationId])).get(locationId) ?? null : null;
 }
 
 async function assignedTo(tx: Database, visitId: string): Promise<string[]> {
@@ -275,6 +284,31 @@ async function assertCallbackParent(
  * inconvenient: a migration loading last year's visits must not fail because
  * somebody also took that week off.
  */
+/**
+ * The people and the crew a visit is booked with are ones this person
+ * dispatches. A branch manager booking Houston work puts it on Houston's
+ * people; another branch's technician or crew is refused in the words an id
+ * that is not there gets, as the board's assignment does.
+ */
+async function assertDispatchable(
+  tx: Database, ctx: ServiceContext, technicianIds: readonly string[], crewId: string | null,
+): Promise<void> {
+  const people = dispatchPeople(ctx);
+  if (people && technicianIds.length > 0) {
+    const ours = await tx.select({ id: schema.technician.id }).from(schema.technician)
+      .where(and(inArray(schema.technician.id, [...technicianIds]), people));
+    if (ours.length !== new Set(technicianIds).size) {
+      throw new ConflictError("One of those technicians is not active in this company.");
+    }
+  }
+  const crews = crewsInView(ctx);
+  if (crews && crewId) {
+    const [ours] = await tx.select({ id: schema.crew.id }).from(schema.crew)
+      .where(and(eq(schema.crew.id, crewId), crews)).limit(1);
+    if (!ours) throw new NotFoundError("Crew");
+  }
+}
+
 async function assertAvailable(
   tx: Database, organizationId: string,
   technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
@@ -398,6 +432,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     await assertUnclaimed(tx, "job", input.externalRef);
     await assertUnclaimed(tx, "visit", input.visit?.externalRef);
     if (input.visit) {
+      await assertDispatchable(tx, ctx, input.visit.technicianIds, null);
       await assertAvailable(
         tx, ctx.actor.organizationId, input.visit.technicianIds,
         new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
@@ -512,6 +547,8 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         windowStart: new Date(input.visit.windowStart),
         windowEnd: new Date(input.visit.windowEnd),
         estimatedDurationMinutes: input.visit.estimatedDurationMinutes,
+        /** The shop of whoever it is booked with (`visit-shop.ts`). */
+        locationId: await shopOfPeople(tx, input.visit.technicianIds),
         ...provenance(input.visit.externalRef),
       }).returning({ id: schema.visit.id });
 
@@ -929,7 +966,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       if (seen?.entityId) {
         const [existing] = await tx.select().from(schema.visit)
           .where(eq(schema.visit.id, seen.entityId)).limit(1);
-        if (existing) return { ...withProvenance(existing), technicianIds: await assignedTo(tx, existing.id) };
+        if (existing) return { ...withProvenance(existing), technicianIds: await assignedTo(tx, existing.id), locationName: await shopName(tx, existing.locationId) };
       }
     }
 
@@ -963,6 +1000,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       }]);
     }
 
+    await assertDispatchable(tx, ctx, input.technicianIds, input.crewId ?? null);
     if (input.windowStart && input.windowEnd && input.status !== "cancelled") {
       await assertAvailable(
         tx, ctx.actor.organizationId, input.technicianIds,
@@ -1002,6 +1040,8 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       windowEnd: input.windowEnd ? new Date(input.windowEnd) : null,
       estimatedDurationMinutes: input.estimatedDurationMinutes,
       crewId: input.crewId ?? null,
+      /** The shop of the crew or the people it is booked with (`visit-shop.ts`). */
+      locationId: input.crewId ? await shopOfCrew(tx, input.crewId) : await shopOfPeople(tx, input.technicianIds),
       ...provenance(input.externalRef),
     }).returning();
 
@@ -1047,7 +1087,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
     }
 
     await audit(tx, ctx, "visit.scheduled", "visit", visit!.id, null, visit!);
-    return { ...withProvenance(visit!), technicianIds: input.technicianIds };
+    return { ...withProvenance(visit!), technicianIds: input.technicianIds, locationName: await shopName(tx, visit!.locationId) };
   });
 }
 
@@ -1068,7 +1108,7 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
 
     if (visit.status === "completed" || visit.status === "completed_after_cancellation") {
       // Idempotent by nature: a retry from a truck must not double-complete.
-      return { ...withProvenance(visit), technicianIds: await assignedTo(tx, visit.id), raisedDispatchException: false };
+      return { ...withProvenance(visit), technicianIds: await assignedTo(tx, visit.id), locationName: await shopName(tx, visit.locationId), raisedDispatchException: false };
     }
 
     const wasCancelled = visit.status === "cancelled";
@@ -1192,7 +1232,7 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
     });
 
     await audit(tx, ctx, "visit.completed", "visit", input.id, visit, updated!);
-    return { ...withProvenance(updated!), technicianIds: await assignedTo(tx, input.id), raisedDispatchException: wasCancelled };
+    return { ...withProvenance(updated!), technicianIds: await assignedTo(tx, input.id), locationName: await shopName(tx, updated!.locationId), raisedDispatchException: wasCancelled };
   });
 }
 

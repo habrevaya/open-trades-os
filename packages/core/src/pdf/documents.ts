@@ -1,6 +1,7 @@
 import { Flow, INK, MUTED, RULE, LOSS, longDate, usd, quantity, type Column } from "./layout.js";
 import { hex, fit, type RenderOptions, type Rgb } from "./writer.js";
 import type { PdfImage } from "./image.js";
+import { documentNumber } from "../work/index.js";
 import {
   barLayout, seriesLayout, labelEvery, type ChartPlan, type ChartColumn, type ChartRow,
 } from "../reporting/chart.js";
@@ -42,6 +43,12 @@ const accentOf = (company: Company): Rgb | null => (company.color ? hex(company.
 export interface InvoicePdfInput {
   company: Company;
   number: number;
+  /**
+   * The branch's code written on the invoice when it was made ("HOU"),
+   * printed in front of the number wherever the number is, as the screens
+   * print it. Absent or null prints the number alone.
+   */
+  numberPrefix?: string | null | undefined;
   status: string;
   issuedOn: string | null;
   dueOn: string | null;
@@ -86,7 +93,7 @@ export function invoicePdf(input: InvoicePdfInput, options: RenderOptions = {}):
     contact: input.company.contact,
     accent: accentOf(input.company),
     logo: input.company.logo ?? null,
-    title: `Invoice ${input.number}`,
+    title: `Invoice ${documentNumber(input.numberPrefix, input.number)}`,
     subtitle: [input.issuedOn ? `Issued ${longDate(input.issuedOn)}` : null, input.dueOn ? `Due ${longDate(input.dueOn)}` : null]
       .filter(Boolean).join(", ") || undefined,
   });
@@ -135,9 +142,9 @@ export function invoicePdf(input: InvoicePdfInput, options: RenderOptions = {}):
   if (input.note) { flow.gap(14); flow.paragraph(input.note, { color: MUTED }); }
 
   return flow.finish({
-    title: `${input.company.name} invoice ${input.number}`,
+    title: `${input.company.name} invoice ${documentNumber(input.numberPrefix, input.number)}`,
     createdAt: input.generatedAt,
-    footer: `${input.company.name}, invoice ${input.number}`,
+    footer: `${input.company.name}, invoice ${documentNumber(input.numberPrefix, input.number)}`,
   }, options);
 }
 
@@ -327,7 +334,8 @@ export interface StatementPdfInput {
   heldOnAccount: string;
   lines: Array<{ date: string; description: string; charge: string | null; credit: string | null; balance: string }>;
   aging: { current: string; days1To30: string; days31To60: string; days61To90: string; over90: string };
-  openInvoices: Array<{ number: number; issuedOn: string | null; dueOn: string | null; total: string; balance: string; daysOverdue: number }>;
+  /** Each with its branch's code when it was printed with one, as on the invoice itself. */
+  openInvoices: Array<{ number: number; numberPrefix?: string | null | undefined; issuedOn: string | null; dueOn: string | null; total: string; balance: string; daysOverdue: number }>;
   generatedAt: Date;
   /** The company's calendar day it was produced on, said on the page. */
   asOf: string;
@@ -395,7 +403,7 @@ export function statementPdf(input: StatementPdfInput, options: RenderOptions = 
         { label: "Total", width: 84, align: "right" }, { label: "Still owed", width: 84, align: "right" },
       ],
       input.openInvoices.map((inv) => [
-        String(inv.number), longDate(inv.issuedOn),
+        documentNumber(inv.numberPrefix, inv.number), longDate(inv.issuedOn),
         inv.dueOn ? `${longDate(inv.dueOn)}${inv.daysOverdue > 0 ? `, ${inv.daysOverdue} days late` : ""}` : "",
         usd(inv.total), usd(inv.balance),
       ]),

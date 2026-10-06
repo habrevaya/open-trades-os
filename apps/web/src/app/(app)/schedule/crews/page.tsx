@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { crews, onCall, people, inTenant } from "@opentradesos/api/services";
+import { branches, crews, onCall, people, inTenant } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
@@ -62,6 +62,16 @@ export default async function CrewsPage() {
   ]);
 
   const dispatches = can(user.actor, "visit:dispatch");
+  /**
+   * The branches a crew can be put in. Somebody limited to their branch makes
+   * crews in it and nowhere else, so they are offered theirs alone; moving a
+   * crew between branches is for somebody who sees the whole company.
+   */
+  const choices = await branches.options(ctx).catch(() => null);
+  const branchList = choices?.branches ?? [];
+  const narrowed = choices?.narrowed ?? true;
+  const offered = narrowed ? branchList.filter((b) => b.id === choices?.yours) : branchList;
+  const branchName = new Map(branchList.map((b) => [b.id, b.name]));
   const crew = can(user.actor, "user:read")
     ? (await people.handlers.listPeople(ctx, {})).people
         .filter((person) => person.technicianId && person.active)
@@ -74,6 +84,7 @@ export default async function CrewsPage() {
       <h2 className="mt-6 text-base font-semibold">Crews</h2>
       <Crews
         crews={all}
+        branchOf={branchList.length > 0 ? (row) => (row.businessUnitId ? branchName.get(row.businessUnitId) ?? null : null) : undefined}
         controls={dispatches ? (row) => (
           <div className="flex flex-wrap gap-2">
             {crew.length > 0 && (
@@ -103,6 +114,15 @@ export default async function CrewsPage() {
                 </select>
               </ActionForm>
             )}
+            {!narrowed && branchList.length > 0 && (
+              <ActionForm op="branch" label="Move" quiet hidden={{ id: row.id }}>
+                <select name="businessUnitId" className={input} aria-label={`Branch of ${row.name}`}
+                        defaultValue={row.businessUnitId ?? ""}>
+                  <option value="">No branch</option>
+                  {branchList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </ActionForm>
+            )}
             {row.active
               ? <ActionForm op="retire" label="Retire" quiet hidden={{ id: row.id }} />
               : <ActionForm op="restore" label="Bring back" quiet hidden={{ id: row.id }} />}
@@ -127,6 +147,13 @@ export default async function CrewsPage() {
                    aria-label="Unit the rate is in" className={`${input} w-32`} />
             <input name="skill" placeholder="A skill" aria-label="A skill this crew holds"
                    className={`${input} w-32`} />
+            {offered.length > 0 && (
+              <select name="businessUnitId" className={input} aria-label="Branch"
+                      defaultValue={narrowed ? offered[0]!.id : ""}>
+                {!narrowed && <option value="">No branch</option>}
+                {offered.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
           </ActionForm>
         </section>
       )}

@@ -6,6 +6,8 @@ import {
   type ServiceContext,
 } from "./context";
 import { nextNumber } from "./jobs";
+import { crews as crewsInView, dispatchPeople, routes as routesInView, routeWithin } from "./people-scope";
+import { shopOfCrew, shopOfPeople } from "./visit-shop";
 import { connectedRouter, providerLabel, travelMatrix } from "./travel-times";
 
 /**
@@ -126,11 +128,18 @@ export async function create(ctx: ServiceContext, input: RouteInput) {
     }
 
     if (technicianId) {
+      /**
+       * Somebody this person dispatches: a route for another branch's
+       * technician or crew is one they could not see afterwards, and is
+       * refused exactly as an id that is not there, so the answer does not
+       * say whether it is.
+       */
       const [found] = await tx.select({ id: schema.technician.id }).from(schema.technician)
         .where(and(
           eq(schema.technician.id, technicianId),
           eq(schema.technician.organizationId, ctx.actor.organizationId),
           eq(schema.technician.active, true),
+          dispatchPeople(ctx),
         )).limit(1);
       if (!found) throw new ConflictError("That technician is not active in this company.");
     }
@@ -140,6 +149,7 @@ export async function create(ctx: ServiceContext, input: RouteInput) {
           eq(schema.crew.id, crewId),
           eq(schema.crew.organizationId, ctx.actor.organizationId),
           eq(schema.crew.active, true),
+          crewsInView(ctx),
         )).limit(1);
       if (!found) throw new ConflictError("That crew is not active in this company.");
     }
@@ -169,9 +179,11 @@ export async function create(ctx: ServiceContext, input: RouteInput) {
 
 export async function list(ctx: ServiceContext) {
   return guardedRead(ctx, "job:read", async (tx) => {
+    /** Whoever runs a route decides whose it is: a branch manager's are their people's and crews'. */
     const routes = await tx.select().from(schema.route)
       .where(and(
         eq(schema.route.organizationId, ctx.actor.organizationId),
+        routesInView(ctx),
       ))
       .orderBy(asc(schema.route.dayOfWeek), asc(schema.route.name));
 
@@ -207,7 +219,7 @@ export async function list(ctx: ServiceContext) {
 /** The stops, in the order they are driven. */
 export async function stops(ctx: ServiceContext, input: { id: string }) {
   return guardedRead(ctx, "job:read", async (tx) => {
-    const route = await loadRoute(tx, ctx.actor.organizationId, input.id);
+    const route = await routeWithin(tx, ctx, input.id);
     return listStops(tx, route.id);
   });
 }
@@ -240,7 +252,7 @@ export interface StopInput {
  */
 export async function addStop(ctx: ServiceContext, input: StopInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
-    const route = await loadRoute(tx, ctx.actor.organizationId, input.routeId);
+    const route = await routeWithin(tx, ctx, input.routeId);
 
     const [property] = await tx.select({ id: schema.property.id }).from(schema.property)
       .where(and(
@@ -311,7 +323,7 @@ export async function reorder(
   ctx: ServiceContext, input: { id: string; stopIds: string[] },
 ) {
   return guardedWrite(ctx, "job:write", async (tx) => {
-    const route = await loadRoute(tx, ctx.actor.organizationId, input.id);
+    const route = await routeWithin(tx, ctx, input.id);
     const current = await listStops(tx, route.id);
     const active = current.filter((s) => s.active);
 
@@ -355,12 +367,7 @@ export async function setStopActive(
   ctx: ServiceContext, input: { id: string; active: boolean },
 ) {
   return guardedWrite(ctx, "job:write", async (tx) => {
-    const [stop] = await tx.select().from(schema.routeStop)
-      .where(and(
-        eq(schema.routeStop.id, input.id),
-        eq(schema.routeStop.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!stop) throw new NotFoundError("Route stop");
+    const stop = await stopWithin(tx, ctx, input.id);
 
     await tx.update(schema.routeStop)
       .set({ active: input.active, updatedAt: new Date() })
@@ -389,12 +396,7 @@ export async function recordServiced(
   ctx: ServiceContext, input: { id: string; servicedOn: string },
 ) {
   return guardedWrite(ctx, "job:write", async (tx) => {
-    const [stop] = await tx.select().from(schema.routeStop)
-      .where(and(
-        eq(schema.routeStop.id, input.id),
-        eq(schema.routeStop.organizationId, ctx.actor.organizationId),
-      )).limit(1);
-    if (!stop) throw new NotFoundError("Route stop");
+    const stop = await stopWithin(tx, ctx, input.id);
 
     if (stop.lastServicedOn && input.servicedOn < stop.lastServicedOn) {
       throw new ConflictError(
@@ -452,7 +454,7 @@ export async function materialise(
   ctx: ServiceContext, input: { id: string; date: string },
 ): Promise<MaterialiseResult> {
   return guardedWrite(ctx, "job:write", async (tx) => {
-    const route = await loadRoute(tx, ctx.actor.organizationId, input.id);
+    const route = await routeWithin(tx, ctx, input.id);
     if (!route.active) {
       throw new ConflictError("That route is paused, so nothing should be created from it.");
     }
@@ -487,6 +489,8 @@ export async function materialise(
     const created: MaterialiseResult["created"] = [];
     const notDue: { stopId: string; dueOn: string }[] = [];
     let alreadyThere = 0;
+    const shop = route.crewId ? await shopOfCrew(tx, route.crewId)
+      : route.technicianId ? await shopOfPeople(tx, [route.technicianId]) : null;
 
     for (const stop of active) {
       const ref = `${stop.id}:${input.date}`;
@@ -573,6 +577,8 @@ export async function materialise(
         /** The sequence IS the route order. That is what the board draws. */
         routeOrder: stop.sequence,
         crewId: route.crewId,
+        /** The shop of whoever runs the route (`visit-shop.ts`). */
+        locationId: shop,
       }).returning({ id: schema.visit.id });
 
       /**
@@ -697,7 +703,7 @@ export async function density(
   input: { id: string; addingStopOfMinutes?: number | undefined },
 ): Promise<Density> {
   const loaded = await guardedRead(ctx, "job:read", async (tx) => {
-    const route = await loadRoute(tx, ctx.actor.organizationId, input.id);
+    const route = await routeWithin(tx, ctx, input.id);
     const active = (await listStops(tx, route.id)).filter((s) => s.active);
     const day = await workingDay(tx, ctx.actor.organizationId, route.dayOfWeek);
     const start = await servicerStart(tx, ctx.actor.organizationId, route);
@@ -952,29 +958,20 @@ function minutesOfClock(value: string): number | null {
 /* ----------------------------------------------------------------- loading */
 
 /**
- * NO SOFT DELETE FILTER ON THESE TABLES, AND THAT IS A DECISION.
- *
- * `crew`, `route`, `route_stop` and `on_call_rotation` all carry a
- * `deleted_at` column because every table in this schema does, and nothing in
- * this product sets one. `active` is the retire mechanism here and it is a
- * column something writes: `crews.update`, `routes.setStopActive` and the
- * route's own flag.
- *
- * `test/unwritten-columns.test.ts` makes the argument at length and counts
- * the tables that get it wrong. Its summary is the reason this filter is
- * absent rather than present: a filter on a column nothing sets is
- * decoration, it makes a query look guarded when it is not, and it is
- * indistinguishable in review from one that is doing work. The day one of
- * these tables gets a real delete, the filter goes in beside it.
+ * A stop by its own id, on a route this person sees, or not found: a stop
+ * is its route's, and its route is whoever runs it (`people-scope.ts`,
+ * which also says why neither table is filtered on `deleted_at`).
  */
-async function loadRoute(tx: Database, organizationId: string, id: string) {
-  const [row] = await tx.select().from(schema.route)
+async function stopWithin(tx: Database, ctx: ServiceContext, id: string) {
+  const [row] = await tx.select({ stop: schema.routeStop }).from(schema.routeStop)
+    .innerJoin(schema.route, eq(schema.route.id, schema.routeStop.routeId))
     .where(and(
-      eq(schema.route.id, id),
-      eq(schema.route.organizationId, organizationId),
+      eq(schema.routeStop.id, id),
+      eq(schema.routeStop.organizationId, ctx.actor.organizationId),
+      routesInView(ctx),
     )).limit(1);
-  if (!row) throw new NotFoundError("Route");
-  return row;
+  if (!row) throw new NotFoundError("Route stop");
+  return row.stop;
 }
 
 async function listStops(tx: Database, routeId: string) {

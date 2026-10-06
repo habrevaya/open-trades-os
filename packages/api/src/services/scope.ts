@@ -29,6 +29,8 @@ import type { Scope } from "@opentradesos/core";
 const NOTHING: SQL = sql`false`;
 
 export interface ScopeContext {
+  /** The person asking, for the people filters' `own`: their own membership. */
+  userId?: string | undefined;
   technicianId?: string | undefined;
   crewIds?: readonly string[] | undefined;
   businessUnitId?: string | undefined;
@@ -109,12 +111,15 @@ export function jobVisibility(scope: Scope, actor: ScopeContext, jobId: SQL): SQ
      * one job can be served from two shops, so this asks whether any of its
      * visits were.
      *
-     * A visit is the shop's when it says so (`visit.location_id`), or when
-     * somebody based at the shop is on it: a technician whose day starts
-     * there or whose membership is there, or a crew based there. Nothing
-     * writes a visit's own shop yet, so with only the first test this scope
-     * matched nothing at all, and a "their shop's work" role read as a shop
-     * with no work.
+     * A visit is the shop's when it says so: `visit.location_id`, written
+     * when it is booked with somebody or assigned (`visit-shop.ts`). Read
+     * there and nowhere else once written, so a technician who moves shops
+     * does not take the work they did from the old one with them.
+     *
+     * A visit that carries no shop (one booked before the shop was written,
+     * which nothing filled in afterwards, or one nobody has yet) is the
+     * shop's when somebody based there is on it: a technician whose day
+     * starts there or whose membership is there, or a crew based there.
      */
     case "location": {
       if (!actor.locationId) return NOTHING;
@@ -124,14 +129,16 @@ export function jobVisibility(scope: Scope, actor: ScopeContext, jobId: SQL): SQ
         where v.job_id = ${jobId}
           and (
             v.location_id = ${shop}
-            or exists (select 1 from public.crew lc where lc.id = v.crew_id and lc.home_location_id = ${shop})
-            or exists (
-              select 1 from public.visit_assignment lva
-              join public.technician lt on lt.id = lva.technician_id
-              left join public.membership lm on lm.id = lt.membership_id
-              where lva.visit_id = v.id
-                and (lt.home_location_id = ${shop} or lm.location_id = ${shop})
-            )
+            or (v.location_id is null and (
+              exists (select 1 from public.crew lc where lc.id = v.crew_id and lc.home_location_id = ${shop})
+              or exists (
+                select 1 from public.visit_assignment lva
+                join public.technician lt on lt.id = lva.technician_id
+                left join public.membership lm on lm.id = lt.membership_id
+                where lva.visit_id = v.id
+                  and (lt.home_location_id = ${shop} or lm.location_id = ${shop})
+              )
+            ))
           )
       )`;
     }
@@ -336,3 +343,107 @@ export function technicianScopeFilter(scope: Scope, actor: ScopeContext): SQL | 
  */
 export const serviceReportScopeFilter = (scope: Scope, actor: ScopeContext): SQL | undefined =>
   jobVisibility(scope, actor, sql`${schema.serviceReport.jobId}`);
+
+/* ------------------------------------------- people records, crews, routes */
+
+/**
+ * WHICH PEOPLE, as a condition on the membership table: the Team and People
+ * lists, and a person's own record opened by its id.
+ *
+ * The same ladder as `technicianScopeFilter`, read off the membership
+ * because an office person has a membership and no technician row:
+ *
+ *   own            their own membership
+ *   crew           theirs, and the people on their crews
+ *   business_unit  the people whose branch is this person's branch
+ *   location       the people based at this person's shop: their
+ *                  membership names it, or their day starts there
+ *
+ * Somebody in no branch belongs to nobody's branch, the rule a job with no
+ * branch follows: only people who see the whole company see them.
+ */
+export function membershipScopeFilter(scope: Scope, actor: ScopeContext): SQL | undefined {
+  switch (scope) {
+    case "all":
+      return undefined;
+    case "own":
+      return actor.userId ? sql`${schema.membership.userId} = ${actor.userId}` : NOTHING;
+    case "crew": {
+      const crews = actor.crewIds ?? [];
+      const self = actor.userId ? sql`${schema.membership.userId} = ${actor.userId}` : NOTHING;
+      if (crews.length === 0) return self;
+      return sql`(${self} or exists (
+        select 1 from public.technician mt
+        join public.crew_member mcm on mcm.technician_id = mt.id
+        where mt.membership_id = ${schema.membership.id} and mcm.crew_id in ${crews}
+      ))`;
+    }
+    case "business_unit":
+      return actor.businessUnitId
+        ? sql`${schema.membership.businessUnitId} = ${actor.businessUnitId}`
+        : NOTHING;
+    case "location":
+      if (!actor.locationId) return NOTHING;
+      return sql`(${schema.membership.locationId} = ${actor.locationId} or exists (
+        select 1 from public.technician mt
+        where mt.membership_id = ${schema.membership.id} and mt.home_location_id = ${actor.locationId}
+      ))`;
+    default:
+      return NOTHING;
+  }
+}
+
+/**
+ * WHICH CREWS, as a condition on the crew table.
+ *
+ * A crew is a branch's when it says so (`crew.business_unit_id`), and a
+ * shop's when it is based there. Not when some of its people are: a crew
+ * with an Austin lead and a Houston helper would then be both branches', and
+ * either manager could change who is on it. A crew in no branch is the
+ * office's, like a job in no branch, and Settings, Crews puts it in one.
+ * Someone limited to their own work or their crew's sees the crews they
+ * are on.
+ */
+export function crewScopeFilter(scope: Scope, actor: ScopeContext): SQL | undefined {
+  switch (scope) {
+    case "all":
+      return undefined;
+    case "own":
+    case "crew": {
+      /**
+       * The same answer for both: a person's crews are the ones they are on,
+       * which is what `crewIds` is read from at sign in. Asked of the table
+       * as well, so a crew somebody was put on since they signed in counts.
+       */
+      const crews = actor.crewIds ?? [];
+      const onIt = actor.technicianId
+        ? sql`exists (
+            select 1 from public.crew_member ccm
+            where ccm.crew_id = ${schema.crew.id} and ccm.technician_id = ${actor.technicianId}
+          )`
+        : NOTHING;
+      return crews.length === 0 ? onIt : sql`(${schema.crew.id} in ${crews} or ${onIt})`;
+    }
+    case "business_unit":
+      return actor.businessUnitId ? sql`${schema.crew.businessUnitId} = ${actor.businessUnitId}` : NOTHING;
+    case "location":
+      return actor.locationId ? sql`${schema.crew.homeLocationId} = ${actor.locationId}` : NOTHING;
+    default:
+      return NOTHING;
+  }
+}
+
+/**
+ * WHICH ROUTES, as a condition on the route table: a route is whoever runs
+ * it, so it is seen by whoever sees its technician or its crew. A route run
+ * by nobody yet belongs to no branch, and only the whole company sees it.
+ */
+export function routeScopeFilter(scope: Scope, actor: ScopeContext): SQL | undefined {
+  if (scope === "all") return undefined;
+  const person = technicianScopeFilter(scope, actor) ?? NOTHING;
+  const crew = crewScopeFilter(scope, actor) ?? NOTHING;
+  return sql`(
+    exists (select 1 from public.technician where ${schema.technician.id} = ${schema.route.technicianId} and ${person})
+    or exists (select 1 from public.crew where ${schema.crew.id} = ${schema.route.crewId} and ${crew})
+  )`;
+}

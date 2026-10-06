@@ -79,8 +79,9 @@ export async function resend(_previous: FormState, form: FormData): Promise<Form
 
 /**
  * A preset (`preset:technician`) or one of the company's own roles
- * (`role:<id>`). A custom role goes through `roles.assign`, which checks the
- * same authority and refuses a branch role for somebody with no branch.
+ * (`role:<id>`). A custom role goes through `roles.assignCustomRole`, which
+ * checks the same authority both ways, as a preset change does, and refuses
+ * a branch role for somebody with no branch.
  */
 export async function changeRole(_previous: FormState, form: FormData): Promise<FormState> {
   const membershipId = String(form.get("membershipId") ?? "");
@@ -89,13 +90,9 @@ export async function changeRole(_previous: FormState, form: FormData): Promise<
     const context = await ctx();
     if (choice.startsWith("role:")) {
       try {
-        await roles.assign(context, { membershipId, roleId: choice.slice("role:".length) });
+        await roles.assignCustomRole(context, { membershipId, roleId: choice.slice("role:".length) });
       } catch (error) {
-        if (error instanceof roles.RoleEscalationError) {
-          throw new ConflictError(
-            `You cannot give somebody that role, because it carries more than you hold yourself (${error.message.replace(/^You do not hold: /, "")}).`,
-          );
-        }
+        if (error instanceof roles.RoleEscalationError) throw new ConflictError(error.sentence);
         throw error;
       }
       return { message: "Saved." };

@@ -6,6 +6,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as dm from "./dispatch-map";
+import { crews as scopedCrews } from "./people-scope";
 import * as dispatch from "./dispatch";
 import * as crews from "./crews";
 import { crewRefusals } from "./crews";
@@ -144,9 +145,15 @@ export function crewPlannable(v: dm.DayVisit): boolean {
  * starts where it is based, or where its lead's does, or the company's
  * first location, as the map draws it.
  */
-async function crewsOver(tx: Database, organizationId: string, days: dm.Day[]): Promise<PlannedCrew[]> {
+async function crewsOver(tx: Database, ctx: ServiceContext, days: dm.Day[]): Promise<PlannedCrew[]> {
+  const organizationId = ctx.actor.organizationId;
+  /**
+   * Only this person's own crews are planned: another branch's crew on one
+   * of this branch's visits keeps that visit and is offered no more
+   * (`people-scope.ts`).
+   */
   const crews = await tx.select().from(schema.crew)
-    .where(and(eq(schema.crew.organizationId, organizationId), eq(schema.crew.active, true)))
+    .where(and(eq(schema.crew.organizationId, organizationId), eq(schema.crew.active, true), scopedCrews(ctx)))
     .orderBy(asc(schema.crew.name));
   if (crews.length === 0) return [];
   const members = await tx.select({
@@ -219,7 +226,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
   const dates = rangeOf(input.from, input.days);
   const loaded = await guardedRead(ctx, "visit:read", async (tx) => {
     const range = await loadRange(tx, ctx, dates);
-    const crews = await crewsOver(tx, ctx.actor.organizationId, range.days);
+    const crews = await crewsOver(tx, ctx, range.days);
     const crewIds = new Set(crews.filter((c) => c.start !== null).map((c) => c.id));
     /** Asked once over every visit any day might take, per day, because skills lapse and time off is by day. */
     const everything = range.days.flatMap((d) => d.visits.filter((v) => dm.plannable(d, v)));
@@ -247,7 +254,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
   const points: dm.Points = new Map();
   const plans = days.map((day) => {
     const leftOut = dm.leftOutOf(day);
-    const people = day.technicians.filter((t) => !leftOut.some((l) => l.technicianId === t.id));
+    const people = dm.plannedOf(day).filter((t) => !leftOut.some((l) => l.technicianId === t.id));
     const { techs, keepFirst } = dm.rebalanceTechnicians(day, people, points, `${day.date}:`);
     const crewDays = planned.map((c) => ({ crew: c, ...crewDay(day, c, points, `${day.date}:`) }));
     const candidates = day.visits.filter((v) => v.crewId === null

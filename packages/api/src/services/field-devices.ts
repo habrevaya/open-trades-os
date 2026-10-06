@@ -7,6 +7,7 @@ import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, SignInRefusedError,
   type RequestMeta, type ServiceContext,
 } from "./context";
+import * as scoped from "./people-scope";
 import { checkCredentials, defaultOrganization } from "./passwords";
 import { resolveSession } from "./session";
 import { hashToken } from "./apps";
@@ -331,11 +332,8 @@ export async function setMobile(
   input: z.infer<typeof setTechnicianMobile.input>,
 ): Promise<z.infer<typeof setTechnicianMobile.output>> {
   return guardedWrite(ctx, "user:write", async (tx) => {
-    const [before] = await tx.select({ id: schema.technician.id, mobilePhone: schema.technician.mobilePhone })
-      .from(schema.technician)
-      .where(and(eq(schema.technician.organizationId, ctx.actor.organizationId), eq(schema.technician.id, input.id)))
-      .limit(1);
-    if (!before) throw new NotFoundError("Technician");
+    /** One of this person's own people, or not found (`people-scope.ts`). */
+    const before = await scoped.technicianWithin(tx, ctx, input.id, "records");
 
     let mobilePhone: string | null = null;
     if (input.mobilePhone !== null) {
@@ -376,7 +374,7 @@ export async function people(
       active: schema.technician.active,
       mobilePhone: schema.technician.mobilePhone,
     }).from(schema.technician)
-      .where(eq(schema.technician.organizationId, ctx.actor.organizationId))
+      .where(and(eq(schema.technician.organizationId, ctx.actor.organizationId), scoped.recordPeople(ctx)))
       .orderBy(desc(schema.technician.active), asc(schema.technician.displayName));
 
     const devices = technicians.length === 0 ? [] : await tx.select().from(schema.device)
@@ -461,12 +459,16 @@ export async function signOut(ctx: ServiceContext, input: { id: string }) {
  */
 export async function revoke(ctx: ServiceContext, input: { id: string }) {
   return guardedWrite(ctx, "user:write", async (tx) => {
-    const [device] = await tx.select().from(schema.device)
+    /** A phone of one of this person's own people, or not found. */
+    const [found] = await tx.select({ device: schema.device }).from(schema.device)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.device.technicianId))
       .where(and(
         eq(schema.device.organizationId, ctx.actor.organizationId),
         eq(schema.device.id, input.id),
+        scoped.recordPeople(ctx),
       )).limit(1);
-    if (!device) throw new NotFoundError("Device");
+    if (!found) throw new NotFoundError("Device");
+    const device = found.device;
 
     // Already revoked is the state the caller asked for, so a retry is a no-op.
     const revokedAt = device.revokedAt ?? new Date();
@@ -496,7 +498,7 @@ export async function list(
     })
       .from(schema.device)
       .innerJoin(schema.technician, eq(schema.technician.id, schema.device.technicianId))
-      .where(eq(schema.device.organizationId, ctx.actor.organizationId))
+      .where(and(eq(schema.device.organizationId, ctx.actor.organizationId), scoped.recordPeople(ctx)))
       .orderBy(desc(schema.device.lastSeenAt));
 
     return {
