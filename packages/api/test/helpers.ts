@@ -194,6 +194,12 @@ const ORDER = [
    * in that saved it, and a sign in's session is a grant naming the code
    * that opened it, so the cards go first and the codes last.
    */
+  /**
+   * A charge on file names the agreement it was made under, and an
+   * agreement names the card, so the charges go first, then the
+   * agreements, then the cards.
+   */
+  "card_on_file_charge", "payment_agreement",
   "saved_payment_method", "payment_profile",
   "portal_event", "portal_grant", "portal_sign_in",
   "booking_request", "bookable_service", "arrival_window",

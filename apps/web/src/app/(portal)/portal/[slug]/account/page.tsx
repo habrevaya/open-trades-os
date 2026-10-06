@@ -8,7 +8,8 @@ import { ReferralBlock } from "../../../c/[token]/ReferralBlock";
 import { SavedCards } from "./SavedCards";
 import { cardLabel } from "./card-label";
 import {
-  openRecord, payWithSavedCard, removeCard, signOut, startCardSetup, startSessionPayment,
+  agreeToCharges, openRecord, payWithSavedCard, removeCard, setAutopay, signOut, startCardSetup,
+  startSessionPayment, withdrawCharges,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +124,12 @@ export default async function SignedInAccountPage({
             start={startCardSetup.bind(null, slug)}
             remove={removeCard.bind(null, slug)}
             notice={notice}
+            company={account.organizationName}
+            agreements={{
+              agree: agreeToCharges.bind(null, slug),
+              autopay: setAutopay.bind(null, slug),
+              withdraw: withdrawCharges.bind(null, slug),
+            }}
           />
         )}
       />

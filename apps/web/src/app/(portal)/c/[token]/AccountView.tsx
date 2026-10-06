@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ReadingsChart } from "@/components/ReadingsChart";
 
 export interface AccountViewData {
   organizationName: string;
@@ -57,7 +58,10 @@ export interface AccountExtrasData {
     serialNumber: string | null; installedOn: string | null; warrantyPartsExpiresOn: string | null;
     warrantyLaborExpiresOn: string | null; location: string | null; details: { label: string; value: string }[];
   }[];
-  readings: { key: string; label: string; unit: string | null; points: { at: string; value: string; outOfRange: boolean }[] }[];
+  readings: {
+    key: string; label: string; unit: string | null; equipment?: string | null;
+    points: { at: string; value: string; outOfRange: boolean }[];
+  }[];
   checklist: { date: string | null; summary: string; items: { label: string; done: boolean }[] } | null;
   photos: { id: string; takenAt: string; jobNumber: number }[];
   payments: { id: string; receivedAt: string; amount: string; method: string; status: string }[];
@@ -340,8 +344,12 @@ export function AccountView({
           <Section key={b.kind} title={b.title}>
             <div className="mt-3 space-y-4">
               {extras.readings.map((series) => (
-                <div key={series.key}>
-                  <p className="text-sm font-medium">{series.label}</p>
+                <div key={`${series.key}-${series.equipment ?? ""}`}>
+                  <p className="text-sm font-medium">
+                    {series.label}
+                    {series.equipment ? <span className="font-normal text-ink-500">, {series.equipment}</span> : null}
+                  </p>
+                  <ReadingsChart label={series.label} unit={series.unit} equipment={series.equipment} points={series.points} />
                   <table className="mt-1 w-full text-sm">
                     <tbody>
                       {series.points.map((p, i) => (

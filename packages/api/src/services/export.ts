@@ -265,6 +265,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     idempotency_key: "A retry key the sync pass chose for itself. Not a credential.",
   },
   integration_event: { idempotency_key: "A retry key the worker chose. Not a credential." },
+  card_on_file_charge: {
+    idempotency_key: "The office's request key for a charge to a saved card, which is how a double press "
+      + "was kept to one charge. Not a credential.",
+  },
   workflow_run: { idempotency_key: "A retry key the workflow chose. Not a credential." },
   report_delivery: {
     idempotency_key: "The occurrence a report was delivered for, a schedule and a day or a run and a step. "

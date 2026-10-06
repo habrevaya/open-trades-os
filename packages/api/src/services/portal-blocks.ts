@@ -90,7 +90,15 @@ export interface AccountExtras {
     location: string | null;
     details: { label: string; value: string }[];
   }[];
-  readings: { key: string; label: string; unit: string | null; points: { at: string; value: string; outOfRange: boolean }[] }[];
+  /**
+   * One series per reading per unit: the superheat on the upstairs system
+   * and on the downstairs one are two lines, never one that jumps between
+   * them. `equipment` names the unit, null for readings of the whole home.
+   */
+  readings: {
+    key: string; label: string; unit: string | null; equipment: string | null;
+    points: { at: string; value: string; outOfRange: boolean }[];
+  }[];
   checklist: { date: string | null; summary: string; items: { label: string; done: boolean }[] } | null;
   photos: { id: string; takenAt: string; jobNumber: number }[];
   payments: { id: string; receivedAt: string; amount: string; method: string; status: string }[];
@@ -102,26 +110,36 @@ export interface AccountExtras {
 const firstName = (name: string | null) => (name ? name.trim().split(/\s+/)[0] ?? name : null);
 const isoDay = (d: Date | null) => (d ? d.toISOString() : null);
 
-/** The company's portal layout: the default layouts its packs seeded, its primary trade's first. */
-async function layoutOf(tx: Database, organizationId: string) {
+/**
+ * The company's default layouts, in the order the page reads them, and their
+ * blocks in that order: a layout the company made itself first (it is what
+ * the office arranged when no pack had seeded one, and a pack applied later
+ * must not push it aside), then its primary trade's pack, then any other.
+ * The office's arrangement is written to the first, naming every block, so
+ * it decides the whole page.
+ */
+export async function defaultLayouts(tx: Database, organizationId: string) {
   const [org] = await tx.select({ primaryTrade: schema.organization.primaryTrade })
     .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
-  const layouts = await tx.select({
-    id: schema.portalLayout.id, tradePackId: schema.portalLayout.tradePackId,
-  })
-    .from(schema.portalLayout)
-    .where(eq(schema.portalLayout.isDefault, true))
+  const layouts = await tx.select().from(schema.portalLayout)
+    .where(and(eq(schema.portalLayout.organizationId, organizationId), eq(schema.portalLayout.isDefault, true)))
     .orderBy(asc(schema.portalLayout.createdAt));
   const primary = org?.primaryTrade ?? "";
-  layouts.sort((a, b) =>
-    Number(!(a.tradePackId ?? "").startsWith(`${primary}@`)) - Number(!(b.tradePackId ?? "").startsWith(`${primary}@`)));
-  if (layouts.length === 0) return cp.composeBlocks([]);
+  const rank = (tag: string | null) => (tag === null ? 0 : tag.startsWith(`${primary}@`) ? 1 : 2);
+  layouts.sort((a, b) => rank(a.tradePackId) - rank(b.tradePackId));
+  if (layouts.length === 0) return { layouts, blocks: [] };
   const rows = await tx.select().from(schema.portalBlock)
     .where(inArray(schema.portalBlock.layoutId, layouts.map((l) => l.id)))
     .orderBy(asc(schema.portalBlock.sortOrder));
   const order = new Map(layouts.map((l, i) => [l.id, i]));
   rows.sort((a, b) => (order.get(a.layoutId)! - order.get(b.layoutId)!) || a.sortOrder - b.sortOrder);
-  return cp.composeBlocks(rows.map((r) => ({ kind: r.kind, title: r.title, config: r.config, visible: r.visible })));
+  return { layouts, blocks: rows };
+}
+
+/** The company's portal layout as the page draws it. */
+async function layoutOf(tx: Database, organizationId: string) {
+  const { blocks } = await defaultLayouts(tx, organizationId);
+  return cp.composeBlocks(blocks.map((r) => ({ kind: r.kind, title: r.title, config: r.config, visible: r.visible })));
 }
 
 /** Published reports for some visits, customer visible fields only. */
@@ -323,6 +341,7 @@ export async function accountExtras(
       quantity: schema.serviceReportField.quantityApplied,
       outOfRange: schema.serviceReportField.outOfRange,
       at: schema.serviceReportField.recordedAt,
+      equipmentId: schema.serviceReportField.equipmentId,
     })
       .from(schema.serviceReportField)
       .innerJoin(schema.serviceReport, eq(schema.serviceReport.id, schema.serviceReportField.reportId))
@@ -335,16 +354,22 @@ export async function accountExtras(
       ))
       .orderBy(desc(schema.serviceReportField.recordedAt))
       .limit(300);
-    const byKey = new Map<string, AccountExtras["readings"][number]>();
+    /** One series per reading per unit, in the order the keys are asked for, units in the order first seen. */
+    const bySeries = new Map<string, AccountExtras["readings"][number]>();
     for (const row of rows) {
-      const series = byKey.get(row.key) ?? { key: row.key, label: row.label, unit: row.unit, points: [] };
+      const id = `${row.key}\u0000${row.equipmentId ?? ""}`;
+      /** Named as the equipment block names it: its tag and what it is, "RTU-4, Air conditioner". */
+      const unit = row.equipmentId ? equipment.find((e) => e.id === row.equipmentId) : undefined;
+      const named = unit ? [unit.tag, unit.name].filter(Boolean).join(", ") : row.equipmentId ? "A unit no longer in use" : null;
+      const series = bySeries.get(id) ?? { key: row.key, label: row.label, unit: row.unit, equipment: named, points: [] };
       if (series.points.length < 12) {
         series.points.push({ at: row.at.toISOString(), value: (row.value ?? row.quantity)!, outOfRange: row.outOfRange });
       }
-      byKey.set(row.key, series);
+      bySeries.set(id, series);
     }
-    const order = keys.length > 0 ? keys : [...byKey.keys()].slice(0, 6);
-    readings = order.map((key) => byKey.get(key)).filter((s): s is NonNullable<typeof s> => s !== undefined)
+    const all = [...bySeries.values()];
+    const order = keys.length > 0 ? keys : [...new Set(all.map((s) => s.key))].slice(0, 6);
+    readings = order.flatMap((key) => all.filter((s) => s.key === key))
       .map((s) => ({ ...s, points: [...s.points].reverse() }));
   }
 

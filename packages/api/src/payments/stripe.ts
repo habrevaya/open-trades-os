@@ -309,9 +309,16 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
     status: number, json: Record<string, unknown>,
   ): { ok: false; code: string; message: string; retryable: boolean } => {
     const error = asObject(json["error"]);
+    /**
+     * A decline says why in `decline_code` (`insufficient_funds`,
+     * `lost_card`) under the general `card_declined`, and the why is what
+     * decides whether trying again tomorrow could work.
+     */
+    const code = str(error?.["code"]);
     return {
       ok: false,
-      code: str(error?.["code"]) ?? str(error?.["type"]) ?? `http_${status}`,
+      code: (code === "card_declined" ? str(error?.["decline_code"]) : null)
+        ?? code ?? str(error?.["type"]) ?? `http_${status}`,
       message: str(error?.["message"]) ?? `Stripe answered ${status}.`,
       retryable: retryable(status),
     };
@@ -340,7 +347,17 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
        * `processing`, and stays so until the webhook says it settled.
        */
       const bank = saved && request.methodKind === "bank_account";
-      const online = request.acceptance?.ip && request.acceptance.userAgent;
+      /**
+       * OFF SESSION is Stripe's documented way to charge a saved card with
+       * the customer not there: confirmed at once, and a card whose bank
+       * wants the cardholder to approve it fails with
+       * `authentication_required` instead of waiting on a browser. Only
+       * with a saved card, and never with the customer's acceptance of a
+       * debit, because they are not on the page to give one: a bank account
+       * is debited under the mandate it was saved with.
+       */
+      const away = saved && request.offSession === true;
+      const online = !away && request.acceptance?.ip && request.acceptance.userAgent;
       const { ok, status, json } = await call("/payment_intents", {
         amount: request.amountMinor,
         currency: request.currency.toLowerCase(),
@@ -359,6 +376,7 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
           payment_method: request.paymentMethodRef,
           confirm: true,
         } : {}),
+        ...(away ? { off_session: true } : {}),
         ...(bank && online ? {
           mandate_data: {
             customer_acceptance: {

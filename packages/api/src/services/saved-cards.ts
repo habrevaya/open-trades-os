@@ -10,6 +10,7 @@ import { inGrant } from "./portal";
 import { sessionFor, type PortalSession } from "./portal-sign-in";
 import { payerContext, processorConnected } from "./invoice-delivery";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
+import * as cardOnFile from "./card-on-file";
 
 /**
  * A CUSTOMER'S SAVED CARDS, AND BANK ACCOUNTS
@@ -70,7 +71,7 @@ const shape = (row: typeof schema.savedPaymentMethod.$inferSelect): SavedCard =>
  */
 export async function list(
   db: Database, input: { token: string },
-): Promise<{ cards: SavedCard[]; canSave: boolean; canSaveBank: boolean }> {
+): Promise<{ cards: ListedCard[]; canSave: boolean; canSaveBank: boolean }> {
   const session = await sessionFor(db, input.token);
   return inGrant(db, session.grant, async (tx) => {
     const rows = await tx.select().from(schema.savedPaymentMethod)
@@ -81,9 +82,24 @@ export async function list(
       .orderBy(desc(schema.savedPaymentMethod.createdAt));
     const connected = await processorConnected(tx);
     const settings = await portalSettingsWithin(tx, session.grant.organizationId);
-    return { cards: rows.map(shape), canSave: connected, canSaveBank: connected && settings.bankAccounts };
+    const onFile = await cardOnFile.forCardsWithin(tx, session.organizationName, rows);
+    return {
+      cards: rows.map((row) => ({ ...shape(row), ...onFile.get(row.id)! })),
+      canSave: connected,
+      canSaveBank: connected && settings.bankAccounts,
+    };
   });
 }
+
+/**
+ * A card as the customer's own list shows it: whether they let the company
+ * charge it (and pay automatically with it), and the words they would agree
+ * to if they have not.
+ */
+export type ListedCard = SavedCard & {
+  agreement: cardOnFile.AgreementView | null;
+  wording: cardOnFile.CardWording;
+};
 
 /**
  * The processor's record of this customer, made the first time they save a
@@ -300,6 +316,10 @@ export async function remove(
     }
     await tx.update(schema.savedPaymentMethod).set({ removedAt: new Date(), updatedAt: new Date() })
       .where(eq(schema.savedPaymentMethod.id, card.id));
+    /** A card that is gone cannot be charged, and an agreement to charge it says nothing any more. */
+    await cardOnFile.withdrawWithin(tx, ctx, {
+      customerId: session.customerId, cardId: card.id, reason: "card_removed", grantId: session.grant.grantId,
+    });
     await audit(tx, ctx, "portal.card.removed", "customer", session.customerId, null, { cardId: card.id });
     return { ok: true as const };
   });

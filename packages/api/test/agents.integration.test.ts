@@ -643,6 +643,31 @@ run("the collections agent", () => {
     expect(message!.body).toMatch(/Pay here: /);
     expect(invoiceId).not.toBe("");
   });
+
+  it("does not chase an invoice with a bank payment on its way, drafting or sending", async () => {
+    const [c] = await raw<{ id: string }[]>`
+      insert into public.customer (organization_id, type, name, phone) values (${ORG}, 'residential', 'Bea Bank', '+15125550151') returning id`;
+    const due = time.dateIn(new Date(Date.now() - 20 * 864e5), ZONE);
+    const invoice = async (number: number) => (await raw<{ id: string }[]>`
+      insert into public.invoice (organization_id, number, customer_id, status, issued_on, due_on, total, balance)
+      values (${ORG}, ${number}, ${c!.id}, 'open', ${due}, ${due}, 90.0000, 90.0000) returning id`)[0]!.id;
+    const onItsWay = async (id: string) => raw`insert into public.integration_event
+      (organization_id, direction, provider, event_type, idempotency_key, status, entity_type, entity_id, request_payload)
+      values (${ORG}, 'outbound', 'stripe', 'payment.intent', ${`bank-${id}`}, 'in_flight', 'customer', ${c!.id},
+        ${raw.json({ amount: "90.0000", method: "ach", allocations: [{ invoiceId: id, amount: "90.0000" }] } as never)})`;
+    const paidByBank = await invoice(7002);
+    await onItsWay(paidByBank);
+    const later = await invoice(7003);
+    model.script = () => call("draft_reminder", { body: "Hi Bea, a reminder that $90.00 is now overdue." });
+    await collections.run(db(), ORG, { deps: deps() });
+    const drafts = (await collections.handlers.listCollectionReminders(owner(), { status: ["proposed"] })).drafts;
+    expect(drafts.map((d) => d.draft["invoiceId"])).not.toContain(paidByBank);
+    const draft = drafts.find((d) => d.draft["invoiceId"] === later)!;
+
+    // Paid by bank after the reminder was drafted: it is not sent.
+    await onItsWay(later);
+    await expect(collections.send(owner(), { id: draft.id })).rejects.toThrow(/bank payment for invoice 7003 is on its way/);
+  });
 });
 
 /* ============================================================ dispatch === */

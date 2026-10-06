@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, not, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { agents as a, assertCan, comms, time } from "@opentradesos/core";
 import {
@@ -6,6 +6,7 @@ import {
 } from "./context";
 import { invoiceScopeFilter } from "./scope";
 import * as invoiceDelivery from "./invoice-delivery";
+import * as payments from "./payments";
 import { sendTransactional, quietHoursFor } from "./comms-send";
 import * as base from "./agents";
 import { companyOf } from "./agent-facts";
@@ -85,6 +86,8 @@ export async function run(
         gt(schema.invoice.balance, "0"),
         lt(schema.invoice.dueOn, company.today),
         isNull(schema.invoice.voidedAt),
+        /** Paid by bank and not yet confirmed: not money to chase while the bank decides. */
+        not(payments.bankPaymentOnItsWay),
         invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor),
       ))
       .orderBy(schema.invoice.dueOn)
@@ -192,6 +195,18 @@ export async function send(
   if (row.status === "applied") return base.shape(row);
   if (row.status !== "proposed") throw new ConflictError(`This reminder was ${row.status}, so there is nothing to send.`);
   const draft = row.draft as unknown as ReminderDraft;
+  /**
+   * Asked again at the moment of sending, because a reminder drafted on
+   * Monday can be sent on Wednesday, after the customer paid by bank.
+   */
+  const onItsWay = await guardedRead(ctx, "invoice:read", (tx) =>
+    payments.pendingBankPayments(tx, { invoiceIds: [draft.invoiceId] }));
+  if (onItsWay.length > 0) {
+    throw new ConflictError(
+      `A bank payment for invoice ${draft.invoiceNumber} is on its way, so no reminder goes. `
+      + "If the bank turns it down, the invoice can be chased then.",
+    );
+  }
   const body = (input.body ?? draft.body).trim();
   if (body === "") throw new ConflictError("The reminder is empty.");
   if (body.length > 500) throw new ConflictError("Keep a reminder under 500 characters.");

@@ -120,7 +120,10 @@ layout, and the account page draws whatever the layout says in its order:
 a pest control customer sees what was applied first, a lawn customer the
 season's visits. A few things every account shows whatever the trade (what
 is coming, the service history, the bills, the plan and the equipment) are
-added after the layout's own blocks when it leaves them out. What each
+added after the layout's own blocks when it leaves them out, unless the
+office hid them on purpose; the bills are shown whatever. The office
+arranges, hides and retitles the blocks from that start (see "Arrange what
+the customer sees"), and a pack upgrade keeps what it did. What each
 block shows is only what the company chose to show: published service
 reports and their customer visible fields, never the technician's own notes;
 a visit's notes only as the office shared a copy of them; photographs by the
@@ -182,7 +185,8 @@ somebody chose. Reading it needs `settings:read` and changing it
 Direct Debit turned on in the company's own Stripe account.
 
 What a customer's account shows comes from the company's trade pack, seeded
-when the pack is applied (`/setup`). Signing in needs an email provider or a registered texting number
+when the pack is applied (`/setup`), and the office arranges it at
+`/settings/portal/layout`. Signing in needs an email provider or a registered texting number
 connected, because that is how the code is sent.
 
 ## Using it
@@ -278,6 +282,27 @@ invoice with it, confirmed on the spot. The invoice still changes only when
 Stripe's signed webhook says the money moved. A card pays only invoices the
 signed in customer is the one paying.
 
+### Let the company charge a saved card, and pay bills automatically
+
+Under each saved card or bank account, a signed in customer has **Let
+{company} charge Visa ending 4242 for my bills**. It shows the exact words
+they are agreeing to (the company may take what a bill says they owe without
+them pressing Pay, they get a receipt each time, and they can stop it at any
+time), a box to tick and **Agree**. The words go back with the yes
+(`POST /v1/portal/cards/{cardId}/agreement`), are built again on the server
+for that card and must match, and are kept with the time, the sign in, the
+contact when a contact signed in as the customer, and where they agreed
+from. A link is refused: only the customer's own sign in can agree.
+
+Once agreed, **Pay my bills automatically with Visa ending 4242** offers its
+own words in the same way (`POST /v1/portal/cards/{cardId}/autopay`); one
+card pays automatically at a time. **Stop paying automatically** and **Stop
+{company} charging Visa ending 4242** (`POST
+/v1/portal/cards/{cardId}/agreement/withdraw`) end them at once. Removing the
+card ends its agreement too. `GET /v1/portal/cards` says, for each card,
+whether it is agreed and the words that would be agreed to. What the office
+can then do, and what paying automatically does when a charge fails, is M13.
+
 ### Pay from a bank account
 
 When the company has turned bank payments on, a signed in customer's saved
@@ -288,7 +313,11 @@ bank's name and the last four digits are kept. Paying from it is the same
 `POST /v1/portal/cards/{cardId}/pay`, carries the customer's agreement to
 that one debit (where they were and on what), and answers `processing`.
 `GET /v1/bank-payments` (`payment:read`) is the office's read of what is on
-its way and what failed this month; the invoice page shows the same.
+its way and what failed this month; the invoice page shows the same, with
+**Payment on its way** beside its status. The customer's invoice link
+(`/i/{token}`) says "Payment on its way" with the amount and the day, and
+offers no second way to pay until the bank answers. Reminders and the
+collections agent leave the invoice alone meanwhile (M13).
 
 ### What the customer sees of the work
 
@@ -301,7 +330,10 @@ registration numbers, readings over time for the keys the pack names, the
 equipment at the house with its details (a filter size, a tonnage), the last
 visit's checklist, photographs, documents, invoices, payments received, the
 plan and its visits, what the technicians flagged, a referral link and who
-to call. Photographs on the account are served through the same link at
+to call. Readings are one series per reading per unit (the superheat on the
+upstairs system and on the downstairs one are two), each drawn as a line over
+time above the table of its values once it has two days of them; the line is
+the reports' own chart (M21), drawn on the server. Photographs on the account are served through the same link at
 `/c/{token}/photos/{id}` and `/portal/{slug}/account/photos/{id}`.
 
 ### Share a visit's notes with the customer
@@ -311,6 +343,25 @@ notes**: a copy of the technician's notes, edited if they need to be, which
 is what the customer reads; it does not change when the phone adds to the
 notes later. `POST /v1/visits/{id}/customer-notes`, with
 `servicereport:publish`, the same decision as publishing a report.
+
+### Arrange what the customer sees
+
+`/settings/portal/layout` (**Arrange what customers see on their account** on
+`/settings/portal`) lists every block the account page could show, in the
+order it draws them: the ones the trade pack seeded first, then the rest,
+hidden. The office moves a block up or down, unticks **Show**, and types a
+heading of its own; **Save layout** is `PUT /v1/portal-layout`
+(`settings:write`), and `GET /v1/portal-layout` (`settings:read`) is the read.
+Every block is named on save, so what is saved is the whole page. The bills
+cannot be hidden, because customers need to see what they owe; they can be
+moved and renamed. A heading left as the usual words is stored as none.
+
+It is saved on the layout the page reads first: the one the company's
+primary trade pack seeded, or, for a company with no pack, a layout of the
+company's own, which a pack applied later does not push aside. A trade pack
+upgrade (M02) never writes over it: the layout no longer says what the pack
+set up, so the upgrade keeps it and lists it as the company's, and only a
+company that changed nothing takes the pack's new layout.
 
 ### Book from the account, with the technician who came before
 
@@ -434,7 +485,7 @@ reads, by the account link and nothing else.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything, including what the public may book |
-| Office manager | Decides requests, configures booking, issues and revokes links, sees and ends sign ins, chooses which contacts may sign in |
+| Office manager | Decides requests, configures booking, issues and revokes links, sees and ends sign ins, chooses which contacts may sign in, and charges a saved card the customer agreed may be charged |
 | CSR | Reads and decides requests. Issues a link. Sees sign ins and failed codes |
 | Dispatcher | Reads and decides requests |
 | Technician | Issues a link, so the customer approves on their own phone |
@@ -475,6 +526,11 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/portal/card-setup` | nothing: a sign in only |
 | `POST /v1/portal/card-setup/confirm` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/remove` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
+| `GET /v1/portal-layout` | `settings:read` |
+| `PUT /v1/portal-layout` | `settings:write` |
 | `POST /v1/attachments/{id}/customer-sharing` | `servicereport:publish` |
 | `GET /v1/portal-sign-ins` | `portal:read` |
 | `GET /v1/customers/{id}/portal-sessions` | `portal:read` |
@@ -531,15 +587,19 @@ contact the office lets sign in) cannot be sent a code. Ending a sign in
 leaves the one day links a customer opened from it working until they run
 out. Cards and bank accounts are saved through Stripe only; no other
 processor's adapter holds either, and a bank account is verified only by the
-customer signing in to their bank, never by micro deposits. A saved card or
-bank account is used only with the customer on the page pressing Pay: there
-is no charging one from the office and no automatic payment of an invoice
-when it is issued. While a bank payment is on its way, the reminders and the
-collections agent do not yet know about it and can still chase that invoice.
-The office cannot rearrange, hide or retitle the portal blocks on a screen:
-the layout is the one the trade pack seeded. The documents block lists the
+customer signing in to their bank, never by micro deposits. A customer agrees
+to be charged on file only from their own sign in, in the portal's words;
+an agreement given on the phone or on paper cannot be recorded, and the
+office cannot record one for them. The words are the product's and the
+company cannot edit them. A layout is the company's one layout for every
+customer: it cannot differ by customer, by plan or by address, a block's
+settings (which readings a trend shows) are not changed on the screen, and
+there is no button to go back to the pack's layout. The documents block lists the
 statement and the published service reports, and no product labels or other
-files. Readings are shown as a table of values, not a chart. Rescheduling
+files. The readings chart starts its scale at zero, as every chart in the
+product does, so a reading that moves within a narrow band (a pool's pH)
+draws as a nearly flat line; the table under it has the values. A reading
+taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the
 online booking service for the job's type, so a company that takes no online
