@@ -337,6 +337,13 @@ the PDFs carry their own font (Noto Sans, under the SIL Open Font License, bundl
 with its licence), cut down to the letters each document uses, so Nguyễn, Dvořák,
 Σωκράτης and Анна print as written rather than with their accents dropped.
 
+An invoice made with its branch's code ("HOU-1042", Settings, Branches) is
+printed with it on the PDF, in its file name, in the invoice email's subject and
+body, in a collection reminder, in the card payment's description and on the
+customer's account, invoice link and the payer's page, and the statement's
+lines and open invoices print it too. The payer's CSV and XML files keep the
+bare number in their number column.
+
 ### Statements
 
 **Statement** on a customer's page shows what they owed at the start of a period,

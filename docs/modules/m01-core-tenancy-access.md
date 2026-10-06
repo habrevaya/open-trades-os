@@ -106,7 +106,17 @@ once), sending a new invite to somebody who has not signed in
 (`POST /v1/invitations/{membershipId}/resend`), changing a role
 (`POST /v1/memberships/{membershipId}/role`), moving somebody to another branch
 or shop, and turning somebody off. `/settings/roles` makes a custom role for a
-company whose shape the ten presets do not fit. Seeing the list needs `user:read`, inviting needs `user:invite`,
+company whose shape the ten presets do not fit, and the same is on the API:
+`GET` and `POST /v1/roles`, `PATCH /v1/roles/{id}`, `POST /v1/roles/{id}/remove`,
+and `POST /v1/memberships/{membershipId}/custom-role` to give somebody one, which
+takes `user:write` and is checked both ways as a preset change is. A role bigger
+than its author (a permission they do not hold, or seeing further than they do)
+is refused with a 403 carrying the sentence the screen shows and the
+permissions or records it was about. A role made on the roles screen before "the whole
+company" was saved as a scope names none, so its holders have been seeing their
+own work only: `/settings/roles` lists those roles as ones to check and gives
+one the whole company (`POST /v1/roles/{id}/whole-company`) when the owner ticks
+that this is what it was for. Seeing the list needs `user:read`, inviting needs `user:invite`,
 changing a role needs `user:write` and defining a custom role needs
 `role:write`. Each of those is separate because they are four different
 decisions, and the person who corrects a job title is not always the person who
@@ -168,13 +178,35 @@ They cannot be given that role without a branch, cannot have their branch
 taken away while they hold it, can only put work in their own branch, invite
 only into it, and cannot hand out a preset that sees the whole company.
 
+Their people are their branch's too. The technicians screen
+(`GET /v1/technicians`), crews (`GET /v1/crews`), routes
+(`GET /v1/service-routes`), Team (`GET /v1/team`), People (`GET /v1/people`,
+`GET /v1/roster`) and the phones list show the people whose branch is theirs,
+the crews in their branch, and the routes those people and crews run. Another
+branch's technician, crew, route or person opened or changed by its id reads as
+not found, and putting one on a visit, a crew or a route is refused in the
+words an id that is not there gets, so the refusal says nothing about who
+works elsewhere. On the board and the map somebody from another branch covering
+one of theirs is drawn for that visit only and marked as from another team;
+nothing more can be dropped on their day, and "Suggest who", the rebalance of
+one day or several and a proposed route offer only their own people and crews.
+The dispatch side (technicians, crews, routes) reads the visit scope and a
+person's record (Team, People, a person by id) the timesheet scope; every
+preset and every role made on Settings, Roles sets both the same. Moving a
+person or a crew between branches is for somebody who sees the whole company.
+
 A branch's short code can be printed in front of new job and invoice numbers
 ("HOU-1042"), turned on for jobs and invoices separately on Settings,
 Branches (`GET` and `PUT /v1/branch-numbering`). Numbers stay one sequence for
 the company; the code is written onto the job or invoice when it is made and
 never worked out again, so numbers already given out keep what they were
 printed with whatever changes later. A code of up to eight letters and digits
-can be printed; the screen names the branches whose code cannot.
+can be printed; the screen names the branches whose code cannot. It is printed
+wherever the number is: the job and invoice screens and lists, the invoice PDF
+and its file name, the statement's lines and open invoices on screen and in its
+PDF, the invoice email's subject and body, a collection reminder, a message
+template quoting `{{ job.number }}`, and the customer's account, invoice link,
+job link and the payer's page on the portal.
 
 ### Limit somebody to a shop
 
@@ -184,6 +216,14 @@ on Team (`POST /v1/memberships/{membershipId}/location`), and a role made on
 visit by somebody based there, whose day starts there or whose shop it is, or
 by a crew based there) and the people based there. Their shop cannot be taken
 away while that role holds them to it.
+
+A visit's own shop (`visit.location_id`) is written when it is booked with
+somebody or assigned: the lead's start, otherwise the shop their membership
+names, or the crew's base, otherwise its lead's. The job and visit pages say
+where it goes out from, and the shop scope reads it once written, so a
+technician who moves shops does not take the work they did with them. Visits
+booked before it was written carry none and were not filled in; the shop scope
+reads those through their people and crews, as before.
 
 A job saved without a branch takes the branch of whoever saved it, then its
 job type's, and otherwise none; a job in no branch is seen by the people who
@@ -231,6 +271,11 @@ organizational shape a company is divided into (`GET /v1/locations`,
 `GET /v1/business-units`, `GET /v1/territories`) is `settings:read` to read and
 `settings:write` to change.
 
+The company's own roles are `GET` and `POST /v1/roles`, `PATCH /v1/roles/{id}`,
+`POST /v1/roles/{id}/remove` and `POST /v1/roles/{id}/whole-company`, all
+`role:write`, and `POST /v1/memberships/{membershipId}/custom-role`, which needs
+`user:write` and `membership:write`.
+
 Every route in the product declares its own permission list in the contract
 registry, and a guard test fails if a route is served without one. That is why
 there is no table of "protected endpoints" here: there is no other kind.
@@ -254,19 +299,23 @@ issuing its token and revoking it, because those are one decision.
 ## What is not built
 
 Multi location: branches, the Branch manager preset, a branch scope and a
-shop scope on a custom role, branch filters and branch codes on numbers are
-built (above). Job and invoice numbers are one sequence per company, and the
-branch code is printed on the job and invoice screens and lists, not yet on
-every screen, PDF or email that shows a number. The price book is the same in
-every branch, a job carries one branch, and a visit's own shop
-(`visit.location_id`) is written by nothing yet, so a shop is known from the
-people and crews on the visit. The technicians list (`GET /v1/technicians`),
-crews, routes and the people lists (Team and People, which need `user:read`)
-are not narrowed by branch: a branch manager sees who works in other
-branches, though not their work, their timesheets or their time off. `docs/concepts/multi-location.md`
-lists what remains. `RoleEscalationError` from the custom roles routes reaches
-an HTTP caller as a server error rather than a 403; the screens put it in
-words. A role made on the roles screen before "the whole company" was saved
-as a scope sees only its holder's own work until it is made again.
-`billing:manage` is declared and nothing checks it, because this product has no
-subscription to manage; it exists for a hosted deployment that does.
+shop scope on a custom role, branch filters, the people, crews and routes a
+branch manager sees, a visit's own shop and branch codes on numbers are built
+(above). Job and invoice numbers are one sequence per company and the price
+book is the same in every branch: numbering per branch and a price book per
+branch are product decisions nobody has made, so neither is built. A job
+carries one branch. There is no job PDF to print a code on, and a proposal
+shows only the estimate's own number, which carries no code; the payer's CSV
+and XML files keep the bare invoice and job numbers in their columns, because
+a payer's system matches on them. A role made on the roles screen before "the
+whole company" was saved as a scope names none and shows its holders their
+own work only until somebody gives it the whole company on Settings, Roles
+(`POST /v1/roles/{id}/whole-company`); nothing is changed for anybody without
+that click, because such a role cannot be told apart from one meant to show
+only their own work. `roles.assign` underneath is guarded by
+`membership:write`, the permission the presets give for selling service
+agreements; every screen and route that gives somebody a custom role goes
+through `assignCustomRole`, which adds `user:write` and the both ways check.
+`docs/concepts/multi-location.md` lists what remains. `billing:manage` is
+declared and nothing checks it, because this product has no subscription to
+manage; it exists for a hosted deployment that does.

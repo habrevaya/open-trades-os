@@ -405,6 +405,14 @@ each member's phone hears about it (M11). On the board, a crew's card
 dragged onto a person is `POST /v1/visits/{id}/assign`, which takes it off
 the crew.
 
+A crew belongs to a branch and is based at a shop. `/schedule/crews` shows each
+crew's branch, and somebody who sees the whole company moves one with
+`PATCH /v1/crews/{id}`; somebody limited to a branch makes crews in their own
+branch only and sees, staffs and sends only its crews, with only its people.
+Routes are seen by whoever sees the technician or crew that runs them. Booking,
+assigning, sending a crew or running a route writes the visit's shop: the
+lead's start or membership shop, or the crew's base (`docs/modules/m01-core-tenancy-access.md`).
+
 ### Keep a rota
 
 `POST /v1/on-call/rotations` schedules a shift, `GET /v1/on-call` answers who is
