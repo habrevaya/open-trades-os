@@ -1,12 +1,13 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import {
-  canDefineRole, isScope, ALL_PERMISSIONS,
-  type Permission, type RoleDefinition, type Scope, type ScopedResource,
+  assertCan, canDefineRole, isScope, presetDefinition, ALL_PERMISSIONS, SCOPED_RESOURCES,
+  type Permission, type RoleDefinition, type RoleId, type Scope, type ScopedResource,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
+import { remember, replayed } from "./once";
 import { memberWithin } from "./people-scope";
 import { refusingDuplicate } from "./duplicates";
 
@@ -74,6 +75,19 @@ export class RoleEscalationError extends Error {
       : `Wider than your own scope on: ${detail.resources.join(", ")}`);
     this.name = "RoleEscalationError";
   }
+
+  /**
+   * The refusal as a person reads it, which the HTTP layer answers a 403
+   * with and the roles screen shows: what was wrong, and who can do it
+   * instead. One sentence for both, so the API and the screen cannot
+   * disagree about why.
+   */
+  get sentence(): string {
+    return this.detail.reason === "missing_permission"
+      ? `That role carries permissions you do not hold yourself: ${this.detail.permissions.join(", ")}. `
+        + "Start from a smaller preset, or ask somebody who holds them."
+      : "That role would see more of the company than you do. Somebody who sees the whole company has to do it.";
+  }
 }
 
 function assertWithinAuthority(ctx: ServiceContext, definition: RoleDefinition): void {
@@ -102,6 +116,50 @@ export async function list(ctx: ServiceContext) {
     return tx.select().from(schema.role)
       .where(isNull(schema.role.deletedAt))
       .orderBy(schema.role.name);
+  });
+}
+
+/**
+ * A ROLE THAT NAMES NO SCOPE AT ALL, which is how the roles screen saved
+ * "the whole company" before it wrote that choice out. A role that names
+ * none sees its holder's own work, the narrowest default, so a role made as
+ * "the whole company" in those days has been showing its holders their own
+ * jobs only. Nothing can tell that role from one meant to show only their
+ * own work, so nothing is changed without somebody saying which it is:
+ * `giveWholeCompany` is that click, and this is what the screen lists.
+ */
+export const namesNoScope = (role: { scopes: Record<string, string> }): boolean =>
+  Object.keys(role.scopes ?? {}).length === 0;
+
+/**
+ * Give a role the whole company, on every record a scope narrows: the fix
+ * for a role saved before "the whole company" was written out. Only on a
+ * role that names no scope, so it cannot be used to widen a branch role,
+ * and only by somebody who sees the whole company themselves (checked by
+ * `canDefineRole`, like every role write). Its holders' access changes the
+ * moment it is saved, which is why it is a click somebody confirms and not
+ * something done for them.
+ */
+export async function giveWholeCompany(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "role:write", async (tx) => {
+    const seen = await replayed<typeof schema.role.$inferSelect>(tx, ctx, "role_whole_company");
+    if (seen) return seen;
+    const [before] = await tx.select().from(schema.role)
+      .where(and(eq(schema.role.id, input.id), isNull(schema.role.deletedAt))).limit(1);
+    if (!before) throw new NotFoundError("Role");
+    if (!namesNoScope(before)) {
+      throw new ConflictError(
+        `${before.name} already says what its holders see, so it is not changed here. Make a new role to change that.`,
+      );
+    }
+    const scopes = Object.fromEntries(SCOPED_RESOURCES.map((resource) => [resource, "all"])) as Record<ScopedResource, Scope>;
+    assertWithinAuthority(ctx, { permissions: before.permissions as Permission[], scopes });
+    const [after] = await tx.update(schema.role)
+      .set({ scopes, updatedAt: new Date() })
+      .where(eq(schema.role.id, before.id)).returning();
+    await audit(tx, ctx, "role.given_whole_company", "role", before.id, { scopes: before.scopes }, { scopes });
+    await remember(tx, ctx, "role_whole_company", before.id, after!);
+    return after!;
   });
 }
 
@@ -361,6 +419,34 @@ export async function assign(
 }
 
 /**
+ * GIVE SOMEBODY ONE OF THE COMPANY'S OWN ROLES, as the Team screen and the
+ * API do it: `assign` with the checks a role change makes.
+ *
+ * `user:write`, the permission for changing what somebody may do, because
+ * `assign` alone is guarded by `membership:write`, which the presets give
+ * for selling service agreements. Checked in both directions, as a preset
+ * change is (`team.setRole`): the caller must hold what the role carries and
+ * what the person holds now, so nobody demotes an owner by handing them a
+ * smaller role. Nobody changes their own.
+ */
+export async function assignCustomRole(ctx: ServiceContext, input: { membershipId: string; roleId: string }) {
+  assertCan(ctx.actor, "user:write");
+  return guardedWrite(ctx, "user:write", async (tx) => {
+    const before = await memberWithin(tx, ctx, input.membershipId);
+    if (before.userId === ctx.actor.userId) {
+      throw new ConflictError("That is your own role. Somebody else has to change it, so nobody locks themselves out.");
+    }
+    const [current] = before.roleId
+      ? await tx.select().from(schema.role).where(eq(schema.role.id, before.roleId)).limit(1)
+      : [];
+    assertWithinAuthority(ctx, current
+      ? { permissions: current.permissions as Permission[], scopes: current.scopes as Partial<Record<ScopedResource, Scope>> }
+      : presetDefinition(before.role as RoleId));
+    return assign({ ...ctx, db: tx }, { membershipId: input.membershipId, roleId: input.roleId });
+  });
+}
+
+/**
  * Soft delete, and the memberships holding it fall back to their preset
  * rather than to nothing. A role removed at 4pm must not lock its holders out
  * at 4:01, and `role` on the membership was never cleared precisely so that
@@ -485,3 +571,53 @@ export async function setMembershipActive(
     return { id: before.id, active: input.active, sessionsRevoked };
   });
 }
+
+/* --------------------------------------------------------------- handlers */
+
+type RoleRow = typeof schema.role.$inferSelect;
+
+/** A role as the API publishes it, saying when it names no scope and so needs the whole company fix. */
+const view = (row: RoleRow) => ({
+  id: row.id,
+  name: row.name,
+  description: row.description,
+  basedOn: row.basedOn,
+  permissions: row.permissions,
+  scopes: row.scopes,
+  namesNoScope: namesNoScope(row),
+});
+
+export const handlers = {
+  listRoles: async (ctx: ServiceContext) => ({ roles: (await list(ctx)).map(view) }),
+  /** A retry gets the role it made rather than a refusal about its own name. */
+  createRole: (ctx: ServiceContext, input: RoleInput) => guardedWrite(ctx, "role:write", async (tx) => {
+    const seen = await replayed<ReturnType<typeof view>>(tx, ctx, "role_create");
+    if (seen) return seen;
+    const made = view(await create({ ...ctx, db: tx }, input));
+    await remember(tx, ctx, "role_create", made.id, made);
+    return made;
+  }),
+  updateRole: async (ctx: ServiceContext, input: {
+    id: string; name?: string | undefined; description?: string | undefined; basedOn?: string | undefined;
+    permissions?: string[] | undefined; scopes?: Record<string, string> | undefined;
+  }) => view(await update(ctx, {
+    id: input.id,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
+    ...(input.scopes !== undefined ? { scopes: input.scopes } : {}),
+  })),
+  removeRole: async (ctx: ServiceContext, input: { id: string }) => guardedWrite(ctx, "role:write", async (tx) => {
+    const seen = await replayed<{ id: string; removed: true }>(tx, ctx, "role_remove");
+    if (seen) return seen;
+    await remove({ ...ctx, db: tx }, input);
+    const answer = { id: input.id, removed: true as const };
+    await remember(tx, ctx, "role_remove", input.id, answer);
+    return answer;
+  }),
+  giveRoleWholeCompany: async (ctx: ServiceContext, input: { id: string }) => view(await giveWholeCompany(ctx, input)),
+  assignCustomRole: async (ctx: ServiceContext, input: { membershipId: string; roleId: string }) => {
+    const row = await assignCustomRole(ctx, input);
+    return { membershipId: row.id, role: row.role, customRoleId: row.roleId };
+  },
+} as const;

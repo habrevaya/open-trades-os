@@ -15,13 +15,7 @@ const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
  * which, because "ask somebody who holds payroll" is the thing to do next.
  */
 function readable(error: unknown): never {
-  if (error instanceof roles.RoleEscalationError) {
-    throw new ConflictError(
-      error.detail.reason === "missing_permission"
-        ? `That role would carry permissions you do not hold yourself: ${error.detail.permissions.join(", ")}. Start from a smaller preset, or ask somebody who holds them.`
-        : "That role would see more of the company than you do. Somebody who sees the whole company has to make it.",
-    );
-  }
+  if (error instanceof roles.RoleEscalationError) throw new ConflictError(error.sentence);
   throw error;
 }
 
@@ -57,6 +51,29 @@ export async function createRole(_previous: FormState, form: FormData): Promise<
       readable(error);
     }
     return { message: "Role made. Give it to people on Team." };
+  });
+  revalidatePath("/settings/roles");
+  revalidatePath("/settings/team");
+  return result;
+}
+
+/**
+ * THE FIX FOR A ROLE SAVED BEFORE "THE WHOLE COMPANY" WAS WRITTEN OUT. It
+ * changes what everybody holding the role sees, at once, so it is done only
+ * when somebody ticks that this is what the role was for and presses the
+ * button; nothing is changed for them.
+ */
+export async function giveWholeCompany(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    if (form.get("confirm") !== "yes") {
+      throw new ConflictError("Tick the box to say people with this role should see the whole company.");
+    }
+    try {
+      const role = await roles.giveWholeCompany(await ctx(), { id: String(form.get("id") ?? "") });
+      return { message: `${role.name} now sees the whole company.` };
+    } catch (error) {
+      readable(error);
+    }
   });
   revalidatePath("/settings/roles");
   revalidatePath("/settings/team");

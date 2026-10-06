@@ -1079,6 +1079,14 @@ export const handlers = {
   getBranchNumbering: branches.handlers.getBranchNumbering,
   setBranchNumbering: branches.handlers.setBranchNumbering,
 
+  // The company's own roles, which Settings, Roles makes (M01).
+  listRoles: roleService.handlers.listRoles,
+  createRole: roleService.handlers.createRole,
+  updateRole: roleService.handlers.updateRole,
+  removeRole: roleService.handlers.removeRole,
+  giveRoleWholeCompany: roleService.handlers.giveRoleWholeCompany,
+  assignCustomRole: roleService.handlers.assignCustomRole,
+
   listConversionAdjustments: ads.handlers.listConversionAdjustments,
   getMarketingOverview: ads.handlers.getMarketingOverview,
   connectLeadMarketplace: marketplaceLeads.handlers.connectLeadMarketplace,

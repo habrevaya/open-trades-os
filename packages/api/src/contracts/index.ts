@@ -84,6 +84,7 @@ import { portalLayoutRoutes } from "./portal-layout";
 import { portalAccessRoutes } from "./portal-access";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
+import { roleRoutes } from "./roles";
 import { phoneMenuRoutes } from "./phone-menus";
 import { callHandlingRoutes } from "./call-handling";
 import { safetyRoutes } from "./safety";
@@ -184,6 +185,7 @@ export * from "./portal-layout";
 export * from "./portal-access";
 export * from "./setup";
 export * from "./branches";
+export * from "./roles";
 export * from "./phone-menus";
 export * from "./call-handling";
 export * from "./tasks";
@@ -300,6 +302,7 @@ export const routes = {
   ...portalAccessRoutes,
   ...setupRoutes,
   ...branchRoutes,
+  ...roleRoutes,
   ...adsRoutes,
   ...marketplaceRoutes,
   ...directMailRoutes,

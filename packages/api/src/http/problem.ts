@@ -4,6 +4,7 @@ import {
   SignInRefusedError,
   TooManyRequestsError,
 } from "../services/context";
+import { RoleEscalationError } from "../services/roles";
 
 /**
  * THE SHAPE OF A REFUSAL
@@ -53,6 +54,15 @@ export function errorResponse(error: unknown): Response {
    */
   if (error instanceof OrganizationSuspendedError) {
     return problem(403, error.message, { code: error.code });
+  }
+  /**
+   * A role bigger than its author, made, changed or handed out. 403, as a
+   * missing permission is, with the sentence the roles screen shows and
+   * which permissions or records it was about, so a client can say what to
+   * ask for. It used to fall through to the 500 below.
+   */
+  if (error instanceof RoleEscalationError) {
+    return problem(403, error.sentence, { ...error.detail });
   }
   /** The phone app's sign in, refused in words the person typing can act on. */
   if (error instanceof SignInRefusedError) return problem(401, error.message);
