@@ -73,8 +73,8 @@ export default async function AutomationsPage() {
       </p>
 
       {/*
-        RECOMMENDED. The two automations nearly every office wants and almost
-        none builds. Turning one on installs an ordinary automation, listed
+        RECOMMENDED. The automations nearly every office wants and almost
+        none builds, and those a trade pack the company applied declares. Turning one on installs an ordinary automation, listed
         below with everything else and edited on the same canvas; nothing
         about it is hidden or special once it is on.
       */}
@@ -97,6 +97,9 @@ export default async function AutomationsPage() {
                     </span>
                   ) : null}
                 </div>
+                {template.pack ? (
+                  <p className="text-xs text-ink-500">From the {template.pack.name} trade pack</p>
+                ) : null}
                 <p className="mt-1 text-sm text-ink-700">{template.summary}</p>
                 <p className="mt-1 text-xs text-ink-500">{template.needs}</p>
                 {template.onForNewCompanies ? (

@@ -4,6 +4,7 @@ import { assertCan, automation, events, permissionsFor } from "@opentradesos/cor
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { packAutomations, packById } from "@opentradesos/trade-packs";
 import { SHAPES } from "./workflow-dwell";
 import { checkReportStep, readReportStep } from "./report-delivery";
 import { refusingDuplicate } from "./duplicates";
@@ -747,6 +748,31 @@ export interface RecommendedAutomation {
   platforms: { platform: string; displayName: string }[];
   /** Installed and switched on when a company is created. See `installStarters`. */
   onForNewCompanies: boolean;
+  /** The trade pack that declared it, or null for one the product ships. */
+  pack: { id: string; name: string } | null;
+}
+
+/**
+ * The trade packs this company has applied. A pack's recommended
+ * automations are offered only to a company that applied it, because they
+ * are written for that trade's work: a heating company is not offered the
+ * dumpster company's chase.
+ */
+async function appliedPacks(tx: Database): Promise<Set<string>> {
+  const rows = await tx.select({ packId: schema.tradePackApplication.packId }).from(schema.tradePackApplication);
+  return new Set(rows.map((row) => row.packId));
+}
+
+/**
+ * The settings a recommended automation takes, by its key: one of the four
+ * the product ships, or one a trade pack declares. What the screen reads
+ * the boxes it posts from, so a form cannot slip in a value the template
+ * does not declare.
+ */
+export function templateParameters(key: string): automation.TemplateParameter[] {
+  return automation.templateByKey(key)?.parameters
+    ?? packAutomations.find((t) => t.key === key)?.parameters
+    ?? [];
 }
 
 /**
@@ -780,7 +806,26 @@ export async function recommended(ctx: ServiceContext): Promise<RecommendedAutom
     /** The number a text back would come from: never a tracking one, by `senderFor`'s own rule. */
     const sender = await phoneNumbers.senderFor(tx, ctx.actor.organizationId, { smsRequired: true });
 
-    return automation.TEMPLATES.map((template) => {
+    const applied = await appliedPacks(tx);
+    const fromPacks: RecommendedAutomation[] = packAutomations
+      .filter((template) => applied.has(template.packId))
+      .map((template) => {
+        const install = installs.find((row) => row.templateKey === template.key);
+        return {
+          key: template.key,
+          name: template.name,
+          summary: template.summary,
+          needs: template.needs,
+          parameters: template.parameters,
+          installed: install ? { id: install.id, enabled: install.enabled, name: install.name } : null,
+          blockedBy: null,
+          platforms: [],
+          onForNewCompanies: false,
+          pack: { id: template.packId, name: packById(template.packId)?.name ?? template.packId },
+        };
+      });
+
+    return [...automation.TEMPLATES.map((template): RecommendedAutomation => {
       const install = installs.find((row) => row.templateKey === template.key);
       let blockedBy: string | null = null;
       if (template.key === "review_after_paid") {
@@ -803,8 +848,9 @@ export async function recommended(ctx: ServiceContext): Promise<RecommendedAutom
         blockedBy,
         platforms: template.parameters.some((p) => p.kind === "platform") ? platforms : [],
         onForNewCompanies: template.onForNewCompanies === true,
+        pack: null,
       };
-    });
+    }), ...fromPacks];
   });
 }
 
@@ -843,7 +889,21 @@ export async function installTemplate(
       }
     }
 
-    const built = automation.buildTemplate(input.key, input.values ?? {});
+    /**
+     * A key with a dot is a trade pack's: offered only to a company that
+     * applied that pack, and built from the pack's own data by core, then
+     * installed through the same check as the four the product ships.
+     */
+    const fromPack = packAutomations.find((template) => template.key === input.key);
+    if (fromPack && !(await appliedPacks(tx)).has(fromPack.packId)) {
+      throw new ConflictError(
+        `That automation comes with the ${packById(fromPack.packId)?.name ?? fromPack.packId} trade pack, `
+        + "which this company has not applied.",
+      );
+    }
+    const built = fromPack
+      ? automation.buildPackTemplate(fromPack, input.values ?? {})
+      : automation.buildTemplate(input.key, input.values ?? {});
     if (!built.ok) throw new ConflictError(built.reason);
 
     if (input.key === "review_after_paid") {

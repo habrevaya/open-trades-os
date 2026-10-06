@@ -190,6 +190,8 @@ export const WorkflowTemplateView = z.object({
   platforms: z.array(z.object({ platform: z.string(), displayName: z.string() })),
   /** Installed and switched on when a company is created; switched off like any other. */
   onForNewCompanies: z.boolean(),
+  /** The trade pack that declared it, offered because the company applied that pack; null for the product's own. */
+  pack: z.object({ id: z.string(), name: z.string() }).nullable(),
 });
 
 export const listWorkflowTemplates = defineRoute({
@@ -197,7 +199,7 @@ export const listWorkflowTemplates = defineRoute({
   path: "/v1/workflow-templates",
   summary: "Recommended automations, and which are on",
   description:
-    "Following up an estimate nobody answered, and asking for a review once a job is paid. Each says what it does, what it needs from the company, and whether it is installed; an installed one is an ordinary workflow at `/v1/workflows`.",
+    "The product's own (following up an estimate nobody answered, asking for a review once a job is paid, texting back a missed call, ringing before a warranty runs out) and those declared by a trade pack the company applied, keyed `<pack id>.<key>`. Each says what it does, what it needs from the company, and whether it is installed; an installed one is an ordinary workflow at `/v1/workflows`.",
   module: "M29",
   permissions: ["workflow:read"],
   input: z.object({}),

@@ -264,9 +264,8 @@ export async function deleteAutomation(_previous: unknown, form: FormData) {
  */
 export async function installRecommended(_previous: FormState, form: FormData): Promise<FormState> {
   const key = field(form, "key") ?? "";
-  const template = automation.templateByKey(key);
   const values: Record<string, string> = {};
-  for (const parameter of template?.parameters ?? []) {
+  for (const parameter of workflows.templateParameters(key)) {
     const value = field(form, `value.${parameter.key}`);
     if (value !== undefined) values[parameter.key] = value;
   }

@@ -375,7 +375,7 @@ by step.
 
 ### Turn on a recommended one
 
-The top of `/automations` offers four, each with what it does, what it needs from
+The top of `/automations` offers the product's four, each with what it does, what it needs from
 the company, and its one or two settings:
 
 - **Follow up an estimate that has not been answered.** On `estimate.sent`: wait
@@ -399,8 +399,25 @@ the company, and its one or two settings:
   page. Each end date is called about once. Off until somebody turns it on, like
   the two above.
 
-`GET /v1/workflow-templates` lists them with whether each is on, and
-`POST /v1/workflow-templates/{key}/install` turns one on.
+Beside them, a company that applied a trade pack is offered the recommended
+automations that pack declares, each marked with the pack it came from. A pack
+declares them as data, in the same shape as the four (a key, what it does, what
+it needs, its number settings with a default and bounds, and the workflow it
+installs: the events it starts on and its steps, with `{ "$param": "days" }`
+where the company's number goes), and core's `checkPackAutomation` holds each to
+what this build can run when the pack is loaded: steps it knows, events
+something emits, a question `stop_unless` can ask, branches whose arms add up,
+and every setting a step names declared, so a pack that fails is a build that
+fails rather than a company finding out when it presses "Turn on". Its key is
+`<pack id>.<key>`. Turning one on is the same install as the four, held to the
+same check and permission rule, switched on and refused a second time; it is
+refused to a company that has not applied the pack. The HVAC pack carries the
+one example: some days after a plan is sold, if it is still active, a call in
+the office queue to book the member's first tune up.
+
+`GET /v1/workflow-templates` lists them with whether each is on and which
+pack, if any, declared it, and `POST /v1/workflow-templates/{key}/install`
+turns one on.
 
 ### The steps
 
@@ -585,8 +602,13 @@ a customer can be on jobs, invoices, estimates or visits only, with the product'
 own columns that need no permission, and never with the company's own fields, a
 cost or a margin; it goes to the address on their record and nowhere else, and a
 copy to somebody in the company is a second step.
-There are four recommended automations and the list is code, not something a company or a trade pack can add
-to. `stop_unless` asks ten questions, from a catalogue in core, and a company
+The product's four recommended automations are code, and a trade pack adds
+its own as data; a company cannot add one to the list (it builds the workflow on
+the canvas instead). A pack's automation starts on an event and never waits on a
+record the way the warranty call does, because the shapes a record can wait in
+belong to the service and a pack cannot be checked against them when it loads;
+its settings are whole numbers only, with no review site or other choice from
+the company's own setup; and only the HVAC pack declares one, as the example. `stop_unless` asks ten questions, from a catalogue in core, and a company
 cannot write its own: a question is a query, and a workflow never carries one.
 The record question compares one field with what the event carried; it cannot
 compare with a value typed into the step or ask about two fields at once (two

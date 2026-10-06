@@ -216,6 +216,41 @@ export const PortalBlockSeed = z.object({
   config: z.record(z.unknown()).default({}),
 });
 
+/**
+ * A RECOMMENDED AUTOMATION THE TRADE KNOWS.
+ *
+ * The same shape as the four the product ships (what it does, what it
+ * needs, its number settings, and the workflow it installs), as data. The
+ * shape is checked here; whether this build can run it (steps it knows,
+ * events something emits, a question `stop_unless` can ask) is checked by
+ * core's `checkPackAutomation` when the pack is loaded, in `index.ts`.
+ *
+ * A step's setting is written `{ "$param": "days" }` where the company's
+ * number goes. Steps are plain objects: `kind`, `config`, and for a branch
+ * `then` and `otherwise`.
+ */
+export const AutomationSeed = z.object({
+  key: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/),
+  name: z.string().min(1).max(120),
+  summary: z.string().min(1).max(500),
+  needs: z.string().max(500).default(""),
+  parameters: z.array(z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/),
+    label: z.string().min(1).max(120),
+    help: z.string().max(300).default(""),
+    kind: z.literal("number").default("number"),
+    default: z.number().int(),
+    min: z.number().int(),
+    max: z.number().int(),
+  })).default([]),
+  definition: z.object({
+    description: z.string().max(500).default(""),
+    triggerKind: z.literal("event").default("event"),
+    triggerEvents: z.array(z.string()).min(1),
+    steps: z.array(z.record(z.unknown())).min(1),
+  }),
+});
+
 export const TradePack = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(100),
@@ -261,6 +296,8 @@ export const TradePack = z.object({
   retention: z.array(RetentionSeed).default([]),
   kpis: z.array(KpiSeed),
   portalBlocks: z.array(PortalBlockSeed).default([]),
+  /** Recommended automations, offered on `/automations` to a company that applied the pack. */
+  automations: z.array(AutomationSeed).default([]),
 });
 
 /**
@@ -278,3 +315,4 @@ export type TradePackInput = z.input<typeof TradePack>;
 export type TradePack = z.output<typeof TradePack>;
 export type PriceBookSeedItem = z.output<typeof PriceBookSeedItem>;
 export type KpiSeed = z.output<typeof KpiSeed>;
+export type AutomationSeed = z.output<typeof AutomationSeed>;
