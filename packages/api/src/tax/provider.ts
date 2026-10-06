@@ -1,4 +1,5 @@
 import type { tax } from "@opentradesos/core";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * THE TAX PROVIDER SEAM
@@ -34,7 +35,9 @@ export function registerTaxProvider(name: string, factory: (input: TaxProviderIn
 export function createTaxProvider(name: string, input: TaxProviderInput): tax.TaxProvider {
   const factory = registry.get(name);
   if (!factory) throw new Error(`No tax provider registered for "${name}"`);
-  return factory(input);
+  // Never a stored endpoint override: see `adapterSettings`. The table reads
+  // none, and an adapter that asks over the network is handed none either.
+  return factory(input.settings ? { ...input, settings: adapterSettings(name, input.settings) } : input);
 }
 
 /** Read by the seam's test. */

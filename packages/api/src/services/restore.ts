@@ -64,7 +64,7 @@ export interface RestoreReport {
   people: { email: string; name: string | null; outcome: string }[];
   /** Everything held back when the copy was taken, by table and column, with what to do about it. */
   setUpAgain: { table: string; column: string; rows: number; reason: string }[];
-  /** Names of secrets this company's connections read, which this deployment's store needs under the same names. */
+  /** Names of secrets this company's connections read, which this company's own secrets need under the same names. */
   secretNames: string[];
   held: { connections: number; webhooks: number };
   refusals: string[];
@@ -532,7 +532,17 @@ async function load(
   await restoreCompany(tx, ctx, manifest, lookup);
 
   /* ---- 11. Nothing sends until somebody has looked. */
-  report.secretNames = await secretNames(tx);
+  /**
+   * A stored secret comes back as its NAME only. Its sealed value was held
+   * back when the copy was taken, and a row filled with a made up value would
+   * read as set and then fail to open. Removed, each name is on the report as
+   * one to put in again, under this company's own secrets.
+   */
+  const unsealed = await tx.delete(schema.integrationSecret).returning({ name: schema.integrationSecret.name });
+  if (unsealed.length > 0) {
+    report.notes.push(`${unsealed.length} stored ${unsealed.length === 1 ? "secret comes" : "secrets come"} back as a name only: put ${unsealed.length === 1 ? "it" : "each"} in again on Settings, Integrations.`);
+  }
+  report.secretNames = [...new Set([...await secretNames(tx), ...unsealed.map((r) => r.name)])].sort();
   if (!input.keepSending) report.held = await holdSending(tx);
 
   /**

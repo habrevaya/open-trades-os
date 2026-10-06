@@ -76,4 +76,8 @@ proxy timeout of several minutes.
 
 The secret names a restored company's connections read, and the bucket secret a
 backup destination names, are listed on the restore's report: put those secrets
-in the new deployment's store under the same names.
+in the NEW company's own secrets under the same names (Settings, Integrations,
+or `OTS_SECRET__<new company id>__<name>` with `SECRET_STORE=environment`). A
+secret is always read from the company whose bucket or connection names it,
+never from a bare server variable, so naming `AUTH_SECRET` reads the company's
+own secret of that name and not the server's.

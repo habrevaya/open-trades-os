@@ -15,6 +15,9 @@ import { createTranscriptionProvider } from "../src/voice/transcription";
 import * as softphone from "../src/services/softphone";
 import * as financing from "../src/services/financing";
 import * as adPlatforms from "../src/services/ad-platforms";
+import * as backups from "../src/services/backups";
+import * as creditNotes from "../src/services/credit-notes";
+import * as creditPayouts from "../src/services/credit-payouts";
 import { createRouter } from "../src/routing/provider";
 import { createMailProvider } from "../src/direct-mail/provider";
 import { createMarketplace } from "../src/marketplaces/provider";
@@ -26,7 +29,7 @@ import "../src/direct-mail";
 import "../src/marketplaces";
 import "../src/financing";
 import "../src/ads";
-import { createPaymentProvider } from "../src/payments/provider";
+import { createPaymentProvider, type PaymentProvider } from "../src/payments/provider";
 import { createAiProvider } from "../src/ai/provider";
 import { createVoiceProvider } from "../src/voice/provider";
 import { createGeocoder, resetPace } from "../src/maps/provider";
@@ -667,3 +670,124 @@ function randomUUIDLike(): string {
   const h = randomBytes(16).toString("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
+
+/* ------------------------------------------------------------------------
+ * THE SIXTH MERGE OF MAIN
+ *
+ * Two more paths arrived reading a secret by the bare name a company typed:
+ * scheduled copies to the owner's own bucket (`secretKeyRef`, read with the
+ * worker's environment reader) and credit paid back to a card (the payment
+ * processor built with `secretFromEnvironment`). Both now read the company's
+ * own secrets only, and the same attack is tried against each.
+ * --------------------------------------------------------------------- */
+
+run("the whole attack, through scheduled copies to a bucket", () => {
+  /**
+   * The bucket's address is the owner's to choose, as it has to be: it is
+   * their copy, and the key that signs for it is theirs. What they cannot
+   * choose is a server secret, or another company's, as the key the server
+   * signs with.
+   */
+  const destination = {
+    endpoint: ATTACKER.replace(/\/v1$/, ""), bucket: "copies", region: "us-east-1", prefix: "ots/",
+    accessKeyId: "AKIASECRETNS", secretKeyRef: "AUTH_SECRET", pathStyle: true,
+    frequency: "off" as const, hour: 2, weekday: null, keep: 3,
+  };
+
+  it("never signs a request to the owner's bucket with the deployment's own key", async () => {
+    setEnv("AUTH_SECRET", fakeValue("platform-session-key"));
+    const saved = await backups.saveDestination(ctx(), destination as never) as { check?: { error?: string | null } };
+    expect(sent).toEqual([]);
+    expect(saved.check?.error).toContain(connectors.environmentVariableFor(ORG, "AUTH_SECRET"));
+    await expect(backups.copiesIn(ctx(), destination))
+      .rejects.toThrow(connectors.environmentVariableFor(ORG, "AUTH_SECRET"));
+    expect(sent).toEqual([]);
+  });
+
+  it("never signs with another company's key, even one stored under the very name typed", async () => {
+    setEnv(connectors.environmentVariableFor(OTHER, "BUCKET_KEY"), fakeValue("other-company-bucket-key"));
+    await expect(backups.copiesIn(ctx(), { ...destination, secretKeyRef: "BUCKET_KEY" }))
+      .rejects.toThrow(connectors.environmentVariableFor(ORG, "BUCKET_KEY"));
+    expect(sent).toEqual([]);
+  });
+
+  it("signs with the company's own key when that is what is set", async () => {
+    setEnv(connectors.environmentVariableFor(ORG, "AUTH_SECRET"), fakeValue("company-bucket-key"));
+    await backups.copiesIn(ctx(), destination).catch(() => null);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((r) => new URL(r.url).host === new URL(destination.endpoint).host)).toBe(true);
+  });
+});
+
+run("the whole attack, through credit paid back to a card", () => {
+  /** A processor that never reaches the network, only for taking the payment the credit goes back through. */
+  const taking: PaymentProvider = {
+    name: "stripe",
+    publishableKey: "pk_test_ns",
+    async charge(request) {
+      return {
+        ok: true,
+        intent: {
+          intentId: `pi_ns_${randomBytes(6).toString("hex")}`, clientSecret: "secret",
+          amountMinor: request.amountMinor, currency: "usd", status: "requires_payment_method",
+        },
+      };
+    },
+    async refund() { throw new Error("not this one"); },
+    verify: () => true,
+    parseEvent: () => null,
+  };
+
+  /** A card payment of 100 on an invoice, and a credit of 40 against it left on the account. */
+  async function creditOnACardPayment() {
+    await storeStripe(ORG, "AUTH_SECRET", { publishableKey: "pk_test_ns", baseUrl: ATTACKER });
+    const { customerId, invoiceId } = await customerWithInvoice();
+    const attempt = await payments.intent(ctx(), { customerId, invoiceIds: [invoiceId] }, { provider: taking });
+    const [row] = await raw<{ id: string }[]>`
+      select id from public.integration_connection
+      where organization_id = ${ORG} and capability = 'payments' and provider = 'stripe'`;
+    const connection = (await payments.connectionById(db(), row!.id))!;
+    await payments.receive(db(), {
+      connection,
+      event: {
+        eventId: `evt_ns_${randomBytes(6).toString("hex")}`, kind: "succeeded", type: "payment_intent.succeeded",
+        intentId: attempt.intentId, amountMinor: 10000, currency: "usd", feeMinor: null, refundedMinor: null,
+        metadata: {}, failureMessage: null,
+      },
+    });
+    const invoice = await billing.get(ctx(), { id: invoiceId });
+    return creditNotes.create(ctx(), {
+      invoiceId, reason: "price_adjustment", draft: false, apply: true,
+      lines: [{ invoiceLineId: invoice.lines[0]!.id, quantity: "1", unitPrice: "40.00" }],
+    });
+  }
+
+  it("never sends the deployment's session key to refund a card, and never reaches the attacker", async () => {
+    const platform = fakeValue("platform-session-key");
+    setEnv("AUTH_SECRET", platform);
+    const note = await creditOnACardPayment();
+    sent = [];
+
+    const outcome = await creditPayouts.payOut(ctx(), { id: note.id, method: "card" }).catch((e: unknown) => e);
+
+    expect(outcome).toBeInstanceOf(SecretNotSetError);
+    expect((outcome as Error).message).toContain(connectors.environmentVariableFor(ORG, "AUTH_SECRET"));
+    expect(sent).toEqual([]);
+    expect(leaked(platform)).toEqual([]);
+  });
+
+  it("sends the company's own key to Stripe itself when that is what is set", async () => {
+    const own = fakeValue("company-key");
+    setEnv(connectors.environmentVariableFor(ORG, "AUTH_SECRET"), own);
+    setEnv("AUTH_SECRET", fakeValue("platform-session-key"));
+    const note = await creditOnACardPayment();
+    sent = [];
+
+    await creditPayouts.payOut(ctx(), { id: note.id, method: "card" }).catch(() => null);
+
+    expect(sent).toHaveLength(1);
+    expect(new URL(sent[0]!.url).host).toBe("api.stripe.com");
+    expect(sent[0]!.headers).toContain(own);
+    expect(sent[0]!.headers).not.toContain(process.env["AUTH_SECRET"]!);
+  });
+});

@@ -346,7 +346,7 @@ own, so a download that broke halfway is on the record too.
 owner controls (Amazon S3, R2, B2, Wasabi, a MinIO on their own server) every
 night or every week at an hour on the company's own clock, and keeps the newest
 N. The bucket is named the way every connection is: the access key id in the
-clear and the secret key as the NAME it is kept under in the deployment's store,
+clear and the secret key as the NAME it is kept under in the company's own secrets,
 never the key; a value that looks like a key is refused. Saving checks the bucket
 by writing a small object, reading it back and deleting it, and the screen says
 what the bucket answered until a check passes.
@@ -422,7 +422,7 @@ with a fresh random value that matches nothing, so the record comes back and the
 old link or token stays dead. Rows pointing at something outside the company (a
 franchise group) are not restored and the report says how many. The names of
 the secrets the company's connections read are listed, to put in the new
-deployment's store.
+company's own secrets; a stored secret's sealed value never travels.
 
 **Nothing sends until somebody has looked.** Every connected service is set to
 need checking and every webhook is switched off, unless the person restoring
