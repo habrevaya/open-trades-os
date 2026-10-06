@@ -290,6 +290,9 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name",
         placeholder: "MICROSOFT_ADS_DEVELOPER_TOKEN", hint: "From the Microsoft Advertising Developer Portal." },
       { ...OAUTH_CLIENT, label: "App registered in Microsoft Entra, as the name of the secret holding clientId and clientSecret as one JSON value", placeholder: "MICROSOFT_OAUTH_CLIENT" },
+      { key: "conversionName", label: "Offline conversion goal for booked jobs", kind: "text",
+        hint: "The exact name of an offline conversion goal made in Microsoft Advertising. Make it first and wait two hours before the first job is sent. Without one, no jobs are sent. Only the click id goes, never a customer's email or phone." },
+      SEND_CONVERSIONS,
     ],
   },
   meta_lead_ads: {

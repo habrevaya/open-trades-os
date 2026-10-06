@@ -1435,6 +1435,7 @@ export interface CampaignRecipientsOutput {
     customerId: string;
     customerName: string | null;
     address: string;
+    variant: "a" | "b";
     state: "pending" | "queued" | "skipped";
     skipReason: string | null;
     skipExplanation: string | null;
@@ -1453,6 +1454,9 @@ export interface CampaignResultsOutput {
     audienceInWords: string;
     subject: string | null;
     body: string;
+    variantBBody: string | null;
+    variantBSubject: string | null;
+    abTest: boolean;
     utmCampaign: string;
     messagingCampaignId: string | null;
     scheduledFor: string | null;
@@ -1473,6 +1477,33 @@ export interface CampaignResultsOutput {
   optOuts: number;
   jobs: number;
   revenue: string;
+  abTest: {
+    versions: Array<{
+      version: "a" | "b";
+      label: string;
+      selected: number;
+      sent: number;
+      skipped: number;
+      clicks: number;
+      replies: number | null;
+      booked: number;
+      jobs: number;
+      revenue: string;
+    }>;
+    repliesKnown: boolean;
+    untaggedClicks: number;
+    measures: Array<{
+      measure: "clicks" | "replies" | "booked";
+      label: string;
+      verdict: "no_data" | "too_few" | "no_clear_difference" | "a_higher" | "b_higher";
+      rateA: string | null;
+      rateB: string | null;
+      pValue: number | null;
+      sentence: string;
+    }>;
+    winner: "a" | "b" | null;
+    headline: string;
+  } | null;
 }
 
 export interface CancelAgreementInput {
@@ -1517,6 +1548,9 @@ export interface CancelCampaignOutput {
   audienceInWords: string;
   subject: string | null;
   body: string;
+  variantBBody: string | null;
+  variantBSubject: string | null;
+  abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -2437,6 +2471,8 @@ export interface CreateCampaignInput {
   body?: string;
   subject?: string | null;
   templateCode?: string;
+  variantBBody?: string;
+  variantBSubject?: string | null;
   utmCampaign?: string;
   messagingCampaignId?: string | null;
 }
@@ -2450,6 +2486,9 @@ export interface CreateCampaignOutput {
   audienceInWords: string;
   subject: string | null;
   body: string;
+  variantBBody: string | null;
+  variantBSubject: string | null;
+  abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -6006,6 +6045,9 @@ export interface GetCampaignOutput {
   audienceInWords: string;
   subject: string | null;
   body: string;
+  variantBBody: string | null;
+  variantBSubject: string | null;
+  abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -11342,6 +11384,9 @@ export interface ListCampaignsOutput {
     audienceInWords: string;
     subject: string | null;
     body: string;
+    variantBBody: string | null;
+    variantBSubject: string | null;
+    abTest: boolean;
     utmCampaign: string;
     messagingCampaignId: string | null;
     scheduledFor: string | null;
@@ -15946,6 +15991,11 @@ export interface PreviewCampaignInput {
 
 export interface PreviewCampaignOutput {
   rendered: {
+    for: string | null;
+    body: string;
+    subject: string | null;
+  } | null;
+  renderedB: {
     for: string | null;
     body: string;
     subject: string | null;
@@ -21693,6 +21743,8 @@ export interface UpdateCampaignInput {
   }>;
   body?: string;
   subject?: string | null;
+  variantBBody?: string | null;
+  variantBSubject?: string | null;
   scheduledFor?: string | null;
   messagingCampaignId?: string | null;
 }
@@ -21706,6 +21758,9 @@ export interface UpdateCampaignOutput {
   audienceInWords: string;
   subject: string | null;
   body: string;
+  variantBBody: string | null;
+  variantBSubject: string | null;
+  abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -24587,7 +24642,7 @@ export interface GetConversionsInput {
   from: string;
   to: string;
   model?: "first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based";
-  format?: "google" | "meta";
+  format?: "google" | "meta" | "microsoft";
 }
 
 export interface GetCreditNoteInput {

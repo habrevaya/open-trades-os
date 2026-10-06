@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { campaigns, messageTemplates } from "@opentradesos/api/services";
 import { can, campaign as cp } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
-import { Campaigns, Audience, Recipients } from "./CampaignView";
+import { Campaigns, Audience, Recipients, AbTestResults } from "./CampaignView";
 import { RuleBoxes } from "./RuleBoxes";
 import { ActionForm } from "./ActionForm";
 
@@ -77,6 +77,12 @@ export default async function CampaignsPage(
     ? (await campaigns.recipients(ctx, { id: opened, limit: 200 })).data
     : null;
 
+  /** The two versions of a test, only when asked for: it reads clicks, replies and jobs. */
+  const compared = one("results");
+  const comparison = compared
+    ? await campaigns.results(ctx, { id: compared }).catch(() => null)
+    : null;
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Campaigns" count={list.data.length} />
@@ -95,6 +101,12 @@ export default async function CampaignsPage(
                className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
               Who it reaches
             </a>
+            {campaign.abTest && campaign.result.selected > 0 && (
+              <a href={`/marketing/campaigns?results=${campaign.id}`}
+                 className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
+                Compare the versions
+              </a>
+            )}
             {campaign.result.selected > 0 && (
               <a href={`/marketing/campaigns?campaign=${campaign.id}`}
                  className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
@@ -139,6 +151,17 @@ export default async function CampaignsPage(
       ) : previewed ? (
         <Empty title="That audience could not be counted">
           The campaign may have been deleted, or its rules may no longer be a valid set.
+        </Empty>
+      ) : null}
+
+      {comparison?.abTest ? (
+        <section className="mt-8">
+          <h2 className="text-base font-semibold">The two versions: {comparison.campaign.name}</h2>
+          <AbTestResults results={comparison.abTest} />
+        </section>
+      ) : compared ? (
+        <Empty title="That campaign is not a test">
+          It has no second version, or it could not be found.
         </Empty>
       ) : null}
 
@@ -222,6 +245,24 @@ export default async function CampaignsPage(
                   </span>
                 ))}. Anything else is refused, because it would arrive as a gap in the sentence.
               </p>
+              <fieldset className="max-w-xl rounded border border-steel-200 p-3">
+                <legend className="px-1 text-sm text-ink-700">Test a second way of saying it (optional)</legend>
+                <p className="text-xs text-ink-500">
+                  Write a second message and half your list, picked at random, gets it instead. Afterwards you
+                  see the counts side by side. A winner is named only when the difference is more than luck
+                  would explain. To count clicks for each version, end your link with{" "}
+                  <code className="font-mono">?{"{{ campaign.utm }}"}</code>.
+                </p>
+                <label className="mt-2 flex flex-col gap-1 text-sm">
+                  <span className="text-ink-700">Version B message</span>
+                  <textarea name="variantBBody" rows={3}
+                            className="w-full rounded border border-steel-300 p-2 text-sm" />
+                </label>
+                <label className="mt-2 flex flex-col gap-1 text-sm">
+                  <span className="text-ink-700">Version B subject, for an email (blank keeps the first subject)</span>
+                  <input name="variantBSubject" className={`${input} w-full`} />
+                </label>
+              </fieldset>
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-ink-700">Send it at, if not now</span>
                 <input name="scheduledFor" type="datetime-local" className={`${input} w-56`} />

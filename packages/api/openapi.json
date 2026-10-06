@@ -19018,7 +19018,7 @@
       "get": {
         "operationId": "campaignResults",
         "summary": "What the campaign brought back",
-        "description": "Replies, opt outs, jobs and revenue. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.\n\nRequires a session holding: campaign:read.",
+        "description": "Replies, opt outs, jobs and revenue, and for an A/B test the two versions side by side: people sent, people who clicked, people who replied where replies are read back, and people who booked, with the counts for each version and a plain sentence on each. A winner is named only when a two proportion test says the gap is more than luck explains, with the bar divided across the measures compared; otherwise `winner` is null and the counts speak for themselves. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.\n\nRequires a session holding: campaign:read.",
         "tags": [
           "M19"
         ],
@@ -60859,7 +60859,8 @@
               "type": "string",
               "enum": [
                 "google",
-                "meta"
+                "meta",
+                "microsoft"
               ]
             }
           }
@@ -133410,6 +133411,13 @@
                 "address": {
                   "type": "string"
                 },
+                "variant": {
+                  "type": "string",
+                  "enum": [
+                    "a",
+                    "b"
+                  ]
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -133449,6 +133457,7 @@
                 "customerId",
                 "customerName",
                 "address",
+                "variant",
                 "state",
                 "skipReason",
                 "skipExplanation",
@@ -133511,6 +133520,21 @@
               "body": {
                 "type": "string"
               },
+              "variantBBody": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "variantBSubject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "abTest": {
+                "type": "boolean"
+              },
               "utmCampaign": {
                 "type": "string"
               },
@@ -133564,6 +133588,9 @@
               "audienceInWords",
               "subject",
               "body",
+              "variantBBody",
+              "variantBSubject",
+              "abTest",
               "utmCampaign",
               "messagingCampaignId",
               "scheduledFor",
@@ -133617,6 +133644,157 @@
           },
           "revenue": {
             "type": "string"
+          },
+          "abTest": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "versions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "string",
+                      "enum": [
+                        "a",
+                        "b"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "selected": {
+                      "type": "integer"
+                    },
+                    "sent": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "clicks": {
+                      "type": "integer"
+                    },
+                    "replies": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "booked": {
+                      "type": "integer"
+                    },
+                    "jobs": {
+                      "type": "integer"
+                    },
+                    "revenue": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "label",
+                    "selected",
+                    "sent",
+                    "skipped",
+                    "clicks",
+                    "replies",
+                    "booked",
+                    "jobs",
+                    "revenue"
+                  ]
+                }
+              },
+              "repliesKnown": {
+                "type": "boolean"
+              },
+              "untaggedClicks": {
+                "type": "integer"
+              },
+              "measures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "measure": {
+                      "type": "string",
+                      "enum": [
+                        "clicks",
+                        "replies",
+                        "booked"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "verdict": {
+                      "type": "string",
+                      "enum": [
+                        "no_data",
+                        "too_few",
+                        "no_clear_difference",
+                        "a_higher",
+                        "b_higher"
+                      ]
+                    },
+                    "rateA": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "rateB": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "pValue": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "measure",
+                    "label",
+                    "verdict",
+                    "rateA",
+                    "rateB",
+                    "pValue",
+                    "sentence"
+                  ]
+                }
+              },
+              "winner": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              },
+              "headline": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "versions",
+              "repliesKnown",
+              "untaggedClicks",
+              "measures",
+              "winner",
+              "headline"
+            ]
           }
         },
         "required": [
@@ -133626,7 +133804,8 @@
           "replies",
           "optOuts",
           "jobs",
-          "revenue"
+          "revenue",
+          "abTest"
         ]
       },
       "CancelAgreementInput": {
@@ -133827,6 +134006,21 @@
           "body": {
             "type": "string"
           },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -133906,6 +134100,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -138310,6 +138507,18 @@
             "minLength": 1,
             "maxLength": 64
           },
+          "variantBBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
           "utmCampaign": {
             "type": "string",
             "minLength": 1,
@@ -138374,6 +138583,21 @@
           },
           "body": {
             "type": "string"
+          },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
           },
           "utmCampaign": {
             "type": "string"
@@ -138454,6 +138678,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -156538,6 +156765,21 @@
           "body": {
             "type": "string"
           },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -156617,6 +156859,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -184624,6 +184869,21 @@
                 "body": {
                   "type": "string"
                 },
+                "variantBBody": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "variantBSubject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "abTest": {
+                  "type": "boolean"
+                },
                 "utmCampaign": {
                   "type": "string"
                 },
@@ -184703,6 +184963,9 @@
                 "audienceInWords",
                 "subject",
                 "body",
+                "variantBBody",
+                "variantBSubject",
+                "abTest",
                 "utmCampaign",
                 "messagingCampaignId",
                 "scheduledFor",
@@ -208595,6 +208858,34 @@
               "subject"
             ]
           },
+          "renderedB": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "for": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "body": {
+                "type": "string"
+              },
+              "subject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "for",
+              "body",
+              "subject"
+            ]
+          },
           "count": {
             "type": "integer"
           },
@@ -208656,6 +208947,7 @@
         },
         "required": [
           "rendered",
+          "renderedB",
           "count",
           "overflow",
           "inWords",
@@ -236084,6 +236376,21 @@
             ],
             "maxLength": 300
           },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
           "scheduledFor": {
             "type": [
               "string",
@@ -236145,6 +236452,21 @@
           },
           "body": {
             "type": "string"
+          },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
           },
           "utmCampaign": {
             "type": "string"
@@ -236225,6 +236547,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",

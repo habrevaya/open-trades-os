@@ -474,8 +474,8 @@ export const getConversions = defineRoute({
     to: z.string().date(),
     /** Which model splits the money. Named, because this is where a modelling choice becomes real spend. */
     model: AttributionModel.optional(),
-    /** Omit for JSON. `google` or `meta` returns that platform's own upload format. */
-    format: z.enum(["google", "meta"]).optional(),
+    /** Omit for JSON. `google`, `meta` or `microsoft` returns that platform's own upload format. */
+    format: z.enum(["google", "meta", "microsoft"]).optional(),
   }),
   output: z.object({
     model: AttributionModel,

@@ -1,7 +1,7 @@
 import { splitRow } from "../marketing/spend-csv";
 import {
   failure, jsonOf, registerAdsAdapter, textSetting, PlatformRefusedError, PlatformUnavailableError,
-  type AdapterInput, type AdsAdapter, type PulledSpend,
+  type AdapterInput, type AdsAdapter, type EventOutcome, type OutboundEvent, type PulledSpend,
 } from "./provider";
 import { firstCsvIn } from "./zip";
 
@@ -28,9 +28,27 @@ import { firstCsvIn } from "./zip";
  * The download address is Microsoft's own storage and is fetched with no
  * token at all, because it carries its own signature and a bearer token sent
  * to a storage host is a token sent somewhere it was not meant for.
+ *
+ * BOOKED AND PAID JOBS GO BACK THROUGH THE CAMPAIGN MANAGEMENT SERVICE, a
+ * different host from reporting, as Microsoft's documented offline
+ * conversion upload (`ApplyOfflineConversions`, REST `OfflineConversions/Apply`):
+ * a list of up to a thousand conversions, each a goal name, a time in UTC, an
+ * optional value and currency, and the `MicrosoftClickId` (msclkid) of the
+ * click that won it. The goal named has to be an offline conversion goal made
+ * in the account first, and Microsoft asks for two hours between making it and
+ * the first upload. Only the click id goes: no hashed email or phone, because
+ * the conversion is matched on the click and the customer's details are not
+ * needed to do that. Microsoft ignores a second conversion with the same
+ * click id and time; this product's own once-only row is what keeps a job from
+ * being sent twice, and Microsoft's handling of a repeat is not relied on.
+ * A conversion cannot be restated afterwards: the operation has no change or
+ * retraction, so a job whose value moves later is not told again.
  */
 
 const DEFAULT_BASE = "https://reporting.api.bingads.microsoft.com/Reporting/v13";
+const DEFAULT_CAMPAIGN_BASE = "https://campaign.api.bingads.microsoft.com/CampaignManagement/v13";
+/** Microsoft takes this many offline conversions in one request. */
+const MAX_CONVERSIONS = 1000;
 const POLLS = 6;
 const POLL_MS = 2_000;
 
@@ -69,6 +87,7 @@ function createMicrosoftAds(input: AdapterInput): AdsAdapter {
   const customerId = textSetting(input.settings, "customerId")?.replace(/\D/g, "") || undefined;
   const accountId = textSetting(input.settings, "accountId")?.replace(/\D/g, "") || undefined;
   const developerToken = input.secrets["developerToken"];
+  const campaignBase = (textSetting(input.settings, "campaignUrl") ?? DEFAULT_CAMPAIGN_BASE).replace(/\/$/, "");
   /** Overridable so the tests do not sleep. */
   const wait = typeof input.settings["pollMs"] === "number" ? input.settings["pollMs"] as number : POLL_MS;
 
@@ -81,12 +100,12 @@ function createMicrosoftAds(input: AdapterInput): AdsAdapter {
     return { customerId, accountId, developerToken };
   }
 
-  async function call(path: string, body: Record<string, unknown>): Promise<unknown> {
+  async function call(path: string, body: Record<string, unknown>, root: string = base): Promise<unknown> {
     const ids = ready();
     const token = await input.token!.accessToken();
     let response;
     try {
-      response = await input.transport(`${base}/${path}`, {
+      response = await input.transport(`${root}/${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -110,6 +129,66 @@ function createMicrosoftAds(input: AdapterInput): AdsAdapter {
 
   return {
     provider: "bing_ads",
+
+    async sendEvents(events: OutboundEvent[]): Promise<EventOutcome[]> {
+      ready();
+      const goal = textSetting(input.settings, "conversionName");
+      if (!goal) {
+        throw new PlatformRefusedError("Enter the name of the Microsoft Advertising offline conversion goal that booked jobs are reported as.");
+      }
+      const outcomes: EventOutcome[] = [];
+      for (let start = 0; start < events.length; start += MAX_CONVERSIONS) {
+        const batch = events.slice(start, start + MAX_CONVERSIONS);
+        /**
+         * An event with no click id cannot be matched: the click is the only
+         * thing sent. The service withholds those before they get here, so
+         * this is the adapter refusing to send something it cannot place.
+         */
+        const sendable = batch.map((event, index) => ({ event, index })).filter(({ event }) => event.clickId);
+        const refused = new Map<number, string>();
+        for (const { event, index } of batch.map((event, index) => ({ event, index }))) {
+          if (!event.clickId) refused.set(index, "There is no Microsoft click id on this job to match the conversion to.");
+        }
+        if (sendable.length > 0) {
+          const body = await call("OfflineConversions/Apply", {
+            OfflineConversions: sendable.map(({ event }) => {
+              /**
+               * Microsoft counts a conversion only when it is later than the
+               * click. A job booked at the very moment of the click (a form
+               * on the landing page) is moved one second on rather than lost.
+               */
+              const at = event.clickSeenAt && event.at.getTime() <= event.clickSeenAt.getTime()
+                ? new Date(event.clickSeenAt.getTime() + 1000) : event.at;
+              return {
+                ConversionName: goal,
+                ConversionTime: at.toISOString(),
+                ...(event.value !== null ? { ConversionValue: Number(event.value), ConversionCurrencyCode: event.currency } : {}),
+                MicrosoftClickId: event.clickId,
+              };
+            }),
+          }, campaignBase) as { PartialErrors?: { Index?: unknown; Code?: unknown; ErrorCode?: unknown; Message?: unknown; Details?: unknown }[] };
+          /**
+           * The errors name an item by its place in what was sent. Microsoft
+           * warns the list need not match the request one for one, so an
+           * error with no usable place refuses the whole request, in its own
+           * words, rather than guessing which conversions went.
+           */
+          const errors = body.PartialErrors ?? [];
+          const words = (e: (typeof errors)[number]) => [e.ErrorCode, e.Message ?? e.Details]
+            .filter((part) => typeof part === "string" && part !== "").join(": ") || "Microsoft refused this conversion.";
+          const placed = errors.filter((e) => typeof e.Index === "number" && e.Index >= 0 && e.Index < sendable.length);
+          if (errors.length > 0 && placed.length < errors.length) {
+            for (const { index } of sendable) refused.set(index, words(errors.find((e) => !placed.includes(e))!));
+          } else {
+            for (const e of placed) refused.set(sendable[e.Index as number]!.index, words(e));
+          }
+        }
+        batch.forEach((event, index) => outcomes.push(refused.has(index)
+          ? { eventId: event.eventId, ok: false as const, message: refused.get(index)! }
+          : { eventId: event.eventId, ok: true as const }));
+      }
+      return outcomes;
+    },
 
     async pullSpend(range) {
       const ids = ready();

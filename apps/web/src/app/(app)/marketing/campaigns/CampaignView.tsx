@@ -15,6 +15,7 @@ export interface CampaignRow {
   state: string;
   audienceInWords: string;
   utmCampaign: string | null;
+  abTest?: boolean;
   scheduledFor: string | null;
   startedAt: string | null;
   cancelledAt: string | null;
@@ -26,6 +27,8 @@ export interface RecipientRow {
   id: string;
   customerName: string | null;
   address: string;
+  /** The half of an A/B test this person was given. */
+  variant?: string;
   state: string;
   skipReason: string | null;
 }
@@ -38,6 +41,21 @@ export interface Preview {
   sample: { customerId: string; name: string; address: string }[];
   /** The message as the first person on the list will read it. */
   rendered?: { for: string | null; body: string; subject: string | null } | null;
+  /** Version B as the same person would read it, for an A/B test. */
+  renderedB?: { for: string | null; body: string; subject: string | null } | null;
+}
+
+/** The results of an A/B test, as the service returns them. */
+export interface AbResults {
+  versions: {
+    version: string; label: string; sent: number; skipped: number; clicks: number;
+    replies: number | null; booked: number; jobs: number; revenue: string;
+  }[];
+  repliesKnown: boolean;
+  untaggedClicks: number;
+  measures: { measure: string; label: string; verdict: string; rateA: string | null; rateB: string | null; sentence: string }[];
+  winner: string | null;
+  headline: string;
 }
 
 /**
@@ -128,6 +146,7 @@ export function Campaigns({
             </Chip></span>
             <span className="block text-xs text-ink-500">
               {campaign.channel === "sms" ? "Text" : "Email"}
+              {campaign.abTest ? " · two versions" : ""}
               {campaign.utmCampaign ? ` · ${campaign.utmCampaign}` : ""}
             </span>
             {campaign.cancelledAt ? (
@@ -227,12 +246,25 @@ export function Audience({ preview }: { preview: Preview }) {
       {preview.rendered ? (
         <figure className="mt-3 max-w-xl rounded border border-steel-200 bg-steel-100 p-3">
           <figcaption className="text-xs font-medium text-ink-700">
+            {preview.renderedB ? "Version A. " : ""}
             {preview.rendered.for ? `As ${preview.rendered.for} will read it` : "As it will read"}
           </figcaption>
           {preview.rendered.subject ? (
             <p className="mt-1 text-sm font-medium">{preview.rendered.subject}</p>
           ) : null}
           <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{preview.rendered.body}</p>
+        </figure>
+      ) : null}
+      {preview.renderedB ? (
+        <figure className="mt-3 max-w-xl rounded border border-steel-200 bg-steel-100 p-3">
+          <figcaption className="text-xs font-medium text-ink-700">
+            Version B. {preview.renderedB.for ? `As ${preview.renderedB.for} will read it` : "As it will read"}.
+            Half the list gets each, chosen at random.
+          </figcaption>
+          {preview.renderedB.subject ? (
+            <p className="mt-1 text-sm font-medium">{preview.renderedB.subject}</p>
+          ) : null}
+          <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{preview.renderedB.body}</p>
         </figure>
       ) : null}
 
@@ -269,11 +301,13 @@ export function Recipients({ recipients }: { recipients: RecipientRow[] }) {
     return <Empty title="Nobody yet">Recipients appear when the campaign is sent.</Empty>;
   }
   return (
-    <Table label="Recipients" head={<><Th>Customer</Th><Th>Address</Th><Th>What happened</Th></>}>
+    <Table label="Recipients" head={<><Th>Customer</Th><Th>Address</Th>{recipients.some((r) => r.variant && r.variant !== "a") ? <Th>Version</Th> : null}<Th>What happened</Th></>}>
       {recipients.map((recipient) => (
         <tr key={recipient.id} className={recipient.state === "skipped" ? "text-ink-700" : undefined}>
           <Td>{recipient.customerName ?? "a customer"}</Td>
           <Td><span className="font-mono text-xs">{recipient.address}</span></Td>
+          {recipients.some((r) => r.variant && r.variant !== "a")
+            ? <Td>{recipient.variant === "b" ? "B" : "A"}</Td> : null}
           <Td>
             {recipient.state === "skipped" ? (
               <span className="text-amber-700">
@@ -286,5 +320,64 @@ export function Recipients({ recipients }: { recipients: RecipientRow[] }) {
         </tr>
       ))}
     </Table>
+  );
+}
+
+/**
+ * THE TWO VERSIONS OF AN A/B TEST, SIDE BY SIDE
+ *
+ * The counts come first and are always shown. A winner is named only when the
+ * service says the gap is more than luck would explain, and what it says
+ * otherwise is "no clear winner" with the counts, because two halves of a list
+ * differ by a few people even when the words make no difference at all.
+ */
+export function AbTestResults({ results }: { results: AbResults }) {
+  const [a, b] = results.versions;
+  if (!a || !b) return null;
+  const rows: { label: string; a: string; b: string }[] = [
+    { label: "Sent to", a: String(a.sent), b: String(b.sent) },
+    { label: "Clicked the link", a: String(a.clicks), b: String(b.clicks) },
+    {
+      label: "Replied",
+      a: a.replies === null ? "Not known" : String(a.replies),
+      b: b.replies === null ? "Not known" : String(b.replies),
+    },
+    { label: "Booked a job", a: String(a.booked), b: String(b.booked) },
+  ];
+  return (
+    <div className="mt-3 max-w-2xl">
+      <p className={`rounded border p-3 text-sm ${results.winner ? "border-green-300 bg-green-50" : "border-steel-200 bg-steel-100"}`}>
+        {results.headline}
+      </p>
+      <Table label="The two versions" head={<><Th>People</Th><Th>Version A</Th><Th>Version B</Th></>}>
+        {rows.map((row) => (
+          <tr key={row.label}>
+            <Td>{row.label}</Td>
+            <Td className="tabular-nums">{row.a}</Td>
+            <Td className="tabular-nums">{row.b}</Td>
+          </tr>
+        ))}
+      </Table>
+      <ul className="mt-3 space-y-2 text-sm text-ink-700">
+        {results.measures.map((measure) => (
+          <li key={measure.measure}>
+            <span className="font-medium text-ink-900">{measure.label}.</span> {measure.sentence}
+          </li>
+        ))}
+      </ul>
+      {!results.repliesKnown ? (
+        <p className="mt-2 text-xs text-ink-500">
+          Replies to an email are not seen unless your mail is set up to bring them back here, so they are
+          left out of the comparison.
+        </p>
+      ) : null}
+      {results.untaggedClicks > 0 ? (
+        <p className="mt-2 text-xs text-ink-500">
+          {results.untaggedClicks} {results.untaggedClicks === 1 ? "person" : "people"} followed the link
+          without a version on it, so they are in neither column. Put the link tag in the message to count
+          every click.
+        </p>
+      ) : null}
+    </div>
   );
 }

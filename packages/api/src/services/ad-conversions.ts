@@ -21,7 +21,7 @@ import {
  * it to Google, remember to do it again next week. Nobody remembers. With a
  * platform connected and sending switched on, this does it: a LEAD the moment
  * a job is booked (to Meta and Google Analytics) and a PURCHASE the moment a
- * job's invoices are all paid (to Google Ads, Meta and Google Analytics), with
+ * job's invoices are all paid (to Google Ads, Microsoft Advertising, Meta and Google Analytics), with
  * the revenue on it.
  *
  * FOUR RULES, each of which costs money or trust when broken.
@@ -72,6 +72,7 @@ export function notSending(row: Connection): string | null {
   if (row.provider === "google_ads" && !has("conversionActionId")) return "No conversion action is chosen.";
   if (row.provider === "meta_ads" && !has("pixelId")) return "No pixel id is entered.";
   if (row.provider === "ga4" && !has("measurementId")) return "No measurement id is entered.";
+  if (row.provider === "bing_ads" && !has("conversionName")) return "No offline conversion goal is named.";
   return null;
 }
 
@@ -82,6 +83,7 @@ function clickFor(provider: ads.AdsProvider, touch: typeof schema.marketingTouch
     return touch.clickIdParam ? GOOGLE_CLICKS.has(touch.clickIdParam) : touch.source === "google_ads";
   }
   if (provider === "meta_ads") return touch.clickIdParam ? touch.clickIdParam === "fbclid" : touch.source === "meta_ads";
+  if (provider === "bing_ads") return touch.clickIdParam ? touch.clickIdParam === "msclkid" : touch.source === "bing_ads";
   return false;
 }
 

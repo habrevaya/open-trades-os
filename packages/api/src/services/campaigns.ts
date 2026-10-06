@@ -1,7 +1,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { campaign as cp, comms, resolveMembership, tags as tagRules, SYSTEM_USER_ID, type Actor, type Permission, type RoleId } from "@opentradesos/core";
+import { campaign as cp, comms, money as m, resolveMembership, tags as tagRules, SYSTEM_USER_ID, type Actor, type Permission, type RoleId } from "@opentradesos/core";
 import * as commsSend from "./comms-send";
 import * as email from "./email";
 import {
@@ -9,7 +9,7 @@ import {
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { render } from "../lib/render";
-import { REVENUE_SQL } from "./marketing";
+import { REVENUE_SQL, revenueByJob } from "./marketing";
 import { senderFor } from "./phone-numbers";
 
 /**
@@ -338,6 +338,12 @@ export interface CampaignInput {
   templateCode?: string | undefined;
   utmCampaign?: string | undefined;
   messagingCampaignId?: string | null | undefined;
+  /**
+   * The second version of an A/B test: its body, and its subject for an email.
+   * Given, it turns the campaign into a test and half the audience gets it.
+   */
+  variantBBody?: string | undefined;
+  variantBSubject?: string | null | undefined;
 }
 
 /**
@@ -387,8 +393,9 @@ function personalise(
   words: { body: string; subject: string | null },
   scope: { companyName: string; companyPhone: string | null },
   customerName: string,
+  campaign: { utmCampaign: string; variant: cp.Variant },
 ) {
-  const values = cp.mergeScope({ customerName, ...scope });
+  const values = cp.mergeScope({ customerName, ...scope, campaign });
   return {
     body: render(words.body, values),
     subject: words.subject ? render(words.subject, values) : null,
@@ -402,6 +409,39 @@ function checkContent(input: {
   if (!verdict.ok) {
     throw new ConflictError(verdict.refusals.map((r) => r.message).join(" "));
   }
+}
+
+/**
+ * The second version, checked as the first is and against it. Returns what to
+ * store: both null with no test, so a body can never be left behind with no
+ * subject, or a subject with no body.
+ */
+function checkVersionB(
+  channel: "sms" | "email",
+  a: { body: string; subject: string | null },
+  b: { body: string | null | undefined; subject: string | null | undefined },
+): { body: string | null; subject: string | null } {
+  const body = b.body?.trim() || null;
+  if (body === null) {
+    if (b.subject?.trim()) {
+      throw new ConflictError("A subject for version B needs a body for version B too.");
+    }
+    return { body: null, subject: null };
+  }
+  const subject = b.subject?.trim() || null;
+  /**
+   * A test of the words alone is a fair test: an email's version B with no
+   * subject of its own is sent under version A's. Stored as blank, not copied,
+   * so editing A's subject afterwards still moves both.
+   */
+  const verdict = cp.checkVersionB({
+    channel, body: a.body, subject: a.subject,
+    versionB: { body, subject: channel === "email" ? subject ?? a.subject : subject },
+  });
+  if (!verdict.ok) {
+    throw new ConflictError(`Version B: ${verdict.refusals.map((r) => r.message).join(" ")}`);
+  }
+  return { body, subject };
 }
 
 export function create(ctx: ServiceContext, input: CampaignInput) {
@@ -421,6 +461,11 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
       subject: input.subject?.trim() || fromTemplate?.subject || null,
     };
     checkContent({ channel: input.channel, subject: words.subject, body: words.body });
+    const versionB = checkVersionB(
+      input.channel,
+      { body: words.body, subject: input.channel === "email" ? words.subject : null },
+      { body: input.variantBBody, subject: input.variantBSubject },
+    );
 
     const utmCampaign = (input.utmCampaign?.trim() || utmFor(name));
 
@@ -446,6 +491,8 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
         audience: verdict.rules as unknown as Record<string, unknown>[],
         body: words.body,
         subject: input.channel === "email" ? words.subject : null,
+        variantBBody: versionB.body,
+        variantBSubject: versionB.subject,
         utmCampaign,
         messagingCampaignId: input.messagingCampaignId ?? null,
         createdByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
@@ -486,6 +533,9 @@ export interface CampaignPatch {
   subject?: string | null | undefined;
   scheduledFor?: string | null | undefined;
   messagingCampaignId?: string | null | undefined;
+  /** Version B's words. Null body takes the test off the campaign. */
+  variantBBody?: string | null | undefined;
+  variantBSubject?: string | null | undefined;
 }
 
 export function update(ctx: ServiceContext, input: CampaignPatch) {
@@ -517,6 +567,21 @@ export function update(ctx: ServiceContext, input: CampaignPatch) {
       ? (input.subject === undefined ? current.subject : (input.subject?.trim() ?? null))
       : null;
     checkContent({ channel, subject, body });
+    /**
+     * Version B is re-checked against whatever version A now says, whether or
+     * not B was touched: editing A into B's words would otherwise leave a test
+     * of two identical messages.
+     */
+    const versionB = checkVersionB(
+      channel,
+      { body, subject },
+      {
+        body: input.variantBBody === undefined ? current.variantBBody : input.variantBBody,
+        subject: input.variantBBody === null
+          ? null
+          : input.variantBSubject === undefined ? current.variantBSubject : input.variantBSubject,
+      },
+    );
 
     if (input.messagingCampaignId) {
       await assertCarrierCampaign(tx, ctx.actor.organizationId, input.messagingCampaignId);
@@ -538,6 +603,8 @@ export function update(ctx: ServiceContext, input: CampaignPatch) {
       audience: audience as unknown as Record<string, unknown>[],
       body,
       subject,
+      variantBBody: versionB.body,
+      variantBSubject: versionB.subject,
       scheduledFor,
       state,
       ...(input.messagingCampaignId !== undefined
@@ -676,6 +743,10 @@ function viewOf(row: typeof schema.marketingCampaign.$inferSelect) {
     audienceInWords: cp.describeAudience(rules),
     subject: row.subject,
     body: row.body,
+    /** Version B of an A/B test, or null when the campaign is not one. */
+    variantBBody: row.variantBBody,
+    variantBSubject: row.variantBSubject,
+    abTest: row.variantBBody !== null,
     utmCampaign: row.utmCampaign,
     messagingCampaignId: row.messagingCampaignId,
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
@@ -779,15 +850,34 @@ export function preview(ctx: ServiceContext, input: {
      * of them go out, and it is the version that shows a field that came out
      * empty.
      */
-    const words = input.id
-      ? await loadWithin(tx, ctx, input.id).then((row) => ({ body: row.body, subject: row.subject }))
+    const saved = input.id ? await loadWithin(tx, ctx, input.id) : null;
+    const words = saved
+      ? { body: saved.body, subject: saved.subject }
       : input.body ? { body: input.body, subject: input.subject ?? null } : null;
     const scope = await companyScope(tx, ctx.actor.organizationId);
     const first = candidates[0];
+    /** An unsaved preview has no tag yet; the example is what the link would end in. */
+    const tag = saved?.utmCampaign ?? "your-campaign-tag";
+    const forWhom = first?.name ?? cp.MERGE_FIELDS[1].example;
     const rendered = words
       ? {
         for: first?.name ?? null,
-        ...personalise(words, scope, first?.name ?? cp.MERGE_FIELDS[1].example),
+        ...personalise(words, scope, forWhom, { utmCampaign: tag, variant: "a" }),
+      }
+      : null;
+    /**
+     * Version B as the same first person would read it, so the two can be read
+     * side by side before anybody is sent either. Which half that person is
+     * actually in is a fact of the send, not of the preview, so it is not said.
+     */
+    const renderedB = saved?.variantBBody
+      ? {
+        for: first?.name ?? null,
+        ...personalise({
+          body: saved.variantBBody,
+          subject: saved.channel === "email" ? saved.variantBSubject ?? saved.subject : null,
+        }, scope, forWhom,
+          { utmCampaign: tag, variant: "b" }),
       }
       : null;
 
@@ -804,6 +894,7 @@ export function preview(ctx: ServiceContext, input: {
       inWords: cp.describeAudience(rules),
       pace: cp.pace(count, limits),
       rendered,
+      renderedB,
       sample: candidates.slice(0, sample).map((c) => ({
         customerId: c.customerId, name: c.name, address: c.address,
       })),
@@ -888,6 +979,9 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
     const channel = row.channel as "sms" | "email";
     const rules = parseRules(row.audience);
     checkContent({ channel, subject: row.subject, body: row.body });
+    if (row.variantBBody !== null) {
+      checkContent({ channel, subject: channel === "email" ? row.variantBSubject ?? row.subject : null, body: row.variantBBody });
+    }
 
     const limits = await limitsWithin(tx, ctx.actor.organizationId, row);
 
@@ -967,8 +1061,17 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
     const scope = await companyScope(tx, ctx.actor.organizationId);
 
     for (const candidate of batch) {
+      /**
+       * Which half they are in, from a hash of the campaign and the customer,
+       * so a send that carries on tomorrow puts the same person in the same
+       * half. A campaign with no test gives everybody version A.
+       */
+      const variant: cp.Variant = row.variantBBody === null ? "a" : cp.variantFor(row.id, candidate.customerId);
+      const version = variant === "b"
+        ? { body: row.variantBBody!, subject: channel === "email" ? row.variantBSubject ?? row.subject : null }
+        : { body: row.body, subject: row.subject };
       /** Their own words: "Hi Maria" rather than "Hi {{ customer.firstName }}". */
-      const words = personalise({ body: row.body, subject: row.subject }, scope, candidate.name);
+      const words = personalise(version, scope, candidate.name, { utmCampaign: row.utmCampaign, variant });
       const outcome = channel === "sms"
         ? await commsSend.sendMarketing(tx, {
           organizationId: ctx.actor.organizationId,
@@ -991,6 +1094,7 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
         campaignId: row.id,
         customerId: candidate.customerId,
         address: candidate.address,
+        variant,
         state: outcome.sent ? "queued" : "skipped",
         skipReason: outcome.sent ? null : outcome.reason,
         messageId: outcome.sent ? outcome.messageId : null,
@@ -1300,6 +1404,7 @@ export function recipients(ctx: ServiceContext, input: {
       customerId: schema.campaignRecipient.customerId,
       customerName: schema.customer.name,
       address: schema.campaignRecipient.address,
+      variant: schema.campaignRecipient.variant,
       state: schema.campaignRecipient.state,
       skipReason: schema.campaignRecipient.skipReason,
       messageId: schema.campaignRecipient.messageId,
@@ -1329,6 +1434,7 @@ export function recipients(ctx: ServiceContext, input: {
         customerId: row.customerId,
         customerName: row.customerName,
         address: row.address,
+        variant: row.variant,
         state: row.state,
         skipReason: row.skipReason,
         /** The sentence, not the identifier. An operator reads this. */
@@ -1393,6 +1499,8 @@ export function results(ctx: ServiceContext, input: { id: string }) {
       where campaign_id = ${row.id} and used_at is not null
     `);
 
+    const abTest = await abTestWithin(tx, ctx.actor.organizationId, row);
+
     return {
       campaign: viewOf(row),
       result: tally,
@@ -1402,6 +1510,127 @@ export function results(ctx: ServiceContext, input: { id: string }) {
       optOuts: Number(optOuts?.n ?? "0"),
       jobs: Number(work?.jobs ?? "0"),
       revenue: work?.revenue ?? "0",
+      abTest,
     };
   });
+}
+
+/**
+ * THE TWO VERSIONS SIDE BY SIDE, AND WHETHER THE GAP MEANS ANYTHING
+ *
+ * Every figure is read from what happened to the people each version went to:
+ *
+ *   SENT is the recipients queued with that version. The half a person is in
+ *   was written on their row when they were selected, so this reads what was
+ *   sent, not what the hash would say today.
+ *
+ *   CLICKS are people who arrived on the campaign's utm tag with that version's
+ *   utm_content (the `{{ campaign.utm }}` merge field writes both), counted
+ *   once each, by the same person key the funnel's leads use. A click with no
+ *   version on it, from a link somebody typed by hand, is in neither column and
+ *   is counted apart, because putting it in one would pick a winner for the
+ *   test.
+ *
+ *   REPLIES are conversations that got an inbound message after the version
+ *   was sent. Known for texts. For an email only when the company's mail has a
+ *   reply domain, because without one a reply goes to the From address and
+ *   this product never sees it: null then, and left out of the test, since
+ *   counting that as nobody would make both versions look the same.
+ *
+ *   BOOKED is recipients of that version with a job credited to this campaign
+ *   (`job.campaign_id`, written from the click's tag). Counted by who was SENT
+ *   the version, not by which link they used, so a customer who booked
+ *   without clicking the tagged link again is still in the right column.
+ *
+ * Whether any of it is a winner is core's call (`campaign.judgeTest`), never
+ * this function's.
+ */
+async function abTestWithin(tx: Database, organizationId: string, row: typeof schema.marketingCampaign.$inferSelect) {
+  if (row.variantBBody === null) return null;
+
+  const sends = await tx.execute<{ variant: string; state: string; n: string }>(sql`
+    select variant::text as variant, state::text as state, count(*)::text as n
+    from public.campaign_recipient where campaign_id = ${row.id}
+    group by variant, state
+  `);
+  const clickRows = await tx.execute<{ content: string | null; n: string }>(sql`
+    select lower(utm_content) as content,
+           count(distinct coalesce('c:' || customer_id::text, 'k:' || caller_e164, 'v:' || visitor_id))::text as n
+    from public.marketing_touch
+    where lower(utm_campaign) = lower(${row.utmCampaign})
+      and (${row.startedAt?.toISOString() ?? null}::timestamptz is null
+           or occurred_at >= ${row.startedAt?.toISOString() ?? null}::timestamptz)
+    group by lower(utm_content)
+  `);
+  const [untagged] = await tx.execute<{ n: string }>(sql`
+    select count(distinct coalesce('c:' || customer_id::text, 'k:' || caller_e164, 'v:' || visitor_id))::text as n
+    from public.marketing_touch
+    where lower(utm_campaign) = lower(${row.utmCampaign})
+      and (utm_content is null or lower(utm_content) not in ('a', 'b'))
+      and (${row.startedAt?.toISOString() ?? null}::timestamptz is null
+           or occurred_at >= ${row.startedAt?.toISOString() ?? null}::timestamptz)
+  `);
+  const replyRows = await tx.execute<{ variant: string; n: string }>(sql`
+    select r.variant::text as variant, count(distinct m.conversation_id)::text as n
+    from public.campaign_recipient r
+    join public.message sent on sent.id = r.message_id
+    join public.message m on m.conversation_id = sent.conversation_id
+      and m.direction = 'inbound' and m.created_at >= sent.created_at
+    where r.campaign_id = ${row.id} and r.message_id is not null
+    group by r.variant
+  `);
+  const bookedRows = await tx.execute<{ variant: string; customer_id: string; job_id: string }>(sql`
+    select r.variant::text as variant, r.customer_id, job.id as job_id
+    from public.campaign_recipient r
+    join public.job job on job.customer_id = r.customer_id
+      and job.campaign_id = ${row.id} and job.deleted_at is null
+    where r.campaign_id = ${row.id} and r.state = 'queued'
+  `);
+  const revenue = await revenueByJob(tx, [...new Set(bookedRows.map((b) => b.job_id))]);
+
+  const repliesKnown = row.channel === "sms" || (await email.senderFor(tx, organizationId))?.replyDomain != null;
+
+  const versions = cp.VARIANTS.map((variant) => {
+    const count = (state: string) => Number(sends.find((x) => x.variant === variant && x.state === state)?.n ?? "0");
+    const queued = count("queued");
+    const mine = bookedRows.filter((b) => b.variant === variant);
+    const jobIds = [...new Set(mine.map((b) => b.job_id))];
+    return {
+      version: variant,
+      label: cp.VARIANT_LABEL[variant],
+      selected: count("queued") + count("skipped") + count("pending"),
+      sent: queued,
+      skipped: count("skipped"),
+      /** A link passed to somebody outside the list cannot make more clickers than people sent to. */
+      clicks: Math.min(queued, Number(clickRows.find((c) => c.content === variant)?.n ?? "0")),
+      replies: repliesKnown ? Number(replyRows.find((r) => r.variant === variant)?.n ?? "0") : null,
+      booked: new Set(mine.map((b) => b.customer_id)).size,
+      jobs: jobIds.length,
+      revenue: m.toString(jobIds.reduce((sum, id) => m.add(sum, revenue.get(id) ?? m.zero("USD")), m.zero("USD"))),
+    };
+  });
+  const [a, b] = versions as [typeof versions[number], typeof versions[number]];
+  const judged = cp.judgeTest(
+    { sent: a.sent, clicks: a.clicks, replies: a.replies, booked: a.booked },
+    { sent: b.sent, clicks: b.clicks, replies: b.replies, booked: b.booked },
+  );
+
+  return {
+    versions,
+    repliesKnown,
+    /** People who followed the campaign's link with no version on it: in neither column. */
+    untaggedClicks: Number(untagged?.n ?? "0"),
+    measures: judged.measures.map((x) => ({
+      measure: x.measure,
+      label: x.label,
+      verdict: x.comparison.verdict,
+      rateA: x.comparison.rateA,
+      rateB: x.comparison.rateB,
+      pValue: x.comparison.pValue,
+      sentence: x.comparison.sentence,
+    })),
+    /** Null unless the difference is more than luck explains. */
+    winner: judged.winner,
+    headline: judged.headline,
+  };
 }

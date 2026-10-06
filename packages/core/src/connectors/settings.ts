@@ -242,7 +242,12 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     accountId: { kind: "text" },
     developerTokenRef: { kind: "secret_name" },
     oauthClientRef: { kind: "secret_name" },
+    /** The offline conversion goal, by its name in the account, that booked jobs are reported as. */
+    conversionName: { kind: "text" },
+    sendConversions: { kind: "boolean" },
     baseUrl: BASE_URL,
+    /** Where the Campaign Management service is, which takes the conversions; the reporting service is `baseUrl`. */
+    campaignUrl: BASE_URL,
     authUrl: BASE_URL,
     tokenUrl: BASE_URL,
   },

@@ -319,6 +319,9 @@ export const campaignState = pgEnum("campaign_state", [
   "draft", "scheduled", "sending", "sent", "cancelled",
 ]);
 
+/** Which half of an A/B test a recipient was put in. Every recipient of a campaign with no test is `a`. */
+export const campaignVariant = pgEnum("campaign_variant", ["a", "b"]);
+
 export const campaignRecipientState = pgEnum("campaign_recipient_state", [
   "pending", "queued", "skipped",
 ]);
@@ -352,6 +355,17 @@ export const marketingCampaign = pgTable("marketing_campaign", {
   /** Null on an SMS campaign, and refused if present: a text has no subject. */
   subject: text("subject"),
   body: text("body").notNull(),
+
+  /**
+   * THE SECOND VERSION OF AN A/B TEST, when there is one. `body` and `subject`
+   * are version A. Null body means no test: every recipient gets version A.
+   * Fixed with the rest of the words once the campaign has gone, and the half a
+   * person is in is written on their recipient row, so changing nothing here
+   * can move anybody.
+   */
+  variantBBody: text("variant_b_body"),
+  /** Null on a text and refused if present, as the first version's is. */
+  variantBSubject: text("variant_b_subject"),
 
   /**
    * What a touch arriving later will carry in `utm_campaign`, so a click from
@@ -406,6 +420,12 @@ export const campaignRecipient = pgTable("campaign_recipient", {
   customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
   /** E.164 or a lowercased email, whichever the channel is. */
   address: text("address").notNull(),
+  /**
+   * The version this person was given, decided when the row is written by a
+   * stable hash of the campaign and the customer and never recomputed, so the
+   * results read what was sent rather than what the rule would say today.
+   */
+  variant: campaignVariant("variant").notNull().default("a"),
   state: campaignRecipientState("state").notNull().default("pending"),
   /** A `comms.SendRefusal`, or one of this service's own. Never null on a skip. */
   skipReason: text("skip_reason"),

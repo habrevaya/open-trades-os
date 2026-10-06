@@ -67,6 +67,10 @@ const CampaignView = z.object({
   audienceInWords: z.string(),
   subject: z.string().nullable(),
   body: z.string(),
+  /** Version B of an A/B test, or null when the campaign is not one. */
+  variantBBody: z.string().nullable(),
+  variantBSubject: z.string().nullable(),
+  abTest: z.boolean(),
   utmCampaign: z.string(),
   messagingCampaignId: Uuid.nullable(),
   scheduledFor: z.string().nullable(),
@@ -100,7 +104,7 @@ export const createCampaign = defineRoute({
     /**
      * The words, with merge fields in the message templates' own syntax:
      * {{ customer.firstName }}, {{ customer.name }}, {{ company.name }},
-     * {{ company.phone }}. Anything else is refused, because the renderer
+     * {{ company.phone }} and {{ campaign.utm }}. Anything else is refused, because the renderer
      * turns an unknown field into nothing and "Hi ," would go to everybody.
      * Optional only when `templateCode` is given.
      */
@@ -112,6 +116,15 @@ export const createCampaign = defineRoute({
      * campaign says it sent.
      */
     templateCode: z.string().min(1).max(64).optional(),
+    /**
+     * The second version of an A/B test. Given, the audience is split in two by
+     * a stable hash of the customer id and the campaign id, and each half gets
+     * one version. An email's version B with no subject of its own is sent
+     * under version A's. {{ campaign.utm }} in either body writes the campaign's
+     * link tag and the version, so a click says which version it came from.
+     */
+    variantBBody: z.string().min(1).max(20000).optional(),
+    variantBSubject: z.string().max(300).nullable().optional(),
     /** Defaulted from the name. Two fields that must agree are two spellings in a report. */
     utmCampaign: z.string().min(1).max(100).optional(),
     /** The registered carrier campaign, on SMS. Its throughput is what the send paces against. */
@@ -135,6 +148,9 @@ export const updateCampaign = defineRoute({
     audience: z.array(AudienceRule).optional(),
     body: z.string().min(1).max(20000).optional(),
     subject: z.string().max(300).nullable().optional(),
+    /** Version B of an A/B test. Null takes the test off the campaign. */
+    variantBBody: z.string().min(1).max(20000).nullable().optional(),
+    variantBSubject: z.string().max(300).nullable().optional(),
     scheduledFor: z.string().datetime().nullable().optional(),
     messagingCampaignId: Uuid.nullable().optional(),
   }),
@@ -224,6 +240,12 @@ export const previewCampaign = defineRoute({
       body: z.string(),
       subject: z.string().nullable(),
     }).nullable(),
+    /** Version B as the same first person would read it, for a saved A/B test. Null otherwise. */
+    renderedB: z.object({
+      for: z.string().nullable(),
+      body: z.string(),
+      subject: z.string().nullable(),
+    }).nullable(),
     count: z.number().int(),
     /** True when the rules matched more than one campaign will take. */
     overflow: z.boolean(),
@@ -283,6 +305,8 @@ export const campaignRecipients = defineRoute({
       customerId: Uuid,
       customerName: z.string().nullable(),
       address: z.string(),
+      /** The half of an A/B test this person was given. `a` on a campaign with no test. */
+      variant: z.enum(["a", "b"]),
       state: RecipientState,
       skipReason: z.string().nullable(),
       skipExplanation: z.string().nullable(),
@@ -297,7 +321,7 @@ export const campaignResults = defineRoute({
   path: "/v1/campaigns/{id}/results",
   summary: "What the campaign brought back",
   description:
-    "Replies, opt outs, jobs and revenue. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.",
+    "Replies, opt outs, jobs and revenue, and for an A/B test the two versions side by side: people sent, people who clicked, people who replied where replies are read back, and people who booked, with the counts for each version and a plain sentence on each. A winner is named only when a two proportion test says the gap is more than luck explains, with the bar divided across the measures compared; otherwise `winner` is null and the counts speak for themselves. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.",
   module: "M19",
   permissions: ["campaign:read"],
   idempotent: true,
@@ -310,6 +334,41 @@ export const campaignResults = defineRoute({
     optOuts: z.number().int(),
     jobs: z.number().int(),
     revenue: z.string(),
+    /** Null unless the campaign has a version B. */
+    abTest: z.object({
+      versions: z.array(z.object({
+        version: z.enum(["a", "b"]),
+        label: z.string(),
+        selected: z.number().int(),
+        /** Queued to this version: the people who could have acted. */
+        sent: z.number().int(),
+        skipped: z.number().int(),
+        /** People who arrived on the campaign's tag with this version's utm_content. */
+        clicks: z.number().int(),
+        /** Null when replies are not read back (an email with no reply domain). */
+        replies: z.number().int().nullable(),
+        /** Recipients of this version with a job credited to the campaign. */
+        booked: z.number().int(),
+        jobs: z.number().int(),
+        revenue: z.string(),
+      })),
+      repliesKnown: z.boolean(),
+      /** People who followed the link with no version on it: in neither column. */
+      untaggedClicks: z.number().int(),
+      measures: z.array(z.object({
+        measure: z.enum(["clicks", "replies", "booked"]),
+        label: z.string(),
+        verdict: z.enum(["no_data", "too_few", "no_clear_difference", "a_higher", "b_higher"]),
+        rateA: z.string().nullable(),
+        rateB: z.string().nullable(),
+        /** The chance a gap this big is luck. Null when no test could be run. */
+        pValue: z.number().nullable(),
+        sentence: z.string(),
+      })),
+      /** Null unless the difference is more than luck explains. */
+      winner: z.enum(["a", "b"]).nullable(),
+      headline: z.string(),
+    }).nullable(),
   }),
 });
 
