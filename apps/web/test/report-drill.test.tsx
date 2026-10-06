@@ -98,7 +98,8 @@ describe("a dashboard tile opens the same way", () => {
     }} />);
     expect(html).toMatch(/href="\/reports\/drill\?[^"]*pin=aging%3A2\+1\+to\+30\+days/);
     expect(html).toContain("back=%2Fdashboards%2Fmoney");
-    expect(html).toContain('title="Open the records behind Receivables by age, 1 to 30 days"');
+    /** Drawn by the report chart: the bar is named in its own title, and the sort prefix is off the words. */
+    expect(html).toContain("<title>1 to 30 days: $50.00</title>");
   });
 
   it("links the one number on a number tile", () => {

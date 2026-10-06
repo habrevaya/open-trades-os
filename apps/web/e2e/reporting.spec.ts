@@ -44,7 +44,7 @@ test("Drill through: a number on a report opens the invoices behind it, and they
 
 test("Drill through: a bar on a dashboard opens the records behind it", async ({ owner }) => {
   await owner.goto("/dashboards/money");
-  await owner.getByTitle(/^Open the records behind Who owes us, /).first().click();
+  await owner.locator("section", { has: owner.getByRole("heading", { name: "Who owes us" }) }).locator("svg a").first().click();
   await expect(owner.getByRole("heading", { level: 1, name: "Invoices behind Who owes us" })).toBeVisible();
   // The tile's own filter came with it, said in words.
   await expect(owner.getByText("Status is not Paid.")).toBeVisible();

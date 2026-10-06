@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branches, ledger as ledgerReports } from "@opentradesos/api/services";
+import { branches, ledgerReports } from "@opentradesos/api/services";
 import { can, time } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";

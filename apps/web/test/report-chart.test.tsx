@@ -112,3 +112,133 @@ describe("a branch on a report and a list", () => {
     expect(chosenBranch({ ...options, narrowed: true }, "b-1")).toBeUndefined();
   });
 });
+
+/* ============================================ a chart cut by a second grouping */
+
+const byTechnicianAndStatus = {
+  columns: [
+    { key: "technician", label: "Technician", type: "text", role: "dimension" as const },
+    { key: "status", label: "Status", type: "status", role: "dimension" as const },
+    { key: "count", label: "Jobs", type: "number", role: "measure" as const },
+  ],
+  rows: [
+    { technician: "Sam", status: "completed", count: 2 },
+    { technician: "Sam", status: "in_progress", count: 1 },
+    { technician: "Ana", status: "completed", count: 4 },
+  ],
+  truncated: false,
+};
+
+describe("a chart cut by a second grouping", () => {
+  const pinned: string[][] = [];
+  const draw = (extra: Partial<React.ComponentProps<typeof ReportChart>> = {}) => renderToStaticMarkup(
+    <ReportChart
+      result={byTechnicianAndStatus} additive={always} title="Jobs" split="status"
+      drill={(row, pin) => { pinned.push(pin); return `/d?t=${String(row.technician)}&s=${String(row.status)}&pin=${pin.join(",")}`; }}
+      {...extra}
+    />,
+  );
+
+  it("stacks a bar for each group out of its parts, each part named and opening its own records", () => {
+    const html = draw();
+    expect(html).toContain("as stacked bars");
+    expect(html).toContain("Jobs by technician and status");
+    expect(html).toContain("<title>Sam, Completed: 2</title>");
+    expect(html).toContain("<title>Ana, Completed: 4</title>");
+    // The part pins both groupings, so it opens the records of that technician in that status.
+    expect(html).toContain('href="/d?t=Ana&amp;s=completed&amp;pin=technician,status"');
+    // The group's own label pins only the group, which is every status.
+    expect(html).toContain('href="/d?t=Sam&amp;s=completed&amp;pin=technician"');
+    expect(html).toMatch(/class="fill-ink-700 stroke-canvas"/);
+    expect(html).toMatch(/class="fill-blue-600 stroke-canvas"/);
+  });
+
+  it("names every colour in words in a legend, so a colour is never the only thing that says which is which", () => {
+    const html = draw();
+    expect(html).toContain('aria-label="Status, by colour"');
+    expect(html).toContain("Completed");
+    expect(html).toContain("In Progress");
+  });
+
+  it("sets them side by side when asked, and says so", () => {
+    const html = draw({ arrange: "grouped" });
+    expect(html).toContain("as side by side bars");
+  });
+
+  it("offers each other grouping to break down by, and a way back to adding it up", () => {
+    const html = draw({ splitHref: (d) => `/r?split=${d ?? ""}`, arrangeHref: (a) => `/r?arrange=${a}` });
+    expect(html).toContain("Break down by");
+    expect(html).toContain('href="/r?split="');
+    expect(html).toContain("Not broken down");
+    expect(html).toContain('href="/r?arrange=grouped"');
+    // It is already stacked, so stacked is not a link.
+    expect(html).not.toContain('href="/r?arrange=stacked"');
+  });
+
+  it("offers a report that is not cut the groupings it could be cut by", () => {
+    const html = renderToStaticMarkup(
+      <ReportChart result={byTechnicianAndStatus} additive={always} title="Jobs" splitHref={(d) => `/r?split=${d ?? ""}`} />,
+    );
+    expect(html).toContain("Added up over status");
+    expect(html).toContain('href="/r?split=status"');
+    expect(html).not.toContain('href="/r?split="');
+  });
+
+  it("will not stack an average, says why, and offers side by side", () => {
+    const html = renderToStaticMarkup(
+      <ReportChart
+        result={{
+          ...byTechnicianAndStatus,
+          columns: [...byTechnicianAndStatus.columns.slice(0, 2), { key: "avg", label: "Average ticket", type: "money", role: "measure" as const }],
+          rows: [{ technician: "Sam", status: "completed", avg: "100.0000" }],
+        }}
+        additive={() => false} title="Tickets" split="status" splitHref={(d) => `/r?split=${d ?? ""}`}
+        arrangeHref={(a) => `/r?arrange=${a}`}
+      />,
+    );
+    expect(html).toContain("No chart for this one");
+    expect(html).toContain("cannot be stacked");
+    expect(html).toContain('href="/r?arrange=grouped"');
+  });
+
+  it("can be read as a table, a column for each value and a total", () => {
+    const html = draw({ withTable: true });
+    expect(html).toContain("View as a table");
+    expect(html).toContain("Jobs by technician and status, as a table");
+    expect(html).toMatch(/<th[^>]*>Completed<\/th>/);
+    expect(html).toMatch(/<th[^>]*>Total<\/th>/);
+    expect(html).toMatch(/<th[^>]*>Ana<\/th><td[^>]*>4<\/td><td[^>]*><\/td><td[^>]*>4<\/td>/);
+  });
+
+  it("draws a dated report cut by a second grouping as stacked columns, and a line for each value side by side", () => {
+    const dated = {
+      columns: [
+        { key: "month", label: "Month", type: "date", role: "dimension" as const },
+        { key: "status", label: "Status", type: "status", role: "dimension" as const },
+        { key: "count", label: "Jobs", type: "number", role: "measure" as const },
+      ],
+      rows: [
+        { month: "2026-07", status: "completed", count: 2 }, { month: "2026-07", status: "open", count: 1 },
+        { month: "2026-08", status: "completed", count: 5 },
+      ],
+      truncated: false,
+    };
+    const stacked = renderToStaticMarkup(<ReportChart result={dated} additive={always} title="Jobs" split="status" />);
+    expect(stacked).toContain("as stacked columns");
+    expect(stacked).not.toContain("<path");
+    const lines = renderToStaticMarkup(<ReportChart result={dated} additive={always} title="Jobs" split="status" arrange="grouped" />);
+    expect(lines).toContain("as a line for each value");
+    expect(lines.match(/<path/g)).toHaveLength(2);
+    expect(lines).toMatch(/class="stroke-blue-600"|stroke-blue-600/);
+  });
+
+  it("says when values of the second grouping were added together, and opens nothing for the rolled up one", () => {
+    const rows = Array.from({ length: 9 }, (_, i) => ({ technician: "Sam", status: `s${i}`, count: 100 - i }));
+    const html = renderToStaticMarkup(
+      <ReportChart result={{ ...byTechnicianAndStatus, rows }} additive={always} title="Jobs" split="status" drill={() => "/d"} />,
+    );
+    expect(html).toContain("Everything else");
+    expect(html).toContain("Only the 5 biggest status values are told apart");
+    expect(html).toContain("fill-steel-400");
+  });
+});

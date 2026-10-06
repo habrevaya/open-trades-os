@@ -343,14 +343,36 @@ Every report grouped by a date or a category is drawn above its table, from
 the same rows. Grouped by a date, it is a line, oldest on the left, and "Columns"
 draws the same numbers as columns; grouped by anything else, it is bars in the
 report's own order (biggest first, or the aging buckets in age order). A loss
-is drawn below the axis in red, and every bar and point opens the records
+is drawn below the axis in red (in a breakdown, below it in its value's own colour), and every bar and point opens the records
 behind it, as the numbers in the table do. A report counting several things
 draws the first and offers the others ("Draw"). A report grouped by two things
 is drawn by one of them with the other added up, and says so, unless what it
 counts cannot be added up (an average), in which case it says why there is no
-chart. Twenty five bars at most, and four hundred points; the table always
-has every row. The chart is SVG drawn on the server: no chart library, it
-prints, and it works with JavaScript off.
+chart. Under the chart, "Break down by" offers each other grouping the report
+has, and choosing one cuts every bar or column into that grouping's values:
+"Stacked" puts them end to end, which is a total with its parts and so needs
+something that can be added up, and "Side by side" sets them beside each other,
+which any measure allows and which draws a line for each value when the first
+grouping is a date (columns again with "Columns"). Each value has a colour, and
+a legend names every colour in words beside its swatch, because a colour on its
+own says nothing to everybody; each part is named in its own tooltip. Six values
+are told apart at most: the five biggest and the rest added together as "Everything
+else", which the chart says, and which opens no records because it is not one
+value. A part opens the records of that bar and that value together, and a bar's
+own label opens every value of it. The choice lives in the address (`split` and
+`arrange`), so it survives being sent and prints. Twenty five bars at most (twelve
+clusters side by side, sixty columns over time), and four hundred points for a
+line; the table always has every row. The chart is SVG drawn on the server: no chart
+library, it prints, and it works with JavaScript off.
+
+A dashboard tile is drawn by the same chart, and not by bars and columns of its
+own: a tile and the report it came from cannot disagree about which bar is
+longest, and the tile has the chart's accessibility, including "View as a table"
+under it, which a tile needs because it has no table of the report beneath it the
+way a report screen does. A tile keeps its one grouping and its columns over time.
+The emailed PDF of a report draws the chart as the screen draws it before anybody
+breaks it down: a breakdown is a choice made on the screen, and is on the printed
+page and not in the schedule.
 
 ### Print it, or save it as a PDF
 
@@ -535,7 +557,7 @@ accents print as the plain letter where there is one and as "?" where there is
 not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
-Nothing is emailed until an email provider is connected. Dashboard tiles keep
-their own bars and columns rather than the report chart. A chart draws one
-measure at a time and does not stack a second grouping. No cross company report
+Nothing is emailed until an email provider is connected. A chart draws one
+measure at a time, and a tile has one grouping, so a dashboard tile cannot be
+broken down by a second. No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.
