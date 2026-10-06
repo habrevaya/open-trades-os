@@ -2,6 +2,8 @@ import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { MoneyString, Uuid } from "./common";
 import { RegisterLine } from "./payroll";
+import { CeSchema } from "./people-records";
+import { Base64Bytes } from "./files";
 
 /**
  * M24 AND M17. A PERSON'S OWN RECORD, AND WHAT THE OFFICE ASKS THEM TO SIGN
@@ -91,20 +93,19 @@ export const getMyRecord = defineRoute({
     onboarding: Onboarding,
     documents: z.array(OwnDocument),
     certifications: z.array(Certification),
-    continuingEducation: z.object({
-      entries: z.array(z.object({
-        id: Uuid, certificationTypeId: Uuid, completedOn: z.string(), hours: z.string(),
-        course: z.string(), provider: z.string().nullable(), evidence: z.string().nullable(),
-      })),
-      progress: z.array(z.object({
-        certificationTypeId: Uuid, name: z.string(),
-        holding: z.object({ issuedOn: z.string().nullable(), expiresOn: z.string().nullable() }).nullable(),
-        progress: z.object({
-          required: z.string().nullable(), logged: z.string(), remaining: z.string().nullable(),
-          met: z.boolean().nullable(), since: z.string().nullable(), sentence: z.string(),
-        }),
-      })),
-    }).nullable(),
+    continuingEducation: CeSchema.nullable(),
+    /** Your own skill records that have an expiry, soonest first, with where each stands. */
+    skills: z.array(z.object({
+      id: Uuid, skill: z.string(), since: z.string(), evidence: z.string(), recordedBy: z.string().nullable(),
+      endedOn: z.string().nullable(), endedReason: z.string().nullable(),
+      expiresOn: z.string().nullable(), renewalLeadDays: z.number().int(),
+      expiry: z.object({
+        state: z.enum(["none", "current", "expiring", "expired"]),
+        daysRemaining: z.number().int().nullable(), sentence: z.string(),
+      }),
+    })),
+    /** The certifications you can log continuing education hours toward. */
+    continuingEducationKinds: z.array(z.object({ id: Uuid, name: z.string(), hoursRequired: z.string().nullable() })),
   }),
 });
 
@@ -133,6 +134,37 @@ export const removeMyEmergencyContact = defineRoute({
   idempotent: true,
   input: z.object({ id: Uuid }),
   output: z.object({ contacts: z.array(Contact) }),
+});
+
+export const logMyContinuingEducation = defineRoute({
+  method: "post",
+  path: "/v1/me/continuing-education",
+  summary: "Log hours of a course you took, with a photograph of the certificate",
+  description: "Always your own. The hours wait for the office, who look at the certificate and approve them, and only approved hours count toward a renewal. The certificate is a photograph or a PDF kept through the ordinary attachment path; the type is decided from the bytes. The same call under the same idempotency key answers with the first one.",
+  module: "M24",
+  permissions: ["profile:own"],
+  idempotent: true,
+  input: z.object({
+    certificationTypeId: Uuid, completedOn: z.string().date(),
+    hours: z.string().regex(/^\d+(\.\d{1,2})?$/), course: z.string().min(1).max(300),
+    provider: z.string().max(200).nullable().optional(), evidence: z.string().max(500).nullable().optional(),
+    certificate: z.object({
+      fileName: z.string().min(1).max(255), contentType: z.string().max(100).optional(), bytes: Base64Bytes,
+    }).optional(),
+  }),
+  output: CeSchema,
+});
+
+export const withdrawMyContinuingEducation = defineRoute({
+  method: "post",
+  path: "/v1/me/continuing-education/{id}/withdraw",
+  summary: "Take back hours you logged that nobody has answered",
+  description: "Only your own, and only while they wait. Answered hours are the office's record.",
+  module: "M24",
+  permissions: ["profile:own"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: CeSchema,
 });
 
 export const setMyOnboardingLine = defineRoute({
@@ -281,6 +313,7 @@ export const askToSignStaffDocument = defineRoute({
 
 export const selfServiceRoutes = {
   getMyRecord, addMyEmergencyContact, removeMyEmergencyContact, setMyOnboardingLine, signMyDocument,
+  logMyContinuingEducation, withdrawMyContinuingEducation,
   getMyPayStatements,
   listStaffDocuments, getStaffDocument, createStaffDocument, retireStaffDocument, askToSignStaffDocument,
 } as const;

@@ -106,6 +106,41 @@ check, so refusing on an empty list would have stopped every assignment on the
 day it shipped. Recording the first person who does it is what starts refusing
 everybody who is not recorded with it.
 
+**A skill record can have its own expiry, read the way a certification's is.** A
+course certificate good for two years, a sign off to be repeated: the record has a last
+day (`expiresOn`) and a notice period (`renewalLeadDays`, 30 when not given). The day it
+expires is still a good day and it is expired from the next. It is warned from the notice
+period on the list of skills to renew (`GET /v1/technician-skills/expiring`, on
+`/certifications` for whoever holds both `compliance:read` and `user:read`, on the person's
+own page, and on their own `/me`), and an expired one stays on the list, flagged, because a
+list that drops a skill the day it lapses is empty when it is needed. **Once it has run out
+the skill stays on the person's list and no longer clears the assignment check**, from the
+day after, with the sentence "Sam's record of brazing ran out on 2026-09-30. Renew it on
+their page to send them." Where a live certification grants the skill, the certification
+still decides, as it always has. This is the conservative reading: an expiry that only
+warned would be decoration, and a skill nobody has shown for two years is not one the board
+should keep trusting. A skill with no expiry behaves as before. A last day already past, or
+before the skill was shown, is refused. Renewing is moving the day (`POST
+/v1/technician-skills/{id}/expiry`, `user:write`), with the earlier day kept in the audit log.
+
+**A person's own continuing education hours wait for the office.** A technician logs
+hours of a course from `/me` (`POST /v1/me/continuing-education`, `profile:own`) with a
+photograph or scan of the certificate, which goes through the ordinary attachment path as
+an expense's receipt does. The entry is listed on their record as waiting, and **only
+approved hours count toward a renewal**: the office looks at the certificate on
+`/certifications` ("Hours waiting for you", with the certificate and Approve and Decline;
+`GET /v1/continuing-education/pending` needs `compliance:read`, approving and declining
+`POST /v1/continuing-education/{id}/approve` and `/decline` need `compliance:write`). A
+decline carries the reason the person reads on `/me`, and the hours are never counted; a
+declined entry is not approved afterwards, the person logs it again, so the record of the
+refusal stays what it was. Approved hours cannot be declined, only removed. A person can
+take back their own entry while it waits (`POST /v1/me/continuing-education/{id}/withdraw`)
+and not after it has been answered. Hours the office logs itself are approved as they are
+logged, and every entry that existed before this was approved, so no renewal count moved.
+A hours figure over a thousand is refused as a typo. The certificate is read by the person
+and by whoever reads the register, at `/me/continuing-education/{id}/certificate` and
+`/certifications/continuing-education/{id}/certificate`, and by nobody else.
+
 **These tables hold the person and the qualification and never the bytes.** No file
 column, no storage key, no document id. A certificate attaches through the ordinary
 attachment path, which needs nothing from this module.
@@ -203,9 +238,11 @@ having signed it. The PDF has no `/v1` route, as the invoice's has none.
 `/me` is the record of whoever is signed in, for everybody, on a phone first
 (`GET /v1/me`): the documents waiting for their signature, their onboarding,
 who to ring if they are hurt, the facts of their employment, and for somebody
-who goes out to jobs their certifications with when each runs out and the
-continuing education toward each renewal. They do three things to it
-themselves: sign what they were asked to sign
+who goes out to jobs their certifications with when each runs out, their
+skills that have a last day, and the continuing education toward each renewal
+with the hours they logged and where each stands. They do four things to it
+themselves: log hours of a course with a photograph of the certificate
+(`POST /v1/me/continuing-education`, which wait for the office), sign what they were asked to sign
 (`POST /v1/me/documents/{requestId}/sign`), tick their own onboarding lines
 and untick the ones they ticked (`POST /v1/me/onboarding-lines/{id}`), and keep
 the people to ring (`POST /v1/me/emergency-contacts`,
@@ -242,14 +279,22 @@ takes it off with the day and the reason and keeps the record, so "could Sam
 braze in March" still has an answer. Evidence is required. A skill on the
 list with no record says so on the person's page.
 
+A skill record can carry its own last day: give it when the skill is recorded
+(`expiresOn` on that call), or move or clear it with
+`POST /v1/technician-skills/{id}/expiry`. The person's page shows when each runs out and
+takes the new day.
+
 ### Continuing education
 
 `POST /v1/technicians/{technicianId}/continuing-education` logs hours of a
 course toward a certification type, and a type can say how many hours a
 renewal needs. `GET /v1/technicians/{technicianId}/continuing-education`
-counts the hours since the current holding was issued against that, so the
-hours behind the last renewal do not count twice. It is a compliance record,
-`compliance:read` and `compliance:write`, beside the register.
+counts the approved hours since the current holding was issued against that, so the
+hours behind the last renewal do not count twice, and says how many more are waiting
+for the office. It is a compliance record,
+`compliance:read` and `compliance:write`, beside the register. A person logs their own
+from `/me`, and the office approves or declines them on `/certifications` (see the key
+concepts above).
 
 ### A job that needs more than its type
 
@@ -299,7 +344,12 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/people/{membershipId}/emergency-contacts` | `user:write` |
 | `PUT /v1/people/{membershipId}/employment` | `user:write` |
 | `POST /v1/technicians/{technicianId}/skills` | `user:write` |
+| `POST /v1/technician-skills/{id}/expiry` | `user:write` |
+| `GET /v1/technician-skills/expiring` | `user:read` |
 | `POST /v1/technicians/{technicianId}/continuing-education` | `compliance:write` |
+| `GET /v1/continuing-education/pending` | `compliance:read` |
+| `POST /v1/continuing-education/{id}/approve` | `compliance:write` |
+| `POST /v1/continuing-education/{id}/decline` | `compliance:write` |
 | `PUT /v1/jobs/{id}/required-skills` | `job:write` |
 | `POST /v1/technicians/{id}/photo` | `user:write` |
 | `GET /v1/staff-documents` | `user:read` |
@@ -311,6 +361,8 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/me/emergency-contacts` | `profile:own` |
 | `POST /v1/me/emergency-contacts/{id}/remove` | `profile:own` |
 | `POST /v1/me/onboarding-lines/{id}` | `profile:own` |
+| `POST /v1/me/continuing-education` | `profile:own` |
+| `POST /v1/me/continuing-education/{id}/withdraw` | `profile:own` |
 | `POST /v1/me/documents/{requestId}/sign` | `profile:own` |
 
 ## Common questions
@@ -338,9 +390,15 @@ a printed copy is a record made from them on the day, not a stored file. A perso
 emergency contacts and nothing else of their record: a new address or phone
 number goes to the office. A person can tick any line of their own onboarding,
 and the office sees that they ticked it rather than the office. A skill's
-record has no expiry of its own: only a certification can say until when.
-Continuing education counts hours toward a renewal and does not check that a
-course is one the authority accepts, and a person cannot log their own hours.
+record can have an expiry of its own, but it has no notice other than its own number of
+days: there is no per type notice, because a skill has no type, and nothing texts or
+emails anybody about one running out, it is a list and a line on the person's record, as
+a certification's is. A skill whose record has expired still counts as "recorded" for the
+rule that once anybody does a skill the others are refused for it, so letting the only
+holder's record lapse does not quietly stop the check. Continuing education counts hours
+toward a renewal and does not check that a course is one the authority accepts, and the
+office approving a person's hours is its only check on them: nothing reads the certificate
+itself.
 Editing the list of skills on the technicians screen does not end their
 records here; a skill taken off that way is called out on the person's page
 until its record is ended. Signing through the API records no address or

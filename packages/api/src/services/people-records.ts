@@ -6,6 +6,7 @@ import {
 } from "./context";
 import * as once from "./once";
 import { liveDrops, workSkills } from "./qualification";
+import { bytesOf } from "./files";
 import * as staffDocuments from "./staff-documents";
 
 /**
@@ -378,6 +379,12 @@ export function setEmployment(ctx: ServiceContext, input: {
 export interface SkillRecordView {
   id: string; skill: string; since: string; evidence: string; recordedBy: string | null;
   endedOn: string | null; endedReason: string | null;
+  /** The last day the record stands, or null for one that does not expire. */
+  expiresOn: string | null;
+  /** Days ahead of the expiry it goes on the list to renew. */
+  renewalLeadDays: number;
+  /** Where it stands today against that expiry, in words. */
+  expiry: peopleCore.SkillExpiryStanding;
 }
 
 export interface SkillsView {
@@ -402,10 +409,13 @@ async function skillsWithin(tx: Database, technician: typeof schema.technician.$
     .where(eq(schema.technicianSkill.technicianId, technician.id))
     .orderBy(desc(schema.technicianSkill.since));
   const names = await peopleNames(tx);
+  const today = time.dateIn(new Date(), await timezoneOf(tx, technician.organizationId));
   const view = (r: typeof rows[number]): SkillRecordView => ({
     id: r.id, skill: r.skill, since: r.since, evidence: r.evidence,
     recordedBy: r.recordedByUserId ? names.get(r.recordedByUserId) ?? null : null,
     endedOn: r.endedOn, endedReason: r.endedReason,
+    expiresOn: r.expiresOn, renewalLeadDays: r.renewalLeadDays,
+    expiry: peopleCore.skillExpiryStanding({ skill: r.skill, expiresOn: r.expiresOn, today, leadDays: r.renewalLeadDays }),
   });
   const typed = q.normaliseSkills(technician.skills ?? []);
   const open = rows.filter((r) => r.endedOn === null);
@@ -419,6 +429,15 @@ async function skillsWithin(tx: Database, technician: typeof schema.technician.$
   };
 }
 
+/** One person's open skill records that have an expiry, soonest first, for their own record. */
+export async function ownSkills(tx: Database, technicianId: string): Promise<SkillRecordView[]> {
+  const technician = await tx.select().from(schema.technician).where(eq(schema.technician.id, technicianId)).limit(1);
+  if (!technician[0]) return [];
+  const view = await skillsWithin(tx, technician[0]);
+  return view.current.flatMap((c) => (c.record && c.record.expiresOn ? [c.record] : []))
+    .sort((a, b) => (a.expiresOn ?? "").localeCompare(b.expiresOn ?? ""));
+}
+
 export function skills(ctx: ServiceContext, input: { technicianId: string }) {
   return guardedRead(ctx, "user:read", async (tx) => skillsWithin(tx, await technicianWithin(tx, ctx, input.technicianId)));
 }
@@ -430,6 +449,10 @@ export function skills(ctx: ServiceContext, input: { technicianId: string }) {
  */
 export function recordSkill(ctx: ServiceContext, input: {
   technicianId: string; skill: string; since: string; evidence: string;
+  /** The last day it stands, for a skill that has to be shown again. Omitted does not expire. */
+  expiresOn?: string | null | undefined;
+  /** Days ahead to put it on the list to renew. 30 when omitted. */
+  renewalLeadDays?: number | undefined;
 }) {
   return guardedWrite(ctx, "user:write", async (tx) => {
     const seen = await once.replayed<SkillsView>(tx, ctx, "technician_skill");
@@ -445,6 +468,8 @@ export function recordSkill(ctx: ServiceContext, input: {
     if (input.since > time.dateIn(new Date(), zone)) {
       throw new ConflictError("That date is in the future. Record a skill on or after the day it was shown.");
     }
+    const expiresOn = input.expiresOn ?? null;
+    await assertExpiry(tx, ctx, { since: input.since, expiresOn });
     const [open] = await tx.select({ id: schema.technicianSkill.id }).from(schema.technicianSkill)
       .where(and(
         eq(schema.technicianSkill.technicianId, technician.id),
@@ -457,15 +482,113 @@ export function recordSkill(ctx: ServiceContext, input: {
     const [row] = await tx.insert(schema.technicianSkill).values({
       organizationId: ctx.actor.organizationId, technicianId: technician.id, skill, since: input.since, evidence,
       recordedByUserId: ctx.actor.userId,
+      expiresOn,
+      ...(input.renewalLeadDays !== undefined ? { renewalLeadDays: input.renewalLeadDays } : {}),
     }).returning({ id: schema.technicianSkill.id });
     const list = q.normaliseSkills([...(technician.skills ?? []), skill]);
     const [after] = await tx.update(schema.technician).set({ skills: list, updatedAt: new Date() })
       .where(eq(schema.technician.id, technician.id)).returning();
     await audit(tx, ctx, "technician.skill_recorded", "technician", technician.id,
-      { skills: technician.skills }, { skills: list, skill, since: input.since, evidence });
+      { skills: technician.skills }, { skills: list, skill, since: input.since, evidence, expiresOn });
     const view = await skillsWithin(tx, after!);
     await once.remember(tx, ctx, "technician_skill", row!.id, view);
     return view;
+  });
+}
+
+/**
+ * The last day a skill stands must come after the day it was shown, and not
+ * already be over: a record that has run out the day it is written is a skill
+ * somebody should not have recorded.
+ */
+async function assertExpiry(
+  tx: Database, ctx: ServiceContext, input: { since: string; expiresOn: string | null },
+): Promise<void> {
+  if (input.expiresOn === null) return;
+  if (input.expiresOn < input.since) throw new ConflictError("A skill cannot run out before the day it was shown.");
+  const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+  if (input.expiresOn < today) {
+    throw new ConflictError("That day has already passed. Give the last day the skill stands, from today on, or leave it blank if it does not run out.");
+  }
+}
+
+/**
+ * Give a skill record its own expiry, move it when the skill is shown again,
+ * or take it off (null). The record stays: renewing is changing the day, with
+ * the old one in the audit log, because a skill shown again has the same
+ * evidence trail behind it.
+ *
+ * From the day after it, the skill stays on the person's list and no longer
+ * clears the assignment check, the way a lapsed certification does not. It is
+ * warned from `renewalLeadDays` before, on the list of what to renew.
+ */
+export function setSkillExpiry(ctx: ServiceContext, input: {
+  id: string; expiresOn: string | null; renewalLeadDays?: number | undefined;
+}) {
+  return guardedWrite(ctx, "user:write", async (tx) => {
+    const [row] = await tx.select().from(schema.technicianSkill)
+      .where(and(
+        eq(schema.technicianSkill.id, input.id),
+        eq(schema.technicianSkill.organizationId, ctx.actor.organizationId),
+        isNull(schema.technicianSkill.endedOn),
+      )).limit(1);
+    if (!row) throw new NotFoundError("Open skill record");
+    await assertExpiry(tx, ctx, { since: row.since, expiresOn: input.expiresOn });
+    await tx.update(schema.technicianSkill).set({
+      expiresOn: input.expiresOn,
+      ...(input.renewalLeadDays !== undefined ? { renewalLeadDays: input.renewalLeadDays } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.technicianSkill.id, row.id));
+    await audit(tx, ctx, "technician.skill_expiry_set", "technician", row.technicianId,
+      { skill: row.skill, expiresOn: row.expiresOn, renewalLeadDays: row.renewalLeadDays },
+      { skill: row.skill, expiresOn: input.expiresOn, renewalLeadDays: input.renewalLeadDays ?? row.renewalLeadDays });
+    return skillsWithin(tx, await technicianWithin(tx, ctx, row.technicianId));
+  });
+}
+
+export interface ExpiringSkill {
+  id: string; technicianId: string; technicianName: string; skill: string;
+  expiresOn: string; daysRemaining: number; renewalLeadDays: number;
+  /** False once the day after it has come: the skill no longer clears the check. */
+  current: boolean;
+  sentence: string;
+}
+
+/**
+ * SKILLS ABOUT TO RUN OUT, AND THE ONES THAT HAVE, listed the way the
+ * certification renewal list is: each record's own notice period puts it on,
+ * `within` asks "the next so many days" instead, and an expired one stays on
+ * (still open, still on the person's list) because a list that drops a skill
+ * the day it lapses is empty exactly when somebody needed it.
+ */
+export function expiringSkills(ctx: ServiceContext, input: { within?: number | undefined } = {}) {
+  return guardedRead(ctx, "user:read", async (tx): Promise<ExpiringSkill[]> => {
+    const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    const rows = await tx.select({
+      record: schema.technicianSkill, name: schema.technician.displayName,
+    }).from(schema.technicianSkill)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.technicianSkill.technicianId))
+      .where(and(
+        eq(schema.technicianSkill.organizationId, ctx.actor.organizationId),
+        isNull(schema.technicianSkill.endedOn),
+        sql`${schema.technicianSkill.expiresOn} is not null`,
+        eq(schema.technician.active, true),
+      ))
+      .orderBy(asc(schema.technicianSkill.expiresOn), asc(schema.technician.displayName));
+    const out: ExpiringSkill[] = [];
+    for (const { record, name } of rows) {
+      const standing = peopleCore.skillExpiryStanding({
+        skill: record.skill, expiresOn: record.expiresOn, today, leadDays: input.within ?? record.renewalLeadDays,
+      });
+      if (standing.state !== "expiring" && standing.state !== "expired") continue;
+      out.push({
+        id: record.id, technicianId: record.technicianId, technicianName: name, skill: record.skill,
+        expiresOn: record.expiresOn!, daysRemaining: standing.daysRemaining!,
+        renewalLeadDays: record.renewalLeadDays, current: standing.state !== "expired",
+        sentence: `${name}: ${standing.sentence}`,
+      });
+    }
+    return out;
   });
 }
 
@@ -500,26 +623,52 @@ export function endSkill(ctx: ServiceContext, input: { id: string; reason: strin
 export interface CeEntryView {
   id: string; certificationTypeId: string; completedOn: string; hours: string;
   course: string; provider: string | null; evidence: string | null;
+  /** Only approved hours count toward a renewal. */
+  status: "pending" | "approved" | "declined";
+  /** The person logged it themselves, from their own record. */
+  selfLogged: boolean;
+  declineReason: string | null;
+  /** Photographs of the certificate kept with it. */
+  certificates: number;
 }
 
 export interface CeView {
   entries: CeEntryView[];
-  /** Per certification type the person holds or has hours toward. */
-  progress: { certificationTypeId: string; name: string; holding: { issuedOn: string | null; expiresOn: string | null } | null; progress: peopleCore.CeProgress }[];
+  /** Per certification type the person holds or has hours toward. Counts approved hours only. */
+  progress: {
+    certificationTypeId: string; name: string; holding: { issuedOn: string | null; expiresOn: string | null } | null;
+    progress: peopleCore.CeProgress;
+    /** Hours the person logged that wait for the office, not counted yet. */
+    pendingHours: string;
+  }[];
 }
 
 export async function ceWithin(tx: Database, technicianId: string): Promise<CeView> {
-  const rows = await tx.select().from(schema.continuingEducation)
+  const all = await tx.select().from(schema.continuingEducation)
     .where(and(eq(schema.continuingEducation.technicianId, technicianId), isNull(schema.continuingEducation.deletedAt)))
     .orderBy(desc(schema.continuingEducation.completedOn));
+  /**
+   * ONLY APPROVED HOURS COUNT. A person's own entry waits for the office to
+   * look at the certificate, and a declined one never counts; both are listed
+   * so the person can see where each stands.
+   */
+  const rows = all.filter((r) => r.status === "approved");
+  const waiting = all.filter((r) => r.status === "pending");
+  const certificates = all.length === 0 ? [] : await tx.select({ entityId: schema.attachment.entityId })
+    .from(schema.attachment)
+    .where(and(
+      eq(schema.attachment.entityType, "continuing_education"),
+      inArray(schema.attachment.entityId, all.map((r) => r.id)),
+      isNull(schema.attachment.deletedAt),
+    ));
   const holdings = await tx.select().from(schema.personCertification)
     .where(eq(schema.personCertification.technicianId, technicianId));
-  const typeIds = [...new Set([...rows.map((r) => r.certificationTypeId), ...holdings.map((h) => h.certificationTypeId)])];
+  const typeIds = [...new Set([...all.map((r) => r.certificationTypeId), ...holdings.map((h) => h.certificationTypeId)])];
   const types = typeIds.length === 0 ? [] : await tx.select().from(schema.certificationType)
     .where(inArray(schema.certificationType.id, typeIds));
 
   const progress = types
-    .filter((t) => t.ceHoursRequired !== null || rows.some((r) => r.certificationTypeId === t.id))
+    .filter((t) => t.ceHoursRequired !== null || all.some((r) => r.certificationTypeId === t.id))
     .map((t) => {
       /** The current holding is the one with the furthest expiry, as the register reads it. */
       const current = holdings.filter((h) => h.certificationTypeId === t.id && h.status === "active")
@@ -534,13 +683,19 @@ export async function ceWithin(tx: Database, technicianId: string): Promise<CeVi
           since: current?.issuedOn ?? null,
           by: current?.expiresOn ?? null,
         }),
+        pendingHours: peopleCore.hoursLabel(
+          waiting.filter((r) => r.certificationTypeId === t.id && (current?.issuedOn == null || r.completedOn >= current.issuedOn))
+            .reduce((sum, r) => sum + peopleCore.hundredths(r.hours), 0n),
+        ),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
   return {
-    entries: rows.map((r) => ({
+    entries: all.map((r) => ({
       id: r.id, certificationTypeId: r.certificationTypeId, completedOn: r.completedOn,
       hours: peopleCore.hoursLabel(peopleCore.hundredths(r.hours)), course: r.course, provider: r.provider, evidence: r.evidence,
+      status: r.status, selfLogged: r.selfLogged, declineReason: r.declineReason,
+      certificates: certificates.filter((c) => c.entityId === r.id).length,
     })),
     progress,
   };
@@ -593,6 +748,141 @@ export function logContinuingEducation(ctx: ServiceContext, input: {
     const view = await ceWithin(tx, input.technicianId);
     await once.remember(tx, ctx, "continuing_education", row!.id, view);
     return view;
+  });
+}
+
+/* ------------------- hours a person logged themselves, waiting for the office */
+
+export interface PendingCeView {
+  id: string; technicianId: string; technicianName: string;
+  certificationTypeId: string; certificationName: string;
+  completedOn: string; hours: string; course: string; provider: string | null; evidence: string | null;
+  certificates: number; loggedAt: string;
+}
+
+/**
+ * HOURS WAITING FOR THE OFFICE. Every self-logged entry nobody has answered, oldest first,
+ * with how many photographs of the certificate came with it.
+ */
+export function pendingContinuingEducation(ctx: ServiceContext) {
+  return guardedRead(ctx, "compliance:read", async (tx): Promise<PendingCeView[]> => {
+    const rows = await tx.select({
+      entry: schema.continuingEducation, technicianName: schema.technician.displayName,
+      certificationName: schema.certificationType.name,
+    }).from(schema.continuingEducation)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.continuingEducation.technicianId))
+      .innerJoin(schema.certificationType, eq(schema.certificationType.id, schema.continuingEducation.certificationTypeId))
+      .where(and(
+        eq(schema.continuingEducation.organizationId, ctx.actor.organizationId),
+        eq(schema.continuingEducation.status, "pending"),
+        isNull(schema.continuingEducation.deletedAt),
+      ))
+      .orderBy(asc(schema.continuingEducation.createdAt));
+    const photos = rows.length === 0 ? [] : await tx.select({ entityId: schema.attachment.entityId }).from(schema.attachment)
+      .where(and(
+        eq(schema.attachment.entityType, "continuing_education"),
+        inArray(schema.attachment.entityId, rows.map((r) => r.entry.id)),
+        isNull(schema.attachment.deletedAt),
+      ));
+    return rows.map(({ entry, technicianName, certificationName }) => ({
+      id: entry.id, technicianId: entry.technicianId, technicianName,
+      certificationTypeId: entry.certificationTypeId, certificationName,
+      completedOn: entry.completedOn, hours: peopleCore.hoursLabel(peopleCore.hundredths(entry.hours)),
+      course: entry.course, provider: entry.provider, evidence: entry.evidence,
+      certificates: photos.filter((p) => p.entityId === entry.id).length,
+      loggedAt: entry.createdAt.toISOString(),
+    }));
+  });
+}
+
+async function pendingEntry(tx: Database, ctx: ServiceContext, id: string) {
+  const [row] = await tx.select().from(schema.continuingEducation)
+    .where(and(
+      eq(schema.continuingEducation.id, id),
+      eq(schema.continuingEducation.organizationId, ctx.actor.organizationId),
+      isNull(schema.continuingEducation.deletedAt),
+    )).for("update").limit(1);
+  if (!row) throw new NotFoundError("Course");
+  return row;
+}
+
+/**
+ * Count a person's own hours toward the renewal. The office has looked at the certificate.
+ * Approving what is already approved answers with the same list, so a second
+ * person pressing the same button changes nothing. A declined entry is not
+ * approved afterwards: the person logs it again, so the record of the refusal
+ * stays what it was.
+ */
+export function approveContinuingEducation(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const row = await pendingEntry(tx, ctx, input.id);
+    if (row.status === "declined") {
+      throw new ConflictError("That entry was declined. Ask the person to log the hours again with the right certificate.");
+    }
+    if (row.status === "pending") {
+      await tx.update(schema.continuingEducation).set({
+        status: "approved", decidedAt: new Date(), decidedByUserId: ctx.actor.userId, updatedAt: new Date(),
+      }).where(eq(schema.continuingEducation.id, row.id));
+      await audit(tx, ctx, "continuing_education.approved", "technician", row.technicianId,
+        { status: "pending" }, { entryId: row.id, course: row.course, hours: row.hours });
+    }
+    return ceWithin(tx, row.technicianId);
+  });
+}
+
+/** Turn a person's own hours down, with a reason they read on their record. Never counted. */
+export function declineContinuingEducation(ctx: ServiceContext, input: { id: string; reason: string }) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const row = await pendingEntry(tx, ctx, input.id);
+    const reason = input.reason.trim();
+    if (reason === "") throw new ConflictError("Say why, so the person knows what to fix.");
+    if (row.status === "approved") {
+      throw new ConflictError("Those hours are already counted. Remove them from the list if they were counted by mistake.");
+    }
+    if (row.status === "pending") {
+      await tx.update(schema.continuingEducation).set({
+        status: "declined", decidedAt: new Date(), decidedByUserId: ctx.actor.userId, declineReason: reason, updatedAt: new Date(),
+      }).where(eq(schema.continuingEducation.id, row.id));
+      await audit(tx, ctx, "continuing_education.declined", "technician", row.technicianId,
+        { status: "pending" }, { entryId: row.id, course: row.course, hours: row.hours, reason });
+    }
+    return ceWithin(tx, row.technicianId);
+  });
+}
+
+/**
+ * The bytes of one certificate photograph, `index` oldest first. For whoever reads
+ * the register (`compliance:read`) and for the person whose hours they are; nobody
+ * else's certificate is served to anybody else.
+ */
+export function ceCertificate(ctx: ServiceContext, input: { id: string; index?: number | undefined }) {
+  return guardedRead(ctx, "profile:own", async (tx): Promise<{ bytes: Buffer; contentType: string }> => {
+    const [row] = await tx.select().from(schema.continuingEducation)
+      .where(and(
+        eq(schema.continuingEducation.id, input.id),
+        eq(schema.continuingEducation.organizationId, ctx.actor.organizationId),
+        isNull(schema.continuingEducation.deletedAt),
+      )).limit(1);
+    if (!row) throw new NotFoundError("Certificate");
+    const [own] = await tx.select({ id: schema.technician.id }).from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(eq(schema.membership.userId, ctx.actor.userId), eq(schema.technician.id, row.technicianId))).limit(1);
+    if (!own) assertCan(ctx.actor, "compliance:read");
+    const [file] = await tx.select({ storage: schema.storedFile }).from(schema.attachment)
+      .innerJoin(schema.storedFile, and(
+        eq(schema.storedFile.organizationId, schema.attachment.organizationId),
+        eq(schema.storedFile.storageKey, schema.attachment.storageKey),
+      ))
+      .where(and(
+        eq(schema.attachment.entityType, "continuing_education"),
+        eq(schema.attachment.entityId, row.id),
+        isNull(schema.attachment.deletedAt),
+        isNull(schema.storedFile.deletedAt),
+      ))
+      .orderBy(asc(schema.attachment.createdAt), asc(schema.attachment.id))
+      .offset(Math.max(0, input.index ?? 0)).limit(1);
+    if (!file) throw new NotFoundError("Certificate");
+    return { bytes: await bytesOf(file.storage), contentType: file.storage.contentType };
   });
 }
 
@@ -868,7 +1158,13 @@ export const handlers = {
   listTechnicianSkills: (ctx: ServiceContext, input: { technicianId: string }): Promise<SkillsView> => skills(ctx, input),
   recordTechnicianSkill: (ctx: ServiceContext, input: {
     technicianId: string; skill: string; since: string; evidence: string;
+    expiresOn?: string | null | undefined; renewalLeadDays?: number | undefined;
   }): Promise<SkillsView> => recordSkill(ctx, input),
+  setTechnicianSkillExpiry: (ctx: ServiceContext, input: {
+    id: string; expiresOn: string | null; renewalLeadDays?: number | undefined;
+  }): Promise<SkillsView> => setSkillExpiry(ctx, input),
+  listExpiringTechnicianSkills: async (ctx: ServiceContext, input: { within?: number | undefined }) =>
+    ({ expiring: await expiringSkills(ctx, input) }),
   endTechnicianSkill: (ctx: ServiceContext, input: { id: string; reason: string; endedOn?: string | undefined }): Promise<SkillsView> =>
     endSkill(ctx, input),
   listContinuingEducation: (ctx: ServiceContext, input: { technicianId: string }): Promise<CeView> => continuingEducation(ctx, input),
@@ -877,6 +1173,10 @@ export const handlers = {
     course: string; provider?: string | null | undefined; evidence?: string | null | undefined;
   }): Promise<CeView> => logContinuingEducation(ctx, input),
   removeContinuingEducation: (ctx: ServiceContext, input: { id: string }): Promise<CeView> => removeContinuingEducation(ctx, input),
+  listPendingContinuingEducation: async (ctx: ServiceContext) => ({ pending: await pendingContinuingEducation(ctx) }),
+  approveContinuingEducation: (ctx: ServiceContext, input: { id: string }): Promise<CeView> => approveContinuingEducation(ctx, input),
+  declineContinuingEducation: (ctx: ServiceContext, input: { id: string; reason: string }): Promise<CeView> =>
+    declineContinuingEducation(ctx, input),
   getJobSkills: (ctx: ServiceContext, input: { id: string }): Promise<JobSkillsView> => jobSkills(ctx, input),
   setJobSkills: (ctx: ServiceContext, input: { id: string; skills: string[] }): Promise<JobSkillsView> =>
     setJobSkills(ctx, input),

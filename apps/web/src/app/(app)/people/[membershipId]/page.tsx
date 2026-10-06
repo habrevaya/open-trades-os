@@ -9,7 +9,7 @@ import { Crumb, Fact, Facts } from "@/components/Detail";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import {
-  addContactAction, askToSignAction, endSkillAction, logCeAction, recordSkillAction, removeContactAction,
+  addContactAction, askToSignAction, endSkillAction, logCeAction, recordSkillAction, removeContactAction, setSkillExpiryAction,
   setEmploymentAction, setOnboardingLineAction, startOnboardingAction,
 } from "../actions";
 
@@ -213,6 +213,15 @@ export default async function PersonPage({ params }: { params: Promise<{ members
                   {s.record ? (
                     <>
                       <span className="text-ink-700">since {s.record.since}: {s.record.evidence}</span>
+                      {s.record.expiry.state === "expired" ? <Chip tone="danger">Ran out {s.record.expiresOn}</Chip> : null}
+                      {s.record.expiry.state === "expiring" ? <Chip tone="warning">Runs out {s.record.expiresOn}</Chip> : null}
+                      {s.record.expiry.state === "current" ? <span className="text-ink-500">good until {s.record.expiresOn}</span> : null}
+                      {writes ? (
+                        <ActionForm action={setSkillExpiryAction} submit="Set last day" tone="quiet" className="flex items-center gap-2" hidden={{ ...hidden, id: s.record.id }}>
+                          <input name="expiresOn" type="date" aria-label={`Last day ${s.skill} stands`} defaultValue={s.record.expiresOn ?? ""}
+                                 className="h-8 rounded border border-steel-300 px-2 text-sm" />
+                        </ActionForm>
+                      ) : null}
                       {writes ? (
                         <ActionForm action={endSkillAction} submit="End" tone="quiet" className="flex items-center gap-2" hidden={{ ...hidden, id: s.record.id }}>
                           <input name="reason" aria-label={`Why ${s.skill} ends`} placeholder="Why it no longer stands" required
@@ -236,6 +245,7 @@ export default async function PersonPage({ params }: { params: Promise<{ members
               <TextField label="Skill" name="skill" required placeholder="brazing" />
               <TextField label="Since" name="since" type="date" required />
               <TextField label="What showed it" name="evidence" required placeholder="Signed off by Dana after three joints" />
+              <TextField label="Last day it stands, if it runs out" name="expiresOn" type="date" />
             </ActionForm>
           ) : null}
           {person.skills.ended.length > 0 ? (
@@ -266,7 +276,12 @@ export default async function PersonPage({ params }: { params: Promise<{ members
           {ce.entries.length > 0 ? (
             <ul className="mt-2 space-y-1 text-sm text-ink-700">
               {ce.entries.map((e) => (
-                <li key={e.id}>{e.completedOn}: {e.course}, {e.hours} hours{e.provider ? `, ${e.provider}` : ""}</li>
+                <li key={e.id}>
+                  {e.completedOn}: {e.course}, {e.hours} hours{e.provider ? `, ${e.provider}` : ""}
+                  {e.status === "pending" ? <> <Chip tone="warning">Waiting for the office</Chip></> : null}
+                  {e.status === "declined" ? <> <Chip tone="danger">Declined</Chip> {e.declineReason}</> : null}
+                  {e.certificates > 0 ? <> <a href={`/certifications/continuing-education/${e.id}/certificate`} target="_blank" rel="noreferrer" className="text-blue-600 underline underline-offset-4">Certificate</a></> : null}
+                </li>
               ))}
             </ul>
           ) : null}

@@ -200,3 +200,101 @@ test("a job drops one of its type's skills with a reason that stays on the job, 
   await owner.getByRole("button", { name: "Ask for it again" }).click();
   await expect(owner.getByRole("list", { name: "Skills this job does not need" })).toHaveCount(0);
 });
+
+/** A technician with a login of their own record, made for one test and taken away after it. */
+async function oneTechnician(db: ReturnType<typeof createClient>, name: string): Promise<{ membershipId: string; cleanup: () => Promise<void> }> {
+  const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}@e2e.test`;
+  const [user] = await db.execute<{ id: string }>(sql`insert into public."user" (email, name) values (${email}, ${name}) returning id`);
+  const [member] = await db.execute<{ id: string; organization_id: string }>(sql`
+    insert into public.membership (organization_id, user_id, role)
+    select id, ${user!.id}, 'technician' from public.organization where slug = 'ridgeline' returning id, organization_id`);
+  await db.execute(sql`insert into public.technician (organization_id, membership_id, display_name)
+    values (${member!.organization_id}, ${member!.id}, ${name})`);
+  return {
+    membershipId: member!.id,
+    cleanup: async () => {
+      await db.execute(sql`delete from public.technician where membership_id = ${member!.id}`);
+      await db.execute(sql`delete from public.membership where id = ${member!.id}`);
+      await db.execute(sql`delete from public."user" where id = ${user!.id}`);
+    },
+  };
+}
+
+test("a skill with its own last day is warned like a certification, and moving the day clears the warning", async ({ owner }) => {
+  const name = `Sky Stone ${run}`;
+  const db = createClient();
+  const person = await oneTechnician(db, name);
+  try {
+    await owner.goto(`/people/${person.membershipId}`);
+    const skills = owner.getByRole("region", { name: "Skills the board checks" });
+    await skills.getByLabel("Skill", { exact: true }).fill("forklift");
+    await skills.getByLabel("Since").fill(companyDay(-60));
+    await skills.getByLabel("What showed it").fill("Operator course, card 77");
+    await skills.getByLabel("Last day it stands, if it runs out").fill(companyDay(12));
+    await skills.getByRole("button", { name: "Record skill" }).click();
+    await expect(skills).toContainText(`Runs out ${companyDay(12)}`);
+
+    await owner.goto("/certifications");
+    const due = owner.getByRole("region", { name: "Skills due for renewal" });
+    await expect(due).toContainText(name);
+    await expect(due).toContainText("forklift");
+    await expect(due).toContainText("12 days left");
+
+    /** Shown again: the new last day is well beyond its notice period, so the warning goes. */
+    await owner.goto(`/people/${person.membershipId}`);
+    await owner.getByLabel("Last day forklift stands").fill(companyDay(400));
+    await owner.getByRole("button", { name: "Set last day" }).click();
+    await expect(owner.getByRole("region", { name: "Skills the board checks" })).toContainText(`good until ${companyDay(400)}`);
+    await owner.goto("/certifications");
+    await expect(owner.getByRole("region", { name: "Skills due for renewal" }).filter({ hasText: name })).toHaveCount(0);
+  } finally {
+    await person.cleanup();
+    await db.$close();
+  }
+});
+
+test("a technician logs course hours with a photograph of the certificate, the office approves them, and only then do they count", async ({ owner, tech }) => {
+  const kind = `State licence ${run}`;
+  const course = `Refrigerant safety ${run}`;
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      insert into public.certification_type (organization_id, code, name, ce_hours_required, default_valid_months)
+      select id, ${`CE${run.slice(-8).toUpperCase()}`}, ${kind}, 8, 12 from public.organization where slug = 'ridgeline'`);
+  } finally {
+    await db.$close();
+  }
+
+  await tech.goto("/me");
+  const form = tech.getByRole("group", { name: "Log hours of a course" });
+  await form.getByLabel("Toward").selectOption({ label: `${kind} (8 hours to renew)` });
+  await form.getByLabel("Course").fill(course);
+  await form.getByLabel("Hours").fill("4");
+  await form.getByLabel("Photo of the certificate").setInputFiles({
+    name: "certificate.png", mimeType: "image/png",
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 7]),
+  });
+  await form.getByRole("button", { name: "Send the hours" }).click();
+  const mine = tech.getByRole("list", { name: "Hours you logged" });
+  await expect(mine).toContainText(course);
+  await expect(mine).toContainText("Waiting for the office");
+
+  /** Waiting hours are shown beside the progress and not counted in it. */
+  await expect(tech.getByText(/4 more hours wait for the office/)).toBeVisible();
+
+  await owner.goto("/certifications");
+  const waiting = owner.getByRole("region", { name: "Hours waiting for you" });
+  const line = waiting.getByRole("listitem").filter({ hasText: course });
+  await expect(line).toContainText(`4 hours of ${course}`);
+  const link = line.getByRole("link", { name: "Look at the certificate" });
+  const photo = await owner.request.get((await link.getAttribute("href"))!);
+  expect(photo.status()).toBe(200);
+  expect(photo.headers()["content-type"]).toBe("image/png");
+
+  await line.getByRole("button", { name: "Approve" }).click();
+  await expect(waiting.getByRole("listitem").filter({ hasText: course })).toHaveCount(0);
+
+  await tech.reload();
+  await expect(tech.getByRole("list", { name: "Hours you logged" })).toContainText("Counted");
+  await expect(tech.getByText(/4 of 8 hours/)).toBeVisible();
+});

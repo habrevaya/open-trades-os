@@ -960,6 +960,41 @@ export interface ApproveAppRequestOutput {
   withheld: string[];
 }
 
+export type ApproveContinuingEducationInput = Record<string, unknown>;
+
+export interface ApproveContinuingEducationOutput {
+  entries: Array<{
+    id: string;
+    certificationTypeId: string;
+    completedOn: string;
+    hours: string;
+    course: string;
+    provider: string | null;
+    evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
+  }>;
+  progress: Array<{
+    certificationTypeId: string;
+    name: string;
+    holding: {
+      issuedOn: string | null;
+      expiresOn: string | null;
+    } | null;
+    progress: {
+      required: string | null;
+      logged: string;
+      remaining: string | null;
+      met: boolean | null;
+      since: string | null;
+      sentence: string;
+    };
+    pendingHours: string;
+  }>;
+}
+
 export interface ApproveEstimateInput {
   optionId: string;
   selectedLineIds?: string[];
@@ -4566,6 +4601,43 @@ export interface DeclineBookingRequestOutput {
   updatedAt: string;
 }
 
+export interface DeclineContinuingEducationInput {
+  reason: string;
+}
+
+export interface DeclineContinuingEducationOutput {
+  entries: Array<{
+    id: string;
+    certificationTypeId: string;
+    completedOn: string;
+    hours: string;
+    course: string;
+    provider: string | null;
+    evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
+  }>;
+  progress: Array<{
+    certificationTypeId: string;
+    name: string;
+    holding: {
+      issuedOn: string | null;
+      expiresOn: string | null;
+    } | null;
+    progress: {
+      required: string | null;
+      logged: string;
+      remaining: string | null;
+      met: boolean | null;
+      since: string | null;
+      sentence: string;
+    };
+    pendingHours: string;
+  }>;
+}
+
 export interface DeclineEstimateInput {
   reason?: string;
 }
@@ -5409,6 +5481,13 @@ export interface EndTechnicianSkillOutput {
       recordedBy: string | null;
       endedOn: string | null;
       endedReason: string | null;
+      expiresOn: string | null;
+      renewalLeadDays: number;
+      expiry: {
+        state: "none" | "current" | "expiring" | "expired";
+        daysRemaining: number | null;
+        sentence: string;
+      };
     } | null;
   }>;
   orphaned: Array<{
@@ -5419,6 +5498,13 @@ export interface EndTechnicianSkillOutput {
     recordedBy: string | null;
     endedOn: string | null;
     endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
   }>;
   ended: Array<{
     id: string;
@@ -5428,6 +5514,13 @@ export interface EndTechnicianSkillOutput {
     recordedBy: string | null;
     endedOn: string | null;
     endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
   }>;
 }
 
@@ -8671,6 +8764,10 @@ export interface GetMyRecordOutput {
       course: string;
       provider: string | null;
       evidence: string | null;
+      status: "pending" | "approved" | "declined";
+      selfLogged: boolean;
+      declineReason: string | null;
+      certificates: number;
     }>;
     progress: Array<{
       certificationTypeId: string;
@@ -8687,8 +8784,30 @@ export interface GetMyRecordOutput {
         since: string | null;
         sentence: string;
       };
+      pendingHours: string;
     }>;
   } | null;
+  skills: Array<{
+    id: string;
+    skill: string;
+    since: string;
+    evidence: string;
+    recordedBy: string | null;
+    endedOn: string | null;
+    endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
+  }>;
+  continuingEducationKinds: Array<{
+    id: string;
+    name: string;
+    hoursRequired: string | null;
+  }>;
 }
 
 export interface GetMyTimeclockOutput {
@@ -8900,6 +9019,13 @@ export interface GetPersonRecordOutput {
         recordedBy: string | null;
         endedOn: string | null;
         endedReason: string | null;
+        expiresOn: string | null;
+        renewalLeadDays: number;
+        expiry: {
+          state: "none" | "current" | "expiring" | "expired";
+          daysRemaining: number | null;
+          sentence: string;
+        };
       } | null;
     }>;
     orphaned: Array<{
@@ -8910,6 +9036,13 @@ export interface GetPersonRecordOutput {
       recordedBy: string | null;
       endedOn: string | null;
       endedReason: string | null;
+      expiresOn: string | null;
+      renewalLeadDays: number;
+      expiry: {
+        state: "none" | "current" | "expiring" | "expired";
+        daysRemaining: number | null;
+        sentence: string;
+      };
     }>;
     ended: Array<{
       id: string;
@@ -8919,6 +9052,13 @@ export interface GetPersonRecordOutput {
       recordedBy: string | null;
       endedOn: string | null;
       endedReason: string | null;
+      expiresOn: string | null;
+      renewalLeadDays: number;
+      expiry: {
+        state: "none" | "current" | "expiring" | "expired";
+        daysRemaining: number | null;
+        sentence: string;
+      };
     }>;
   } | null;
   reportsTo: {
@@ -11778,6 +11918,10 @@ export interface ListContinuingEducationOutput {
     course: string;
     provider: string | null;
     evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
   }>;
   progress: Array<{
     certificationTypeId: string;
@@ -11794,6 +11938,7 @@ export interface ListContinuingEducationOutput {
       since: string | null;
       sentence: string;
     };
+    pendingHours: string;
   }>;
 }
 
@@ -12506,6 +12651,20 @@ export interface ListExpiringCertificationsOutput {
     verifiedByUserId: string | null;
     daysRemaining: number;
     renewalLeadDays: number;
+  }>;
+}
+
+export interface ListExpiringTechnicianSkillsOutput {
+  expiring: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    skill: string;
+    expiresOn: string;
+    daysRemaining: number;
+    renewalLeadDays: number;
+    current: boolean;
+    sentence: string;
   }>;
 }
 
@@ -13432,6 +13591,23 @@ export interface ListPayrollExportsOutput {
     reimbursementTotal: string;
     checksum: string;
     generatedAt: string;
+  }>;
+}
+
+export interface ListPendingContinuingEducationOutput {
+  pending: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    certificationTypeId: string;
+    certificationName: string;
+    completedOn: string;
+    hours: string;
+    course: string;
+    provider: string | null;
+    evidence: string | null;
+    certificates: number;
+    loggedAt: string;
   }>;
 }
 
@@ -14765,6 +14941,13 @@ export interface ListTechnicianSkillsOutput {
       recordedBy: string | null;
       endedOn: string | null;
       endedReason: string | null;
+      expiresOn: string | null;
+      renewalLeadDays: number;
+      expiry: {
+        state: "none" | "current" | "expiring" | "expired";
+        daysRemaining: number | null;
+        sentence: string;
+      };
     } | null;
   }>;
   orphaned: Array<{
@@ -14775,6 +14958,13 @@ export interface ListTechnicianSkillsOutput {
     recordedBy: string | null;
     endedOn: string | null;
     endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
   }>;
   ended: Array<{
     id: string;
@@ -14784,6 +14974,13 @@ export interface ListTechnicianSkillsOutput {
     recordedBy: string | null;
     endedOn: string | null;
     endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
   }>;
 }
 
@@ -15427,6 +15624,10 @@ export interface LogContinuingEducationOutput {
     course: string;
     provider: string | null;
     evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
   }>;
   progress: Array<{
     certificationTypeId: string;
@@ -15443,6 +15644,54 @@ export interface LogContinuingEducationOutput {
       since: string | null;
       sentence: string;
     };
+    pendingHours: string;
+  }>;
+}
+
+export interface LogMyContinuingEducationInput {
+  certificationTypeId: string;
+  completedOn: string;
+  hours: string;
+  course: string;
+  provider?: string | null;
+  evidence?: string | null;
+  certificate?: {
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  };
+}
+
+export interface LogMyContinuingEducationOutput {
+  entries: Array<{
+    id: string;
+    certificationTypeId: string;
+    completedOn: string;
+    hours: string;
+    course: string;
+    provider: string | null;
+    evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
+  }>;
+  progress: Array<{
+    certificationTypeId: string;
+    name: string;
+    holding: {
+      issuedOn: string | null;
+      expiresOn: string | null;
+    } | null;
+    progress: {
+      required: string | null;
+      logged: string;
+      remaining: string | null;
+      met: boolean | null;
+      since: string | null;
+      sentence: string;
+    };
+    pendingHours: string;
   }>;
 }
 
@@ -17413,6 +17662,8 @@ export interface RecordTechnicianSkillInput {
   skill: string;
   since: string;
   evidence: string;
+  expiresOn?: string | null;
+  renewalLeadDays?: number;
 }
 
 export interface RecordTechnicianSkillOutput {
@@ -17426,6 +17677,13 @@ export interface RecordTechnicianSkillOutput {
       recordedBy: string | null;
       endedOn: string | null;
       endedReason: string | null;
+      expiresOn: string | null;
+      renewalLeadDays: number;
+      expiry: {
+        state: "none" | "current" | "expiring" | "expired";
+        daysRemaining: number | null;
+        sentence: string;
+      };
     } | null;
   }>;
   orphaned: Array<{
@@ -17436,6 +17694,13 @@ export interface RecordTechnicianSkillOutput {
     recordedBy: string | null;
     endedOn: string | null;
     endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
   }>;
   ended: Array<{
     id: string;
@@ -17445,6 +17710,13 @@ export interface RecordTechnicianSkillOutput {
     recordedBy: string | null;
     endedOn: string | null;
     endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
   }>;
 }
 
@@ -17801,6 +18073,10 @@ export interface RemoveContinuingEducationOutput {
     course: string;
     provider: string | null;
     evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
   }>;
   progress: Array<{
     certificationTypeId: string;
@@ -17817,6 +18093,7 @@ export interface RemoveContinuingEducationOutput {
       since: string | null;
       sentence: string;
     };
+    pendingHours: string;
   }>;
 }
 
@@ -20724,6 +21001,65 @@ export interface SetTechnicianPhotoOutput {
   } | null;
   shareLocation: boolean;
   hasPhoto: boolean;
+}
+
+export interface SetTechnicianSkillExpiryInput {
+  expiresOn: string | null;
+  renewalLeadDays?: number;
+}
+
+export interface SetTechnicianSkillExpiryOutput {
+  current: Array<{
+    skill: string;
+    record: {
+      id: string;
+      skill: string;
+      since: string;
+      evidence: string;
+      recordedBy: string | null;
+      endedOn: string | null;
+      endedReason: string | null;
+      expiresOn: string | null;
+      renewalLeadDays: number;
+      expiry: {
+        state: "none" | "current" | "expiring" | "expired";
+        daysRemaining: number | null;
+        sentence: string;
+      };
+    } | null;
+  }>;
+  orphaned: Array<{
+    id: string;
+    skill: string;
+    since: string;
+    evidence: string;
+    recordedBy: string | null;
+    endedOn: string | null;
+    endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
+  }>;
+  ended: Array<{
+    id: string;
+    skill: string;
+    since: string;
+    evidence: string;
+    recordedBy: string | null;
+    endedOn: string | null;
+    endedReason: string | null;
+    expiresOn: string | null;
+    renewalLeadDays: number;
+    expiry: {
+      state: "none" | "current" | "expiring" | "expired";
+      daysRemaining: number | null;
+      sentence: string;
+    };
+  }>;
 }
 
 export interface SetTravelSettingsInput {
@@ -24041,6 +24377,41 @@ export interface WithdrawComplianceDocumentOutput {
   statement: string;
 }
 
+export type WithdrawMyContinuingEducationInput = Record<string, unknown>;
+
+export interface WithdrawMyContinuingEducationOutput {
+  entries: Array<{
+    id: string;
+    certificationTypeId: string;
+    completedOn: string;
+    hours: string;
+    course: string;
+    provider: string | null;
+    evidence: string | null;
+    status: "pending" | "approved" | "declined";
+    selfLogged: boolean;
+    declineReason: string | null;
+    certificates: number;
+  }>;
+  progress: Array<{
+    certificationTypeId: string;
+    name: string;
+    holding: {
+      issuedOn: string | null;
+      expiresOn: string | null;
+    } | null;
+    progress: {
+      required: string | null;
+      logged: string;
+      remaining: string | null;
+      met: boolean | null;
+      since: string | null;
+      sentence: string;
+    };
+    pendingHours: string;
+  }>;
+}
+
 export interface WithdrawPortalCardAgreementInput {
   token: string;
 }
@@ -24263,6 +24634,10 @@ export interface ApproveAppRequestParams {
   id: string;
 }
 
+export interface ApproveContinuingEducationParams {
+  id: string;
+}
+
 export interface ApproveEstimateParams {
   id: string;
 }
@@ -24447,6 +24822,10 @@ export interface DecideRecordingParams {
 }
 
 export interface DeclineBookingRequestParams {
+  id: string;
+}
+
+export interface DeclineContinuingEducationParams {
   id: string;
 }
 
@@ -25665,6 +26044,10 @@ export interface ListExpiringCertificationsInput {
   within?: number;
 }
 
+export interface ListExpiringTechnicianSkillsInput {
+  within?: number;
+}
+
 export interface ListExternalWorkOrdersInput {
   state?: "offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed";
   sourceSystem?: string;
@@ -25871,6 +26254,8 @@ export interface ListPaymentsInput {
 export interface ListPayrollExportsInput {
   periodId: string;
 }
+
+export type ListPendingContinuingEducationInput = Record<string, never>;
 
 export interface ListPendingExternalPushesInput {
   limit?: number;
@@ -26984,6 +27369,10 @@ export interface SetTechnicianPhotoParams {
   id: string;
 }
 
+export interface SetTechnicianSkillExpiryParams {
+  id: string;
+}
+
 export interface SetVisitCustomFieldsParams {
   id: string;
 }
@@ -27347,6 +27736,10 @@ export interface WithdrawComplianceDocumentParams {
   id: string;
 }
 
+export interface WithdrawMyContinuingEducationParams {
+  id: string;
+}
+
 export interface WithdrawPortalCardAgreementParams {
   cardId: string;
 }
@@ -27403,6 +27796,7 @@ export interface OperationTypes {
   applyTradePack: { input: ApplyTradePackParams & ApplyTradePackInput; output: ApplyTradePackOutput };
   applyVendorCatalogue: { input: ApplyVendorCatalogueInput; output: ApplyVendorCatalogueOutput };
   approveAppRequest: { input: ApproveAppRequestParams & ApproveAppRequestInput; output: ApproveAppRequestOutput };
+  approveContinuingEducation: { input: ApproveContinuingEducationParams & ApproveContinuingEducationInput; output: ApproveContinuingEducationOutput };
   approveEstimate: { input: ApproveEstimateParams & ApproveEstimateInput; output: ApproveEstimateOutput };
   approveIntakeDraft: { input: ApproveIntakeDraftParams & ApproveIntakeDraftInput; output: ApproveIntakeDraftOutput };
   approvePortalChangeOrder: { input: ApprovePortalChangeOrderInput; output: ApprovePortalChangeOrderOutput };
@@ -27525,6 +27919,7 @@ export interface OperationTypes {
   declareOvertimePolicy: { input: DeclareOvertimePolicyInput; output: DeclareOvertimePolicyOutput };
   declarePayPeriod: { input: DeclarePayPeriodInput; output: DeclarePayPeriodOutput };
   declineBookingRequest: { input: DeclineBookingRequestParams & DeclineBookingRequestInput; output: DeclineBookingRequestOutput };
+  declineContinuingEducation: { input: DeclineContinuingEducationParams & DeclineContinuingEducationInput; output: DeclineContinuingEducationOutput };
   declineEstimate: { input: DeclineEstimateParams & DeclineEstimateInput; output: DeclineEstimateOutput };
   declineLeadOffer: { input: DeclineLeadOfferParams & DeclineLeadOfferInput; output: DeclineLeadOfferOutput };
   declinePortalChangeOrder: { input: DeclinePortalChangeOrderInput; output: DeclinePortalChangeOrderOutput };
@@ -27844,6 +28239,7 @@ export interface OperationTypes {
   listEstimates: { input: ListEstimatesInput; output: ListEstimatesOutput };
   listExpenses: { input: ListExpensesInput; output: ListExpensesOutput };
   listExpiringCertifications: { input: ListExpiringCertificationsInput; output: ListExpiringCertificationsOutput };
+  listExpiringTechnicianSkills: { input: ListExpiringTechnicianSkillsInput; output: ListExpiringTechnicianSkillsOutput };
   listExternalWorkOrders: { input: ListExternalWorkOrdersInput; output: ListExternalWorkOrdersOutput };
   listExternalWorkSources: { input: ListExternalWorkSourcesInput; output: ListExternalWorkSourcesOutput };
   listFieldPeople: { input: ListFieldPeopleInput; output: ListFieldPeopleOutput };
@@ -27890,6 +28286,7 @@ export interface OperationTypes {
   listPayPeriods: { input: ListPayPeriodsInput; output: ListPayPeriodsOutput };
   listPayments: { input: ListPaymentsInput; output: ListPaymentsOutput };
   listPayrollExports: { input: ListPayrollExportsInput; output: ListPayrollExportsOutput };
+  listPendingContinuingEducation: { input: ListPendingContinuingEducationInput; output: ListPendingContinuingEducationOutput };
   listPendingExternalPushes: { input: ListPendingExternalPushesInput; output: ListPendingExternalPushesOutput };
   listPendingUploads: { input: ListPendingUploadsInput; output: ListPendingUploadsOutput };
   listPeople: { input: ListPeopleInput; output: ListPeopleOutput };
@@ -27991,6 +28388,7 @@ export interface OperationTypes {
   lockVisit: { input: LockVisitParams & LockVisitInput; output: LockVisitOutput };
   logCall: { input: LogCallInput; output: LogCallOutput };
   logContinuingEducation: { input: LogContinuingEducationParams & LogContinuingEducationInput; output: LogContinuingEducationOutput };
+  logMyContinuingEducation: { input: LogMyContinuingEducationInput; output: LogMyContinuingEducationOutput };
   makeContactPrimary: { input: MakeContactPrimaryParams & MakeContactPrimaryInput; output: MakeContactPrimaryOutput };
   mapPlatformCampaign: { input: MapPlatformCampaignParams & MapPlatformCampaignInput; output: MapPlatformCampaignOutput };
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
@@ -28265,6 +28663,7 @@ export interface OperationTypes {
   setTechnicianCustomFields: { input: SetTechnicianCustomFieldsParams & SetTechnicianCustomFieldsInput; output: SetTechnicianCustomFieldsOutput };
   setTechnicianMobile: { input: SetTechnicianMobileParams & SetTechnicianMobileInput; output: SetTechnicianMobileOutput };
   setTechnicianPhoto: { input: SetTechnicianPhotoParams & SetTechnicianPhotoInput; output: SetTechnicianPhotoOutput };
+  setTechnicianSkillExpiry: { input: SetTechnicianSkillExpiryParams & SetTechnicianSkillExpiryInput; output: SetTechnicianSkillExpiryOutput };
   setTravelSettings: { input: SetTravelSettingsInput; output: SetTravelSettingsOutput };
   setTruckMinimum: { input: SetTruckMinimumInput; output: SetTruckMinimumOutput };
   setUpSoftphone: { input: SetUpSoftphoneInput; output: SetUpSoftphoneOutput };
@@ -28384,6 +28783,7 @@ export interface OperationTypes {
   waiveObligation: { input: WaiveObligationParams & WaiveObligationInput; output: WaiveObligationOutput };
   withdrawChangeOrder: { input: WithdrawChangeOrderParams & WithdrawChangeOrderInput; output: WithdrawChangeOrderOutput };
   withdrawComplianceDocument: { input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput; output: WithdrawComplianceDocumentOutput };
+  withdrawMyContinuingEducation: { input: WithdrawMyContinuingEducationParams & WithdrawMyContinuingEducationInput; output: WithdrawMyContinuingEducationOutput };
   withdrawPortalCardAgreement: { input: WithdrawPortalCardAgreementParams & WithdrawPortalCardAgreementInput; output: WithdrawPortalCardAgreementOutput };
   withdrawTimeOff: { input: WithdrawTimeOffParams & WithdrawTimeOffInput; output: WithdrawTimeOffOutput };
   writeOffInvoice: { input: WriteOffInvoiceParams & WriteOffInvoiceInput; output: WriteOffInvoiceOutput };
@@ -28435,6 +28835,7 @@ export const OPERATIONS = {
   applyTradePack: { method: "POST", path: "/v1/trade-packs/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   applyVendorCatalogue: { method: "POST", path: "/v1/vendor-catalogue/apply", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["vendor:write","pricebook:write"] },
   approveAppRequest: { method: "POST", path: "/v1/apps/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  approveContinuingEducation: { method: "POST", path: "/v1/continuing-education/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   approveEstimate: { method: "POST", path: "/v1/estimates/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:approve"] },
   approveIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide","visit:write"] },
   approvePortalChangeOrder: { method: "POST", path: "/v1/portal/change-order/approve", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -28557,6 +28958,7 @@ export const OPERATIONS = {
   declareOvertimePolicy: { method: "POST", path: "/v1/payroll/overtime-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   declarePayPeriod: { method: "POST", path: "/v1/payroll/periods", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   declineBookingRequest: { method: "POST", path: "/v1/bookings/{id}/decline", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
+  declineContinuingEducation: { method: "POST", path: "/v1/continuing-education/{id}/decline", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   declineEstimate: { method: "POST", path: "/v1/estimates/{id}/decline", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   declineLeadOffer: { method: "POST", path: "/v1/lead-offers/{id}/decline", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   declinePortalChangeOrder: { method: "POST", path: "/v1/portal/change-order/decline", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -28876,6 +29278,7 @@ export const OPERATIONS = {
   listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
   listExpenses: { method: "GET", path: "/v1/expenses", pathParams: [], queryParams: ["status","technicianId","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listExpiringTechnicianSkills: { method: "GET", path: "/v1/technician-skills/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listExternalWorkOrders: { method: "GET", path: "/v1/external-work-orders", pathParams: [], queryParams: ["state","sourceSystem","pendingPush","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listExternalWorkSources: { method: "GET", path: "/v1/external-work-sources", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listFieldPeople: { method: "GET", path: "/v1/field/technicians", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
@@ -28922,6 +29325,7 @@ export const OPERATIONS = {
   listPayPeriods: { method: "GET", path: "/v1/payroll/periods", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   listPayments: { method: "GET", path: "/v1/payments", pathParams: [], queryParams: ["cursor","limit","customerId","invoiceId","method","receivedFrom","receivedTo","status","unappliedOnly","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["payment:read"] },
   listPayrollExports: { method: "GET", path: "/v1/payroll/exports", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
+  listPendingContinuingEducation: { method: "GET", path: "/v1/continuing-education/pending", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listPendingExternalPushes: { method: "GET", path: "/v1/external-work-pushes", pathParams: [], queryParams: ["limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listPendingUploads: { method: "GET", path: "/v1/field/uploads", pathParams: [], queryParams: ["deviceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
@@ -29023,6 +29427,7 @@ export const OPERATIONS = {
   lockVisit: { method: "POST", path: "/v1/visits/{id}/lock", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   logCall: { method: "POST", path: "/v1/calls", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   logContinuingEducation: { method: "POST", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  logMyContinuingEducation: { method: "POST", path: "/v1/me/continuing-education", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   makeContactPrimary: { method: "POST", path: "/v1/contacts/{id}/primary", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   mapPlatformCampaign: { method: "PATCH", path: "/v1/marketing/platform-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -29297,6 +29702,7 @@ export const OPERATIONS = {
   setTechnicianCustomFields: { method: "PUT", path: "/v1/technicians/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read","user:write"] },
   setTechnicianMobile: { method: "POST", path: "/v1/field/technicians/{id}/mobile", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTechnicianPhoto: { method: "POST", path: "/v1/technicians/{id}/photo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setTechnicianSkillExpiry: { method: "POST", path: "/v1/technician-skills/{id}/expiry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTravelSettings: { method: "PUT", path: "/v1/dispatch/travel", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setTruckMinimum: { method: "PUT", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   setUpSoftphone: { method: "PUT", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -29416,6 +29822,7 @@ export const OPERATIONS = {
   waiveObligation: { method: "POST", path: "/v1/obligations/{id}/waive", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   withdrawChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   withdrawComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
+  withdrawMyContinuingEducation: { method: "POST", path: "/v1/me/continuing-education/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   withdrawPortalCardAgreement: { method: "POST", path: "/v1/portal/cards/{cardId}/agreement/withdraw", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   withdrawTimeOff: { method: "POST", path: "/v1/time-off/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
   writeOffInvoice: { method: "POST", path: "/v1/invoices/{id}/write-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:writeoff"] },
@@ -29813,6 +30220,15 @@ export abstract class GeneratedOperations {
    */
   approveAppRequest(input: ApproveAppRequestParams & ApproveAppRequestInput, options?: CallOptions): Promise<ApproveAppRequestOutput> {
     return this.call("approveAppRequest", input, options);
+  }
+
+  /**
+   * Count a person's own hours toward their renewal.
+   *
+   * POST /v1/continuing-education/{id}/approve. Needs compliance:write.
+   */
+  approveContinuingEducation(input: ApproveContinuingEducationParams & ApproveContinuingEducationInput, options?: CallOptions): Promise<ApproveContinuingEducationOutput> {
+    return this.call("approveContinuingEducation", input, options);
   }
 
   /**
@@ -30911,6 +31327,15 @@ export abstract class GeneratedOperations {
    */
   declineBookingRequest(input: DeclineBookingRequestParams & DeclineBookingRequestInput, options?: CallOptions): Promise<DeclineBookingRequestOutput> {
     return this.call("declineBookingRequest", input, options);
+  }
+
+  /**
+   * Turn a person's own hours down, with the reason they will read.
+   *
+   * POST /v1/continuing-education/{id}/decline. Needs compliance:write.
+   */
+  declineContinuingEducation(input: DeclineContinuingEducationParams & DeclineContinuingEducationInput, options?: CallOptions): Promise<DeclineContinuingEducationOutput> {
+    return this.call("declineContinuingEducation", input, options);
   }
 
   /**
@@ -33785,6 +34210,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Skills about to run out, and the ones that have.
+   *
+   * GET /v1/technician-skills/expiring. Needs user:read.
+   */
+  listExpiringTechnicianSkills(input: ListExpiringTechnicianSkillsInput = {} as ListExpiringTechnicianSkillsInput, options?: CallOptions): Promise<ListExpiringTechnicianSkillsOutput> {
+    return this.call("listExpiringTechnicianSkills", input, options);
+  }
+
+  /**
    * Mirrored work orders, newest first.
    *
    * GET /v1/external-work-orders. Needs contract:read.
@@ -34196,6 +34630,15 @@ export abstract class GeneratedOperations {
    */
   listPayrollExports(input: ListPayrollExportsInput, options?: CallOptions): Promise<ListPayrollExportsOutput> {
     return this.call("listPayrollExports", input, options);
+  }
+
+  /**
+   * Hours people logged themselves that wait for the office.
+   *
+   * GET /v1/continuing-education/pending. Needs compliance:read.
+   */
+  listPendingContinuingEducation(input: ListPendingContinuingEducationInput = {} as ListPendingContinuingEducationInput, options?: CallOptions): Promise<ListPendingContinuingEducationOutput> {
+    return this.call("listPendingContinuingEducation", input, options);
   }
 
   /**
@@ -35105,6 +35548,15 @@ export abstract class GeneratedOperations {
    */
   logContinuingEducation(input: LogContinuingEducationParams & LogContinuingEducationInput, options?: CallOptions): Promise<LogContinuingEducationOutput> {
     return this.call("logContinuingEducation", input, options);
+  }
+
+  /**
+   * Log hours of a course you took, with a photograph of the certificate.
+   *
+   * POST /v1/me/continuing-education. Needs profile:own.
+   */
+  logMyContinuingEducation(input: LogMyContinuingEducationInput, options?: CallOptions): Promise<LogMyContinuingEducationOutput> {
+    return this.call("logMyContinuingEducation", input, options);
   }
 
   /**
@@ -37574,6 +38026,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Give a skill record its own expiry, move it, or take it off.
+   *
+   * POST /v1/technician-skills/{id}/expiry. Needs user:write.
+   */
+  setTechnicianSkillExpiry(input: SetTechnicianSkillExpiryParams & SetTechnicianSkillExpiryInput, options?: CallOptions): Promise<SetTechnicianSkillExpiryOutput> {
+    return this.call("setTechnicianSkillExpiry", input, options);
+  }
+
+  /**
    * Change how drive time is estimated.
    *
    * PUT /v1/dispatch/travel. Needs settings:write.
@@ -38642,6 +39103,15 @@ export abstract class GeneratedOperations {
    */
   withdrawComplianceDocument(input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput, options?: CallOptions): Promise<WithdrawComplianceDocumentOutput> {
     return this.call("withdrawComplianceDocument", input, options);
+  }
+
+  /**
+   * Take back hours you logged that nobody has answered.
+   *
+   * POST /v1/me/continuing-education/{id}/withdraw. Needs profile:own.
+   */
+  withdrawMyContinuingEducation(input: WithdrawMyContinuingEducationParams & WithdrawMyContinuingEducationInput, options?: CallOptions): Promise<WithdrawMyContinuingEducationOutput> {
+    return this.call("withdrawMyContinuingEducation", input, options);
   }
 
   /**

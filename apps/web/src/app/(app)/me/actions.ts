@@ -183,3 +183,31 @@ export async function addReceipt(_previous: FormState, form: FormData): Promise<
   if (state?.done) revalidatePath("/me/expenses");
   return state;
 }
+
+/**
+ * Hours of a course they took, with a photograph of the certificate. They wait
+ * for the office and are not counted toward a renewal until approved.
+ */
+export async function logCeHours(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const certificate = await fileAsBase64(form.get("certificate"));
+    await me.logOwnContinuingEducation(await ctx(), {
+      certificationTypeId: field(form, "certificationTypeId") ?? "",
+      completedOn: field(form, "completedOn") ?? "",
+      hours: field(form, "hours") ?? "",
+      course: field(form, "course") ?? "",
+      provider: field(form, "provider") ?? null,
+      evidence: field(form, "evidence") ?? null,
+      ...(certificate ? { certificate } : {}),
+    });
+    return { message: "Sent to the office. The hours count once they have looked at the certificate." };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+export async function withdrawCeHours(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => me.withdrawOwnContinuingEducation(await ctx(), { id: String(form.get("id") ?? "") }));
+  if (state?.done) refresh();
+  return state;
+}

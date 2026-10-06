@@ -26510,6 +26510,380 @@
         ]
       }
     },
+    "/v1/continuing-education/pending": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listPendingContinuingEducation",
+        "summary": "Hours people logged themselves that wait for the office",
+        "description": "Every self-logged entry nobody has answered, oldest first, with how many photographs of the certificate came with it. The photograph is read at `/certifications/continuing-education/{id}/certificate` by whoever reads the register.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M24"
+        ],
+        "responses": {
+          "200": {
+            "description": "Hours people logged themselves that wait for the office",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPendingContinuingEducationOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      }
+    },
+    "/v1/continuing-education/{id}/approve": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "approveContinuingEducation",
+        "summary": "Count a person's own hours toward their renewal",
+        "description": "The office has looked at the certificate. Only approved hours are counted. Approving hours already approved answers with the same list; a declined entry is not approved afterwards, the person logs it again.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveContinuingEducationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Count a person's own hours toward their renewal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveContinuingEducationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/continuing-education/{id}/decline": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "declineContinuingEducation",
+        "summary": "Turn a person's own hours down, with the reason they will read",
+        "description": "The hours stay on the person's record as declined with the reason and are never counted. Hours already approved cannot be declined; remove them instead.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineContinuingEducationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turn a person's own hours down, with the reason they will read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclineContinuingEducationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
     "/v1/continuing-education/{id}/remove": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -66794,6 +67168,273 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:own"
+        ]
+      }
+    },
+    "/v1/me/continuing-education": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "logMyContinuingEducation",
+        "summary": "Log hours of a course you took, with a photograph of the certificate",
+        "description": "Always your own. The hours wait for the office, who look at the certificate and approve them, and only approved hours count toward a renewal. The certificate is a photograph or a PDF kept through the ordinary attachment path; the type is decided from the bytes. The same call under the same idempotency key answers with the first one.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogMyContinuingEducationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Log hours of a course you took, with a photograph of the certificate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogMyContinuingEducationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
+    "/v1/me/continuing-education/{id}/withdraw": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "withdrawMyContinuingEducation",
+        "summary": "Take back hours you logged that nobody has answered",
+        "description": "Only your own, and only while they wait. Answered hours are the office's record.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawMyContinuingEducationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take back hours you logged that nobody has answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawMyContinuingEducationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
         ]
       }
     },
@@ -116328,6 +116969,116 @@
         ]
       }
     },
+    "/v1/technician-skills/expiring": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listExpiringTechnicianSkills",
+        "summary": "Skills about to run out, and the ones that have",
+        "description": "Open skill records with an expiry, each put on by its own notice period, or by `within` days ahead when given. Already expired ones are included and flagged, because a list that drops a skill the day it lapses is empty exactly when somebody needed it.\n\nRequires a session holding: user:read.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "within",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3650
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skills about to run out, and the ones that have",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExpiringTechnicianSkillsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:read"
+        ]
+      }
+    },
     "/v1/technician-skills/{id}/end": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -116377,6 +117128,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EndTechnicianSkillOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      }
+    },
+    "/v1/technician-skills/{id}/expiry": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setTechnicianSkillExpiry",
+        "summary": "Give a skill record its own expiry, move it, or take it off",
+        "description": "The last day the record stands: good on that day and expired from the next, as a certification's is. From then the skill stays on the person's list and no longer clears the assignment check, and it is warned from `renewalLeadDays` before (30 when not given) on the list of skills to renew. `expiresOn: null` makes it not expire. Moving it is renewing it; the earlier day stays in the audit log. A day that has already passed is refused.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTechnicianSkillExpiryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give a skill record its own expiry, move it, or take it off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetTechnicianSkillExpiryOutput"
                 }
               }
             }
@@ -131472,6 +132361,181 @@
           "returnTo",
           "permissions",
           "withheld"
+        ]
+      },
+      "ApproveContinuingEducationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ApproveContinuingEducationOutput": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "completedOn": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "course": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "certificationTypeId",
+                "completedOn",
+                "hours",
+                "course",
+                "provider",
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
+              ]
+            }
+          },
+          "progress": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "holding": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "issuedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "issuedOn",
+                    "expiresOn"
+                  ]
+                },
+                "progress": {
+                  "type": "object",
+                  "properties": {
+                    "required": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "logged": {
+                      "type": "string"
+                    },
+                    "remaining": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "met": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "since": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "logged",
+                    "remaining",
+                    "met",
+                    "since",
+                    "sentence"
+                  ]
+                },
+                "pendingHours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "certificationTypeId",
+                "name",
+                "holding",
+                "progress",
+                "pendingHours"
+              ]
+            }
+          }
+        },
+        "required": [
+          "entries",
+          "progress"
         ]
       },
       "ApproveEstimateInput": {
@@ -150081,6 +151145,190 @@
           "updatedAt"
         ]
       },
+      "DeclineContinuingEducationInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "DeclineContinuingEducationOutput": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "completedOn": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "course": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "certificationTypeId",
+                "completedOn",
+                "hours",
+                "course",
+                "provider",
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
+              ]
+            }
+          },
+          "progress": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "holding": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "issuedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "issuedOn",
+                    "expiresOn"
+                  ]
+                },
+                "progress": {
+                  "type": "object",
+                  "properties": {
+                    "required": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "logged": {
+                      "type": "string"
+                    },
+                    "remaining": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "met": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "since": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "logged",
+                    "remaining",
+                    "met",
+                    "since",
+                    "sentence"
+                  ]
+                },
+                "pendingHours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "certificationTypeId",
+                "name",
+                "holding",
+                "progress",
+                "pendingHours"
+              ]
+            }
+          }
+        },
+        "required": [
+          "entries",
+          "progress"
+        ]
+      },
       "DeclineEstimateInput": {
         "type": "object",
         "properties": {
@@ -154064,6 +155312,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renewalLeadDays": {
+                      "type": "integer"
+                    },
+                    "expiry": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "current",
+                            "expiring",
+                            "expired"
+                          ]
+                        },
+                        "daysRemaining": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "daysRemaining",
+                        "sentence"
+                      ]
                     }
                   },
                   "required": [
@@ -154073,7 +155358,10 @@
                     "evidence",
                     "recordedBy",
                     "endedOn",
-                    "endedReason"
+                    "endedReason",
+                    "expiresOn",
+                    "renewalLeadDays",
+                    "expiry"
                   ]
                 }
               },
@@ -154118,6 +155406,43 @@
                     "string",
                     "null"
                   ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
                 }
               },
               "required": [
@@ -154127,7 +155452,10 @@
                 "evidence",
                 "recordedBy",
                 "endedOn",
-                "endedReason"
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
               ]
             }
           },
@@ -154166,6 +155494,43 @@
                     "string",
                     "null"
                   ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
                 }
               },
               "required": [
@@ -154175,7 +155540,10 @@
                 "evidence",
                 "recordedBy",
                 "endedOn",
-                "endedReason"
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
               ]
             }
           }
@@ -171103,6 +172471,26 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "approved",
+                        "declined"
+                      ]
+                    },
+                    "selfLogged": {
+                      "type": "boolean"
+                    },
+                    "declineReason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "certificates": {
+                      "type": "integer"
                     }
                   },
                   "required": [
@@ -171112,7 +172500,11 @@
                     "hours",
                     "course",
                     "provider",
-                    "evidence"
+                    "evidence",
+                    "status",
+                    "selfLogged",
+                    "declineReason",
+                    "certificates"
                   ]
                 }
               },
@@ -171194,13 +172586,17 @@
                         "since",
                         "sentence"
                       ]
+                    },
+                    "pendingHours": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "certificationTypeId",
                     "name",
                     "holding",
-                    "progress"
+                    "progress",
+                    "pendingHours"
                   ]
                 }
               }
@@ -171209,6 +172605,120 @@
               "entries",
               "progress"
             ]
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                },
+                "recordedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "skill",
+                "since",
+                "evidence",
+                "recordedBy",
+                "endedOn",
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
+              ]
+            }
+          },
+          "continuingEducationKinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "hoursRequired": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "hoursRequired"
+              ]
+            }
           }
         },
         "required": [
@@ -171224,7 +172734,9 @@
           "onboarding",
           "documents",
           "certifications",
-          "continuingEducation"
+          "continuingEducation",
+          "skills",
+          "continuingEducationKinds"
         ]
       },
       "GetMyTimeclockOutput": {
@@ -172293,6 +173805,43 @@
                             "string",
                             "null"
                           ]
+                        },
+                        "expiresOn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "renewalLeadDays": {
+                          "type": "integer"
+                        },
+                        "expiry": {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "none",
+                                "current",
+                                "expiring",
+                                "expired"
+                              ]
+                            },
+                            "daysRemaining": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "sentence": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "daysRemaining",
+                            "sentence"
+                          ]
                         }
                       },
                       "required": [
@@ -172302,7 +173851,10 @@
                         "evidence",
                         "recordedBy",
                         "endedOn",
-                        "endedReason"
+                        "endedReason",
+                        "expiresOn",
+                        "renewalLeadDays",
+                        "expiry"
                       ]
                     }
                   },
@@ -172347,6 +173899,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renewalLeadDays": {
+                      "type": "integer"
+                    },
+                    "expiry": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "current",
+                            "expiring",
+                            "expired"
+                          ]
+                        },
+                        "daysRemaining": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "daysRemaining",
+                        "sentence"
+                      ]
                     }
                   },
                   "required": [
@@ -172356,7 +173945,10 @@
                     "evidence",
                     "recordedBy",
                     "endedOn",
-                    "endedReason"
+                    "endedReason",
+                    "expiresOn",
+                    "renewalLeadDays",
+                    "expiry"
                   ]
                 }
               },
@@ -172395,6 +173987,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renewalLeadDays": {
+                      "type": "integer"
+                    },
+                    "expiry": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "current",
+                            "expiring",
+                            "expired"
+                          ]
+                        },
+                        "daysRemaining": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "daysRemaining",
+                        "sentence"
+                      ]
                     }
                   },
                   "required": [
@@ -172404,7 +174033,10 @@
                     "evidence",
                     "recordedBy",
                     "endedOn",
-                    "endedReason"
+                    "endedReason",
+                    "expiresOn",
+                    "renewalLeadDays",
+                    "expiry"
                   ]
                 }
               }
@@ -187479,6 +189111,26 @@
                     "string",
                     "null"
                   ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -187488,7 +189140,11 @@
                 "hours",
                 "course",
                 "provider",
-                "evidence"
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
               ]
             }
           },
@@ -187570,13 +189226,17 @@
                     "since",
                     "sentence"
                   ]
+                },
+                "pendingHours": {
+                  "type": "string"
                 }
               },
               "required": [
                 "certificationTypeId",
                 "name",
                 "holding",
-                "progress"
+                "progress",
+                "pendingHours"
               ]
             }
           }
@@ -191354,6 +193014,63 @@
                 "verifiedByUserId",
                 "daysRemaining",
                 "renewalLeadDays"
+              ]
+            }
+          }
+        },
+        "required": [
+          "expiring"
+        ]
+      },
+      "ListExpiringTechnicianSkillsOutput": {
+        "type": "object",
+        "properties": {
+          "expiring": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "skill": {
+                  "type": "string"
+                },
+                "expiresOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "daysRemaining": {
+                  "type": "integer"
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "sentence": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "skill",
+                "expiresOn",
+                "daysRemaining",
+                "renewalLeadDays",
+                "current",
+                "sentence"
               ]
             }
           }
@@ -196231,6 +197948,82 @@
         },
         "required": [
           "exports"
+        ]
+      },
+      "ListPendingContinuingEducationOutput": {
+        "type": "object",
+        "properties": {
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "certificationName": {
+                  "type": "string"
+                },
+                "completedOn": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "course": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
+                },
+                "loggedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "certificationTypeId",
+                "certificationName",
+                "completedOn",
+                "hours",
+                "course",
+                "provider",
+                "evidence",
+                "certificates",
+                "loggedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "pending"
         ]
       },
       "ListPendingExternalPushesOutput": {
@@ -203260,6 +205053,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renewalLeadDays": {
+                      "type": "integer"
+                    },
+                    "expiry": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "current",
+                            "expiring",
+                            "expired"
+                          ]
+                        },
+                        "daysRemaining": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "daysRemaining",
+                        "sentence"
+                      ]
                     }
                   },
                   "required": [
@@ -203269,7 +205099,10 @@
                     "evidence",
                     "recordedBy",
                     "endedOn",
-                    "endedReason"
+                    "endedReason",
+                    "expiresOn",
+                    "renewalLeadDays",
+                    "expiry"
                   ]
                 }
               },
@@ -203314,6 +205147,43 @@
                     "string",
                     "null"
                   ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
                 }
               },
               "required": [
@@ -203323,7 +205193,10 @@
                 "evidence",
                 "recordedBy",
                 "endedOn",
-                "endedReason"
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
               ]
             }
           },
@@ -203362,6 +205235,43 @@
                     "string",
                     "null"
                   ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
                 }
               },
               "required": [
@@ -203371,7 +205281,10 @@
                 "evidence",
                 "recordedBy",
                 "endedOn",
-                "endedReason"
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
               ]
             }
           }
@@ -206684,6 +208597,26 @@
                     "string",
                     "null"
                   ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -206693,7 +208626,11 @@
                 "hours",
                 "course",
                 "provider",
-                "evidence"
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
               ]
             }
           },
@@ -206775,13 +208712,253 @@
                     "since",
                     "sentence"
                   ]
+                },
+                "pendingHours": {
+                  "type": "string"
                 }
               },
               "required": [
                 "certificationTypeId",
                 "name",
                 "holding",
-                "progress"
+                "progress",
+                "pendingHours"
+              ]
+            }
+          }
+        },
+        "required": [
+          "entries",
+          "progress"
+        ]
+      },
+      "LogMyContinuingEducationInput": {
+        "type": "object",
+        "properties": {
+          "certificationTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "completedOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "hours": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,2})?$"
+          },
+          "course": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "certificate": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "contentType": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "bytes": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 29360128
+              }
+            },
+            "required": [
+              "fileName",
+              "bytes"
+            ]
+          }
+        },
+        "required": [
+          "certificationTypeId",
+          "completedOn",
+          "hours",
+          "course"
+        ]
+      },
+      "LogMyContinuingEducationOutput": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "completedOn": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "course": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "certificationTypeId",
+                "completedOn",
+                "hours",
+                "course",
+                "provider",
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
+              ]
+            }
+          },
+          "progress": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "holding": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "issuedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "issuedOn",
+                    "expiresOn"
+                  ]
+                },
+                "progress": {
+                  "type": "object",
+                  "properties": {
+                    "required": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "logged": {
+                      "type": "string"
+                    },
+                    "remaining": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "met": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "since": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "logged",
+                    "remaining",
+                    "met",
+                    "since",
+                    "sentence"
+                  ]
+                },
+                "pendingHours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "certificationTypeId",
+                "name",
+                "holding",
+                "progress",
+                "pendingHours"
               ]
             }
           }
@@ -216544,6 +218721,18 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 1000
+          },
+          "expiresOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "renewalLeadDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 730
           }
         },
         "required": [
@@ -216599,6 +218788,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renewalLeadDays": {
+                      "type": "integer"
+                    },
+                    "expiry": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "current",
+                            "expiring",
+                            "expired"
+                          ]
+                        },
+                        "daysRemaining": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "daysRemaining",
+                        "sentence"
+                      ]
                     }
                   },
                   "required": [
@@ -216608,7 +218834,10 @@
                     "evidence",
                     "recordedBy",
                     "endedOn",
-                    "endedReason"
+                    "endedReason",
+                    "expiresOn",
+                    "renewalLeadDays",
+                    "expiry"
                   ]
                 }
               },
@@ -216653,6 +218882,43 @@
                     "string",
                     "null"
                   ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
                 }
               },
               "required": [
@@ -216662,7 +218928,10 @@
                 "evidence",
                 "recordedBy",
                 "endedOn",
-                "endedReason"
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
               ]
             }
           },
@@ -216701,6 +218970,43 @@
                     "string",
                     "null"
                   ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
                 }
               },
               "required": [
@@ -216710,7 +219016,10 @@
                 "evidence",
                 "recordedBy",
                 "endedOn",
-                "endedReason"
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
               ]
             }
           }
@@ -218471,6 +220780,26 @@
                     "string",
                     "null"
                   ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -218480,7 +220809,11 @@
                 "hours",
                 "course",
                 "provider",
-                "evidence"
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
               ]
             }
           },
@@ -218562,13 +220895,17 @@
                     "since",
                     "sentence"
                   ]
+                },
+                "pendingHours": {
+                  "type": "string"
                 }
               },
               "required": [
                 "certificationTypeId",
                 "name",
                 "holding",
-                "progress"
+                "progress",
+                "pendingHours"
               ]
             }
           }
@@ -232008,6 +234345,315 @@
           "workday",
           "shareLocation",
           "hasPhoto"
+        ]
+      },
+      "SetTechnicianSkillExpiryInput": {
+        "type": "object",
+        "properties": {
+          "expiresOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "renewalLeadDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 730
+          }
+        },
+        "required": [
+          "expiresOn"
+        ]
+      },
+      "SetTechnicianSkillExpiryOutput": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill": {
+                  "type": "string"
+                },
+                "record": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "skill": {
+                      "type": "string"
+                    },
+                    "since": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "type": "string"
+                    },
+                    "recordedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "endedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "endedReason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renewalLeadDays": {
+                      "type": "integer"
+                    },
+                    "expiry": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "current",
+                            "expiring",
+                            "expired"
+                          ]
+                        },
+                        "daysRemaining": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "daysRemaining",
+                        "sentence"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "skill",
+                    "since",
+                    "evidence",
+                    "recordedBy",
+                    "endedOn",
+                    "endedReason",
+                    "expiresOn",
+                    "renewalLeadDays",
+                    "expiry"
+                  ]
+                }
+              },
+              "required": [
+                "skill",
+                "record"
+              ]
+            }
+          },
+          "orphaned": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                },
+                "recordedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "skill",
+                "since",
+                "evidence",
+                "recordedBy",
+                "endedOn",
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
+              ]
+            }
+          },
+          "ended": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "skill": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                },
+                "recordedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "expiry": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "current",
+                        "expiring",
+                        "expired"
+                      ]
+                    },
+                    "daysRemaining": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "daysRemaining",
+                    "sentence"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "skill",
+                "since",
+                "evidence",
+                "recordedBy",
+                "endedOn",
+                "endedReason",
+                "expiresOn",
+                "renewalLeadDays",
+                "expiry"
+              ]
+            }
+          }
+        },
+        "required": [
+          "current",
+          "orphaned",
+          "ended"
         ]
       },
       "SetTravelSettingsInput": {
@@ -248974,6 +251620,181 @@
           "daysUntilExpiry",
           "actBy",
           "statement"
+        ]
+      },
+      "WithdrawMyContinuingEducationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "WithdrawMyContinuingEducationOutput": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "completedOn": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "course": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "declined"
+                  ]
+                },
+                "selfLogged": {
+                  "type": "boolean"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificates": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "certificationTypeId",
+                "completedOn",
+                "hours",
+                "course",
+                "provider",
+                "evidence",
+                "status",
+                "selfLogged",
+                "declineReason",
+                "certificates"
+              ]
+            }
+          },
+          "progress": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "certificationTypeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "holding": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "issuedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiresOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "issuedOn",
+                    "expiresOn"
+                  ]
+                },
+                "progress": {
+                  "type": "object",
+                  "properties": {
+                    "required": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "logged": {
+                      "type": "string"
+                    },
+                    "remaining": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "met": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "since": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "logged",
+                    "remaining",
+                    "met",
+                    "since",
+                    "sentence"
+                  ]
+                },
+                "pendingHours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "certificationTypeId",
+                "name",
+                "holding",
+                "progress",
+                "pendingHours"
+              ]
+            }
+          }
+        },
+        "required": [
+          "entries",
+          "progress"
         ]
       },
       "WithdrawPortalCardAgreementInput": {

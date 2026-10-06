@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, qualification as q, time } from "@opentradesos/core";
 import { ConflictError, timezoneOf, type ServiceContext } from "./context";
@@ -59,6 +59,26 @@ export async function qualify(
     .where(and(eq(schema.technician.organizationId, organizationId), eq(schema.technician.active, true)));
   const typedAnywhere = new Set(everyone.flatMap((t) => q.normaliseSkills(t.skills ?? [])));
 
+  /**
+   * Skill records that had run out by the day of the work. A skill on a
+   * person's list whose own record has expired no longer clears the check, the
+   * way a lapsed certification does not: the list says they do it, and the
+   * record says it was last shown to be true before the day it ran out.
+   */
+  const lapsed = await tx.select({
+    technicianId: schema.technicianSkill.technicianId,
+    skill: schema.technicianSkill.skill,
+    expiresOn: schema.technicianSkill.expiresOn,
+  }).from(schema.technicianSkill)
+    .where(and(
+      eq(schema.technicianSkill.organizationId, organizationId),
+      inArray(schema.technicianSkill.technicianId, [...input.technicianIds]),
+      inArray(schema.technicianSkill.skill, skills),
+      isNull(schema.technicianSkill.endedOn),
+      lt(schema.technicianSkill.expiresOn, input.on),
+    ));
+  const expiredOn = new Map(lapsed.map((r) => [`${r.technicianId}:${r.skill}`, r.expiresOn]));
+
   for (const person of people) {
     /**
      * Asked one person at a time. M24's standing is a question about a
@@ -77,6 +97,7 @@ export async function qualify(
       certifiedExplanation: bySkill.get(skill)?.explanation ?? "",
       typed: typed.has(skill),
       typedAnywhere: typedAnywhere.has(skill),
+      expiredOn: expiredOn.get(`${person.id}:${skill}`) ?? null,
     }))));
   }
   return out;
@@ -110,7 +131,17 @@ export async function qualifyDays(
       gte(schema.personCertification.expiresOn, input.from),
       lt(schema.personCertification.expiresOn, input.until),
     ));
-  const changes = [...new Set(expiring.map((e) => time.addDays(e.expiresOn!, 1)))].sort();
+  /** A skill record's own expiry changes the answer the same way, from the day after it. */
+  const expiringSkills = await tx.select({ expiresOn: schema.technicianSkill.expiresOn })
+    .from(schema.technicianSkill)
+    .where(and(
+      eq(schema.technicianSkill.organizationId, organizationId),
+      inArray(schema.technicianSkill.technicianId, [...input.technicianIds]),
+      isNull(schema.technicianSkill.endedOn),
+      gte(schema.technicianSkill.expiresOn, input.from),
+      lt(schema.technicianSkill.expiresOn, input.until),
+    ));
+  const changes = [...new Set([...expiring, ...expiringSkills].map((e) => time.addDays(e.expiresOn!, 1)))].sort();
   const answers: { from: string; verdicts: Map<string, q.QualificationVerdict> }[] = [{ from: input.from, verdicts: first }];
   for (const on of changes) {
     answers.push({ from: on, verdicts: await qualify(tx, organizationId, { ...input, on }) });

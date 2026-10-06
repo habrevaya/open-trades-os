@@ -4,7 +4,7 @@ import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { people } from "@opentradesos/api/services";
+import { people, peopleRecords } from "@opentradesos/api/services";
 
 export type CertState = FormState;
 
@@ -55,6 +55,14 @@ export async function act(_previous: CertState, form: FormData): Promise<CertSta
           id: String(form.get("id") ?? ""),
           status: String(form.get("status") ?? "") as "active",
           reason: text(form, "reason"),
+        });
+        break;
+      case "ce-approve":
+        await peopleRecords.approveContinuingEducation(ctx, { id: String(form.get("id") ?? "") });
+        break;
+      case "ce-decline":
+        await peopleRecords.declineContinuingEducation(ctx, {
+          id: String(form.get("id") ?? ""), reason: String(form.get("reason") ?? ""),
         });
         break;
       default:

@@ -116,6 +116,49 @@ export function ceProgress(input: {
   };
 }
 
+/* ------------------------------------------------------ a skill's own expiry */
+
+export type SkillExpiryState = "none" | "current" | "expiring" | "expired";
+
+export interface SkillExpiryStanding {
+  state: SkillExpiryState;
+  /** Whole days from today to the expiry, negative once it has passed. Null with no expiry. */
+  daysRemaining: number | null;
+  sentence: string;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * WHERE A SKILL RECORD STANDS AGAINST ITS OWN EXPIRY.
+ *
+ * Read the way a certification's expiry is: the day it expires is still a good
+ * day, so it is expired from the day after. Expiring means within its notice
+ * period, which is what puts it on the list of what to renew. Both dates are
+ * calendar dates and are compared as such, never as instants.
+ */
+export function skillExpiryStanding(input: {
+  skill: string; expiresOn: string | null; today: string; leadDays: number;
+}): SkillExpiryStanding {
+  if (input.expiresOn === null) {
+    return { state: "none", daysRemaining: null, sentence: `${input.skill} does not expire.` };
+  }
+  const days = Math.round((Date.parse(`${input.expiresOn}T00:00:00Z`) - Date.parse(`${input.today}T00:00:00Z`)) / DAY_MS);
+  if (days < 0) {
+    return {
+      state: "expired", daysRemaining: days,
+      sentence: `${input.skill} ran out on ${input.expiresOn}, ${-days} ${-days === 1 ? "day" : "days"} ago.`,
+    };
+  }
+  if (days <= input.leadDays) {
+    return {
+      state: "expiring", daysRemaining: days,
+      sentence: days === 0 ? `${input.skill} runs out today.` : `${input.skill} runs out on ${input.expiresOn}, in ${days} ${days === 1 ? "day" : "days"}.`,
+    };
+  }
+  return { state: "current", daysRemaining: days, sentence: `${input.skill} is good until ${input.expiresOn}.` };
+}
+
 /* ------------------------------------------------------ signing a document */
 
 /**
