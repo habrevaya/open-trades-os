@@ -296,18 +296,17 @@ export function Audience({ preview }: { preview: Preview }) {
  * collapsed. A reason per row, because "skipped" tells an office nothing they
  * can act on.
  */
-export function Recipients({ recipients }: { recipients: RecipientRow[] }) {
+export function Recipients({ recipients, showVersion = false }: { recipients: RecipientRow[]; showVersion?: boolean }) {
   if (recipients.length === 0) {
     return <Empty title="Nobody yet">Recipients appear when the campaign is sent.</Empty>;
   }
   return (
-    <Table label="Recipients" head={<><Th>Customer</Th><Th>Address</Th>{recipients.some((r) => r.variant && r.variant !== "a") ? <Th>Version</Th> : null}<Th>What happened</Th></>}>
+    <Table label="Recipients" head={<><Th>Customer</Th><Th>Address</Th>{showVersion ? <Th>Version</Th> : null}<Th>What happened</Th></>}>
       {recipients.map((recipient) => (
         <tr key={recipient.id} className={recipient.state === "skipped" ? "text-ink-700" : undefined}>
           <Td>{recipient.customerName ?? "a customer"}</Td>
           <Td><span className="font-mono text-xs">{recipient.address}</span></Td>
-          {recipients.some((r) => r.variant && r.variant !== "a")
-            ? <Td>{recipient.variant === "b" ? "B" : "A"}</Td> : null}
+          {showVersion ? <Td>{recipient.variant === "b" ? "B" : "A"}</Td> : null}
           <Td>
             {recipient.state === "skipped" ? (
               <span className="text-amber-700">

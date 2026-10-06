@@ -173,7 +173,7 @@ export default async function CampaignsPage(
             four hundred customers who have never been asked for consent is a fact about your
             records, not a failure of the send.
           </p>
-          <Recipients recipients={recipients} />
+          <Recipients recipients={recipients} showVersion={list.data.some((c) => c.id === opened && c.abTest)} />
         </section>
       ) : null}
 
