@@ -1201,6 +1201,16 @@ export interface AssignCrewToVisitOutput {
   on: string;
 }
 
+export interface AssignCustomRoleInput {
+  roleId: string;
+}
+
+export interface AssignCustomRoleOutput {
+  membershipId: string;
+  role: string;
+  customRoleId: string | null;
+}
+
 export interface AssignJobsToBranchInput {
   jobIds: string[];
   businessUnitId: string | null;
@@ -1733,6 +1743,8 @@ export interface CompleteVisitOutput {
   routeOrder: number | null;
   technicianIds: string[];
   crewId: string | null;
+  locationId: string | null;
+  locationName: string | null;
   dispatchedAt: string | null;
   arrivedAt: string | null;
   completedAt: string | null;
@@ -3098,6 +3110,8 @@ export interface CreateJobOutput {
     routeOrder: number | null;
     technicianIds: string[];
     crewId: string | null;
+    locationId: string | null;
+    locationName: string | null;
     dispatchedAt: string | null;
     arrivedAt: string | null;
     completedAt: string | null;
@@ -3870,6 +3884,24 @@ export interface CreateRingGroupOutput {
   } | {
     kind: "agent";
   };
+}
+
+export interface CreateRoleInput {
+  name: string;
+  description?: string;
+  basedOn?: string;
+  permissions: string[];
+  scopes?: Record<string, string>;
+}
+
+export interface CreateRoleOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  basedOn: string | null;
+  permissions: string[];
+  scopes: Record<string, string>;
+  namesNoScope: boolean;
 }
 
 export interface CreateSafetyMeetingInput {
@@ -6505,6 +6537,7 @@ export interface GetCustomerStatementOutput {
   openInvoices: Array<{
     id: string;
     number: number;
+    numberPrefix: string | null;
     issuedOn: string | null;
     dueOn: string | null;
     total: string;
@@ -6528,6 +6561,7 @@ export interface GetDispatchBoardOutput {
     displayName: string;
     color: string | null;
     timeOff: boolean;
+    inScope: boolean;
     visits: Array<{
       id: string;
       jobNumber: number;
@@ -6613,6 +6647,7 @@ export interface GetDispatchMapOutput {
       } | null;
     } | null;
     startIsCompanyDefault: boolean;
+    inScope: boolean;
     route: string[];
   }>;
   crews: Array<{
@@ -7749,6 +7784,8 @@ export interface GetJobOutput {
     routeOrder: number | null;
     technicianIds: string[];
     crewId: string | null;
+    locationId: string | null;
+    locationName: string | null;
     dispatchedAt: string | null;
     arrivedAt: string | null;
     completedAt: string | null;
@@ -10385,6 +10422,18 @@ export interface GetWorkflowRunsOutput {
   }>;
 }
 
+export type GiveRoleWholeCompanyInput = Record<string, unknown>;
+
+export interface GiveRoleWholeCompanyOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  basedOn: string | null;
+  permissions: string[];
+  scopes: Record<string, string>;
+  namesNoScope: boolean;
+}
+
 export interface GrantConsentInput {
   address: string;
   channel: "sms" | "mms" | "voice" | "email" | "webchat";
@@ -11877,6 +11926,7 @@ export interface ListCrewsOutput {
     id: string;
     name: string;
     businessUnitId: string | null;
+    homeLocationId: string | null;
     productionRatePerDay: string | null;
     productionUnit: string | null;
     requiredAssetIds: string[];
@@ -14218,6 +14268,18 @@ export interface ListRingGroupsOutput {
     } | {
       kind: "agent";
     };
+  }>;
+}
+
+export interface ListRolesOutput {
+  roles: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    basedOn: string | null;
+    permissions: string[];
+    scopes: Record<string, string>;
+    namesNoScope: boolean;
   }>;
 }
 
@@ -17803,6 +17865,13 @@ export interface RemoveRentalChargeOutput {
   removed: boolean;
 }
 
+export type RemoveRoleInput = Record<string, unknown>;
+
+export interface RemoveRoleOutput {
+  id: string;
+  removed: true;
+}
+
 export type RemoveSpendInput = Record<string, unknown>;
 
 export interface RemoveSpendOutput {
@@ -19152,6 +19221,8 @@ export interface ScheduleVisitOutput {
   routeOrder: number | null;
   technicianIds: string[];
   crewId: string | null;
+  locationId: string | null;
+  locationName: string | null;
   dispatchedAt: string | null;
   arrivedAt: string | null;
   completedAt: string | null;
@@ -21889,6 +21960,8 @@ export interface UpdateContractOutput {
 
 export interface UpdateCrewInput {
   name?: string;
+  businessUnitId?: string | null;
+  homeLocationId?: string | null;
   productionRatePerDay?: string | null;
   productionUnit?: string | null;
   requiredAssetIds?: string[];
@@ -22240,6 +22313,8 @@ export interface UpdateJobOutput {
     routeOrder: number | null;
     technicianIds: string[];
     crewId: string | null;
+    locationId: string | null;
+    locationName: string | null;
     dispatchedAt: string | null;
     arrivedAt: string | null;
     completedAt: string | null;
@@ -22888,6 +22963,24 @@ export interface UpdateRingGroupOutput {
   };
 }
 
+export interface UpdateRoleInput {
+  name?: string;
+  description?: string;
+  basedOn?: string;
+  permissions?: string[];
+  scopes?: Record<string, string>;
+}
+
+export interface UpdateRoleOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  basedOn: string | null;
+  permissions: string[];
+  scopes: Record<string, string>;
+  namesNoScope: boolean;
+}
+
 export interface UpdateSafetyTopicInput {
   title?: string;
   body?: string;
@@ -23275,10 +23368,12 @@ export interface ViewPayerPortalOutput {
   owed: string;
   invoices: Array<{
     number: number;
+    numberPrefix: string | null;
     issuedOn: string | null;
     dueOn: string | null;
     purchaseOrderNumber: string | null;
     jobNumber: number | null;
+    jobNumberPrefix: string | null;
     customerName: string;
     siteAddress: string;
     claimReference: string | null;
@@ -23316,6 +23411,7 @@ export interface ViewPortalAccountOutput {
   jobs: Array<{
     id: string;
     number: number;
+    numberPrefix: string | null;
     summary: string;
     status: string;
     completedAt: string | null;
@@ -23323,6 +23419,7 @@ export interface ViewPortalAccountOutput {
   visits: Array<{
     id: string;
     jobNumber: number;
+    jobNumberPrefix: string | null;
     summary: string;
     status: string;
     windowStart: string | null;
@@ -23332,6 +23429,7 @@ export interface ViewPortalAccountOutput {
   invoices: Array<{
     id: string;
     number: number;
+    numberPrefix: string | null;
     status: string;
     issuedOn: string | null;
     dueOn: string | null;
@@ -23400,6 +23498,7 @@ export interface ViewPortalAccountOutput {
       visitId: string;
       jobId: string;
       jobNumber: number;
+      jobNumberPrefix: string | null;
       summary: string;
       date: string | null;
       status: string;
@@ -23572,6 +23671,7 @@ export interface ViewPortalEstimateOutput {
 export interface ViewPortalInvoiceOutput {
   organizationName: string;
   number: number;
+  numberPrefix: string | null;
   status: string;
   issuedOn: string | null;
   dueOn: string | null;
@@ -23619,6 +23719,7 @@ export interface ViewPortalInvoiceOutput {
 export interface ViewPortalJobOutput {
   organizationName: string;
   jobNumber: number;
+  jobNumberPrefix: string | null;
   status: string;
   summary: string | null;
   propertyAddress: string;
@@ -24126,6 +24227,10 @@ export interface AskToSignStaffDocumentParams {
 
 export interface AssignCrewToVisitParams {
   id: string;
+}
+
+export interface AssignCustomRoleParams {
+  membershipId: string;
 }
 
 export interface AssignTrackingNumberParams {
@@ -25099,6 +25204,10 @@ export interface GetWorkflowRunsInput {
   runs?: number;
 }
 
+export interface GiveRoleWholeCompanyParams {
+  id: string;
+}
+
 export interface HandOverAssetParams {
   assetId: string;
 }
@@ -25862,6 +25971,8 @@ export type ListReviewPlatformsInput = Record<string, never>;
 
 export type ListRingGroupsInput = Record<string, never>;
 
+export type ListRolesInput = Record<string, never>;
+
 export interface ListSafetyMeetingsInput {
   limit?: number;
 }
@@ -26414,6 +26525,10 @@ export interface RemoveRecordingPolicyParams {
 }
 
 export interface RemoveRentalChargeParams {
+  id: string;
+}
+
+export interface RemoveRoleParams {
   id: string;
 }
 
@@ -27067,6 +27182,10 @@ export interface UpdateRingGroupParams {
   id: string;
 }
 
+export interface UpdateRoleParams {
+  id: string;
+}
+
 export interface UpdateSafetyTopicParams {
   id: string;
 }
@@ -27240,6 +27359,7 @@ export interface OperationTypes {
   askFieldAssistant: { input: AskFieldAssistantInput; output: AskFieldAssistantOutput };
   askToSignStaffDocument: { input: AskToSignStaffDocumentParams & AskToSignStaffDocumentInput; output: AskToSignStaffDocumentOutput };
   assignCrewToVisit: { input: AssignCrewToVisitParams & AssignCrewToVisitInput; output: AssignCrewToVisitOutput };
+  assignCustomRole: { input: AssignCustomRoleParams & AssignCustomRoleInput; output: AssignCustomRoleOutput };
   assignJobsToBranch: { input: AssignJobsToBranchInput; output: AssignJobsToBranchOutput };
   assignTrackingNumber: { input: AssignTrackingNumberParams & AssignTrackingNumberInput; output: AssignTrackingNumberOutput };
   assignVisit: { input: AssignVisitParams & AssignVisitInput; output: AssignVisitOutput };
@@ -27327,6 +27447,7 @@ export interface OperationTypes {
   createReportSchedule: { input: CreateReportScheduleInput; output: CreateReportScheduleOutput };
   createRetentionPolicy: { input: CreateRetentionPolicyInput; output: CreateRetentionPolicyOutput };
   createRingGroup: { input: CreateRingGroupInput; output: CreateRingGroupOutput };
+  createRole: { input: CreateRoleInput; output: CreateRoleOutput };
   createSafetyMeeting: { input: CreateSafetyMeetingInput; output: CreateSafetyMeetingOutput };
   createSafetyTalkSchedule: { input: CreateSafetyTalkScheduleInput; output: CreateSafetyTalkScheduleOutput };
   createSafetyTopic: { input: CreateSafetyTopicInput; output: CreateSafetyTopicOutput };
@@ -27573,6 +27694,7 @@ export interface OperationTypes {
   getWorkdaySettings: { input: GetWorkdaySettingsInput; output: GetWorkdaySettingsOutput };
   getWorkflow: { input: GetWorkflowInput; output: GetWorkflowOutput };
   getWorkflowRuns: { input: GetWorkflowRunsInput; output: GetWorkflowRunsOutput };
+  giveRoleWholeCompany: { input: GiveRoleWholeCompanyParams & GiveRoleWholeCompanyInput; output: GiveRoleWholeCompanyOutput };
   grantConsent: { input: GrantConsentInput; output: GrantConsentOutput };
   handOverAsset: { input: HandOverAssetParams & HandOverAssetInput; output: HandOverAssetOutput };
   handOverOnCall: { input: HandOverOnCallInput; output: HandOverOnCallOutput };
@@ -27756,6 +27878,7 @@ export interface OperationTypes {
   listRetentionPurgeRuns: { input: ListRetentionPurgeRunsInput; output: ListRetentionPurgeRunsOutput };
   listReviewPlatforms: { input: ListReviewPlatformsInput; output: ListReviewPlatformsOutput };
   listRingGroups: { input: ListRingGroupsInput; output: ListRingGroupsOutput };
+  listRoles: { input: ListRolesInput; output: ListRolesOutput };
   listSafetyMeetings: { input: ListSafetyMeetingsInput; output: ListSafetyMeetingsOutput };
   listSafetyTalkSchedules: { input: ListSafetyTalkSchedulesInput; output: ListSafetyTalkSchedulesOutput };
   listSafetyTopics: { input: ListSafetyTopicsInput; output: ListSafetyTopicsOutput };
@@ -27935,6 +28058,7 @@ export interface OperationTypes {
   removePurchaseApprovalRule: { input: RemovePurchaseApprovalRuleParams & RemovePurchaseApprovalRuleInput; output: RemovePurchaseApprovalRuleOutput };
   removeRecordingPolicy: { input: RemoveRecordingPolicyParams & RemoveRecordingPolicyInput; output: RemoveRecordingPolicyOutput };
   removeRentalCharge: { input: RemoveRentalChargeParams & RemoveRentalChargeInput; output: RemoveRentalChargeOutput };
+  removeRole: { input: RemoveRoleParams & RemoveRoleInput; output: RemoveRoleOutput };
   removeSpend: { input: RemoveSpendParams & RemoveSpendInput; output: RemoveSpendOutput };
   removeTaskChecklistItem: { input: RemoveTaskChecklistItemParams & RemoveTaskChecklistItemInput; output: RemoveTaskChecklistItemOutput };
   removeVendorItem: { input: RemoveVendorItemParams & RemoveVendorItemInput; output: RemoveVendorItemOutput };
@@ -28178,6 +28302,7 @@ export interface OperationTypes {
   updateReportSchedule: { input: UpdateReportScheduleParams & UpdateReportScheduleInput; output: UpdateReportScheduleOutput };
   updateRetentionPolicy: { input: UpdateRetentionPolicyParams & UpdateRetentionPolicyInput; output: UpdateRetentionPolicyOutput };
   updateRingGroup: { input: UpdateRingGroupParams & UpdateRingGroupInput; output: UpdateRingGroupOutput };
+  updateRole: { input: UpdateRoleParams & UpdateRoleInput; output: UpdateRoleOutput };
   updateSafetyTopic: { input: UpdateSafetyTopicParams & UpdateSafetyTopicInput; output: UpdateSafetyTopicOutput };
   updateServiceReportTemplate: { input: UpdateServiceReportTemplateParams & UpdateServiceReportTemplateInput; output: UpdateServiceReportTemplateOutput };
   updateTask: { input: UpdateTaskParams & UpdateTaskInput; output: UpdateTaskOutput };
@@ -28268,6 +28393,7 @@ export const OPERATIONS = {
   askFieldAssistant: { method: "POST", path: "/v1/ai/field-assistant", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   askToSignStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/requests", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   assignCrewToVisit: { method: "POST", path: "/v1/visits/{id}/crew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
+  assignCustomRole: { method: "POST", path: "/v1/memberships/{membershipId}/custom-role", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write","membership:write"] },
   assignJobsToBranch: { method: "POST", path: "/v1/branch-assignments", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["job:write"] },
   assignTrackingNumber: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   assignVisit: { method: "POST", path: "/v1/visits/{id}/assign", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
@@ -28355,6 +28481,7 @@ export const OPERATIONS = {
   createReportSchedule: { method: "POST", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   createRetentionPolicy: { method: "POST", path: "/v1/compliance/retention/rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   createRingGroup: { method: "POST", path: "/v1/ring-groups", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  createRole: { method: "POST", path: "/v1/roles", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   createSafetyMeeting: { method: "POST", path: "/v1/safety/meetings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   createSafetyTalkSchedule: { method: "POST", path: "/v1/safety/schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   createSafetyTopic: { method: "POST", path: "/v1/safety/topics", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
@@ -28601,6 +28728,7 @@ export const OPERATIONS = {
   getWorkdaySettings: { method: "GET", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getWorkflow: { method: "GET", path: "/v1/workflows/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
   getWorkflowRuns: { method: "GET", path: "/v1/workflows/{id}/runs", pathParams: ["id"], queryParams: ["runs"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
+  giveRoleWholeCompany: { method: "POST", path: "/v1/roles/{id}/whole-company", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   grantConsent: { method: "POST", path: "/v1/consent", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   handOverAsset: { method: "POST", path: "/v1/assets/{assetId}/hand-over", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   handOverOnCall: { method: "POST", path: "/v1/on-call/handover", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
@@ -28784,6 +28912,7 @@ export const OPERATIONS = {
   listRetentionPurgeRuns: { method: "GET", path: "/v1/compliance/retention/purges", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listReviewPlatforms: { method: "GET", path: "/v1/reviews/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listRingGroups: { method: "GET", path: "/v1/ring-groups", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listRoles: { method: "GET", path: "/v1/roles", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   listSafetyMeetings: { method: "GET", path: "/v1/safety/meetings", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listSafetyTalkSchedules: { method: "GET", path: "/v1/safety/schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listSafetyTopics: { method: "GET", path: "/v1/safety/topics", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
@@ -28963,6 +29092,7 @@ export const OPERATIONS = {
   removePurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeRecordingPolicy: { method: "DELETE", path: "/v1/recording-policies/{jurisdiction}", pathParams: ["jurisdiction"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeRentalCharge: { method: "POST", path: "/v1/rental-charges/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  removeRole: { method: "POST", path: "/v1/roles/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   removeSpend: { method: "DELETE", path: "/v1/marketing/spend-rows/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   removeTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist/{itemId}/remove", pathParams: ["id","itemId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   removeVendorItem: { method: "POST", path: "/v1/vendor-items/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
@@ -29206,6 +29336,7 @@ export const OPERATIONS = {
   updateReportSchedule: { method: "PATCH", path: "/v1/report-schedules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   updateRetentionPolicy: { method: "PATCH", path: "/v1/compliance/retention/rules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   updateRingGroup: { method: "PUT", path: "/v1/ring-groups/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateRole: { method: "PATCH", path: "/v1/roles/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   updateSafetyTopic: { method: "PATCH", path: "/v1/safety/topics/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   updateServiceReportTemplate: { method: "PATCH", path: "/v1/service-report-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   updateTask: { method: "PATCH", path: "/v1/tasks/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
@@ -29714,6 +29845,15 @@ export abstract class GeneratedOperations {
    */
   assignCrewToVisit(input: AssignCrewToVisitParams & AssignCrewToVisitInput, options?: CallOptions): Promise<AssignCrewToVisitOutput> {
     return this.call("assignCrewToVisit", input, options);
+  }
+
+  /**
+   * Give somebody one of the company's own roles.
+   *
+   * POST /v1/memberships/{membershipId}/custom-role. Needs user:write, membership:write.
+   */
+  assignCustomRole(input: AssignCustomRoleParams & AssignCustomRoleInput, options?: CallOptions): Promise<AssignCustomRoleOutput> {
+    return this.call("assignCustomRole", input, options);
   }
 
   /**
@@ -30497,6 +30637,15 @@ export abstract class GeneratedOperations {
    */
   createRingGroup(input: CreateRingGroupInput, options?: CallOptions): Promise<CreateRingGroupOutput> {
     return this.call("createRingGroup", input, options);
+  }
+
+  /**
+   * Make a role.
+   *
+   * POST /v1/roles. Needs role:write.
+   */
+  createRole(input: CreateRoleInput, options?: CallOptions): Promise<CreateRoleOutput> {
+    return this.call("createRole", input, options);
   }
 
   /**
@@ -32714,6 +32863,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Give a role that names no scope the whole company.
+   *
+   * POST /v1/roles/{id}/whole-company. Needs role:write.
+   */
+  giveRoleWholeCompany(input: GiveRoleWholeCompanyParams & GiveRoleWholeCompanyInput, options?: CallOptions): Promise<GiveRoleWholeCompanyOutput> {
+    return this.call("giveRoleWholeCompany", input, options);
+  }
+
+  /**
    * Record that somebody agreed to be contacted.
    *
    * POST /v1/consent. Needs message:send.
@@ -34361,6 +34519,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The company's own roles.
+   *
+   * GET /v1/roles. Needs role:write.
+   */
+  listRoles(input: ListRolesInput = {} as ListRolesInput, options?: CallOptions): Promise<ListRolesOutput> {
+    return this.call("listRoles", input, options);
+  }
+
+  /**
    * Toolbox talks, newest first.
    *
    * GET /v1/safety/meetings. Needs safety:read.
@@ -35969,6 +36136,15 @@ export abstract class GeneratedOperations {
    */
   removeRentalCharge(input: RemoveRentalChargeParams & RemoveRentalChargeInput, options?: CallOptions): Promise<RemoveRentalChargeOutput> {
     return this.call("removeRentalCharge", input, options);
+  }
+
+  /**
+   * Remove a role.
+   *
+   * POST /v1/roles/{id}/remove. Needs role:write.
+   */
+  removeRole(input: RemoveRoleParams & RemoveRoleInput, options?: CallOptions): Promise<RemoveRoleOutput> {
+    return this.call("removeRole", input, options);
   }
 
   /**
@@ -38156,6 +38332,15 @@ export abstract class GeneratedOperations {
    */
   updateRingGroup(input: UpdateRingGroupParams & UpdateRingGroupInput, options?: CallOptions): Promise<UpdateRingGroupOutput> {
     return this.call("updateRingGroup", input, options);
+  }
+
+  /**
+   * Change a role.
+   *
+   * PATCH /v1/roles/{id}. Needs role:write.
+   */
+  updateRole(input: UpdateRoleParams & UpdateRoleInput, options?: CallOptions): Promise<UpdateRoleOutput> {
+    return this.call("updateRole", input, options);
   }
 
   /**

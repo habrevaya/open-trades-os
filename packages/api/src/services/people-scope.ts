@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { narrowest, type Scope } from "@opentradesos/core";
 import { NotFoundError, scopeOf, type ServiceContext } from "./context";
 import {
   crewScopeFilter, membershipScopeFilter, routeScopeFilter, technicianScopeFilter,
@@ -27,29 +28,49 @@ import {
  * "you may not" confirms there is somebody there.
  */
 
+/**
+ * The scope people are read with. The resource's own, except for an actor
+ * whose authority STATES its scopes (a connected app, a custom role) and
+ * names none for this one: a migration app granted `user:read` with scopes
+ * for customers, jobs and invoices was given before people were scoped, and
+ * reading its people as `own`, the default for a resource nothing names,
+ * would show it nobody. It reads them at the narrowest scope it does state,
+ * so it sees no more of the company's people than of its work; an actor that
+ * states nothing at all still sees nobody (`effectiveScope` in core). A limit
+ * set on the person still narrows it.
+ */
+export function peopleScopeOf(ctx: ServiceContext, resource: "visit" | "timesheet"): Scope {
+  const { actor } = ctx;
+  const stated = actor.roles.length === 0 && actor.scopes ? Object.values(actor.scopes) as Scope[] : [];
+  if (stated.length === 0 || actor.scopes?.[resource] !== undefined) return scopeOf(ctx, resource);
+  const base = stated.reduce((a, b) => narrowest(a, b));
+  const limit = actor.scopeOverrides?.[resource];
+  return limit ? narrowest(base, limit) : base;
+}
+
 /** People on the dispatch side, as a condition on `technician`. */
 export const dispatchPeople = (ctx: ServiceContext) =>
-  technicianScopeFilter(scopeOf(ctx, "visit"), ctx.actor);
+  technicianScopeFilter(peopleScopeOf(ctx, "visit"), ctx.actor);
 
 /** People's records, as a condition on `technician`. */
 export const recordPeople = (ctx: ServiceContext) =>
-  technicianScopeFilter(scopeOf(ctx, "timesheet"), ctx.actor);
+  technicianScopeFilter(peopleScopeOf(ctx, "timesheet"), ctx.actor);
 
 /** People's records, as a condition on `membership`. */
 export const members = (ctx: ServiceContext) =>
-  membershipScopeFilter(scopeOf(ctx, "timesheet"), ctx.actor);
+  membershipScopeFilter(peopleScopeOf(ctx, "timesheet"), ctx.actor);
 
 /** Crews, as a condition on `crew`. */
 export const crews = (ctx: ServiceContext) =>
-  crewScopeFilter(scopeOf(ctx, "visit"), ctx.actor);
+  crewScopeFilter(peopleScopeOf(ctx, "visit"), ctx.actor);
 
 /** Routes, as a condition on `route`. */
 export const routes = (ctx: ServiceContext) =>
-  routeScopeFilter(scopeOf(ctx, "visit"), ctx.actor);
+  routeScopeFilter(peopleScopeOf(ctx, "visit"), ctx.actor);
 
 /** Whether this person sees the whole company's people, which the screens use to offer moving them. */
 export const seesEverybody = (ctx: ServiceContext) =>
-  scopeOf(ctx, "timesheet") === "all" && scopeOf(ctx, "visit") === "all";
+  peopleScopeOf(ctx, "timesheet") === "all" && peopleScopeOf(ctx, "visit") === "all";
 
 /**
  * A technician by id, from the dispatch side or the records side, or not

@@ -192,7 +192,10 @@ nothing more can be dropped on their day, and "Suggest who", the rebalance of
 one day or several and a proposed route offer only their own people and crews.
 The dispatch side (technicians, crews, routes) reads the visit scope and a
 person's record (Team, People, a person by id) the timesheet scope; every
-preset and every role made on Settings, Roles sets both the same. Moving a
+preset and every role made on Settings, Roles sets both the same. A
+connected app or a role written through the API that states scopes and names
+none for those reads people at the narrowest scope it does state, so it sees
+no more people than work; one that states none at all sees nobody. Moving a
 person or a crew between branches is for somebody who sees the whole company.
 
 A branch's short code can be printed in front of new job and invoice numbers

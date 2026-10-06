@@ -9,7 +9,7 @@ import { skillStanding } from "./people";
 import { workSkills } from "./qualification";
 import { announce, sideOf } from "./visit-notices";
 import { jobVisibility } from "./scope";
-import { crewWithin, crews as crewsInView, dispatchPeople, seesEverybody } from "./people-scope";
+import { crewWithin, crews as crewsInView, dispatchPeople, peopleScopeOf, seesEverybody } from "./people-scope";
 import { shopOfCrew } from "./visit-shop";
 import { liveBranch } from "./branches";
 
@@ -173,7 +173,7 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
  * somewhere else, or nowhere, is one they could not see again.
  */
 function assertCrewPlaceable(ctx: ServiceContext, businessUnitId: string | null): void {
-  if (scopeOf(ctx, "visit") === "all") return;
+  if (peopleScopeOf(ctx, "visit") === "all") return;
   if (businessUnitId === null || businessUnitId !== ctx.actor.businessUnitId) {
     throw new ConflictError(
       "You can only make a crew in your own branch. Choose your branch, so you can see the crew afterwards.",

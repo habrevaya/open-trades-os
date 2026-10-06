@@ -341,3 +341,28 @@ run("the board, the map, the rebalance and Suggest who offer only their branch's
     expect(days.moves.map((m) => m.toTechnicianId)).not.toContain(samTech);
   });
 });
+
+run("an actor that states its scopes and names none for people", () => {
+  const stated = (scopes: Record<string, string>, extra: Record<string, unknown> = {}): ServiceContext => ({
+    actor: {
+      userId: fixtureId("branch-people:app"), organizationId: ORG, roles: [], grants: ["user:read", "visit:read"],
+      scopes: scopes as never, ...extra,
+    },
+    db: db(),
+  });
+
+  it("reads people at the narrowest scope it states, so a migration app granted the whole company's work sees everybody", async () => {
+    const everybody = (await people.listPeople(stated({ customer: "all", job: "all" }))).map((p) => p.membershipId);
+    expect(everybody).toEqual(expect.arrayContaining([hanaMembership, rayMembership, samMembership, gusMembership]));
+  });
+
+  it("and an app limited to Houston's work sees Houston's people and technicians only", async () => {
+    const houstonOnly = stated({ job: "business_unit", customer: "all" }, { businessUnitId: houston });
+    expect((await people.listPeople(houstonOnly)).map((p) => p.membershipId).sort()).toEqual([hanaMembership, rayMembership].sort());
+    expect((await dispatchMap.technicians(houstonOnly)).technicians.map((t) => t.id)).toEqual([rayTech]);
+  });
+
+  it("sees nobody when it states no scope at all, the narrowest default", async () => {
+    expect(await people.listPeople(stated({}))).toEqual([]);
+  });
+});

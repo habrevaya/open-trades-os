@@ -29812,7 +29812,7 @@
       "post": {
         "operationId": "createCrew",
         "summary": "Define a crew",
-        "description": "A production rate without its unit is refused, and so is a unit without a rate. Half a rate reads as capacity on every screen and means nothing, which is worse than no rate at all because a blank invites somebody to fill it in.\n\nRequires a session holding: visit:dispatch.",
+        "description": "A production rate without its unit is refused, and so is a unit without a rate. Half a rate reads as capacity on every screen and means nothing, which is worse than no rate at all because a blank invites somebody to fill it in. Somebody limited to a branch makes crews in their own branch only.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -29935,7 +29935,7 @@
       "get": {
         "operationId": "listCrews",
         "summary": "Every crew, with who is on it",
-        "description": "Requires a session holding: visit:read.",
+        "description": "Narrowed like the dispatch board: somebody limited to a branch sees that branch's crews (a crew's own branch, not its members'), somebody limited to a shop the crews based there, and somebody limited to their own or their crew's work the crews they are on.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -30151,7 +30151,7 @@
       "patch": {
         "operationId": "updateCrew",
         "summary": "Change a crew's rate, kit or skills",
-        "description": "The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind.\n\nRequires a session holding: visit:dispatch.",
+        "description": "The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -67667,7 +67667,7 @@
       "post": {
         "operationId": "setMemberBranch",
         "summary": "Put somebody in a branch",
-        "description": "Their branch is what a branch scope shows them and where a job they book lands. Taking it away is refused while their role or their own limits show them only their branch, because they would then see nothing at all.\n\nRequires a session holding: membership:write.",
+        "description": "Their branch is what a branch scope shows them and where a job they book lands. Taking it away is refused while their role or their own limits show them only their branch, because they would then see nothing at all. Moving somebody between branches is for somebody who sees the whole company, and another branch's person reads as not found.\n\nRequires a session holding: membership:write.",
         "tags": [
           "M01"
         ],
@@ -67797,6 +67797,145 @@
         ]
       }
     },
+    "/v1/memberships/{membershipId}/custom-role": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "assignCustomRole",
+        "summary": "Give somebody one of the company's own roles",
+        "description": "Checked both ways, as a preset change is: the caller must hold what the role carries and what the person holds now, refused with a 403 that says which. A role limited to a branch or a shop is refused for somebody with none. Nobody changes their own role. A preset is given with `POST /v1/memberships/{membershipId}/role`, which takes the custom role away.\n\nRequires a session holding: user:write, membership:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignCustomRoleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give somebody one of the company's own roles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignCustomRoleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write",
+          "membership:write"
+        ]
+      }
+    },
     "/v1/memberships/{membershipId}/location": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -67805,7 +67944,7 @@
       "post": {
         "operationId": "setMemberLocation",
         "summary": "Say which shop somebody works from",
-        "description": "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them: the jobs worked from it, by somebody based there or on a visit sent from there, and the people based there. Taking it away is refused while their role or their own limits show them only their shop.\n\nRequires a session holding: membership:write.",
+        "description": "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them: the jobs worked from it, by somebody based there or on a visit sent from there, and the people based there. Taking it away is refused while their role or their own limits show them only their shop. Another branch's person reads as not found.\n\nRequires a session holding: membership:write.",
         "tags": [
           "M01"
         ],
@@ -102583,6 +102722,642 @@
         ]
       }
     },
+    "/v1/roles": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createRole",
+        "summary": "Make a role",
+        "description": "Refused with a 403 when it carries a permission the caller does not hold or sees further than they do, and with a 409 when a role already has the name. Name every scoped record in `scopes`: a record left out is the holder's own work only.\n\nRequires a session holding: role:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Make a role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRoleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "role:write"
+        ]
+      },
+      "get": {
+        "operationId": "listRoles",
+        "summary": "The company's own roles",
+        "description": "Requires a session holding: role:write.",
+        "tags": [
+          "M01"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's own roles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRolesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "role:write"
+        ]
+      }
+    },
+    "/v1/roles/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateRole",
+        "summary": "Change a role",
+        "description": "Checked against the role as it would be after the change, so editing a role into one the caller could not make is refused with a 403 like making it.\n\nRequires a session holding: role:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateRoleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "role:write"
+        ]
+      }
+    },
+    "/v1/roles/{id}/remove": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removeRole",
+        "summary": "Remove a role",
+        "description": "Its holders go back to the preset their membership names, so nobody is locked out by it.\n\nRequires a session holding: role:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveRoleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Remove a role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveRoleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "role:write"
+        ]
+      }
+    },
+    "/v1/roles/{id}/whole-company": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "giveRoleWholeCompany",
+        "summary": "Give a role that names no scope the whole company",
+        "description": "For a role made on the roles screen before \"the whole company\" was saved as a scope: it names none, so its holders have been seeing their own work only. Sets every scoped record to the whole company. Refused for a role that already names a scope, and with a 403 for somebody who does not see the whole company themselves. Its holders' access changes at once.\n\nRequires a session holding: role:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GiveRoleWholeCompanyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give a role that names no scope the whole company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiveRoleWholeCompanyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "role:write"
+        ]
+      }
+    },
     "/v1/roster": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -132225,6 +133000,42 @@
           "on"
         ]
       },
+      "AssignCustomRoleInput": {
+        "type": "object",
+        "properties": {
+          "roleId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "roleId"
+        ]
+      },
+      "AssignCustomRoleOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "customRoleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "membershipId",
+          "role",
+          "customRoleId"
+        ]
+      },
       "AssignJobsToBranchInput": {
         "type": "object",
         "properties": {
@@ -134670,6 +135481,19 @@
             ],
             "format": "uuid"
           },
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "locationName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "dispatchedAt": {
             "type": [
               "string",
@@ -134754,6 +135578,8 @@
           "routeOrder",
           "technicianIds",
           "crewId",
+          "locationId",
+          "locationName",
           "dispatchedAt",
           "arrivedAt",
           "completedAt",
@@ -141746,6 +142572,19 @@
                   ],
                   "format": "uuid"
                 },
+                "locationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "locationName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "dispatchedAt": {
                   "type": [
                     "string",
@@ -141827,6 +142666,8 @@
                 "routeOrder",
                 "technicianIds",
                 "crewId",
+                "locationId",
+                "locationName",
                 "dispatchedAt",
                 "arrivedAt",
                 "completedAt",
@@ -145972,6 +146813,89 @@
           "ringSeconds",
           "members",
           "noAnswerTo"
+        ]
+      },
+      "CreateRoleInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "basedOn": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 400
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "permissions"
+        ]
+      },
+      "CreateRoleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "basedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "namesNoScope": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "basedOn",
+          "permissions",
+          "scopes",
+          "namesNoScope"
         ]
       },
       "CreateSafetyMeetingInput": {
@@ -159069,6 +159993,12 @@
                 "number": {
                   "type": "integer"
                 },
+                "numberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "issuedOn": {
                   "type": [
                     "string",
@@ -159098,6 +160028,7 @@
               "required": [
                 "id",
                 "number",
+                "numberPrefix",
                 "issuedOn",
                 "dueOn",
                 "total",
@@ -159189,6 +160120,9 @@
                 "timeOff": {
                   "type": "boolean"
                 },
+                "inScope": {
+                  "type": "boolean"
+                },
                 "visits": {
                   "type": "array",
                   "items": {
@@ -159272,6 +160206,7 @@
                 "displayName",
                 "color",
                 "timeOff",
+                "inScope",
                 "visits"
               ]
             }
@@ -159629,6 +160564,9 @@
                 "startIsCompanyDefault": {
                   "type": "boolean"
                 },
+                "inScope": {
+                  "type": "boolean"
+                },
                 "route": {
                   "type": "array",
                   "items": {
@@ -159644,6 +160582,7 @@
                 "timeOff",
                 "start",
                 "startIsCompanyDefault",
+                "inScope",
                 "route"
               ]
             }
@@ -165385,6 +166324,19 @@
                   ],
                   "format": "uuid"
                 },
+                "locationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "locationName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "dispatchedAt": {
                   "type": [
                     "string",
@@ -165466,6 +166418,8 @@
                 "routeOrder",
                 "technicianIds",
                 "crewId",
+                "locationId",
+                "locationName",
                 "dispatchedAt",
                 "arrivedAt",
                 "completedAt",
@@ -179711,6 +180665,58 @@
           "runs"
         ]
       },
+      "GiveRoleWholeCompanyInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "GiveRoleWholeCompanyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "basedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "namesNoScope": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "basedOn",
+          "permissions",
+          "scopes",
+          "namesNoScope"
+        ]
+      },
       "GrantConsentInput": {
         "type": "object",
         "properties": {
@@ -187366,6 +188372,13 @@
                   ],
                   "format": "uuid"
                 },
+                "homeLocationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "productionRatePerDay": {
                   "type": [
                     "string",
@@ -187432,6 +188445,7 @@
                 "id",
                 "name",
                 "businessUnitId",
+                "homeLocationId",
                 "productionRatePerDay",
                 "productionUnit",
                 "requiredAssetIds",
@@ -199944,6 +200958,65 @@
         },
         "required": [
           "ringGroups"
+        ]
+      },
+      "ListRolesOutput": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "basedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "namesNoScope": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "description",
+                "basedOn",
+                "permissions",
+                "scopes",
+                "namesNoScope"
+              ]
+            }
+          }
+        },
+        "required": [
+          "roles"
         ]
       },
       "ListSafetyMeetingsOutput": {
@@ -217753,6 +218826,29 @@
           "removed"
         ]
       },
+      "RemoveRoleInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveRoleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
       "RemoveSpendInput": {
         "type": "object",
         "properties": {}
@@ -224085,6 +225181,19 @@
             ],
             "format": "uuid"
           },
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "locationName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "dispatchedAt": {
             "type": [
               "string",
@@ -224166,6 +225275,8 @@
           "routeOrder",
           "technicianIds",
           "crewId",
+          "locationId",
+          "locationName",
           "dispatchedAt",
           "arrivedAt",
           "completedAt",
@@ -237142,6 +238253,20 @@
             "minLength": 1,
             "maxLength": 200
           },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "homeLocationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "productionRatePerDay": {
             "type": [
               "string",
@@ -238948,6 +240073,19 @@
                   ],
                   "format": "uuid"
                 },
+                "locationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "locationName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "dispatchedAt": {
                   "type": [
                     "string",
@@ -239029,6 +240167,8 @@
                 "routeOrder",
                 "technicianIds",
                 "crewId",
+                "locationId",
+                "locationName",
                 "dispatchedAt",
                 "arrivedAt",
                 "completedAt",
@@ -242541,6 +243681,85 @@
           "noAnswerTo"
         ]
       },
+      "UpdateRoleInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "basedOn": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 400
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UpdateRoleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "basedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "namesNoScope": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "basedOn",
+          "permissions",
+          "scopes",
+          "namesNoScope"
+        ]
+      },
       "UpdateSafetyTopicInput": {
         "type": "object",
         "properties": {
@@ -244358,6 +245577,12 @@
                 "number": {
                   "type": "integer"
                 },
+                "numberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "issuedOn": {
                   "type": [
                     "string",
@@ -244381,6 +245606,12 @@
                 "jobNumber": {
                   "type": [
                     "integer",
+                    "null"
+                  ]
+                },
+                "jobNumberPrefix": {
+                  "type": [
+                    "string",
                     "null"
                   ]
                 },
@@ -244478,10 +245709,12 @@
               },
               "required": [
                 "number",
+                "numberPrefix",
                 "issuedOn",
                 "dueOn",
                 "purchaseOrderNumber",
                 "jobNumber",
+                "jobNumberPrefix",
                 "customerName",
                 "siteAddress",
                 "claimReference",
@@ -244563,6 +245796,12 @@
                 "number": {
                   "type": "integer"
                 },
+                "numberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "summary": {
                   "type": "string"
                 },
@@ -244580,6 +245819,7 @@
               "required": [
                 "id",
                 "number",
+                "numberPrefix",
                 "summary",
                 "status",
                 "completedAt"
@@ -244597,6 +245837,12 @@
                 },
                 "jobNumber": {
                   "type": "integer"
+                },
+                "jobNumberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "summary": {
                   "type": "string"
@@ -244628,6 +245874,7 @@
               "required": [
                 "id",
                 "jobNumber",
+                "jobNumberPrefix",
                 "summary",
                 "status",
                 "windowStart",
@@ -244647,6 +245894,12 @@
                 },
                 "number": {
                   "type": "integer"
+                },
+                "numberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "status": {
                   "type": "string"
@@ -244724,6 +245977,7 @@
               "required": [
                 "id",
                 "number",
+                "numberPrefix",
                 "status",
                 "issuedOn",
                 "dueOn",
@@ -245015,6 +246269,12 @@
                     "jobNumber": {
                       "type": "integer"
                     },
+                    "jobNumberPrefix": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": "string"
                     },
@@ -245171,6 +246431,7 @@
                     "visitId",
                     "jobId",
                     "jobNumber",
+                    "jobNumberPrefix",
                     "summary",
                     "date",
                     "status",
@@ -245973,6 +247234,12 @@
           "number": {
             "type": "integer"
           },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": "string"
           },
@@ -246173,6 +247440,7 @@
         "required": [
           "organizationName",
           "number",
+          "numberPrefix",
           "status",
           "issuedOn",
           "dueOn",
@@ -246201,6 +247469,12 @@
           },
           "jobNumber": {
             "type": "integer"
+          },
+          "jobNumberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string"
@@ -246336,6 +247610,7 @@
         "required": [
           "organizationName",
           "jobNumber",
+          "jobNumberPrefix",
           "status",
           "summary",
           "propertyAddress",
