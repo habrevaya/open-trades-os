@@ -116925,8 +116925,8 @@
       ],
       "post": {
         "operationId": "createVendorReturn",
-        "summary": "Send serials or lots back to a vendor for credit",
-        "description": "By number, from the location named. The units leave stock; the return expects a credit from the vendor of what the goods cost on the order they came on, without freight, unless `creditExpected` says otherwise (a restocking fee). A unit that arrived on another vendor's order is refused. Nothing about the credit posts to the ledger, because receiving stock does not; late freight the units carried leaves stock as for any loss. Needs `po:write` and `inventory:adjust`: it is a dealing with a vendor and a move off the shelf.\n\nRequires a session holding: po:write, inventory:adjust.",
+        "summary": "Send serials, lots or counted stock back to a vendor for credit",
+        "description": "A part tracked by serial or lot goes by number (`units`); a counted part goes by how many (`quantity`), and then `creditExpected` is needed, because counted stock has no receipt of its own to read a credit from and the vendor's promise is the figure that matters (nothing is written as zero, so say 0.00 if no credit is promised); stock held for a job does not go back. From the location named. The units leave stock; the return expects a credit from the vendor of what the goods cost on the order they came on, without freight, unless `creditExpected` says otherwise (a restocking fee). A unit that arrived on another vendor's order is refused. Nothing about the credit posts to the ledger, because receiving stock does not; late freight the units carried leaves stock as for any loss. Needs `po:write` and `inventory:adjust`: it is a dealing with a vendor and a move off the shelf.\n\nRequires a session holding: po:write, inventory:adjust.",
         "tags": [
           "M16"
         ],
@@ -116953,7 +116953,7 @@
         },
         "responses": {
           "201": {
-            "description": "Send serials or lots back to a vendor for credit",
+            "description": "Send serials, lots or counted stock back to a vendor for credit",
             "content": {
               "application/json": {
                 "schema": {
@@ -143079,6 +143079,13 @@
             "minItems": 1,
             "maxItems": 500
           },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "reason": {
             "type": "string",
             "minLength": 1,
@@ -143103,7 +143110,6 @@
           "vendorId",
           "itemId",
           "locationId",
-          "units",
           "reason"
         ]
       },

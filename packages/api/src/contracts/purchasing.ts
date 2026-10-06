@@ -189,6 +189,7 @@ const VendorReturn = z.object({
   creditReceivedAt: z.string().datetime().nullable(),
   creditReference: z.string().nullable(),
   createdAt: z.string().datetime(),
+  /** One row per unit sent back; a counted part is one row with an empty `number`. */
   units: z.array(z.object({
     itemId: Uuid, itemName: z.string(), number: z.string(), quantity: QuantityString, locationName: z.string(),
   })),
@@ -207,9 +208,9 @@ export const listVendorReturns = defineRoute({
 export const createVendorReturn = defineRoute({
   method: "post",
   path: "/v1/vendor-returns",
-  summary: "Send serials or lots back to a vendor for credit",
+  summary: "Send serials, lots or counted stock back to a vendor for credit",
   description:
-    "By number, from the location named. The units leave stock; the return expects a credit from the vendor of what the goods cost on the order they came on, without freight, unless `creditExpected` says otherwise (a restocking fee). A unit that arrived on another vendor's order is refused. Nothing about the credit posts to the ledger, because receiving stock does not; late freight the units carried leaves stock as for any loss. Needs `po:write` and `inventory:adjust`: it is a dealing with a vendor and a move off the shelf.",
+    "A part tracked by serial or lot goes by number (`units`); a counted part goes by how many (`quantity`), and then `creditExpected` is needed, because counted stock has no receipt of its own to read a credit from and the vendor's promise is the figure that matters (nothing is written as zero, so say 0.00 if no credit is promised); stock held for a job does not go back. From the location named. The units leave stock; the return expects a credit from the vendor of what the goods cost on the order they came on, without freight, unless `creditExpected` says otherwise (a restocking fee). A unit that arrived on another vendor's order is refused. Nothing about the credit posts to the ledger, because receiving stock does not; late freight the units carried leaves stock as for any loss. Needs `po:write` and `inventory:adjust`: it is a dealing with a vendor and a move off the shelf.",
   module: "M16",
   permissions: ["po:write", "inventory:adjust"],
   idempotent: true,
@@ -217,7 +218,8 @@ export const createVendorReturn = defineRoute({
     vendorId: Uuid,
     itemId: Uuid,
     locationId: Uuid,
-    units: z.array(StockUnitInput.pick({ number: true, quantity: true })).min(1).max(500),
+    units: z.array(StockUnitInput.pick({ number: true, quantity: true })).min(1).max(500).optional(),
+    quantity: QuantityString.nullable().optional(),
     reason: z.string().min(1).max(500),
     reference: z.string().max(100).nullable().optional(),
     creditExpected: MoneyString.nullable().optional(),

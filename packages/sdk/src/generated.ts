@@ -3950,10 +3950,11 @@ export interface CreateVendorReturnInput {
   vendorId: string;
   itemId: string;
   locationId: string;
-  units: Array<{
+  units?: Array<{
     number: string;
     quantity?: string;
   }>;
+  quantity?: string | null;
   reason: string;
   reference?: string | null;
   creditExpected?: string | null;
@@ -29674,7 +29675,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Send serials or lots back to a vendor for credit.
+   * Send serials, lots or counted stock back to a vendor for credit.
    *
    * POST /v1/vendor-returns. Needs po:write, inventory:adjust.
    */

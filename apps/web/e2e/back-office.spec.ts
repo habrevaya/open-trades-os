@@ -349,3 +349,60 @@ test("the night proposes a truck fill, nothing moves until somebody confirms it,
   await minimums.getByRole("row").filter({ hasText: van }).getByRole("button", { name: "Stop keeping" }).click();
   await expect(minimums.getByRole("row").filter({ hasText: van })).toHaveCount(0);
 });
+
+test("counted stock goes back to a vendor on the same page the serials do, for the credit that was promised", async ({ owner }) => {
+  const code = `RET${run.slice(-6).toUpperCase()}`;
+  const part = `Contactor ${run}`;
+  const vendor = `Grainger ${run}`;
+  await owner.goto("/pricebook/items/new");
+  await owner.getByLabel("Kind").selectOption("material");
+  await owner.getByLabel("Code").fill(code);
+  await owner.getByLabel("Name").fill(part);
+  await owner.getByLabel("Price").fill("30.00");
+  await owner.getByRole("button", { name: "Add to the price book" }).click();
+  await expect(owner).toHaveURL(/\/pricebook\/items\/[0-9a-f-]{36}$/);
+
+  await owner.goto("/purchasing");
+  await owner.getByLabel("Name", { exact: true }).fill(vendor);
+  await owner.getByRole("button", { name: "Add vendor" }).click();
+  await expect(owner.getByRole("row").filter({ hasText: vendor })).toBeVisible();
+
+  await owner.goto("/inventory");
+  const receive = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Receive", exact: true }) });
+  await receive.getByLabel("Part").selectOption({ label: `${part} (${code})` });
+  await receive.getByLabel("Into").selectOption({ label: "Shop (warehouse)" });
+  await receive.getByLabel("Quantity").fill("10");
+  await receive.getByLabel("What it all cost").fill("200.00");
+  await receive.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(receive.getByRole("status")).toContainText("Received 10");
+
+  await owner.goto("/purchasing/returns");
+  const send = owner.getByRole("region", { name: "Send back to a vendor" });
+  await send.getByLabel("Vendor").selectOption({ label: vendor });
+  await send.locator('select[name="itemId"]').selectOption({ label: `${part} (${code}), counted` });
+  await send.getByLabel("Where it is now").selectOption({ label: "Shop" });
+  await send.getByLabel("Why it is going back").fill("Wrong coil voltage");
+  await send.getByLabel("How many (a counted part only)").fill("3");
+  await send.getByRole("button", { name: "Send back" }).click();
+  // Counted stock has no receipt to read a credit from, so the page asks for it in words.
+  await expect(send.getByRole("alert")).toContainText("Say what credit they are giving");
+
+  await send.getByLabel(/^Credit expected/).fill("60");
+  await send.getByRole("button", { name: "Send back" }).click();
+  await expect(send.getByRole("status")).toContainText(/to .*: 60\.00 of credit expected/);
+
+  await owner.reload();
+  const row = owner.getByRole("table", { name: "Waiting for a credit" }).getByRole("row").filter({ hasText: vendor });
+  await expect(row).toContainText(`3 ${part}`);
+  await expect(row).toContainText("$60.00");
+  await row.getByLabel("Their credit memo").fill(`CM-${run.slice(-4)}`);
+  await row.getByLabel("Amount").fill("55");
+  await row.getByRole("button", { name: "Credit received" }).click();
+  await expect(row).toHaveCount(0);
+  const credited = owner.getByRole("table", { name: "Credited" }).getByRole("row").filter({ hasText: vendor });
+  await expect(credited).toContainText("$55.00");
+  await expect(credited).toContainText("Short");
+
+  await owner.goto("/inventory");
+  await expect(owner.getByRole("row").filter({ hasText: part }).filter({ hasText: "Shop" }).first()).toContainText("7");
+});

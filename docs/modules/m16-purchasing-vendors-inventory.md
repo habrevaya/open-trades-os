@@ -265,6 +265,17 @@ lists them, those waiting first. `/purchasing/returns` is the screen. Nothing
 about the credit posts to the ledger, for the reason receiving stock does not;
 late freight the units carried leaves the inventory account as for any loss.
 
+A part that is only counted goes back through the same call with a `quantity` in
+place of `units`: one `return_to_vendor` movement with no lot, one return, the
+same credit memo and the same screen, where the part's name says "counted". Two
+things differ, and both are the conservative choice. The credit expected has to
+be typed (say 0.00 if none is promised), because counted stock has no receipt of
+its own to read a cost from and may have come from any vendor or from a count
+that found it, so nothing here can check the stock was bought from the vendor it
+is going back to. And stock held for a job does not go back: only what is on the
+shelf less what is reserved. A part tracked by serial or lot is refused a
+quantity, and a counted part is refused numbers, so the two are never mixed up.
+
 ### What the vendor said back
 
 A vendor answers an order by email or a phone call, and somebody in the office
@@ -516,10 +527,11 @@ is a decision not yet made, and the conservative answer was taken. A vendor's
 credit for a return is recorded, not posted, for the same reason.
 
 A unit back off a job is taken back by serial only; a lot coming back is
-received as found stock. Sending counted stock back to a vendor is not built,
-and the return screen sends serials (a lot goes back through the API, with its
-quantity). The customer's equipment record a returned unit became is left on
-their register for the office to retire.
+received as found stock. A lot goes back to a vendor with its quantity, and
+counted stock with how many. Whether counted stock was bought from the vendor it
+goes back to is the buyer's word, not something checked. The customer's
+equipment record a returned unit became is left on their register for the
+office to retire.
 
 An approval step's amount is the whole order's total, never the part of it in a
 category or for a location. Approvers are told by email only, not by text or in
