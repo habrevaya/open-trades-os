@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, ledger, money as m, time, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, ledger, money as m, tax, time, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -12,6 +12,7 @@ import {
   type AccountingEntityKind, type AccountingProvider, type ExternalCreditApplication,
   type ExternalInvoiceLine, type ExternalRef, type ReadResult,
 } from "../accounting/provider";
+import * as billing from "./billing";
 
 /**
  * THE ACCOUNTING BRIDGE
@@ -1032,6 +1033,26 @@ async function invoiceAccounts(
   });
 }
 
+/**
+ * A document's sales tax by rate, as its posting recorded it, for the books:
+ * "Sales tax, Travis County 8.25%" with what that rate collected. Read from
+ * the ledger like everything else sent, so the books get exactly what was
+ * posted. Undefined for a document that posted its tax as one figure.
+ */
+async function taxPartsFor(
+  tx: Database, organizationId: string, sourceType: "invoice" | "credit_note", sourceId: string,
+): Promise<Array<{ description: string; amount: { amount: string; currency: string } }> | undefined> {
+  const rows = await billing.postedTaxByRate(tx, organizationId, sourceId, sourceType);
+  if (!rows || rows.length < 2) return undefined;
+  const ids = rows.map((r) => r.taxRateId).filter((x): x is string => x !== null);
+  const names = new Map(ids.length === 0 ? [] : (await tx.select({ id: schema.taxRate.id, name: schema.taxRate.name })
+    .from(schema.taxRate).where(inArray(schema.taxRate.id, ids))).map((r) => [r.id, r.name]));
+  return rows.map((r) => ({
+    description: `Sales tax, ${tax.describe(r.taxRateId ? names.get(r.taxRateId) ?? "rate" : "rate", r.rate)}`,
+    amount: { amount: m.toString(r.tax), currency: r.tax.currency },
+  }));
+}
+
 type DocumentAccounts =
   | { ok: true; revenue: { externalId: string; kind: string }; tax: { externalId: string; kind: string } | null }
   | { ok: false; message: string };
@@ -1217,6 +1238,7 @@ async function pushOutbound(
         .from(schema.invoiceLine)
         .where(eq(schema.invoiceLine.invoiceId, invoice.id))
         .orderBy(asc(schema.invoiceLine.sortOrder)),
+      taxByRate: await taxPartsFor(tx, organizationId, "invoice", invoice.id),
     }));
 
     if (!resolved.accounts.ok) {
@@ -1258,6 +1280,7 @@ async function pushOutbound(
           ? {
             amount: { amount: invoice.taxTotal, currency: invoice.currency },
             accountExternalId: accounts.tax.externalId,
+            byRate: resolved.taxByRate,
           }
           : null,
         memo: invoice.memo,
@@ -1895,6 +1918,7 @@ async function pushCreditNotes(
       continue;
     }
 
+    const noteByRate = await guardedRead(ctx, "accounting:sync", (tx) => taxPartsFor(tx, organizationId, "credit_note", note.id));
     await pushOne(ctx, connection.id, state, meteredRead, {
       kind: "credit_note",
       entityId: note.id,
@@ -1907,7 +1931,10 @@ async function pushCreditNotes(
         currency: note.currency,
         lines: document.lines,
         tax: document.tax && Number(note.taxTotal) !== 0
-          ? { amount: money(note.taxTotal, note.currency), accountExternalId: document.tax.externalId }
+          ? {
+            amount: money(note.taxTotal, note.currency), accountExternalId: document.tax.externalId,
+            byRate: noteByRate,
+          }
           : null,
         memo: note.note,
       }),
@@ -1994,6 +2021,7 @@ async function pushCreditNotes(
     }
 
     const voidedOn = time.dateIn(note.voidedAt ?? new Date(), zone);
+    const noteByRate = await guardedRead(ctx, "accounting:sync", (tx) => taxPartsFor(tx, organizationId, "credit_note", note.id));
     await pushOne(ctx, connection.id, state, meteredRead, {
       kind: "credit_note_void",
       entityId: note.id,
@@ -2007,7 +2035,10 @@ async function pushCreditNotes(
         currency: note.currency,
         lines: document.lines,
         tax: document.tax && Number(note.taxTotal) !== 0
-          ? { amount: money(note.taxTotal, note.currency), accountExternalId: document.tax.externalId }
+          ? {
+            amount: money(note.taxTotal, note.currency), accountExternalId: document.tax.externalId,
+            byRate: noteByRate,
+          }
           : null,
         memo: `Reverses credit note ${note.number}, which was voided.`,
       }),

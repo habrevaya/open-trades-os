@@ -114,8 +114,22 @@ export interface ExternalInvoice {
   currency: string;
   lines: ExternalInvoiceLine[];
   /** Total tax as one figure, with the account it is owed to. */
-  tax: { amount: ExternalMoney; accountExternalId: string } | null;
+  tax: ExternalTax | null;
   memo: string | null;
+}
+
+/**
+ * A document's sales tax, against the mapped liability account. `byRate`,
+ * when the document charged more than one of the company's rates, splits it
+ * into one line per rate ("Sales tax, Travis County 8.25%") on the same
+ * account, so the books show what each rate collected; the parts add up to
+ * `amount`. Never the provider's own tax codes: their engines would work the
+ * tax out again from their own tables (see `salesLines` and `taxLineOf`).
+ */
+export interface ExternalTax {
+  amount: ExternalMoney;
+  accountExternalId: string;
+  byRate?: Array<{ description: string; amount: ExternalMoney }> | undefined;
 }
 
 export interface ExternalPayment {
@@ -195,7 +209,7 @@ export interface ExternalCreditNote {
   issuedOn: string;
   currency: string;
   lines: ExternalInvoiceLine[];
-  tax: { amount: ExternalMoney; accountExternalId: string } | null;
+  tax: ExternalTax | null;
   memo: string | null;
 }
 

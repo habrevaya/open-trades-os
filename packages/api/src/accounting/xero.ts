@@ -652,17 +652,18 @@ export function createXeroProvider(
 
   /** Tax as its own line against the mapped account, for the reason `lineOf` gives. */
   function taxLineOf(tax: ExternalInvoice["tax"]): Record<string, unknown>[] {
-    return tax
-      ? [{
-        Description: "Sales tax",
-        Quantity: 1,
-        UnitAmount: lineAmount(tax.amount),
-        LineAmount: lineAmount(tax.amount),
-        AccountID: tax.accountExternalId,
-        TaxType: "NONE",
-        TaxAmount: 0,
-      }]
-      : [];
+    if (!tax) return [];
+    /** One line per rate when the document charged several, on the same account. */
+    const parts = tax.byRate && tax.byRate.length > 1 ? tax.byRate : [{ description: "Sales tax", amount: tax.amount }];
+    return parts.map((part) => ({
+      Description: part.description,
+      Quantity: 1,
+      UnitAmount: lineAmount(part.amount),
+      LineAmount: lineAmount(part.amount),
+      AccountID: tax.accountExternalId,
+      TaxType: "NONE",
+      TaxAmount: 0,
+    }));
   }
 
   async function findPushed(

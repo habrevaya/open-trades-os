@@ -2123,6 +2123,40 @@ run("credit notes, as each book is sent them", () => {
     expect(sent[0]!.headers["Idempotency-Key"]).toBe("CN7");
   });
 
+  /** A credit note that gave back tax at two of the company's rates. */
+  const twoRates: ExternalCreditNote = {
+    ...note,
+    tax: {
+      amount: { amount: "14.5000", currency: "USD" }, accountExternalId: "tax-2200",
+      byRate: [
+        { description: "Sales tax, Travis County 8.25%", amount: { amount: "8.2500", currency: "USD" } },
+        { description: "Sales tax, State only 6.25%", amount: { amount: "6.2500", currency: "USD" } },
+      ],
+    },
+  };
+
+  it("sends tax at several rates to QuickBooks as one line per rate on the tax account", async () => {
+    const calls: Call[] = [];
+    await qbo(calls, () => ({ CreditMemo: { Id: "cm-2", SyncToken: "0" } })).pushCreditNote(twoRates);
+    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const body = JSON.parse(sent[0]!.body!) as { Line: Record<string, unknown>[] };
+    expect(body.Line.slice(1)).toEqual([
+      expect.objectContaining({ Amount: 8.25, Description: "Sales tax, Travis County 8.25%", SalesItemLineDetail: { ItemRef: { value: "tax-2200" }, Qty: 1 } }),
+      expect.objectContaining({ Amount: 6.25, Description: "Sales tax, State only 6.25%", SalesItemLineDetail: { ItemRef: { value: "tax-2200" }, Qty: 1 } }),
+    ]);
+  });
+
+  it("sends tax at several rates to Xero as one line per rate, none of it worked out by Xero", async () => {
+    const calls: Call[] = [];
+    await xero(calls, () => ({ CreditNotes: [{ CreditNoteID: "xcn-2" }] })).pushCreditNote(twoRates);
+    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const body = (JSON.parse(sent[0]!.body!) as { CreditNotes: Record<string, unknown>[] }).CreditNotes[0]!;
+    expect((body["LineItems"] as unknown[]).slice(1)).toEqual([
+      expect.objectContaining({ LineAmount: 8.25, AccountID: "tax-2200", TaxType: "NONE", Description: "Sales tax, Travis County 8.25%" }),
+      expect.objectContaining({ LineAmount: 6.25, AccountID: "tax-2200", TaxType: "NONE", Description: "Sales tax, State only 6.25%" }),
+    ]);
+  });
+
   const paidBack: ExternalCreditNoteRefund = {
     idempotencyKey: "OP0123456789abcdef",
     customerExternalId: "c-1",
