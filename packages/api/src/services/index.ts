@@ -180,6 +180,12 @@ export * as adConversions from "./ad-conversions";
 export * as reviewSync from "./review-sync";
 export * as safety from "./safety";
 export * as retention from "./retention";
+/** The company's holidays, read by everything that reads its hours (M02). */
+export * as holidays from "./holidays";
+/** Which item is charged after hours and on a holiday, and the offer of it on an invoice (M02, M13). */
+export * as afterHours from "./after-hours";
+/** Toolbox talk topics, talks on a schedule and who has not signed (M23). */
+export * as safetyTalks from "./safety-talks";
 /** Consumer financing, the costing rates, the company budget and manual journals (M13, M15, M14). */
 export * as financing from "./financing";
 export * as costing from "./costing";

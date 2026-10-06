@@ -522,12 +522,18 @@ export async function storeUpload(
      * this happened. An upload that reached storage and never reached the
      * job is a photograph nobody will ever find.
      */
-    if (row.subjectId) {
+    /**
+     * A toolbox talk's signature is not attached until the operation that
+     * signs points it at a line on the sheet (`talk_signature` is waiting
+     * for that); once it has, it is the line's signature.
+     */
+    if (row.subjectId && row.subjectType !== "talk_signature") {
+      const signature = row.subjectType === "signature" || row.subjectType === "safety_meeting_attendee";
       await attach(tx, ctx.actor.organizationId, {
         entityType: row.subjectType === "signature" ? "visit" : row.subjectType,
         entityId: row.subjectId,
         storageKey: stored.file.storageKey,
-        kind: row.subjectType === "signature" ? "signature" : "photo",
+        kind: signature ? "signature" : "photo",
         contentType: stored.file.contentType,
         sizeBytes: stored.file.sizeBytes,
         fileName: input.caption ?? row.caption,

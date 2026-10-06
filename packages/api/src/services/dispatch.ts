@@ -20,6 +20,7 @@ import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 import { priorityWithin } from "./agreements";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
+import * as safetyTalks from "./safety-talks";
 
 
 /**
@@ -768,7 +769,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       return {
         revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [],
         locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
-        tasks: [], abilities: await fieldSales.abilitiesFor(tx, ctx),
+        tasks: [], talks: [], abilities: await fieldSales.abilitiesFor(tx, ctx),
       };
     }
 
@@ -883,6 +884,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       inspectionPrograms: await programsForField(tx, ctx),
       locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
       tasks: await fieldSales.tasksFor(tx, ctx),
+      talks: await safetyTalks.talksForField(tx, ctx, device.technicianId),
       abilities: await fieldSales.abilitiesFor(tx, ctx),
     };
   });
@@ -938,8 +940,13 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
      * for somebody with nothing booked reaches their phone.
      */
     const [row] = await tx.execute(sql`
-      select coalesce(extract(epoch from (select max(updated_at) from public.task))::bigint, 0)
-        + (select count(*) from public.task where status in ('open', 'in_progress')) as revision`);
+      select coalesce(extract(epoch from greatest(
+          (select max(updated_at) from public.task),
+          (select max(updated_at) from public.safety_meeting),
+          (select max(coalesce(signed_at, created_at)) from public.safety_meeting_attendee)
+        ))::bigint, 0)
+        + (select count(*) from public.task where status in ('open', 'in_progress'))
+        + (select count(*) from public.safety_meeting_attendee where signed_at is null) as revision`);
     return Number((row as { revision: number }).revision);
   }
   const visits = sql.raw(`('${visitIds.join("','")}')`);
@@ -957,8 +964,11 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
          join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}),
       (select max(updated_at) from public.job_line where visit_id in ${visits}),
       (select max(updated_at) from public.inspection where visit_id in ${visits}),
-      (select max(updated_at) from public.inspection_program)
+      (select max(updated_at) from public.inspection_program),
+      (select max(updated_at) from public.safety_meeting),
+      (select max(coalesce(signed_at, created_at)) from public.safety_meeting_attendee)
     ))::bigint, 0)
+    + (select count(*) from public.safety_meeting_attendee where signed_at is null)
     + (select count(*) from public.inspection where visit_id in ${visits})
     + (select count(*) from public.estimate where job_id in ${jobs} or customer_id in ${customers})
     + (select count(*) from public.job_line where job_id in ${jobs})

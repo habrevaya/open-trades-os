@@ -517,6 +517,12 @@ export const taskTemplate = pgTable("task_template", {
   /** Copied onto each task it raises, so ticking Monday's does not tick Tuesday's. */
   checklist: jsonb("checklist").$type<string[]>().notNull().default([]),
   startsOn: date("starts_on").notNull(),
+  /**
+   * Raise nothing on a date the company's holiday list says it is closed.
+   * The occurrence is skipped, not moved: Friday's van check on Christmas Day
+   * is not owed on the Monday after. A short day is not skipped.
+   */
+  skipHolidays: boolean("skip_holidays").notNull().default(false),
   active: boolean("active").notNull().default(true),
   /** The last day it raised a task for. Bookkeeping; the unique index is the guarantee. */
   lastRaisedOn: date("last_raised_on"),

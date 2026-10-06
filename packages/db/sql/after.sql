@@ -1618,6 +1618,29 @@ returns table (organization_id uuid)
 revoke all on function app.task_rule_organizations(int) from public;
 grant execute on function app.task_rule_organizations(int) to background;
 
+-- ---- Companies with toolbox talks to raise ---------------------------------
+-- The talk pass raises a scheduled toolbox talk on its day, across every
+-- tenant, as the task pass raises a recurring task. This answers only WHICH
+-- companies have an active talk schedule; which talk is due is decided per
+-- company, in its own timezone, by the service. A suspended company is left
+-- alone.
+create or replace function app.safety_talk_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id from public.safety_talk_schedule s
+    where s.active
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    group by s.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.safety_talk_organizations(int) from public;
+grant execute on function app.safety_talk_organizations(int) to background;
+
 -- ---- Companies holding an estimate that may have passed its date --------
 -- The worker marks an open estimate expired once its date has passed in the
 -- company's own calendar. It has no tenant until it picks one, so it asks here

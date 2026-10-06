@@ -1,4 +1,5 @@
 import { dateIn, instantOfLocal, minutesInDay, nextDay, wallTimeExists } from "../time/index.js";
+import { holidayOn, type CompanyHoliday } from "../holidays/index.js";
 
 /**
  * REVIEWS AND REPUTATION
@@ -755,6 +756,12 @@ export interface ResponsePolicy {
   closeHour: number;
   /** Ascending by `upToRating`, covering 1 through 5. */
   bands: readonly ResponseBand[];
+  /**
+   * The company's holiday list. A closed date is not a business day whatever
+   * its weekday, and a short day's hours replace the opening and closing
+   * hours above for that date. Absent is an empty list.
+   */
+  holidays?: readonly CompanyHoliday[] | undefined;
 }
 
 /**
@@ -845,22 +852,42 @@ export function bandFor(rating: number, policy: ResponsePolicy): ResponseBand | 
 }
 
 /**
- * The day of the week an instant falls on IN THE COMPANY'S ZONE.
+ * The office's hours on one date, in minutes, or null when it is shut.
  *
- * Via the calendar date rather than `getDay`, which answers for the server.
- * A review posted at eight on a Friday evening in Chicago is already
- * Saturday in UTC, and a deadline computed from the server's weekday would
- * skip the whole of the working day that is actually left.
+ * A holiday in the list decides the date outright: closed is closed on a
+ * Tuesday, and a short day keeps its own hours. Otherwise the weekday and
+ * the policy's hours, as before.
+ *
+ * The date is the calendar date IN THE COMPANY'S ZONE, and the weekday is
+ * read from it rather than from `getDay`, which answers for the server. A
+ * review posted at eight on a Friday evening in Chicago is already Saturday
+ * in UTC, and a deadline computed from the server's weekday would skip the
+ * whole of the working day that is actually left.
  */
-function weekdayIn(instant: Date, timeZone: string): number {
-  return new Date(`${dateIn(instant, timeZone)}T00:00:00Z`).getUTCDay();
+function hoursOn(date: string, policy: ResponsePolicy): { open: number; close: number } | null {
+  const holiday = policy.holidays ? holidayOn(policy.holidays, date) : null;
+  if (holiday) return holiday.hours ? { open: holiday.hours.openMinute, close: holiday.hours.closeMinute } : null;
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  if (!policy.businessDays.includes(weekday)) return null;
+  return { open: policy.openHour * 60, close: policy.closeHour * 60 };
 }
 
-function openingOn(date: string, policy: ResponsePolicy): Date {
-  const open = policy.openHour * 60;
+function openingOn(date: string, policy: ResponsePolicy, open: number): Date {
   return wallTimeExists(date, open, policy.timeZone)
     ? instantOfLocal(date, open, policy.timeZone)
     : instantOfLocal(date, open + 60, policy.timeZone);
+}
+
+/** The opening of the next date the office is open after `date`, or null when none is near. */
+function nextOpening(date: string, policy: ResponsePolicy): Date | null {
+  let day = date;
+  /** Two weeks of holidays end to end is still a list somebody meant; a year of them is not. */
+  for (let i = 0; i < 370; i += 1) {
+    day = nextDay(day);
+    const hours = hoursOn(day, policy);
+    if (hours) return openingOn(day, policy, hours.open);
+  }
+  return null;
 }
 
 /**
@@ -883,25 +910,26 @@ export function respondBy(postedAt: Date, band: ResponseBand, policy: ResponsePo
     return new Date(postedAt.getTime() + band.withinHours * 3_600_000);
   }
 
-  const open = policy.openHour * 60;
-  const close = policy.closeHour * 60;
   let remainingMinutes = band.withinHours * 60;
   let cursor = postedAt;
 
   for (let pass = 0; pass < 400; pass += 1) {
     const date = dateIn(cursor, policy.timeZone);
     const minutes = minutesInDay(cursor, policy.timeZone);
+    const hours = hoursOn(date, policy);
 
-    if (!policy.businessDays.includes(weekdayIn(cursor, policy.timeZone)) || minutes >= close) {
-      cursor = openingOn(nextDay(date), policy);
+    if (!hours || minutes >= hours.close) {
+      const next = nextOpening(date, policy);
+      if (!next) return cursor;
+      cursor = next;
       continue;
     }
-    if (minutes < open) {
-      cursor = openingOn(date, policy);
+    if (minutes < hours.open) {
+      cursor = openingOn(date, policy, hours.open);
       continue;
     }
 
-    const availableToday = close - minutes;
+    const availableToday = hours.close - minutes;
     if (remainingMinutes <= availableToday) {
       /**
        * Built from the wall clock rather than by adding milliseconds, so a
@@ -911,7 +939,9 @@ export function respondBy(postedAt: Date, band: ResponseBand, policy: ResponsePo
       return instantOfLocal(date, minutes + remainingMinutes, policy.timeZone);
     }
     remainingMinutes -= availableToday;
-    cursor = openingOn(nextDay(date), policy);
+    const next = nextOpening(date, policy);
+    if (!next) return cursor;
+    cursor = next;
   }
   return cursor;
 }

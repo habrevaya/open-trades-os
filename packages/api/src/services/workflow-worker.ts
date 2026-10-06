@@ -17,6 +17,7 @@ import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
 import { purgePass } from "./retention";
+import { talkPass } from "./safety-talks";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { purgePositions } from "./location";
@@ -404,6 +405,18 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] contract clocks:", (error as Error).message);
+    }
+    /**
+     * Toolbox talks on a schedule, raised on their day with the crew's
+     * members on the sheet. Its own try, and idempotent on the unique index
+     * on (schedule, day), so a pass cut short and repeated raises once.
+     */
+    try {
+      for (const result of await talkPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] toolbox talks ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] toolbox talks:", (error as Error).message);
     }
     /**
      * Records past their retention, for the companies that switched purging

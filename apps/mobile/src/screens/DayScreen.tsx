@@ -100,6 +100,8 @@ export function DayScreen({ nav }: { nav: Navigate }) {
 
       <TimeClock />
 
+      <TalksToSign nav={nav} />
+
       <OnSiteTools nav={nav} />
 
       {view === null ? null : visits.length === 0 ? (
@@ -118,6 +120,24 @@ export function DayScreen({ nav }: { nav: Navigate }) {
         <Button label="Sign out" kind="secondary" onPress={signOut} />
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * Toolbox talks waiting for this person's signature, at the top of the day,
+ * because a sheet nobody signs is a talk nobody can show was held.
+ */
+function TalksToSign({ nav }: { nav: Navigate }) {
+  const field = useField();
+  const waiting = (field.view?.day.talks ?? []).filter((t) => !t.signedAt && !t.signedHere && !t.cannotSign);
+  if (waiting.length === 0) return null;
+  return (
+    <View style={styles.tools}>
+      <View style={{ flex: 1 }}>
+        <Button label={waiting.length === 1 ? "A toolbox talk to sign" : `${waiting.length} toolbox talks to sign`}
+                onPress={() => nav.push({ name: "talks" })} />
+      </View>
+    </View>
   );
 }
 

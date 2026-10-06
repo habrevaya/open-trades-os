@@ -1403,6 +1403,228 @@
         ]
       }
     },
+    "/v1/after-hours-rates": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getAfterHoursRates",
+        "summary": "Which item is charged after hours, and which on a holiday",
+        "description": "Requires a session holding: pricebook:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which item is charged after hours, and which on a holiday",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAfterHoursRatesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:read"
+        ]
+      },
+      "put": {
+        "operationId": "setAfterHoursRates",
+        "summary": "Choose the after hours rate and the holiday rate",
+        "description": "Each is a price book item, or null for none. An item not yet marked as the after hours rate is marked by this, so a membership plan that waives the after hours rate waives it too; the diagnostic fee and a retired item are refused. The two may be the same item. Sent whole, so saving it twice leaves the same choice.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAfterHoursRatesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose the after hours rate and the holiday rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAfterHoursRatesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      }
+    },
     "/v1/agreement-instalments/{id}/invoice": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -22822,6 +23044,24 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -23525,10 +23765,134 @@
       }
     },
     "/v1/compliance/retention/rules": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
+      "post": {
+        "operationId": "createRetentionPolicy",
+        "summary": "Write a retention rule of the company's own",
+        "description": "About a kind of record something in this product removes: `incident_report`, `safety_meeting`, `service_report`, `inspection`, `photo` (a job's photographs), `form_submission` or `call_recording`. Purging is off on every new rule, whatever is sent: read its preview, then turn purging on with the change call. The clock start is fixed once written, like a seeded rule's.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRetentionPolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Write a retention rule of the company's own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRetentionPolicyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      },
       "get": {
         "operationId": "listRetentionPolicies",
         "summary": "The retention rules, and which of them may purge",
@@ -47767,6 +48131,471 @@
         ]
       }
     },
+    "/v1/holidays": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createHoliday",
+        "summary": "Add a holiday",
+        "description": "A date the company is closed, or open with hours of its own. `repeatsYearly` keeps a fixed date holiday every year; one that moves is added for the year it falls in. A second entry for the same date (or the same day every year) is refused; a one off date on the day of a yearly one is allowed and wins that year.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHolidayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a holiday",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateHolidayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      },
+      "get": {
+        "operationId": "listHolidays",
+        "summary": "The company's holidays: dates it is closed, or open with other hours",
+        "description": "Coming ones first, in the order they come, then the ones that have passed.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's holidays: dates it is closed, or open with other hours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListHolidaysOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/holidays/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "removeHoliday",
+        "summary": "Take a holiday off the list",
+        "description": "The audit log keeps what it said. Removing one already gone succeeds and says so.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveHolidayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a holiday off the list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveHolidayOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      },
+      "patch": {
+        "operationId": "updateHoliday",
+        "summary": "Change a holiday",
+        "description": "Requires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHolidayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a holiday",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateHolidayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      }
+    },
     "/v1/inspection-deficiencies": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -52983,6 +53812,124 @@
         "x-authorization": "session",
         "x-permissions": [
           "job:write"
+        ]
+      }
+    },
+    "/v1/jobs/{id}/rate-offers": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getJobRateOffers",
+        "summary": "The after hours or holiday rate to offer on this job's invoice",
+        "description": "One offer per item: the holiday rate for each visit booked on a date in the holiday list, and the after hours rate for each visit booked outside the hours kept that day, by the start of the window it was booked into. Cancelled visits are not counted, and an item already on another of the job's invoices that was not voided is not offered again (`exceptInvoiceId` is the draft being edited). Empty when no rates are chosen. Nothing is added to an invoice by this.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "exceptInvoiceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The after hours or holiday rate to offer on this job's invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetJobRateOffersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
         ]
       }
     },
@@ -101323,6 +102270,825 @@
         ]
       }
     },
+    "/v1/safety/schedules": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createSafetyTalkSchedule",
+        "summary": "Hold a talk from the library on a schedule",
+        "description": "For one crew (`crewId`) or one person (`technicianId`), never both. `frequency` is the same as a recurring task's. The worker raises the talk on its day in the company's zone at `heldMinutes`, with the crew's members as they are that day, once per day whatever it does, and only the latest occurrence after it was down.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSafetyTalkScheduleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Hold a talk from the library on a schedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSafetyTalkScheduleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      },
+      "get": {
+        "operationId": "listSafetyTalkSchedules",
+        "summary": "Toolbox talks that come round, per crew or per person",
+        "description": "Requires a session holding: safety:read.",
+        "tags": [
+          "M23"
+        ],
+        "responses": {
+          "200": {
+            "description": "Toolbox talks that come round, per crew or per person",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSafetyTalkSchedulesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:read"
+        ]
+      }
+    },
+    "/v1/safety/schedules/{id}/active": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setSafetyTalkScheduleActive",
+        "summary": "Pause or resume a scheduled talk",
+        "description": "Setting it to what it already is changes nothing.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSafetyTalkScheduleActiveInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pause or resume a scheduled talk",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetSafetyTalkScheduleActiveOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/topics": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createSafetyTopic",
+        "summary": "Add a topic to the library",
+        "description": "A title and the words the talk covers, in the company's own words. A talk held from it copies both.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSafetyTopicInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a topic to the library",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSafetyTopicOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      },
+      "get": {
+        "operationId": "listSafetyTopics",
+        "summary": "The company's own library of toolbox talk topics",
+        "description": "Requires a session holding: safety:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's own library of toolbox talk topics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSafetyTopicsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:read"
+        ]
+      }
+    },
+    "/v1/safety/topics/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateSafetyTopic",
+        "summary": "Change a topic's words, or retire it",
+        "description": "Talks already held keep the words they were held with. A retired topic raises no more scheduled talks.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSafetyTopicInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a topic's words, or retire it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateSafetyTopicOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/unsigned": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listUnsignedSafetyLines",
+        "summary": "Who has not signed a talk that has been held",
+        "description": "Every line not signed on a talk held by now whose sheet is still open, the oldest talk first.\n\nRequires a session holding: safety:read.",
+        "tags": [
+          "M23"
+        ],
+        "responses": {
+          "200": {
+            "description": "Who has not signed a talk that has been held",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListUnsignedSafetyLinesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:read"
+        ]
+      }
+    },
     "/v1/sandbox": {
       "description": "Served at this path: DELETE, GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -104610,6 +106376,7 @@
                 "team",
                 "pricebook",
                 "tax",
+                "rates",
                 "payments",
                 "communications",
                 "integrations"
@@ -134748,6 +136515,98 @@
           "createdAt"
         ]
       },
+      "CreateHolidayInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "opensAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{2}:\\d{2}$"
+          },
+          "closesAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{2}:\\d{2}$"
+          }
+        },
+        "required": [
+          "name",
+          "date",
+          "closed"
+        ]
+      },
+      "CreateHolidayOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "opensAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closesAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hours": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "date",
+          "repeatsYearly",
+          "closed",
+          "opensAt",
+          "closesAt",
+          "nextOn",
+          "hours"
+        ]
+      },
       "CreateIntakeDraftInput": {
         "type": "object",
         "properties": {
@@ -139546,6 +141405,130 @@
           "lastError"
         ]
       },
+      "CreateRetentionPolicyInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "entityType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "entityKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "clockStart": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "retainMonths": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1200
+          },
+          "basis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "name",
+          "entityType",
+          "clockStart",
+          "retainMonths"
+        ]
+      },
+      "CreateRetentionPolicyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clockStart": {
+            "type": "string"
+          },
+          "retainMonths": {
+            "type": "integer"
+          },
+          "sentence": {
+            "type": "string"
+          },
+          "basis": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tradePackId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purgeAllowed": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "actsOn": {
+            "type": "boolean"
+          },
+          "actsOnWhy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kindRule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "entityType",
+          "entityKind",
+          "clockStart",
+          "retainMonths",
+          "sentence",
+          "basis",
+          "tradePackId",
+          "purgeAllowed",
+          "active",
+          "actsOn",
+          "actsOnWhy",
+          "kindRule"
+        ]
+      },
       "CreateRingGroupInput": {
         "type": "object",
         "properties": {
@@ -140009,6 +141992,10 @@
               }
             },
             "maxItems": 200
+          },
+          "topicId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -140026,6 +142013,248 @@
         },
         "required": [
           "id"
+        ]
+      },
+      "CreateSafetyTalkScheduleInput": {
+        "type": "object",
+        "properties": {
+          "topicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekdays",
+              "weekly",
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
+            ]
+          },
+          "weekday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 6
+          },
+          "monthDay": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 31
+          },
+          "heldMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1439
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
+          "ledBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "topicId",
+          "frequency"
+        ]
+      },
+      "CreateSafetyTalkScheduleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topicTitle": {
+            "type": "string"
+          },
+          "topicRetired": {
+            "type": "boolean"
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "who": {
+            "type": "string"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekdays",
+              "weekly",
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
+            ]
+          },
+          "weekday": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "monthDay": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "heldMinutes": {
+            "type": "integer"
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ledBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "lastRaisedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "nextOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "id",
+          "topicId",
+          "topicTitle",
+          "topicRetired",
+          "crewId",
+          "technicianId",
+          "who",
+          "frequency",
+          "weekday",
+          "monthDay",
+          "heldMinutes",
+          "startsOn",
+          "location",
+          "ledBy",
+          "active",
+          "lastRaisedOn",
+          "schedule",
+          "nextOn"
+        ]
+      },
+      "CreateSafetyTopicInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "CreateSafetyTopicOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "retired": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "retired",
+          "createdAt"
         ]
       },
       "CreateSandboxInput": {
@@ -140599,6 +142828,9 @@
           "startsOn": {
             "type": "string",
             "format": "date"
+          },
+          "skipHolidays": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -140686,6 +142918,9 @@
             "type": "string",
             "format": "date"
           },
+          "skipHolidays": {
+            "type": "boolean"
+          },
           "active": {
             "type": "boolean"
           },
@@ -140721,6 +142956,7 @@
           "dueMinutes",
           "checklist",
           "startsOn",
+          "skipHolidays",
           "active",
           "lastRaisedOn",
           "schedule",
@@ -147390,6 +149626,112 @@
           "linkedDocuments",
           "lastRun",
           "closedThrough"
+        ]
+      },
+      "GetAfterHoursRatesOutput": {
+        "type": "object",
+        "properties": {
+          "afterHoursItem": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "price": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "taxable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "code",
+              "name",
+              "price",
+              "taxable"
+            ]
+          },
+          "holidayItem": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "price": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "taxable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "code",
+              "name",
+              "price",
+              "taxable"
+            ]
+          },
+          "marked": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "name",
+                "price",
+                "taxable"
+              ]
+            }
+          }
+        },
+        "required": [
+          "afterHoursItem",
+          "holidayItem",
+          "marked"
         ]
       },
       "GetAgreementOutput": {
@@ -156275,6 +158617,66 @@
               ]
             }
           },
+          "talks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "meetingId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "heldAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "cannotSign": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "meetingId",
+                "topic",
+                "notes",
+                "heldAt",
+                "location",
+                "ledBy",
+                "signedAt",
+                "cannotSign"
+              ]
+            }
+          },
           "abilities": {
             "type": "object",
             "properties": {
@@ -156339,6 +158741,7 @@
           "inspectionPrograms",
           "locationSharing",
           "tasks",
+          "talks",
           "abilities"
         ]
       },
@@ -159337,6 +161740,73 @@
           "journalLines",
           "lines",
           "labour"
+        ]
+      },
+      "GetJobRateOffersOutput": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "after_hours",
+                    "holiday"
+                  ]
+                },
+                "item": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "taxable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "code",
+                    "name",
+                    "price",
+                    "taxable"
+                  ]
+                },
+                "quantity": {
+                  "type": "integer"
+                },
+                "because": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "kind",
+                "item",
+                "quantity",
+                "because"
+              ]
+            }
+          }
+        },
+        "required": [
+          "offers"
         ]
       },
       "GetJobSkillsOutput": {
@@ -169989,6 +172459,7 @@
                   "team",
                   "pricebook",
                   "tax",
+                  "rates",
                   "payments",
                   "communications",
                   "integrations"
@@ -170022,6 +172493,7 @@
                     "team",
                     "pricebook",
                     "tax",
+                    "rates",
                     "payments",
                     "communications",
                     "integrations"
@@ -178470,7 +180942,8 @@
                     "invoice.raise",
                     "task.claim",
                     "task.close",
-                    "tip.record"
+                    "tip.record",
+                    "safety.sign"
                   ]
                 },
                 "subjectId": {
@@ -182964,6 +185437,70 @@
         },
         "required": [
           "forms"
+        ]
+      },
+      "ListHolidaysOutput": {
+        "type": "object",
+        "properties": {
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "repeatsYearly": {
+                  "type": "boolean"
+                },
+                "closed": {
+                  "type": "boolean"
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nextOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "date",
+                "repeatsYearly",
+                "closed",
+                "opensAt",
+                "closesAt",
+                "nextOn",
+                "hours"
+              ]
+            }
+          }
+        },
+        "required": [
+          "holidays"
         ]
       },
       "ListIncidentsOutput": {
@@ -191760,6 +194297,174 @@
           "meetings"
         ]
       },
+      "ListSafetyTalkSchedulesOutput": {
+        "type": "object",
+        "properties": {
+          "schedules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "topicId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "topicTitle": {
+                  "type": "string"
+                },
+                "topicRetired": {
+                  "type": "boolean"
+                },
+                "crewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "who": {
+                  "type": "string"
+                },
+                "frequency": {
+                  "type": "string",
+                  "enum": [
+                    "daily",
+                    "weekdays",
+                    "weekly",
+                    "every_other_week",
+                    "monthly",
+                    "last_weekday_of_month"
+                  ]
+                },
+                "weekday": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "monthDay": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "heldMinutes": {
+                  "type": "integer"
+                },
+                "startsOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "lastRaisedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "schedule": {
+                  "type": "string"
+                },
+                "nextOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "topicId",
+                "topicTitle",
+                "topicRetired",
+                "crewId",
+                "technicianId",
+                "who",
+                "frequency",
+                "weekday",
+                "monthDay",
+                "heldMinutes",
+                "startsOn",
+                "location",
+                "ledBy",
+                "active",
+                "lastRaisedOn",
+                "schedule",
+                "nextOn"
+              ]
+            }
+          }
+        },
+        "required": [
+          "schedules"
+        ]
+      },
+      "ListSafetyTopicsOutput": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "body",
+                "retired",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "topics"
+        ]
+      },
       "ListScheduledRevisionsOutput": {
         "type": "object",
         "properties": {
@@ -193021,6 +195726,9 @@
                   "type": "string",
                   "format": "date"
                 },
+                "skipHolidays": {
+                  "type": "boolean"
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -193056,6 +195764,7 @@
                 "dueMinutes",
                 "checklist",
                 "startsOn",
+                "skipHolidays",
                 "active",
                 "lastRaisedOn",
                 "schedule",
@@ -194468,6 +197177,50 @@
         },
         "required": [
           "sources"
+        ]
+      },
+      "ListUnsignedSafetyLinesOutput": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "meetingId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "heldAt": {
+                  "type": "string"
+                },
+                "attendeeId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ownPerson": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "meetingId",
+                "topic",
+                "heldAt",
+                "attendeeId",
+                "name",
+                "ownPerson"
+              ]
+            }
+          }
+        },
+        "required": [
+          "lines"
         ]
       },
       "ListUnsoldEstimatesOutput": {
@@ -197295,6 +200048,7 @@
               "team",
               "pricebook",
               "tax",
+              "rates",
               "payments",
               "communications",
               "integrations"
@@ -197331,6 +200085,7 @@
                   "team",
                   "pricebook",
                   "tax",
+                  "rates",
                   "payments",
                   "communications",
                   "integrations"
@@ -199431,6 +202186,8 @@
               "safety_meeting",
               "service_report",
               "inspection",
+              "photo",
+              "form_submission",
               "call_recording"
             ]
           },
@@ -208256,6 +211013,21 @@
           "removed"
         ]
       },
+      "RemoveHolidayInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveHolidayOutput": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ]
+      },
       "RemoveKnowledgeNoteInput": {
         "type": "object",
         "properties": {}
@@ -216420,6 +219192,135 @@
           "externalKind"
         ]
       },
+      "SetAfterHoursRatesInput": {
+        "type": "object",
+        "properties": {
+          "afterHoursItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "holidayItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "afterHoursItemId",
+          "holidayItemId"
+        ]
+      },
+      "SetAfterHoursRatesOutput": {
+        "type": "object",
+        "properties": {
+          "afterHoursItem": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "price": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "taxable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "code",
+              "name",
+              "price",
+              "taxable"
+            ]
+          },
+          "holidayItem": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "price": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "taxable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "code",
+              "name",
+              "price",
+              "taxable"
+            ]
+          },
+          "marked": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "name",
+                "price",
+                "taxable"
+              ]
+            }
+          }
+        },
+        "required": [
+          "afterHoursItem",
+          "holidayItem",
+          "marked"
+        ]
+      },
       "SetAiSpendLimitInput": {
         "type": "object",
         "properties": {
@@ -220539,6 +223440,135 @@
           "halfLifeDays"
         ]
       },
+      "SetSafetyTalkScheduleActiveInput": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active"
+        ]
+      },
+      "SetSafetyTalkScheduleActiveOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topicTitle": {
+            "type": "string"
+          },
+          "topicRetired": {
+            "type": "boolean"
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "who": {
+            "type": "string"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekdays",
+              "weekly",
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
+            ]
+          },
+          "weekday": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "monthDay": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "heldMinutes": {
+            "type": "integer"
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ledBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "lastRaisedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "nextOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "id",
+          "topicId",
+          "topicTitle",
+          "topicRetired",
+          "crewId",
+          "technicianId",
+          "who",
+          "frequency",
+          "weekday",
+          "monthDay",
+          "heldMinutes",
+          "startsOn",
+          "location",
+          "ledBy",
+          "active",
+          "lastRaisedOn",
+          "schedule",
+          "nextOn"
+        ]
+      },
       "SetServiceRouteStopActiveInput": {
         "type": "object",
         "properties": {
@@ -223363,7 +226393,8 @@
                     "invoice.raise",
                     "task.claim",
                     "task.close",
-                    "tip.record"
+                    "tip.record",
+                    "safety.sign"
                   ]
                 },
                 "subjectId": {
@@ -228166,6 +231197,98 @@
           "id"
         ]
       },
+      "UpdateHolidayInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "opensAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{2}:\\d{2}$"
+          },
+          "closesAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{2}:\\d{2}$"
+          }
+        },
+        "required": [
+          "name",
+          "date",
+          "closed"
+        ]
+      },
+      "UpdateHolidayOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "opensAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closesAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hours": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "date",
+          "repeatsYearly",
+          "closed",
+          "opensAt",
+          "closesAt",
+          "nextOn",
+          "hours"
+        ]
+      },
       "UpdateInvoiceInput": {
         "type": "object",
         "properties": {
@@ -232570,6 +235693,52 @@
           "noAnswerTo"
         ]
       },
+      "UpdateSafetyTopicInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "retired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateSafetyTopicOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "retired": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "retired",
+          "createdAt"
+        ]
+      },
       "UpdateServiceReportTemplateInput": {
         "type": "object",
         "properties": {
@@ -233046,6 +236215,9 @@
             "type": "string",
             "format": "date"
           },
+          "skipHolidays": {
+            "type": "boolean"
+          },
           "active": {
             "type": "boolean"
           }
@@ -233131,6 +236303,9 @@
             "type": "string",
             "format": "date"
           },
+          "skipHolidays": {
+            "type": "boolean"
+          },
           "active": {
             "type": "boolean"
           },
@@ -233166,6 +236341,7 @@
           "dueMinutes",
           "checklist",
           "startsOn",
+          "skipHolidays",
           "active",
           "lastRaisedOn",
           "schedule",

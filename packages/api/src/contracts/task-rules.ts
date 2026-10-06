@@ -38,6 +38,8 @@ const Template = z.object({
   dueMinutes: z.number().int(),
   checklist: z.array(z.string()),
   startsOn: IsoDate,
+  /** Raises nothing on a date the company's holiday list says it is closed. */
+  skipHolidays: z.boolean(),
   active: z.boolean(),
   lastRaisedOn: IsoDate.nullable(),
   /** "Every Monday". */
@@ -58,6 +60,8 @@ const TemplateFields = {
   dueMinutes: z.number().int().min(0).max(1439).optional(),
   checklist: z.array(z.string().min(1).max(300)).max(50).optional(),
   startsOn: IsoDate.optional(),
+  /** Skip an occurrence that falls on a date the holiday list says the company is closed. Skipped, not moved. */
+  skipHolidays: z.boolean().optional(),
 };
 
 export const listTaskTemplates = defineRoute({

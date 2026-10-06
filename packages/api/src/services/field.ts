@@ -12,6 +12,7 @@ import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
+import * as safetyTalks from "./safety-talks";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -901,7 +902,15 @@ async function effect(
         deviceId: op.deviceId,
         operationId,
         clientId: String(op.payload["uploadId"] ?? op.clientId),
-        subjectType: op.kind === "signature.capture" ? "signature" : "visit",
+        /**
+         * A signature drawn for a toolbox talk waits, unattached, for the
+         * `safety.sign` operation after it to point it at the person's line
+         * on the sheet: the talk is not the line, and a signature that was
+         * refused must not end up on anything.
+         */
+        subjectType: op.kind === "signature.capture"
+          ? (op.payload["for"] === "safety_meeting" ? "talk_signature" : "signature")
+          : "visit",
         subjectId: op.subjectId || null,
         contentType: String(op.payload["contentType"] ?? "image/jpeg"),
         byteSize: (op.payload["byteSize"] as number) ?? null,
@@ -1106,6 +1115,9 @@ async function effect(
 
     case "tip.record":
       return fieldSales.recordCashTip(tx, ctx, op);
+
+    case "safety.sign":
+      return safetyTalks.signOperation(tx, ctx, op);
 
     default:
       /**

@@ -29,7 +29,7 @@ only ones marked.
 
 The second is an empty database. A setup flow that asks about tax classes and
 margin targets before there is a single price book item to apply them to is a
-flow people abandon. So choosing a trade is step two of ten rather than step
+flow people abandon. So choosing a trade is step two of eleven rather than step
 nine: it seeds a real price book, and every question after it is being asked
 about something concrete.
 
@@ -91,7 +91,7 @@ each contractor makes differently and has to be able to argue with.
 
 ## Setup
 
-Ten steps, in this order. The four marked essential are what stops a booking.
+Eleven steps, in this order. The ones marked essential are what stops a booking.
 
 | Step | Essential | Needs |
 |---|---|---|
@@ -102,6 +102,7 @@ Ten steps, in this order. The four marked essential are what stops a booking.
 | Your team | No | `user:invite` |
 | Price book | Yes | `pricebook:write` |
 | Sales tax | Yes | `settings:write` |
+| After hours and holiday rates | No | `pricebook:write` |
 | Payments | Yes, and start early | `integration:write` |
 | Phone and email | No, and start early | `integration:write` |
 | Accounting | No | `integration:write` |
@@ -110,11 +111,12 @@ The wizard lives at `/setup`, and every step has a page of its own that draws
 the real settings form for it rather than a copy: `/setup/company` (the name,
 the legal name, the phone, email and postal address customers reach the
 company by, the time zone, the logo and colour), `/setup/trade`,
-`/setup/service-area`, `/setup/hours` (opening hours, arrival windows and what
-may be booked online), `/setup/team` (inviting people, who are emailed a link
+`/setup/service-area`, `/setup/hours` (opening hours, arrival windows, what
+may be booked online and the holiday list), `/setup/team` (inviting people, who are emailed a link
 to choose a password, and branches for a company with more than one shop), `/setup/pricebook` (every price, or one
 shelf, moved up or down by a percentage, previewed first and undoable from
-`/pricebook/changes`), `/setup/tax`, `/setup/payments`,
+`/pricebook/changes`), `/setup/tax`, `/setup/rates` (the item charged after
+hours and the one charged on a holiday), `/setup/payments`,
 `/setup/communications` (texting and email providers, and the A2P 10DLC brand
 and campaigns written down) and `/setup/integrations`. Each page says what is
 already in place, read from the data, and where the same setting lives after
@@ -225,6 +227,57 @@ in it: a container day in M22, quiet hours on a campaign in M19, a pay period
 in M17, the days and months every report and KPI counts in M21. A company in the wrong zone gets a working day that starts in the
 evening.
 
+### Holidays
+
+`/settings/holidays` keeps the company's own list of days it is closed, or open
+with hours of its own (Christmas Eve until noon), by date. A day can repeat every
+year, which is what a fixed date holiday is; one that moves (the fourth Thursday
+of November) is added for the year it falls in. The list starts empty and holds
+only what the company adds: no calendar of public holidays is shipped, because
+which days a business closes is its own decision. The same list is drawn on the
+setup wizard's hours step.
+
+On a date in the list, its hours replace the week's, and everything that reads the
+company's hours reads it:
+
+| Reader | On a closed date | On a short day |
+|---|---|---|
+| Online booking (`/book/{slug}`, a customer's own account, a request to move a visit) | No window is offered, and a booking request for it is refused in words | Only the windows that start and end inside its hours |
+| The phones (a number's hours, a phone menu's after hours option) | A call goes where an after hours call goes | Its own hours decide |
+| The phone and chat assistants | Told about it, among the hours they quote | Told its hours |
+| The reviews reply clock (M20) | Does not run | Runs for its hours |
+| The multi day rebalance (M09) | Nothing is moved onto it | As any open day |
+| A recurring task set to skip holidays (M34) | Raises nothing, and is not raised the day after instead | Raised as usual |
+| After hours and holiday rates, below | The holiday rate is offered | The holiday rate is offered |
+
+A date entered for one year beats a yearly one on the same day, so "this year we
+open Christmas morning" is said on top of "we close every Christmas". A second
+entry for the same date is refused in words, and so is a yearly one on the 29th of
+February, which three years in four has no date. `GET /v1/holidays` reads the
+list (`settings:read`), and `POST /v1/holidays`, `PATCH /v1/holidays/{id}` and
+`DELETE /v1/holidays/{id}` change it with `booking:configure`, the permission the
+week's hours are set with.
+
+### After hours and holiday rates
+
+The same page, and the `/setup/rates` step, choose which price book item is
+charged for work booked outside the company's hours and which on a holiday. Both
+are items marked as the after hours rate, the mark a membership plan reads when it
+waives that rate (M08), and choosing an item that is not marked yet marks it, as
+its own page would, so a member whose plan waives the after hours rate is not
+charged it on a holiday by an unmarked item. The two can be the same item; the
+diagnostic fee and a retired item are refused. `GET /v1/after-hours-rates` reads
+the choice with `pricebook:read` and `PUT /v1/after-hours-rates` sets it with
+`pricebook:write`.
+
+The rate is offered, never added. When a job's visit was booked (by the start of
+the window it was booked into) on a date in the holiday list, or outside the hours
+kept that day, the new invoice for that job and the draft being edited show the
+item, how many visits it is for, and one sentence per visit ("2026-10-06 at 19:00,
+after the 17:00 close"), with a button that puts it on as a line from the price
+book. `GET /v1/jobs/{id}/rate-offers` is the same offer. An item already on
+another of the job's invoices that was not voided is not offered again.
+
 ### Divide the company up
 
 A company that runs out of more than one building can declare locations,
@@ -296,5 +349,23 @@ either. Every pack ships at version one today, so no company has an upgrade
 waiting yet.
 
 The 10DLC step records a registration made in the carrier's portal; it does
-not submit one to a carrier. Holidays and after hours rates have no step.
-Company licences are compliance documents rather than a setup step.
+not submit one to a carrier. Company licences are compliance documents rather
+than a setup step.
+
+Holidays are one list for the whole company: a branch cannot keep its own, and
+the week's hours a branch has (`business_hours` carries a business unit) are not
+read per branch by the holiday list's readers either. A holiday that moves is
+entered each year; nothing works out the fourth Thursday of November. The route
+density figures (M09) read the week's hours for a weekday, not a date, so a
+holiday does not change them. Task escalation counts hours, not working hours
+(M34), so a holiday does not pause it.
+
+The after hours rate is offered on the office's invoice screens only: an invoice
+raised on the phone from the visit's work (M11) does not offer it, and neither does
+an estimate. Whether a visit was after hours is read from the window it was booked
+into, not from when the technician arrived or punched in, because the arrival
+window is what the customer was promised. A holiday rate on an item not marked as
+the after hours rate cannot be chosen, deliberately: a plan that waives the after
+hours rate then waives the holiday rate too, which is the conservative reading of
+what a member was told, and a company that wants members to pay a holiday rate has
+no way to say so.

@@ -88,6 +88,8 @@ export const createSafetyMeeting = defineRoute({
     jobId: Uuid.optional(),
     ledBy: z.string().max(200).optional(),
     attendees: z.array(AttendeeInput).max(200).optional(),
+    /** A topic from the company's library: recorded on the talk, and its words used when `notes` is not sent. */
+    topicId: Uuid.optional(),
   }),
   output: z.object({ id: Uuid }),
 });

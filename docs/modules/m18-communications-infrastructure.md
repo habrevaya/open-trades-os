@@ -195,7 +195,10 @@ ring group, voicemail, another menu, whoever is on call, a number outside
 the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
 Outside the business hours online booking keeps, calls go where the menu's
-after hours setting says, usually whoever is on call. Every save is checked
+after hours setting says, usually whoever is on call. The company's holiday list
+(`/settings/holidays`, M02) is read with them: on a closed holiday a call goes
+where an after hours call goes whatever the weekday, and on a short day the
+day's own hours decide. Every save is checked
 against what exists, so an option ringing a person with no number, a deleted
 group or a number nobody can dial is refused with the option named, and a menu
 or group that something still sends calls to cannot be deleted.
@@ -393,8 +396,9 @@ Calls: none of the waiting line, the phone assistant or the browser phone has
 been tried on a live phone line. Each is built from Twilio's documentation and
 tested against a fake carrier: signed webhooks, a WebSocket client playing
 ConversationRelay's part, and a fake REST API. A menu takes key presses only,
-not spoken answers. Business hours come from online booking and have no
-holiday list. JustCall has no voice adapter.
+not spoken answers. Business hours come from online booking and the holiday
+list from Settings, one of each for the whole company: a number cannot keep
+hours or holidays of its own. JustCall has no voice adapter.
 
 Waiting lines: the longest wait and the caller's place are checked each time
 the hold music finishes, so a long track lets a caller wait past the limit by

@@ -905,6 +905,8 @@ run("every operation does something", () => {
       { kind: "task.claim", subjectId: task!.id, payload: {} },
       { kind: "task.close", subjectId: task!.id, payload: { outcome: "Called them" } },
       { kind: "tip.record", subjectId: visitId, payload: { amount: "10.00" } },
+      /** Refused here, on a talk that is not there: the signing itself is proved in safety-talks. */
+      { kind: "safety.sign", subjectId: uuid(), payload: { signatureUploadId: uuid() } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 

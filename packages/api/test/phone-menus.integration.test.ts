@@ -6,6 +6,7 @@ import * as voice from "../src/services/voice";
 import * as phoneMenus from "../src/services/phone-menus";
 import * as phoneNumbers from "../src/services/phone-numbers";
 import * as onCall from "../src/services/on-call";
+import * as holidays from "../src/services/holidays";
 import { twilioSignature } from "../src/comms/twilio";
 import { createTwilioVoice } from "../src/voice/twilio";
 import { ConflictError, type ServiceContext } from "../src/services/context";
@@ -323,6 +324,37 @@ run("after hours, to whoever is on call", () => {
       select routed_because from public.call where provider_call_id = ${`twilio:${SID}`}`;
     expect(call!.routed_because).toContain("whoever is on call");
     expect(call!.routed_because).toContain("Lee Tech was on call.");
+  });
+
+  it("sends a call on a closed holiday where an after hours call goes, at ten in the morning on a Monday", async () => {
+    const day = await holidays.create(owner(), { name: "Founders Day", date: "2026-10-05", closed: true });
+    try {
+      const SID = `CA${randomBytes(8).toString("hex")}`;
+      const reply = await webhook("incoming", { CallSid: SID, From: "+15125550116", To: MAIN }, "", OPEN);
+      expect(reply.twiml).toContain(`>${LEE_PHONE}</Number>`);
+      expect(reply.twiml).not.toContain("<Gather");
+      const [call] = await raw<{ routed_because: string }[]>`
+        select routed_because from public.call where provider_call_id = ${`twilio:${SID}`}`;
+      expect(call!.routed_because).toContain("whoever is on call");
+    } finally {
+      await holidays.remove(owner(), { id: day.id });
+    }
+  });
+
+  it("answers with the menu on a short day while it is open, and after hours once it has shut", async () => {
+    const day = await holidays.create(owner(), {
+      name: "Half day", date: "2026-10-05", closed: false, opensAt: "08:00", closesAt: "09:30",
+    });
+    try {
+      const early = await webhook("incoming", { CallSid: `CA${randomBytes(8).toString("hex")}`, From: "+15125550117", To: MAIN }, "",
+        new Date("2026-10-05T14:00:00Z"));
+      expect(early.twiml).toContain("<Gather");
+      const late = await webhook("incoming", { CallSid: `CA${randomBytes(8).toString("hex")}`, From: "+15125550118", To: MAIN }, "", OPEN);
+      expect(late.twiml).not.toContain("<Gather");
+      expect(late.twiml).toContain(`>${LEE_PHONE}</Number>`);
+    } finally {
+      await holidays.remove(owner(), { id: day.id });
+    }
   });
 
   it("sends a night call to voicemail when nobody is on call, and says so", async () => {

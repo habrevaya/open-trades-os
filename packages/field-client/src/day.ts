@@ -1,7 +1,7 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
 import type {
-  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTask, FieldVisit, MemberTerms, ReportField,
+  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTalk, FieldTask, FieldVisit, MemberTerms, ReportField,
 } from "./wire";
 import { addAmounts, estimateFromPayload } from "./sales";
 
@@ -171,6 +171,13 @@ export interface DayTask extends FieldTask {
   waiting: boolean;
 }
 
+/** A toolbox talk on this person's sheet, with a signature drawn on this phone laid over. */
+export interface DayTalk extends FieldTalk {
+  /** Signed on this phone and not sent yet, or sent and not yet in a fetched day. */
+  signedHere: boolean;
+  waiting: boolean;
+}
+
 export interface DayInspection {
   id: string;
   programName: string;
@@ -212,6 +219,8 @@ export interface DayView {
   clock: { open: boolean; since: string | null; waiting: boolean };
   /** The office queue: this person's tasks and the ones nobody has taken. */
   tasks: DayTask[];
+  /** Toolbox talks on this person's sheet. */
+  talks: DayTalk[];
 }
 
 /**
@@ -266,6 +275,7 @@ export function projectDay(input: {
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
   const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
+  const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -299,6 +309,13 @@ export function projectDay(input: {
       task.waiting = waiting;
       continue;
     }
+    if (op.kind === "safety.sign") {
+      const talk = talks.find((t) => t.meetingId === op.subjectId);
+      if (!talk) continue;
+      talk.signedHere = true;
+      talk.waiting = waiting;
+      continue;
+    }
 
     const visitId = visitOf(op);
     const visit = visitId ? visits.get(visitId) : undefined;
@@ -329,6 +346,7 @@ export function projectDay(input: {
     visits: [...visits.values()].sort(byRoute),
     clock,
     tasks,
+    talks,
   };
 }
 
@@ -344,8 +362,8 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
-  /** A task is the office's, not a visit's. */
-  if (op.kind === "task.claim" || op.kind === "task.close") return undefined;
+  /** A task is the office's, not a visit's, and a toolbox talk is nobody's visit. */
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign") return undefined;
   return op.subjectId;
 }
 

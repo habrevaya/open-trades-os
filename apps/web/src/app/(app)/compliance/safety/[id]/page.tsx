@@ -9,6 +9,7 @@ import { Crumb, Fact, Facts } from "@/components/Detail";
 import { Empty, PageHeader, Table, Td, Th } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { act } from "../actions";
+import { HoldPanel } from "@/components/HoldPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -127,6 +128,8 @@ export default async function SafetyTalkPage({ params }: { params: Promise<{ id:
           </div>
         </section>
       ) : null}
+      <HoldPanel ctx={ctx} entityType="safety_meeting" entityId={meeting.id} path={`/compliance/safety/${meeting.id}`}
+                 label="this talk and its signatures" timezone={zone} />
     </div>
   );
 }

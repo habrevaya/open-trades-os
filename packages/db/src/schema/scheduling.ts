@@ -74,6 +74,37 @@ export const businessHours = pgTable("business_hours", {
   ...timestamps,
 }, (t) => ({ orgIdx: index("business_hours_org_idx").on(t.organizationId, t.dayOfWeek) }));
 
+/**
+ * THE COMPANY'S OWN HOLIDAYS: a date it is closed, or open with hours of its
+ * own, on top of the week above.
+ *
+ * Read by everything that reads the week: online booking offers no window on a
+ * closed date, the phones route a call on one as after hours, the reviews
+ * clock does not run, the multi day rebalance moves nothing onto it, and a
+ * recurring task told to skip holidays skips it. Core's `holidays` holds the
+ * rule, so every reader asks the same question the same way.
+ *
+ * `repeats_yearly` is a fixed date holiday: only the month and day of `date`
+ * are read. A holiday that moves (the fourth Thursday of November) is added
+ * for the year it falls in. Removed outright when the company takes one off
+ * the list; nothing points at a row, and the audit log keeps what it said.
+ */
+export const companyHoliday = pgTable("company_holiday", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  date: date("date").notNull(),
+  repeatsYearly: boolean("repeats_yearly").notNull().default(false),
+  /** Shut all day. False is open, with the hours below. */
+  closed: boolean("closed").notNull().default(true),
+  opensAt: time("opens_at"),
+  closesAt: time("closes_at"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("company_holiday_org_idx").on(t.organizationId, t.date),
+}));
+
 // ---------------------------------------------------------------------------
 // Crews: the crew_production model
 // ---------------------------------------------------------------------------

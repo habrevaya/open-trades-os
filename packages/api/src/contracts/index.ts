@@ -86,6 +86,9 @@ import { phoneMenuRoutes } from "./phone-menus";
 import { callHandlingRoutes } from "./call-handling";
 import { safetyRoutes } from "./safety";
 import { retentionRoutes } from "./retention";
+import { holidayRoutes } from "./holidays";
+import { afterHoursRoutes } from "./after-hours";
+import { safetyTalkRoutes } from "./safety-talks";
 import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
@@ -153,6 +156,9 @@ export * from "./service-reports";
 export * from "./reports";
 export * from "./safety";
 export * from "./retention";
+export * from "./holidays";
+export * from "./after-hours";
+export * from "./safety-talks";
 export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
@@ -293,6 +299,9 @@ export const routes = {
   ...directMailRoutes,
   ...safetyRoutes,
   ...retentionRoutes,
+  ...holidayRoutes,
+  ...afterHoursRoutes,
+  ...safetyTalkRoutes,
   ...stockTrackingRoutes,
   ...purchasingRoutes,
   ...rentalBillingRoutes,

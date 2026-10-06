@@ -138,7 +138,9 @@ in.
 **Offered availability is derived, never typed in.** What a company configures
 is the shape of what it is willing to sell: which job types are bookable, in
 which territories, how far ahead, how much notice, how many per window. The
-engine intersects that with business hours and with the technicians' own
+engine intersects that with business hours, the company's holiday list
+(no window on a date it is closed, and on a short day only the windows that
+start and end inside that day's hours), and with the technicians' own
 days, as the dispatch board has them: who is working, who has approved time
 off touching the window, who is qualified for the job type's skills on each
 day shown (the same check the board's drop makes, asked again from the day
@@ -175,7 +177,10 @@ had been requested.
 
 `/booking` is where a company says what the public may book: the services, the
 arrival windows it is willing to offer, and which days it is open. All three
-need `booking:configure`. The public widget is served at `/book/{slug}`.
+need `booking:configure`. The public widget is served at `/book/{slug}`. The
+days it closes for a holiday, or opens shorter, are on `/settings/holidays`
+(M02), changed with the same permission; a booking request for a date that has
+since gone on the list is refused in words, as a full window is.
 
 `/settings/portal` shows the address customers sign in at (`/portal/{slug}`),
 turns tipping on and sets the suggested percentages, turns bank payments on,

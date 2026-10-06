@@ -62,7 +62,10 @@ made at the moment the review landed, and recomputing it from a policy somebody
 edited last week would quietly move a deadline that was already missed.
 
 **The work list is ordered the way somebody should work it.** Overdue first, most
-overdue at the top, then by deadline.
+overdue at the top, then by deadline. A deadline measured in open hours runs only
+on the review policy's business days and hours, and not on a date the company's
+holiday list (`/settings/holidays`, M02) says it is closed; on a short day it runs
+for that day's hours.
 
 **Reviews are entered by hand or read from Google or Facebook, and the hand path is
 not a placeholder.** A Google Business Profile listing and a Facebook Page are read

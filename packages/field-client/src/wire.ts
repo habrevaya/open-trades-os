@@ -146,6 +146,20 @@ export interface FieldTask {
   checklistDone: number;
 }
 
+/** A toolbox talk this person is on the sheet for: their own line and nothing about anybody else's. */
+export interface FieldTalk {
+  meetingId: string;
+  topic: string;
+  /** What the talk covered, which the person reads before signing. */
+  notes: string | null;
+  heldAt: string;
+  location: string | null;
+  ledBy: string | null;
+  signedAt: string | null;
+  /** Why it cannot be signed now, in the server's words, or null when it can. */
+  cannotSign: string | null;
+}
+
 /** What this person may do on site, as the server said with the day. */
 export interface FieldAbilities {
   writeEstimates: boolean;
@@ -238,6 +252,8 @@ export interface FieldSnapshot {
   locationSharing?: LocationSharing | undefined;
   /** The office queue. Absent from older servers. */
   tasks?: FieldTask[] | undefined;
+  /** Toolbox talks on this person's sheet. Absent from older servers. */
+  talks?: FieldTalk[] | undefined;
   /** What this person may do on site. Absent from older servers, which is read as nothing new. */
   abilities?: FieldAbilities | undefined;
 }

@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, jobs, priceBook, NotFoundError } from "@opentradesos/api/services";
+import { afterHours, billing, jobs, priceBook, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can, money } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Composer, type ComposerLine } from "../../Composer";
@@ -36,12 +36,23 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
   });
   if (invoice.status !== "draft") redirect(`/invoices/${id}`);
 
-  const items = can(user.actor, "pricebook:read")
+  /**
+   * The after hours or holiday rate, when one of the job's visits was booked
+   * outside the hours, unless another of the job's invoices already has it.
+   * Offered above the lines and added only when somebody presses for it.
+   */
+  const offers = invoice.jobId && can(user.actor, "pricebook:read") && can(user.actor, "job:read")
+    ? await afterHours.offersForJob(ctx, { jobId: invoice.jobId, exceptInvoiceId: id })
+    : [];
+  const listed = can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
       .map((item) => ({ id: item.id, name: item.name, price: item.price, taxable: item.taxable, versionId: item.versionId }))
-      .sort((a, b) => a.name.localeCompare(b.name))
     : [];
-  const itemByVersion = new Map(items.map((item) => [item.versionId, item.id]));
+  const items = [
+    ...listed,
+    ...offers.map((o) => o.item).filter((item) => !listed.some((l) => l.id === item.id)),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const itemByVersion = new Map(listed.map((item) => [item.versionId, item.id]));
 
   /** Which job line each invoice line bills, so editing keeps the link. */
   const billed = invoice.jobId
@@ -92,6 +103,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
         items={items}
         submit="Save draft"
         draftable={false}
+        offers={offers}
         adjustment={adjustment}
         memo={invoice.memo ?? undefined}
         dueOn={invoice.dueOn ?? undefined}

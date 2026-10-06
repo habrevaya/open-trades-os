@@ -119,6 +119,32 @@ export const priceBookItemVersion = pgTable("price_book_item_version", {
  * makes "undo that" an operation rather than an afternoon. Undoing is itself
  * a change, written the same way, and points back at the one it reverses.
  */
+/**
+ * WHICH ITEM IS CHARGED AFTER HOURS, AND WHICH ON A HOLIDAY.
+ *
+ * One row per company. Both point at price book items carrying the
+ * `after_hours` fee role, the same mark a membership plan reads when it
+ * waives the after hours rate, so a member whose plan waives it is never
+ * charged it on a holiday by a second, unmarked item. The two may be the same
+ * item.
+ *
+ * Read by the invoice screens, which OFFER the item when a job's visit was
+ * booked outside the company's hours or on a date in its holiday list. Never
+ * added by itself: whether a call-out at seven in the evening was the
+ * customer's emergency or the company running late is the office's call.
+ */
+export const afterHoursRate = pgTable("after_hours_rate", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  afterHoursItemId: uuid("after_hours_item_id").references(() => priceBookItem.id, { onDelete: "set null" }),
+  holidayItemId: uuid("holiday_item_id").references(() => priceBookItem.id, { onDelete: "set null" }),
+  updatedByUserId: uuid("updated_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: uniqueIndex("after_hours_rate_org_idx").on(t.organizationId),
+}));
+
 export const priceChangeKind = pgEnum("price_change_kind", ["change", "reversal"]);
 
 export const priceChangeBatch = pgTable("price_change_batch", {

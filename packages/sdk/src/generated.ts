@@ -2743,6 +2743,27 @@ export interface CreateEstimateOutput {
   updatedAt: string;
 }
 
+export interface CreateHolidayInput {
+  name: string;
+  date: string;
+  repeatsYearly?: boolean;
+  closed: boolean;
+  opensAt?: string | null;
+  closesAt?: string | null;
+}
+
+export interface CreateHolidayOutput {
+  id: string;
+  name: string;
+  date: string;
+  repeatsYearly: boolean;
+  closed: boolean;
+  opensAt: string | null;
+  closesAt: string | null;
+  nextOn: string | null;
+  hours: string;
+}
+
 export interface CreateIntakeDraftInput {
   sourceKind: "conversation" | "call" | "form_submission";
   sourceId: string;
@@ -3629,6 +3650,32 @@ export interface CreateReportScheduleOutput {
   lastError: string | null;
 }
 
+export interface CreateRetentionPolicyInput {
+  name: string;
+  entityType: string;
+  entityKind?: string | null;
+  clockStart: string;
+  retainMonths: number;
+  basis?: string | null;
+}
+
+export interface CreateRetentionPolicyOutput {
+  id: string;
+  name: string;
+  entityType: string;
+  entityKind: string | null;
+  clockStart: string;
+  retainMonths: number;
+  sentence: string;
+  basis: string | null;
+  tradePackId: string | null;
+  purgeAllowed: boolean;
+  active: boolean;
+  actsOn: boolean;
+  actsOnWhy: string | null;
+  kindRule: string | null;
+}
+
 export interface CreateRingGroupInput {
   name: string;
   strategy: "all_at_once" | "in_order";
@@ -3711,10 +3758,58 @@ export interface CreateSafetyMeetingInput {
     technicianId?: string;
     name?: string;
   }>;
+  topicId?: string;
 }
 
 export interface CreateSafetyMeetingOutput {
   id: string;
+}
+
+export interface CreateSafetyTalkScheduleInput {
+  topicId: string;
+  crewId?: string | null;
+  technicianId?: string | null;
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  weekday?: number | null;
+  monthDay?: number | null;
+  heldMinutes?: number;
+  startsOn?: string;
+  location?: string | null;
+  ledBy?: string | null;
+}
+
+export interface CreateSafetyTalkScheduleOutput {
+  id: string;
+  topicId: string;
+  topicTitle: string;
+  topicRetired: boolean;
+  crewId: string | null;
+  technicianId: string | null;
+  who: string;
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  weekday: number | null;
+  monthDay: number | null;
+  heldMinutes: number;
+  startsOn: string;
+  location: string | null;
+  ledBy: string | null;
+  active: boolean;
+  lastRaisedOn: string | null;
+  schedule: string;
+  nextOn: string | null;
+}
+
+export interface CreateSafetyTopicInput {
+  title: string;
+  body: string;
+}
+
+export interface CreateSafetyTopicOutput {
+  id: string;
+  title: string;
+  body: string;
+  retired: boolean;
+  createdAt: string;
 }
 
 export interface CreateSandboxInput {
@@ -3830,6 +3925,7 @@ export interface CreateTaskTemplateInput {
   dueMinutes?: number;
   checklist?: string[];
   startsOn?: string;
+  skipHolidays?: boolean;
 }
 
 export interface CreateTaskTemplateOutput {
@@ -3846,6 +3942,7 @@ export interface CreateTaskTemplateOutput {
   dueMinutes: number;
   checklist: string[];
   startsOn: string;
+  skipHolidays: boolean;
   active: boolean;
   lastRaisedOn: string | null;
   schedule: string;
@@ -5225,6 +5322,30 @@ export interface GetAccountingStatusOutput {
     error: string | null;
   } | null;
   closedThrough: string | null;
+}
+
+export interface GetAfterHoursRatesOutput {
+  afterHoursItem: {
+    id: string;
+    code: string;
+    name: string;
+    price: string;
+    taxable: boolean;
+  } | null;
+  holidayItem: {
+    id: string;
+    code: string;
+    name: string;
+    price: string;
+    taxable: boolean;
+  } | null;
+  marked: Array<{
+    id: string;
+    code: string;
+    name: string;
+    price: string;
+    taxable: boolean;
+  }>;
 }
 
 export interface GetAgreementOutput {
@@ -6915,6 +7036,16 @@ export interface GetFieldSnapshotOutput {
     checklistTotal: number;
     checklistDone: number;
   }>;
+  talks: Array<{
+    meetingId: string;
+    topic: string;
+    notes: string | null;
+    heldAt: string;
+    location: string | null;
+    ledBy: string | null;
+    signedAt: string | null;
+    cannotSign: string | null;
+  }>;
   abilities: {
     writeEstimates: boolean;
     presentEstimates: boolean;
@@ -7473,6 +7604,21 @@ export interface GetJobProfitabilityOutput {
     hours: string;
     cost: string;
     unpricedHours: string;
+  }>;
+}
+
+export interface GetJobRateOffersOutput {
+  offers: Array<{
+    kind: "after_hours" | "holiday";
+    item: {
+      id: string;
+      code: string;
+      name: string;
+      price: string;
+      taxable: boolean;
+    };
+    quantity: number;
+    because: string[];
   }>;
 }
 
@@ -9488,11 +9634,11 @@ export interface GetSetupOutput {
     done: number;
     essentialTotal: number;
     essentialDone: number;
-    next: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "payments" | "communications" | "integrations" | null;
+    next: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "rates" | "payments" | "communications" | "integrations" | null;
     complete: boolean;
   };
   steps: Array<{
-    key: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "payments" | "communications" | "integrations";
+    key: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "rates" | "payments" | "communications" | "integrations";
     title: string;
     summary: string;
     essential: boolean;
@@ -11118,7 +11264,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -11967,6 +12113,20 @@ export interface ListFormsOutput {
     source: string;
     fields: number;
     publicKey: string | null;
+  }>;
+}
+
+export interface ListHolidaysOutput {
+  holidays: Array<{
+    id: string;
+    name: string;
+    date: string;
+    repeatsYearly: boolean;
+    closed: boolean;
+    opensAt: string | null;
+    closesAt: string | null;
+    nextOn: string | null;
+    hours: string;
   }>;
 }
 
@@ -13620,6 +13780,39 @@ export interface ListSafetyMeetingsOutput {
   }>;
 }
 
+export interface ListSafetyTalkSchedulesOutput {
+  schedules: Array<{
+    id: string;
+    topicId: string;
+    topicTitle: string;
+    topicRetired: boolean;
+    crewId: string | null;
+    technicianId: string | null;
+    who: string;
+    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+    weekday: number | null;
+    monthDay: number | null;
+    heldMinutes: number;
+    startsOn: string;
+    location: string | null;
+    ledBy: string | null;
+    active: boolean;
+    lastRaisedOn: string | null;
+    schedule: string;
+    nextOn: string | null;
+  }>;
+}
+
+export interface ListSafetyTopicsOutput {
+  topics: Array<{
+    id: string;
+    title: string;
+    body: string;
+    retired: boolean;
+    createdAt: string;
+  }>;
+}
+
 export interface ListScheduledRevisionsOutput {
   revisions: Array<{
     versionId: string;
@@ -13876,6 +14069,7 @@ export interface ListTaskTemplatesOutput {
     dueMinutes: number;
     checklist: string[];
     startsOn: string;
+    skipHolidays: boolean;
     active: boolean;
     lastRaisedOn: string | null;
     schedule: string;
@@ -14143,6 +14337,17 @@ export interface ListUnplacedSourcesOutput {
     medium: string | null;
     touches: number;
     lastSeen: string;
+  }>;
+}
+
+export interface ListUnsignedSafetyLinesOutput {
+  lines: Array<{
+    meetingId: string;
+    topic: string;
+    heldAt: string;
+    attendeeId: string;
+    name: string;
+    ownPerson: boolean;
   }>;
 }
 
@@ -14702,14 +14907,14 @@ export interface MarkSetupStepInput {
 }
 
 export interface MarkSetupStepOutput {
-  key: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "payments" | "communications" | "integrations";
+  key: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "rates" | "payments" | "communications" | "integrations";
   done: boolean;
   progress: {
     total: number;
     done: number;
     essentialTotal: number;
     essentialDone: number;
-    next: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "payments" | "communications" | "integrations" | null;
+    next: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "rates" | "payments" | "communications" | "integrations" | null;
     complete: boolean;
   };
 }
@@ -15152,7 +15357,7 @@ export interface PlacePriceBookCategoryOutput {
 }
 
 export interface PlaceRetentionHoldInput {
-  entityType: "incident_report" | "safety_meeting" | "service_report" | "inspection" | "call_recording";
+  entityType: "incident_report" | "safety_meeting" | "service_report" | "inspection" | "photo" | "form_submission" | "call_recording";
   entityId: string;
   reason: string;
 }
@@ -16907,6 +17112,12 @@ export interface RemoveEstimateOptionPhotoOutput {
   removed: true;
 }
 
+export type RemoveHolidayInput = Record<string, unknown>;
+
+export interface RemoveHolidayOutput {
+  removed: boolean;
+}
+
 export type RemoveKnowledgeNoteInput = Record<string, unknown>;
 
 export interface RemoveKnowledgeNoteOutput {
@@ -18639,6 +18850,35 @@ export interface SetAccountMappingOutput {
   externalKind: string;
 }
 
+export interface SetAfterHoursRatesInput {
+  afterHoursItemId: string | null;
+  holidayItemId: string | null;
+}
+
+export interface SetAfterHoursRatesOutput {
+  afterHoursItem: {
+    id: string;
+    code: string;
+    name: string;
+    price: string;
+    taxable: boolean;
+  } | null;
+  holidayItem: {
+    id: string;
+    code: string;
+    name: string;
+    price: string;
+    taxable: boolean;
+  } | null;
+  marked: Array<{
+    id: string;
+    code: string;
+    name: string;
+    price: string;
+    taxable: boolean;
+  }>;
+}
+
 export interface SetAiSpendLimitInput {
   monthlyLimitMicros: number | null;
 }
@@ -19541,6 +19781,31 @@ export interface SetReviewPolicyOutput {
   halfLifeDays: number;
 }
 
+export interface SetSafetyTalkScheduleActiveInput {
+  active: boolean;
+}
+
+export interface SetSafetyTalkScheduleActiveOutput {
+  id: string;
+  topicId: string;
+  topicTitle: string;
+  topicRetired: boolean;
+  crewId: string | null;
+  technicianId: string | null;
+  who: string;
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  weekday: number | null;
+  monthDay: number | null;
+  heldMinutes: number;
+  startsOn: string;
+  location: string | null;
+  ledBy: string | null;
+  active: boolean;
+  lastRaisedOn: string | null;
+  schedule: string;
+  nextOn: string | null;
+}
+
 export interface SetServiceRouteStopActiveInput {
   active: boolean;
 }
@@ -20187,7 +20452,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -21119,6 +21384,27 @@ export interface UpdateEquipmentOutput {
   id: string;
 }
 
+export interface UpdateHolidayInput {
+  name: string;
+  date: string;
+  repeatsYearly?: boolean;
+  closed: boolean;
+  opensAt?: string | null;
+  closesAt?: string | null;
+}
+
+export interface UpdateHolidayOutput {
+  id: string;
+  name: string;
+  date: string;
+  repeatsYearly: boolean;
+  closed: boolean;
+  opensAt: string | null;
+  closesAt: string | null;
+  nextOn: string | null;
+  hours: string;
+}
+
 export interface UpdateInvoiceInput {
   lines?: Array<{
     priceBookItemId?: string;
@@ -21913,6 +22199,20 @@ export interface UpdateRingGroupOutput {
   };
 }
 
+export interface UpdateSafetyTopicInput {
+  title?: string;
+  body?: string;
+  retired?: boolean;
+}
+
+export interface UpdateSafetyTopicOutput {
+  id: string;
+  title: string;
+  body: string;
+  retired: boolean;
+  createdAt: string;
+}
+
 export interface UpdateServiceReportTemplateInput {
   name?: string;
   jobTypeId?: string | null;
@@ -22005,6 +22305,7 @@ export interface UpdateTaskTemplateInput {
   dueMinutes?: number;
   checklist?: string[];
   startsOn?: string;
+  skipHolidays?: boolean;
   active?: boolean;
 }
 
@@ -22022,6 +22323,7 @@ export interface UpdateTaskTemplateOutput {
   dueMinutes: number;
   checklist: string[];
   startsOn: string;
+  skipHolidays: boolean;
   active: boolean;
   lastRaisedOn: string | null;
   schedule: string;
@@ -23414,6 +23716,8 @@ export interface FailUploadParams {
 
 export type GetAccountingStatusInput = Record<string, never>;
 
+export type GetAfterHoursRatesInput = Record<string, never>;
+
 export interface GetAgreementInput {
   id: string;
 }
@@ -23693,6 +23997,11 @@ export interface GetJobMaterialCostInput {
 
 export interface GetJobProfitabilityInput {
   id: string;
+}
+
+export interface GetJobRateOffersInput {
+  id: string;
+  exceptInvoiceId?: string;
 }
 
 export interface GetJobSkillsInput {
@@ -24433,6 +24742,8 @@ export interface ListFinancingApplicationsInput {
 
 export type ListFormsInput = Record<string, never>;
 
+export type ListHolidaysInput = Record<string, never>;
+
 export interface ListIncidentsInput {
   status?: "open" | "closed";
   limit?: number;
@@ -24753,6 +25064,8 @@ export interface ListRestoresInput {
 
 export interface ListRetentionHoldsInput {
   includeReleased?: boolean;
+  entityType?: string;
+  entityId?: string;
 }
 
 export type ListRetentionPoliciesInput = Record<string, never>;
@@ -24767,6 +25080,12 @@ export type ListRingGroupsInput = Record<string, never>;
 
 export interface ListSafetyMeetingsInput {
   limit?: number;
+}
+
+export type ListSafetyTalkSchedulesInput = Record<string, never>;
+
+export interface ListSafetyTopicsInput {
+  includeRetired?: boolean;
 }
 
 export type ListScheduledRevisionsInput = Record<string, never>;
@@ -24892,6 +25211,8 @@ export interface ListUnplacedSourcesInput {
   limit?: number;
 }
 
+export type ListUnsignedSafetyLinesInput = Record<string, never>;
+
 export interface ListUnsoldEstimatesInput {
   sort?: "age" | "value";
   limit?: number;
@@ -24997,7 +25318,7 @@ export interface MarkSafetyMeetingSignedParams {
 }
 
 export interface MarkSetupStepParams {
-  key: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "payments" | "communications" | "integrations";
+  key: "company" | "trade" | "service-area" | "hours" | "team" | "pricebook" | "tax" | "rates" | "payments" | "communications" | "integrations";
 }
 
 export interface MaterialiseProjectParams {
@@ -25260,6 +25581,10 @@ export interface RemoveEmergencyContactParams {
 }
 
 export interface RemoveEstimateOptionPhotoParams {
+  id: string;
+}
+
+export interface RemoveHolidayParams {
   id: string;
 }
 
@@ -25666,6 +25991,10 @@ export interface SetReportSchedulePausedParams {
   id: string;
 }
 
+export interface SetSafetyTalkScheduleActiveParams {
+  id: string;
+}
+
 export interface SetServiceRouteStopActiveParams {
   id: string;
 }
@@ -25865,6 +26194,10 @@ export interface UpdateEquipmentParams {
   id: string;
 }
 
+export interface UpdateHolidayParams {
+  id: string;
+}
+
 export interface UpdateInvoiceParams {
   id: string;
 }
@@ -25930,6 +26263,10 @@ export interface UpdateRetentionPolicyParams {
 }
 
 export interface UpdateRingGroupParams {
+  id: string;
+}
+
+export interface UpdateSafetyTopicParams {
   id: string;
 }
 
@@ -26161,6 +26498,7 @@ export interface OperationTypes {
   createDispatchPlan: { input: CreateDispatchPlanInput; output: CreateDispatchPlanOutput };
   createEstimate: { input: CreateEstimateInput; output: CreateEstimateOutput };
   createEstimateDraft: { input: CreateEstimateDraftInput; output: CreateEstimateDraftOutput };
+  createHoliday: { input: CreateHolidayInput; output: CreateHolidayOutput };
   createIntakeDraft: { input: CreateIntakeDraftInput; output: CreateIntakeDraftOutput };
   createInvoice: { input: CreateInvoiceInput; output: CreateInvoiceOutput };
   createJob: { input: CreateJobInput; output: CreateJobOutput };
@@ -26181,8 +26519,11 @@ export interface OperationTypes {
   createRateCard: { input: CreateRateCardInput; output: CreateRateCardOutput };
   createRecurringSchedule: { input: CreateRecurringScheduleInput; output: CreateRecurringScheduleOutput };
   createReportSchedule: { input: CreateReportScheduleInput; output: CreateReportScheduleOutput };
+  createRetentionPolicy: { input: CreateRetentionPolicyInput; output: CreateRetentionPolicyOutput };
   createRingGroup: { input: CreateRingGroupInput; output: CreateRingGroupOutput };
   createSafetyMeeting: { input: CreateSafetyMeetingInput; output: CreateSafetyMeetingOutput };
+  createSafetyTalkSchedule: { input: CreateSafetyTalkScheduleInput; output: CreateSafetyTalkScheduleOutput };
+  createSafetyTopic: { input: CreateSafetyTopicInput; output: CreateSafetyTopicOutput };
   createSandbox: { input: CreateSandboxInput; output: CreateSandboxOutput };
   createServiceRoute: { input: CreateServiceRouteInput; output: CreateServiceRouteOutput };
   createStaffDocument: { input: CreateStaffDocumentInput; output: CreateStaffDocumentOutput };
@@ -26263,6 +26604,7 @@ export interface OperationTypes {
   finishConnectorSignIn: { input: FinishConnectorSignInInput; output: FinishConnectorSignInOutput };
   finishSetup: { input: FinishSetupInput; output: FinishSetupOutput };
   getAccountingStatus: { input: GetAccountingStatusInput; output: GetAccountingStatusOutput };
+  getAfterHoursRates: { input: GetAfterHoursRatesInput; output: GetAfterHoursRatesOutput };
   getAgreement: { input: GetAgreementInput; output: GetAgreementOutput };
   getAgreementPlan: { input: GetAgreementPlanInput; output: GetAgreementPlanOutput };
   getAgreementRenewalNotices: { input: GetAgreementRenewalNoticesInput; output: GetAgreementRenewalNoticesOutput };
@@ -26332,6 +26674,7 @@ export interface OperationTypes {
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
+  getJobRateOffers: { input: GetJobRateOffersInput; output: GetJobRateOffersOutput };
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
@@ -26516,6 +26859,7 @@ export interface OperationTypes {
   listFieldPeople: { input: ListFieldPeopleInput; output: ListFieldPeopleOutput };
   listFinancingApplications: { input: ListFinancingApplicationsInput; output: ListFinancingApplicationsOutput };
   listForms: { input: ListFormsInput; output: ListFormsOutput };
+  listHolidays: { input: ListHolidaysInput; output: ListHolidaysOutput };
   listIncidents: { input: ListIncidentsInput; output: ListIncidentsOutput };
   listInspectionPrograms: { input: ListInspectionProgramsInput; output: ListInspectionProgramsOutput };
   listInspections: { input: ListInspectionsInput; output: ListInspectionsOutput };
@@ -26595,6 +26939,8 @@ export interface OperationTypes {
   listReviewPlatforms: { input: ListReviewPlatformsInput; output: ListReviewPlatformsOutput };
   listRingGroups: { input: ListRingGroupsInput; output: ListRingGroupsOutput };
   listSafetyMeetings: { input: ListSafetyMeetingsInput; output: ListSafetyMeetingsOutput };
+  listSafetyTalkSchedules: { input: ListSafetyTalkSchedulesInput; output: ListSafetyTalkSchedulesOutput };
+  listSafetyTopics: { input: ListSafetyTopicsInput; output: ListSafetyTopicsOutput };
   listScheduledRevisions: { input: ListScheduledRevisionsInput; output: ListScheduledRevisionsOutput };
   listServiceReportTemplates: { input: ListServiceReportTemplatesInput; output: ListServiceReportTemplatesOutput };
   listServiceReports: { input: ListServiceReportsInput; output: ListServiceReportsOutput };
@@ -26627,6 +26973,7 @@ export interface OperationTypes {
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
   listUndeliveredInvoices: { input: ListUndeliveredInvoicesInput; output: ListUndeliveredInvoicesOutput };
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
+  listUnsignedSafetyLines: { input: ListUnsignedSafetyLinesInput; output: ListUnsignedSafetyLinesOutput };
   listUnsoldEstimates: { input: ListUnsoldEstimatesInput; output: ListUnsoldEstimatesOutput };
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
   listVendorReturns: { input: ListVendorReturnsInput; output: ListVendorReturnsOutput };
@@ -26754,6 +27101,7 @@ export interface OperationTypes {
   removeCustomer: { input: RemoveCustomerParams & RemoveCustomerInput; output: RemoveCustomerOutput };
   removeEmergencyContact: { input: RemoveEmergencyContactParams & RemoveEmergencyContactInput; output: RemoveEmergencyContactOutput };
   removeEstimateOptionPhoto: { input: RemoveEstimateOptionPhotoParams & RemoveEstimateOptionPhotoInput; output: RemoveEstimateOptionPhotoOutput };
+  removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
@@ -26844,6 +27192,7 @@ export interface OperationTypes {
   sendQueuedEmail: { input: SendQueuedEmailInput; output: SendQueuedEmailOutput };
   sendReportScheduleNow: { input: SendReportScheduleNowParams & SendReportScheduleNowInput; output: SendReportScheduleNowOutput };
   setAccountMapping: { input: SetAccountMappingInput; output: SetAccountMappingOutput };
+  setAfterHoursRates: { input: SetAfterHoursRatesInput; output: SetAfterHoursRatesOutput };
   setAiSpendLimit: { input: SetAiSpendLimitInput; output: SetAiSpendLimitOutput };
   setAnsweringPhone: { input: SetAnsweringPhoneParams & SetAnsweringPhoneInput; output: SetAnsweringPhoneOutput };
   setArrivalWindows: { input: SetArrivalWindowsInput; output: SetArrivalWindowsOutput };
@@ -26904,6 +27253,7 @@ export interface OperationTypes {
   setReportingLine: { input: SetReportingLineInput; output: SetReportingLineOutput };
   setReviewPlatform: { input: SetReviewPlatformInput; output: SetReviewPlatformOutput };
   setReviewPolicy: { input: SetReviewPolicyInput; output: SetReviewPolicyOutput };
+  setSafetyTalkScheduleActive: { input: SetSafetyTalkScheduleActiveParams & SetSafetyTalkScheduleActiveInput; output: SetSafetyTalkScheduleActiveOutput };
   setServiceRouteStopActive: { input: SetServiceRouteStopActiveParams & SetServiceRouteStopActiveInput; output: SetServiceRouteStopActiveOutput };
   setSoftphonePresence: { input: SetSoftphonePresenceInput; output: SetSoftphonePresenceOutput };
   setStatementSchedule: { input: SetStatementScheduleInput; output: SetStatementScheduleOutput };
@@ -26982,6 +27332,7 @@ export interface OperationTypes {
   updateCustomRecord: { input: UpdateCustomRecordParams & UpdateCustomRecordInput; output: UpdateCustomRecordOutput };
   updateCustomer: { input: UpdateCustomerParams & UpdateCustomerInput; output: UpdateCustomerOutput };
   updateEquipment: { input: UpdateEquipmentParams & UpdateEquipmentInput; output: UpdateEquipmentOutput };
+  updateHoliday: { input: UpdateHolidayParams & UpdateHolidayInput; output: UpdateHolidayOutput };
   updateInvoice: { input: UpdateInvoiceParams & UpdateInvoiceInput; output: UpdateInvoiceOutput };
   updateJob: { input: UpdateJobParams & UpdateJobInput; output: UpdateJobOutput };
   updateKnowledgeNote: { input: UpdateKnowledgeNoteParams & UpdateKnowledgeNoteInput; output: UpdateKnowledgeNoteOutput };
@@ -26999,6 +27350,7 @@ export interface OperationTypes {
   updateReportSchedule: { input: UpdateReportScheduleParams & UpdateReportScheduleInput; output: UpdateReportScheduleOutput };
   updateRetentionPolicy: { input: UpdateRetentionPolicyParams & UpdateRetentionPolicyInput; output: UpdateRetentionPolicyOutput };
   updateRingGroup: { input: UpdateRingGroupParams & UpdateRingGroupInput; output: UpdateRingGroupOutput };
+  updateSafetyTopic: { input: UpdateSafetyTopicParams & UpdateSafetyTopicInput; output: UpdateSafetyTopicOutput };
   updateServiceReportTemplate: { input: UpdateServiceReportTemplateParams & UpdateServiceReportTemplateInput; output: UpdateServiceReportTemplateOutput };
   updateTask: { input: UpdateTaskParams & UpdateTaskInput; output: UpdateTaskOutput };
   updateTaskEscalationRule: { input: UpdateTaskEscalationRuleParams & UpdateTaskEscalationRuleInput; output: UpdateTaskEscalationRuleOutput };
@@ -27146,6 +27498,7 @@ export const OPERATIONS = {
   createDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   createEstimate: { method: "POST", path: "/v1/estimates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   createEstimateDraft: { method: "POST", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  createHoliday: { method: "POST", path: "/v1/holidays", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   createIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   createInvoice: { method: "POST", path: "/v1/invoices", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   createJob: { method: "POST", path: "/v1/jobs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -27166,8 +27519,11 @@ export const OPERATIONS = {
   createRateCard: { method: "POST", path: "/v1/rate-cards", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   createRecurringSchedule: { method: "POST", path: "/v1/recurring-schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   createReportSchedule: { method: "POST", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
+  createRetentionPolicy: { method: "POST", path: "/v1/compliance/retention/rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   createRingGroup: { method: "POST", path: "/v1/ring-groups", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createSafetyMeeting: { method: "POST", path: "/v1/safety/meetings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
+  createSafetyTalkSchedule: { method: "POST", path: "/v1/safety/schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
+  createSafetyTopic: { method: "POST", path: "/v1/safety/topics", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   createSandbox: { method: "POST", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   createServiceRoute: { method: "POST", path: "/v1/service-routes", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   createStaffDocument: { method: "POST", path: "/v1/staff-documents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -27248,6 +27604,7 @@ export const OPERATIONS = {
   finishConnectorSignIn: { method: "POST", path: "/v1/oauth/finish", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   finishSetup: { method: "POST", path: "/v1/setup/finish", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   getAccountingStatus: { method: "GET", path: "/v1/accounting/status", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
+  getAfterHoursRates: { method: "GET", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getAgreement: { method: "GET", path: "/v1/agreements/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   getAgreementPlan: { method: "GET", path: "/v1/agreement-plans/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   getAgreementRenewalNotices: { method: "GET", path: "/v1/agreement-renewal-notices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -27317,6 +27674,7 @@ export const OPERATIONS = {
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
+  getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["exceptInvoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
@@ -27501,6 +27859,7 @@ export const OPERATIONS = {
   listFieldPeople: { method: "GET", path: "/v1/field/technicians", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listFinancingApplications: { method: "GET", path: "/v1/financing/applications", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listForms: { method: "GET", path: "/v1/marketing/forms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  listHolidays: { method: "GET", path: "/v1/holidays", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listIncidents: { method: "GET", path: "/v1/safety/incidents", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listInspections: { method: "GET", path: "/v1/inspections", pathParams: [], queryParams: ["propertyId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -27574,12 +27933,14 @@ export const OPERATIONS = {
   listRestockSuggestions: { method: "GET", path: "/v1/stock/restock-suggestions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listRestorableCopies: { method: "POST", path: "/v1/restores/available", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listRestores: { method: "GET", path: "/v1/restores", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
-  listRetentionHolds: { method: "GET", path: "/v1/compliance/retention/holds", pathParams: [], queryParams: ["includeReleased"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listRetentionHolds: { method: "GET", path: "/v1/compliance/retention/holds", pathParams: [], queryParams: ["includeReleased","entityType","entityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listRetentionPolicies: { method: "GET", path: "/v1/compliance/retention/rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listRetentionPurgeRuns: { method: "GET", path: "/v1/compliance/retention/purges", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listReviewPlatforms: { method: "GET", path: "/v1/reviews/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listRingGroups: { method: "GET", path: "/v1/ring-groups", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listSafetyMeetings: { method: "GET", path: "/v1/safety/meetings", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
+  listSafetyTalkSchedules: { method: "GET", path: "/v1/safety/schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
+  listSafetyTopics: { method: "GET", path: "/v1/safety/topics", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listScheduledRevisions: { method: "GET", path: "/v1/pricebook/scheduled", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listServiceReportTemplates: { method: "GET", path: "/v1/service-report-templates", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
   listServiceReports: { method: "GET", path: "/v1/service-reports", pathParams: [], queryParams: ["jobId","visitId","customerId","propertyId","status","outOfRangeOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
@@ -27612,6 +27973,7 @@ export const OPERATIONS = {
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listUndeliveredInvoices: { method: "GET", path: "/v1/invoice-deliveries/undelivered", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  listUnsignedSafetyLines: { method: "GET", path: "/v1/safety/unsigned", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listUnsoldEstimates: { method: "GET", path: "/v1/unsold-estimates", pathParams: [], queryParams: ["sort","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVendorReturns: { method: "GET", path: "/v1/vendor-returns", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
@@ -27739,6 +28101,7 @@ export const OPERATIONS = {
   removeCustomer: { method: "POST", path: "/v1/customers/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:delete"] },
   removeEmergencyContact: { method: "POST", path: "/v1/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removeEstimateOptionPhoto: { method: "DELETE", path: "/v1/estimate-option-photos/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -27829,6 +28192,7 @@ export const OPERATIONS = {
   sendQueuedEmail: { method: "POST", path: "/v1/email/send-queued", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendReportScheduleNow: { method: "POST", path: "/v1/report-schedules/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   setAccountMapping: { method: "PUT", path: "/v1/accounting/mappings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
+  setAfterHoursRates: { method: "PUT", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setAiSpendLimit: { method: "PUT", path: "/v1/ai/spend-limit", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   setAnsweringPhone: { method: "PUT", path: "/v1/answering-phones/{userId}", pathParams: ["userId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setArrivalWindows: { method: "PUT", path: "/v1/booking/arrival-windows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -27889,6 +28253,7 @@ export const OPERATIONS = {
   setReportingLine: { method: "POST", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setReviewPlatform: { method: "POST", path: "/v1/reviews/platforms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReviewPolicy: { method: "PUT", path: "/v1/reviews/policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setSafetyTalkScheduleActive: { method: "POST", path: "/v1/safety/schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   setServiceRouteStopActive: { method: "POST", path: "/v1/service-routes/stops/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setSoftphonePresence: { method: "PUT", path: "/v1/softphone/presence", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   setStatementSchedule: { method: "POST", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
@@ -27967,6 +28332,7 @@ export const OPERATIONS = {
   updateCustomRecord: { method: "PATCH", path: "/v1/custom-records/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   updateCustomer: { method: "PATCH", path: "/v1/customers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   updateEquipment: { method: "PATCH", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
+  updateHoliday: { method: "PATCH", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   updateInvoice: { method: "PATCH", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   updateJob: { method: "PATCH", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   updateKnowledgeNote: { method: "PATCH", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
@@ -27984,6 +28350,7 @@ export const OPERATIONS = {
   updateReportSchedule: { method: "PATCH", path: "/v1/report-schedules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   updateRetentionPolicy: { method: "PATCH", path: "/v1/compliance/retention/rules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   updateRingGroup: { method: "PUT", path: "/v1/ring-groups/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateSafetyTopic: { method: "PATCH", path: "/v1/safety/topics/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   updateServiceReportTemplate: { method: "PATCH", path: "/v1/service-report-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   updateTask: { method: "PATCH", path: "/v1/tasks/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   updateTaskEscalationRule: { method: "PATCH", path: "/v1/task-escalation-rules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
@@ -29024,6 +29391,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Add a holiday.
+   *
+   * POST /v1/holidays. Needs booking:configure.
+   */
+  createHoliday(input: CreateHolidayInput, options?: CallOptions): Promise<CreateHolidayOutput> {
+    return this.call("createHoliday", input, options);
+  }
+
+  /**
    * Have the intake agent read a thread, a call or a form.
    *
    * POST /v1/ai/intake/drafts. Needs message:read.
@@ -29204,6 +29580,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Write a retention rule of the company's own.
+   *
+   * POST /v1/compliance/retention/rules. Needs compliance:write.
+   */
+  createRetentionPolicy(input: CreateRetentionPolicyInput, options?: CallOptions): Promise<CreateRetentionPolicyOutput> {
+    return this.call("createRetentionPolicy", input, options);
+  }
+
+  /**
    * Make a ring group.
    *
    * POST /v1/ring-groups. Needs settings:write.
@@ -29219,6 +29604,24 @@ export abstract class GeneratedOperations {
    */
   createSafetyMeeting(input: CreateSafetyMeetingInput, options?: CallOptions): Promise<CreateSafetyMeetingOutput> {
     return this.call("createSafetyMeeting", input, options);
+  }
+
+  /**
+   * Hold a talk from the library on a schedule.
+   *
+   * POST /v1/safety/schedules. Needs safety:write.
+   */
+  createSafetyTalkSchedule(input: CreateSafetyTalkScheduleInput, options?: CallOptions): Promise<CreateSafetyTalkScheduleOutput> {
+    return this.call("createSafetyTalkSchedule", input, options);
+  }
+
+  /**
+   * Add a topic to the library.
+   *
+   * POST /v1/safety/topics. Needs safety:write.
+   */
+  createSafetyTopic(input: CreateSafetyTopicInput, options?: CallOptions): Promise<CreateSafetyTopicOutput> {
+    return this.call("createSafetyTopic", input, options);
   }
 
   /**
@@ -29942,6 +30345,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Which item is charged after hours, and which on a holiday.
+   *
+   * GET /v1/after-hours-rates. Needs pricebook:read.
+   */
+  getAfterHoursRates(input: GetAfterHoursRatesInput = {} as GetAfterHoursRatesInput, options?: CallOptions): Promise<GetAfterHoursRatesOutput> {
+    return this.call("getAfterHoursRates", input, options);
+  }
+
+  /**
    * Get an agreement, with everything it owes.
    *
    * GET /v1/agreements/{id}. Needs membership:read.
@@ -30560,6 +30972,15 @@ export abstract class GeneratedOperations {
    */
   getJobProfitability(input: GetJobProfitabilityInput, options?: CallOptions): Promise<GetJobProfitabilityOutput> {
     return this.call("getJobProfitability", input, options);
+  }
+
+  /**
+   * The after hours or holiday rate to offer on this job's invoice.
+   *
+   * GET /v1/jobs/{id}/rate-offers. Needs job:read.
+   */
+  getJobRateOffers(input: GetJobRateOffersInput, options?: CallOptions): Promise<GetJobRateOffersOutput> {
+    return this.call("getJobRateOffers", input, options);
   }
 
   /**
@@ -32219,6 +32640,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The company's holidays: dates it is closed, or open with other hours.
+   *
+   * GET /v1/holidays. Needs settings:read.
+   */
+  listHolidays(input: ListHolidaysInput = {} as ListHolidaysInput, options?: CallOptions): Promise<ListHolidaysOutput> {
+    return this.call("listHolidays", input, options);
+  }
+
+  /**
    * Incident reports, newest first.
    *
    * GET /v1/safety/incidents. Needs safety:report.
@@ -32930,6 +33360,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Toolbox talks that come round, per crew or per person.
+   *
+   * GET /v1/safety/schedules. Needs safety:read.
+   */
+  listSafetyTalkSchedules(input: ListSafetyTalkSchedulesInput = {} as ListSafetyTalkSchedulesInput, options?: CallOptions): Promise<ListSafetyTalkSchedulesOutput> {
+    return this.call("listSafetyTalkSchedules", input, options);
+  }
+
+  /**
+   * The company's own library of toolbox talk topics.
+   *
+   * GET /v1/safety/topics. Needs safety:read.
+   */
+  listSafetyTopics(input: ListSafetyTopicsInput = {} as ListSafetyTopicsInput, options?: CallOptions): Promise<ListSafetyTopicsOutput> {
+    return this.call("listSafetyTopics", input, options);
+  }
+
+  /**
    * Price changes that have not taken effect yet.
    *
    * GET /v1/pricebook/scheduled. Needs pricebook:read.
@@ -33215,6 +33663,15 @@ export abstract class GeneratedOperations {
    */
   listUnplacedSources(input: ListUnplacedSourcesInput = {} as ListUnplacedSourcesInput, options?: CallOptions): Promise<ListUnplacedSourcesOutput> {
     return this.call("listUnplacedSources", input, options);
+  }
+
+  /**
+   * Who has not signed a talk that has been held.
+   *
+   * GET /v1/safety/unsigned. Needs safety:read.
+   */
+  listUnsignedSafetyLines(input: ListUnsignedSafetyLinesInput = {} as ListUnsignedSafetyLinesInput, options?: CallOptions): Promise<ListUnsignedSafetyLinesOutput> {
+    return this.call("listUnsignedSafetyLines", input, options);
   }
 
   /**
@@ -34361,6 +34818,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a holiday off the list.
+   *
+   * DELETE /v1/holidays/{id}. Needs booking:configure.
+   */
+  removeHoliday(input: RemoveHolidayParams & RemoveHolidayInput, options?: CallOptions): Promise<RemoveHolidayOutput> {
+    return this.call("removeHoliday", input, options);
+  }
+
+  /**
    * Stop answering from a how-to note.
    *
    * DELETE /v1/knowledge-notes/{id}. Needs knowledge:write.
@@ -35171,6 +35637,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Choose the after hours rate and the holiday rate.
+   *
+   * PUT /v1/after-hours-rates. Needs pricebook:write.
+   */
+  setAfterHoursRates(input: SetAfterHoursRatesInput, options?: CallOptions): Promise<SetAfterHoursRatesOutput> {
+    return this.call("setAfterHoursRates", input, options);
+  }
+
+  /**
    * Cap what the models may cost in a month.
    *
    * PUT /v1/ai/spend-limit. Needs agent:configure.
@@ -35708,6 +36183,15 @@ export abstract class GeneratedOperations {
    */
   setReviewPolicy(input: SetReviewPolicyInput, options?: CallOptions): Promise<SetReviewPolicyOutput> {
     return this.call("setReviewPolicy", input, options);
+  }
+
+  /**
+   * Pause or resume a scheduled talk.
+   *
+   * POST /v1/safety/schedules/{id}/active. Needs safety:write.
+   */
+  setSafetyTalkScheduleActive(input: SetSafetyTalkScheduleActiveParams & SetSafetyTalkScheduleActiveInput, options?: CallOptions): Promise<SetSafetyTalkScheduleActiveOutput> {
+    return this.call("setSafetyTalkScheduleActive", input, options);
   }
 
   /**
@@ -36413,6 +36897,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Change a holiday.
+   *
+   * PATCH /v1/holidays/{id}. Needs booking:configure.
+   */
+  updateHoliday(input: UpdateHolidayParams & UpdateHolidayInput, options?: CallOptions): Promise<UpdateHolidayOutput> {
+    return this.call("updateHoliday", input, options);
+  }
+
+  /**
    * Edit a draft invoice.
    *
    * PATCH /v1/invoices/{id}. Needs invoice:write.
@@ -36563,6 +37056,15 @@ export abstract class GeneratedOperations {
    */
   updateRingGroup(input: UpdateRingGroupParams & UpdateRingGroupInput, options?: CallOptions): Promise<UpdateRingGroupOutput> {
     return this.call("updateRingGroup", input, options);
+  }
+
+  /**
+   * Change a topic's words, or retire it.
+   *
+   * PATCH /v1/safety/topics/{id}. Needs safety:write.
+   */
+  updateSafetyTopic(input: UpdateSafetyTopicParams & UpdateSafetyTopicInput, options?: CallOptions): Promise<UpdateSafetyTopicOutput> {
+    return this.call("updateSafetyTopic", input, options);
   }
 
   /**

@@ -251,6 +251,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   task_template_occurrence_idx:
     "One task per recurring template per company day. The worker inserts with on conflict do "
     + "nothing, so a restarted or doubled worker raises the day's task once.",
+  safety_meeting_occurrence_idx:
+    "One toolbox talk per schedule per company day. The worker inserts with on conflict do "
+    + "nothing, so a restarted or doubled worker raises the day's talk once.",
   task_escalation_once_idx:
     "One escalation per task per rule, inserted first with on conflict do nothing, so only the "
     + "pass whose insert landed tells anybody.",
@@ -310,6 +313,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
 
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
+  after_hours_rate_org_idx: "One choice of after hours and holiday rate per company, upserted.",
   ai_agent_setting_agent_idx: "One settings row per agent per company, upserted.",
   ai_agent_proposal_open_idx:
     "One open draft per agent per source. Inserted with on conflict do nothing, and the open draft is returned instead.",

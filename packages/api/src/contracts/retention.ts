@@ -70,6 +70,28 @@ export const listRetentionPolicies = defineRoute({
   output: z.object({ policies: z.array(Policy) }),
 });
 
+export const createRetentionPolicy = defineRoute({
+  method: "post",
+  path: "/v1/compliance/retention/rules",
+  summary: "Write a retention rule of the company's own",
+  description:
+    "About a kind of record something in this product removes: `incident_report`, `safety_meeting`, `service_report`, `inspection`, `photo` (a job's photographs), `form_submission` or `call_recording`. Purging is off on every new rule, whatever is sent: read its preview, then turn purging on with the change call. The clock start is fixed once written, like a seeded rule's.",
+  module: "M23",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({
+    name: z.string().min(1).max(200),
+    entityType: z.string().min(1).max(60),
+    /** Narrows the rule to one kind of that record; the preview says how a record's kind is decided. */
+    entityKind: z.string().max(100).nullable().optional(),
+    clockStart: z.string().min(1).max(40),
+    retainMonths: z.number().int().min(1).max(1200),
+    /** What the rule is written to: a regulation, an insurer's letter, the company's own choice. */
+    basis: z.string().max(2000).nullable().optional(),
+  }),
+  output: Policy,
+});
+
 export const updateRetentionPolicy = defineRoute({
   method: "patch",
   path: "/v1/compliance/retention/rules/{id}",
@@ -121,7 +143,12 @@ export const listRetentionHolds = defineRoute({
   summary: "Records kept whatever their age",
   module: "M23",
   permissions: ["compliance:read"],
-  input: z.object({ includeReleased: z.boolean().optional() }),
+  input: z.object({
+    includeReleased: z.boolean().optional(),
+    /** One record's holds, for its own page. */
+    entityType: z.string().max(60).optional(),
+    entityId: Uuid.optional(),
+  }),
   output: z.object({ holds: z.array(Hold) }),
 });
 
@@ -135,7 +162,8 @@ export const placeRetentionHold = defineRoute({
   permissions: ["compliance:write"],
   idempotent: true,
   input: z.object({
-    entityType: z.enum(["incident_report", "safety_meeting", "service_report", "inspection", "call_recording"]),
+    /** `photo` holds every photograph on a job and its visits, by the job's id. */
+    entityType: z.enum(["incident_report", "safety_meeting", "service_report", "inspection", "photo", "form_submission", "call_recording"]),
     entityId: Uuid,
     reason: z.string().min(1).max(1000),
   }),
@@ -178,6 +206,6 @@ export const listRetentionPurgeRuns = defineRoute({
 });
 
 export const retentionRoutes = {
-  listRetentionPolicies, updateRetentionPolicy, previewRetentionPurge, listRetentionHolds,
+  listRetentionPolicies, createRetentionPolicy, updateRetentionPolicy, previewRetentionPurge, listRetentionHolds,
   placeRetentionHold, releaseRetentionHold, runRetentionPurge, listRetentionPurgeRuns,
 } as const;

@@ -67,6 +67,8 @@ const ORDER = [
    * sheet go before the report and the talk they belong to.
    */
   "incident_person", "incident_report", "safety_meeting_attendee", "safety_meeting",
+  /** A talk's schedule points at its topic, a crew and a technician; the library goes after it. */
+  "safety_talk_schedule", "safety_topic",
   // Then work.
   /**
    * What each ad platform was told about a job, and each customer's answer
@@ -120,6 +122,8 @@ const ORDER = [
   /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
   "vendor_item",
   "price_change_line", "price_change_batch",
+  /** Which item is charged after hours and on a holiday points at the items, so it goes first. */
+  "after_hours_rate",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
@@ -217,7 +221,7 @@ const ORDER = [
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   /** A charge found on a haul points at the hire and at the fee it was priced from. */
   "rental_charge",
-  "rental", "rentable_asset", "territory", "business_hours",
+  "rental", "rentable_asset", "territory", "business_hours", "company_holiday",
   /**
    * The company's own tools, children first. Every one of these cascades
    * from `company_asset`, which cascades from the organization, but a scoped
