@@ -51,7 +51,7 @@
   },
   "devDependencies": {
     "@opentradesos/field-client": "workspace:*",
-    "@types/node": "^22.10.1",
+    "@types/node": "^26.6.4",
     "@types/nodemailer": "^8.0.2",
     "@types/ws": "^8.5.13",
     "postgres": "^3.4.5",
