@@ -203,11 +203,12 @@ describe("assertCan", () => {
 });
 
 describe("a read only actor (the public demo)", () => {
-  it("the readonly preset is reads and a person's own profile and pay, and read only keeps only the reads", () => {
+  it("the readonly preset is reads and a person's own profile, pay and expenses, and read only keeps only the reads", () => {
     const preset = ROLE_PRESETS.readonly.permissions;
-    // Every preset carries the self service pair; for the demo's shared user
-    // they would be editing a profile every visitor shares, so they go.
-    expect(preset.filter((p) => !isReadPermission(p)).sort()).toEqual(["payroll:own", "profile:own"]);
+    // Every preset carries the self service set; for the demo's shared user
+    // they would be editing a profile, or claiming expenses, every visitor
+    // shares, so they go.
+    expect(preset.filter((p) => !isReadPermission(p)).sort()).toEqual(["expense:own", "payroll:own", "profile:own"]);
     const demo = permissionsFor(actor(["readonly"], { readOnly: true }));
     expect([...demo].sort()).toEqual(preset.filter(isReadPermission).sort());
   });
