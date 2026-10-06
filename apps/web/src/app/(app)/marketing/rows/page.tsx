@@ -68,7 +68,7 @@ export default async function FunnelRowsPage(
 
       {drill.kind === "leads" && (
         drill.leads.length === 0 ? <Empty title="No leads" /> : (
-          <Table label="Leads" head={<><Th>Who</Th><Th>First seen</Th><Th>Touches</Th></>}>
+          <Table label="Leads" head={<><Th>Who</Th><Th>First seen</Th><Th>Touches</Th><Th>Share</Th></>}>
             {drill.leads.map((l) => (
               <tr key={l.key}>
                 <Td>
@@ -79,6 +79,7 @@ export default async function FunnelRowsPage(
                 </Td>
                 <Td>{when(l.firstAt)}</Td>
                 <Td className="tabular-nums">{l.touches}</Td>
+                <Td className="tabular-nums">{l.share}</Td>
               </tr>
             ))}
           </Table>

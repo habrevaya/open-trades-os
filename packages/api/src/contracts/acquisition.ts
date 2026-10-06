@@ -225,8 +225,14 @@ export const FunnelCells = z.object({
   answered: z.number().int(),
   missed: z.number().int(),
   firstTime: z.number().int(),
-  /** Distinct people: the customer, else the number that rang, else the browser. */
-  leads: z.number().int(),
+  /**
+   * People credited to this row, under the model: the customer, else the number
+   * that rang, else the browser. Whole under a model that gives a person to one
+   * touch, a fraction to four places under a split model.
+   */
+  leads: z.number(),
+  /** The same in ten thousandths of a person, for anything that adds them up. */
+  leadsWeight: z.number().int(),
   /** Credited booked jobs as a person reads them, "3" or "1.5" under a split model. */
   booked: z.string(),
   /** The same in ten thousandths of a job, for anything that adds them up. */
@@ -259,7 +265,7 @@ export const getMarketingFunnel = defineRoute({
   path: "/v1/marketing/funnel",
   summary: "Spend, calls, leads, booked jobs, revenue and return, by channel, campaign or number",
   description:
-    "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.",
+    "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range, each credited across the touches they made in the range under the same model and by the same function that credits a job, so a person is one lead on one row under a model that gives them to one touch, half a lead on each of two rows under a split model, and the rows add back to the total. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.",
   module: "M19",
   permissions: ["adspend:read"],
   input: z.object(FunnelQuery),
@@ -286,7 +292,7 @@ export const drillMarketingFunnel = defineRoute({
   path: "/v1/marketing/funnel/rows",
   summary: "The calls, people, jobs or spend lines behind one cell of the funnel",
   description:
-    "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls and people count to it, jobs' shares and revenue sum to it, and spend lines sum to it.",
+    "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls count to it, people's shares and jobs' shares and revenue sum to it, and spend lines sum to it.",
   module: "M19",
   permissions: ["adspend:read"],
   input: z.object({ ...FunnelQuery, key: z.string().min(1).max(64), measure: Measure }),
@@ -307,6 +313,8 @@ export const drillMarketingFunnel = defineRoute({
     leads: z.array(z.object({
       key: z.string(), customerId: Uuid.nullable(), customerName: z.string().nullable(),
       callerE164: z.string().nullable(), firstAt: z.string(), touches: z.number().int(),
+      /** This row's share of the person, "1" or "0.5". */
+      share: z.string(), weight: z.number().int(),
     })).optional(),
     jobs: z.array(z.object({
       jobId: Uuid, number: z.number().int(), summary: z.string(),

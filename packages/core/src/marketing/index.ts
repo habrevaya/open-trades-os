@@ -1988,6 +1988,50 @@ export function shareTouches(model: AttributionModelKey, touches: Touch[]): Touc
   };
 }
 
+export interface CreditedBucket {
+  bucket: string;
+  /** In `WEIGHT_SCALE`. Across one set of touches these always sum to it exactly. */
+  weight: number;
+}
+
+/**
+ * ONE JOB'S, OR ONE PERSON'S, WORTH OF CREDIT, SPLIT ACROSS THE ROWS OF A REPORT.
+ *
+ * The funnel credits a booked job across the touches that won it, and credits
+ * a lead across the touches that person made in the range. Both ask the same
+ * question: given these touches, under this model, how much of the one thing
+ * lands on each row? This is the one answer, so a lead and a job can never be
+ * credited by different rules. `bucketOf` says which row a touch belongs to,
+ * by its position in `touches`; where the rows are channels, two touches from
+ * one channel add up on its row.
+ *
+ * With no touches the whole of it goes to `unplaced` and never to direct, for
+ * the reason `attribute` gives.
+ *
+ * Sorted by bucket, so the order never depends on the order the touches came
+ * out of the database in, and whatever allocates money over the answer (a
+ * job's revenue, split with `allocate`) is deterministic.
+ */
+export function creditAcross(
+  model: AttributionModelKey,
+  touches: Touch[],
+  bucketOf: (index: number) => string,
+  unplaced: string,
+): CreditedBucket[] {
+  const decision = shareTouches(model, touches);
+  const byBucket = new Map<string, number>();
+  if (decision.ok) {
+    for (const share of decision.shares) {
+      const bucket = bucketOf(share.index);
+      byBucket.set(bucket, (byBucket.get(bucket) ?? 0) + share.weight);
+    }
+  }
+  if (byBucket.size === 0) byBucket.set(unplaced, WEIGHT_SCALE);
+  return [...byBucket.entries()]
+    .map(([bucket, weight]) => ({ bucket, weight }))
+    .sort((a, b) => a.bucket.localeCompare(b.bucket));
+}
+
 /**
  * A whole number split in proportion, by largest remainder, so the parts sum
  * to it exactly. Ties go to the earlier part, which for a set of touches is
@@ -2243,7 +2287,11 @@ export function proratedCost(
 
 export interface FunnelInput {
   spend: Money;
-  /** Distinct people. */
+  /**
+   * People credited to this row. A whole number under a model that gives all of
+   * a person to one touch, and a fraction (to four places) under a split model,
+   * where half a person is on each of two rows and the halves add back to one.
+   */
   leads: number;
   /** Credited booked jobs, in `WEIGHT_SCALE`. */
   bookedWeight: number;
@@ -2279,10 +2327,12 @@ export interface FunnelFigures {
  */
 export function funnelFigures(input: FunnelInput): FunnelFigures {
   const spent = !isZero(input.spend);
+  /** Leads in `WEIGHT_SCALE`, so a credited fraction of a person divides as exactly as a booked job does. */
+  const leadWeight = Math.round(input.leads * WEIGHT_SCALE);
   return {
-    bookingRate: input.leads > 0 ? percentOf(input.bookedWeight, input.leads * WEIGHT_SCALE) : null,
+    bookingRate: leadWeight > 0 ? percentOf(input.bookedWeight, leadWeight) : null,
     averageTicket: input.invoicedWeight > 0 ? perWeight(input.revenue, input.invoicedWeight) : null,
-    costPerLead: input.leads > 0 ? perWeight(input.spend, input.leads * WEIGHT_SCALE) : null,
+    costPerLead: leadWeight > 0 ? perWeight(input.spend, leadWeight) : null,
     costPerBookedJob: input.bookedWeight > 0 ? perWeight(input.spend, input.bookedWeight) : null,
     roas: spent ? ratio(input.revenue, input.spend) : null,
     roi: spent ? percentOfMoney(subtract(input.revenue, input.spend), input.spend) : null,

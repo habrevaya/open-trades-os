@@ -61414,7 +61414,7 @@
       "get": {
         "operationId": "getMarketingFunnel",
         "summary": "Spend, calls, leads, booked jobs, revenue and return, by channel, campaign or number",
-        "description": "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.\n\nRequires a session holding: adspend:read.",
+        "description": "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range, each credited across the touches they made in the range under the same model and by the same function that credits a job, so a person is one lead on one row under a model that gives them to one touch, half a lead on each of two rows under a split model, and the rows add back to the total. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.\n\nRequires a session holding: adspend:read.",
         "tags": [
           "M19"
         ],
@@ -61561,7 +61561,7 @@
       "get": {
         "operationId": "drillMarketingFunnel",
         "summary": "The calls, people, jobs or spend lines behind one cell of the funnel",
-        "description": "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls and people count to it, jobs' shares and revenue sum to it, and spend lines sum to it.\n\nRequires a session holding: adspend:read.",
+        "description": "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls count to it, people's shares and jobs' shares and revenue sum to it, and spend lines sum to it.\n\nRequires a session holding: adspend:read.",
         "tags": [
           "M19"
         ],
@@ -152312,6 +152312,9 @@
                 "type": "integer"
               },
               "leads": {
+                "type": "number"
+              },
+              "leadsWeight": {
                 "type": "integer"
               },
               "booked": {
@@ -152380,6 +152383,7 @@
               "missed",
               "firstTime",
               "leads",
+              "leadsWeight",
               "booked",
               "bookedWeight",
               "completed",
@@ -152521,6 +152525,12 @@
                 },
                 "touches": {
                   "type": "integer"
+                },
+                "share": {
+                  "type": "string"
+                },
+                "weight": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -152529,7 +152539,9 @@
                 "customerName",
                 "callerE164",
                 "firstAt",
-                "touches"
+                "touches",
+                "share",
+                "weight"
               ]
             }
           },
@@ -168009,6 +168021,9 @@
                   "type": "integer"
                 },
                 "leads": {
+                  "type": "number"
+                },
+                "leadsWeight": {
                   "type": "integer"
                 },
                 "booked": {
@@ -168089,6 +168104,7 @@
                 "missed",
                 "firstTime",
                 "leads",
+                "leadsWeight",
                 "booked",
                 "bookedWeight",
                 "completed",
@@ -168126,6 +168142,9 @@
                 "type": "integer"
               },
               "leads": {
+                "type": "number"
+              },
+              "leadsWeight": {
                 "type": "integer"
               },
               "booked": {
@@ -168194,6 +168213,7 @@
               "missed",
               "firstTime",
               "leads",
+              "leadsWeight",
               "booked",
               "bookedWeight",
               "completed",
@@ -168258,6 +168278,9 @@
                   "type": "integer"
                 },
                 "leads": {
+                  "type": "number"
+                },
+                "leadsWeight": {
                   "type": "integer"
                 },
                 "booked": {
@@ -168281,6 +168304,7 @@
                 "sessions",
                 "engagedSessions",
                 "leads",
+                "leadsWeight",
                 "booked",
                 "revenue",
                 "leadsPer100Sessions"
@@ -168297,6 +168321,9 @@
                 "type": "integer"
               },
               "leads": {
+                "type": "number"
+              },
+              "leadsWeight": {
                 "type": "integer"
               },
               "booked": {
@@ -168317,6 +168344,7 @@
               "sessions",
               "engagedSessions",
               "leads",
+              "leadsWeight",
               "booked",
               "revenue",
               "searchClicks",

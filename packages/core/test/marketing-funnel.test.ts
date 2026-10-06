@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   shareTouches, weightText, leadKey, callerKey, checkChannel, checkTrackingCampaign,
-  proratedCost, daysBetween, funnelFigures, attribute, WEIGHT_SCALE, SEED_CHANNELS,
+  proratedCost, daysBetween, funnelFigures, attribute, WEIGHT_SCALE, SEED_CHANNELS, creditAcross,
   LEAD_SOURCE_KEYS, DEFAULT_ATTRIBUTION_MODEL, ATTRIBUTION_MODEL_KEYS,
   type Touch, type LeadSourceKey,
 } from "../src/marketing/index.js";
@@ -81,6 +81,109 @@ describe("what each touch earns", () => {
     expect(weightText(WEIGHT_SCALE * 3)).toBe("3");
     expect(weightText(5000)).toBe("0.5");
     expect(weightText(13333)).toBe("1.33");
+  });
+});
+
+/**
+ * A LEAD IS CREDITED THE WAY A JOB IS
+ *
+ * The funnel used to count a person as a whole lead on every channel they
+ * touched, so the rows added up to more people than there were. `creditAcross`
+ * is the one function a job and a lead are both credited by, so these check it
+ * the way the job's own credit is checked: the credit always adds back to one,
+ * under every model, and nothing recorded is "not placed", never direct.
+ */
+describe("one person's credit across the rows of a report", () => {
+  const touches = [
+    touch("google_ads", "2026-04-03T10:00:00Z"),
+    touch("direct", "2026-04-01T10:00:00Z"),
+    touch("meta_ads", "2026-04-05T10:00:00Z"),
+    touch("google_ads", "2026-04-06T10:00:00Z"),
+  ];
+  const rowOf = (i: number) => touches[i]!.source;
+
+  it("adds back to exactly one person under every model", () => {
+    for (const model of ATTRIBUTION_MODEL_KEYS) {
+      const credit = creditAcross(model, touches, rowOf, "none");
+      expect(credit.reduce((sum, c) => sum + c.weight, 0), model).toBe(WEIGHT_SCALE);
+    }
+  });
+
+  it("gives a person to one row under a model that picks one touch", () => {
+    expect(creditAcross("first_touch", touches, rowOf, "none")).toEqual([{ bucket: "direct", weight: WEIGHT_SCALE }]);
+    expect(creditAcross("last_touch", touches, rowOf, "none")).toEqual([{ bucket: "google_ads", weight: WEIGHT_SCALE }]);
+    expect(creditAcross("last_non_direct", touches, rowOf, "none")).toEqual([{ bucket: "google_ads", weight: WEIGHT_SCALE }]);
+  });
+
+  it("splits a person across rows under an even split, and two touches on one row add up on it", () => {
+    expect(creditAcross("linear", touches, rowOf, "none")).toEqual([
+      { bucket: "direct", weight: 2500 },
+      { bucket: "google_ads", weight: 5000 },
+      { bucket: "meta_ads", weight: 2500 },
+    ]);
+  });
+
+  it("weights the first and the last under the weighted split", () => {
+    /** In time order the four touches weigh 80, 20, 20 and 80 of 200: the first and the last two fifths each. */
+    expect(creditAcross("position_based", touches, rowOf, "none")).toEqual([
+      { bucket: "direct", weight: 4000 },
+      { bucket: "google_ads", weight: 1000 + 4000 },
+      { bucket: "meta_ads", weight: 1000 },
+    ]);
+  });
+
+  it("says where a person with nothing recorded goes, and never to direct", () => {
+    for (const model of ATTRIBUTION_MODEL_KEYS) {
+      expect(creditAcross(model, [], () => "direct", "none"), model).toEqual([{ bucket: "none", weight: WEIGHT_SCALE }]);
+    }
+  });
+
+  it("splits by the largest remainder, so three rows add back to one with the extra on the earlier row", () => {
+    const three = [
+      touch("google_ads", "2026-04-01T10:00:00Z"),
+      touch("meta_ads", "2026-04-02T10:00:00Z"),
+      touch("radio", "2026-04-03T10:00:00Z"),
+    ];
+    const credit = creditAcross("linear", three, (i) => three[i]!.source, "none");
+    expect(credit.map((c) => c.weight).sort()).toEqual([3333, 3333, 3334]);
+    expect(credit.reduce((sum, c) => sum + c.weight, 0)).toBe(WEIGHT_SCALE);
+    expect(credit.find((c) => c.bucket === "google_ads")!.weight).toBe(3334);
+  });
+
+  it("does not depend on the order the touches were handed in, only on when they happened", () => {
+    const shuffled = [touches[3]!, touches[0]!, touches[2]!, touches[1]!];
+    for (const model of ATTRIBUTION_MODEL_KEYS) {
+      expect(creditAcross(model, shuffled, (i) => shuffled[i]!.source, "none"), model)
+        .toEqual(creditAcross(model, touches, rowOf, "none"));
+    }
+  });
+
+  it("credits the same rows a job's touches would be credited, because it is the one function", () => {
+    for (const model of ATTRIBUTION_MODEL_KEYS) {
+      const decision = shareTouches(model, touches);
+      if (!decision.ok) throw new Error("should credit");
+      const byRow = new Map<string, number>();
+      for (const share of decision.shares) byRow.set(rowOf(share.index), (byRow.get(rowOf(share.index)) ?? 0) + share.weight);
+      expect(new Map(creditAcross(model, touches, rowOf, "none").map((c) => [c.bucket, c.weight])), model).toEqual(byRow);
+    }
+  });
+});
+
+describe("the ratios when a person is split across rows", () => {
+  it("divide by a fraction of a person as exactly as by a fraction of a job", () => {
+    const figures = funnelFigures({
+      spend: usd("100.00"), leads: 2.5, bookedWeight: 5_000, invoicedWeight: 5_000, revenue: usd("250.00"),
+    });
+    expect(figures.bookingRate).toBe("20.00");
+    expect(moneyString(figures.costPerLead!)).toBe("40.0000");
+  });
+
+  it("still has no cost per lead with no leads, however small the share rounds", () => {
+    const figures = funnelFigures({
+      spend: usd("100.00"), leads: 0.00001, bookedWeight: 0, invoicedWeight: 0, revenue: zero("USD"),
+    });
+    expect(figures.costPerLead).toBeNull();
+    expect(figures.bookingRate).toBeNull();
   });
 });
 

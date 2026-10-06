@@ -146,7 +146,7 @@ export default async function ReturnPage(
                 {row.detail ? <span className="block text-xs text-ink-500">{row.detail}</span> : null}
               </Td>
               <Td><Cell href={rowsHref(params, row.key, "spend")} label={`${row.label} spend`}><Money value={row.spend} /></Cell></Td>
-              <Td><Cell href={rowsHref(params, row.key, "leads")} label={`${row.label} leads`}>{row.leads}</Cell></Td>
+              <Td><Cell href={rowsHref(params, row.key, "leads")} label={`${row.label} leads`}>{mk.weightText(row.leadsWeight)}</Cell></Td>
               <Td><Cell href={rowsHref(params, row.key, "booked")} label={`${row.label} booked`}>{row.booked}</Cell></Td>
               <Td><Cell href={rowsHref(params, row.key, "revenue")} label={`${row.label} revenue`}><Money value={row.revenue} /></Cell></Td>
               {/* Empty is said in words, never as zero: zero reads as a measurement, and the cheapest one. */}

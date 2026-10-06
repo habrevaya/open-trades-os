@@ -326,8 +326,19 @@ seven in the evening in Austin is that day's call:
   answered call and a voicemail is a missed one.
 - **Leads**: people (the customer, else the number that rang, else the
   browser) with a touch in the range. New callers and form fills count before
-  anybody makes them a customer. One person touching two channels is a lead for
-  each and once in the total.
+  anybody makes them a customer. Each person is credited across the touches
+  they made in the range under the chosen model, by `creditAcross`, the same
+  core function that credits a job across its touches. Under first, last or
+  last non direct touch a person is one lead on one row; under an even or
+  weighted split half a person is on each of two rows, and the halves add back
+  to one. So the rows add up to the total, which is each person once, and a
+  person who touched two channels is no longer a whole lead on both. A cell
+  reads "3" or "1.5" and opens into the people behind it, each with their
+  share (`leads` and `leadsWeight`, in ten thousandths, beside `bookedWeight`
+  on the funnel). Cost per lead and the booking rate divide by these credited
+  leads. A per lead campaign's price is still charged on the people its own
+  tag or number brought in the range, whatever row they are credited to,
+  because the marketplace billed for the lead it sold.
 - **Booked jobs**: jobs created in the range and not cancelled, each split
   across its own touches under the model. A split model puts half a job on two
   rows and the halves add back to one. A job nothing was recorded for is on a
@@ -1107,6 +1118,3 @@ sample and therefore not a test of anything.
 - **An outbound campaign's own phone number.** A text campaign's credit comes
   from a click on its utm tag, not from a reply to a dedicated number.
 - **No A/B test.** Two campaigns to two audiences is the available answer.
-- **Leads by first touch in the range.** A person is a lead in every channel
-  they touched in the range; the funnel does not yet credit a lead under the
-  attribution model the way it credits a job.

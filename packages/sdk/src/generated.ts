@@ -5160,6 +5160,7 @@ export interface DrillMarketingFunnelOutput {
     missed: number;
     firstTime: number;
     leads: number;
+    leadsWeight: number;
     booked: string;
     bookedWeight: number;
     completed: string;
@@ -5196,6 +5197,8 @@ export interface DrillMarketingFunnelOutput {
     callerE164: string | null;
     firstAt: string;
     touches: number;
+    share: string;
+    weight: number;
   }>;
   jobs?: Array<{
     jobId: string;
@@ -8169,6 +8172,7 @@ export interface GetMarketingFunnelOutput {
     missed: number;
     firstTime: number;
     leads: number;
+    leadsWeight: number;
     booked: string;
     bookedWeight: number;
     completed: string;
@@ -8191,6 +8195,7 @@ export interface GetMarketingFunnelOutput {
     missed: number;
     firstTime: number;
     leads: number;
+    leadsWeight: number;
     booked: string;
     bookedWeight: number;
     completed: string;
@@ -8217,6 +8222,7 @@ export interface GetMarketingOverviewOutput {
     sessions: number;
     engagedSessions: number;
     leads: number;
+    leadsWeight: number;
     booked: string;
     revenue: string;
     leadsPer100Sessions: string | null;
@@ -8225,6 +8231,7 @@ export interface GetMarketingOverviewOutput {
     sessions: number;
     engagedSessions: number;
     leads: number;
+    leadsWeight: number;
     booked: string;
     revenue: string;
     searchClicks: number;
