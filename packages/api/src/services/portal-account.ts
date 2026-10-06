@@ -10,6 +10,7 @@ import * as tips from "./tips";
 import { accountExtras, customerPhotoBytes, type AccountExtras } from "./portal-blocks";
 import { pendingFor as pendingBookingsFor } from "./portal-booking";
 import { exclusionNamesWithin, percentOf } from "./agreements";
+import { forPortal as recordsForPortal, type PortalRecords } from "./custom-objects";
 
 /**
  * THE TWO PORTAL LINKS THAT HAD NO PAGE
@@ -91,6 +92,12 @@ export interface PortalAccount {
    * equipment, readings and the blocks the company's trade pack lays out.
    */
   extras: AccountExtras;
+  /**
+   * The company's own records about this customer that it chose to show
+   * them (a permit, a warranty registration), each with only the fields
+   * marked for the customer. Empty unless the office turned a kind on.
+   */
+  records: PortalRecords[];
 }
 
 /**
@@ -274,6 +281,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
           .filter((n): n is number => n !== undefined),
       })),
       extras: await accountExtras(tx, grant.organizationId, customerId),
+      records: await recordsForPortal(tx, customerId),
       requested: await pendingBookingsFor(tx, customerId),
     };
   });

@@ -107,11 +107,12 @@ run("defining a kind of record", () => {
   });
 
   it("refuses a definition in words, every problem at once", async () => {
-    const issues = await refusal(objects.defineKind(owner(), { key: "Permit!", label: "", links: ["invoice"] }));
+    // An invoice became something a record can point at, so the link nothing offers is a vendor.
+    const issues = await refusal(objects.defineKind(owner(), { key: "Permit!", label: "", links: ["vendor"] }));
     expect(issues.map((i) => i.message)).toEqual([
       expect.stringContaining('"Permit!" is not a usable key'),
       "Say what one of these is called, like Permit.",
-      expect.stringContaining('"invoice" is not something a record can point at'),
+      expect.stringContaining('"vendor" is not something a record can point at'),
     ]);
   });
 

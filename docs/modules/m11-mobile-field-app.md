@@ -179,6 +179,11 @@ A report made on the phone is filed against the job type's template and its
 version, so the office reads it against the fields the technician was asked
 for.
 
+The company's own records on the visit's job or on a unit recorded on the
+visit (a permit, a warranty registration, M29) come with the day too, of the
+kinds the technician may read, with every field that holds a value, under
+"Records on this job" on the phone and on `/my-day`. They are read only there.
+
 ### Money on site
 
 Cash and checks are `payment.collect`: a fact that always applies, because the

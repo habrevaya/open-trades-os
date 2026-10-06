@@ -369,6 +369,7 @@ async function settingsOf(tx: Database, organizationId: string): Promise<rules.S
       content: {
         label: kind.label, pluralLabel: kind.pluralLabel, description: kind.description, titleLabel: kind.titleLabel,
         links: kind.links, readPermission: kind.readPermission, writePermission: kind.writePermission, sortOrder: kind.sortOrder,
+        recordKind: kind.recordKind, customerVisible: kind.customerVisible,
       },
     });
   }
@@ -377,7 +378,10 @@ async function settingsOf(tx: Database, organizationId: string): Promise<rules.S
     items.push({
       kind: "custom_field", naturalKey: `${field.entityType}:${field.key}`,
       label: `${field.label} (${field.entityType.startsWith(objectRules.ENTITY_PREFIX) ? field.entityType.slice(objectRules.ENTITY_PREFIX.length) : field.entityType})`,
-      content: { label: field.label, dataType: field.dataType, options: field.options, required: field.required, sortOrder: field.sortOrder },
+      content: {
+        label: field.label, dataType: field.dataType, options: field.options, required: field.required, sortOrder: field.sortOrder,
+        customerVisible: field.customerVisible,
+      },
     });
   }
   const typeNames = new Map((await tx.select({ id: schema.jobType.id, name: schema.jobType.name }).from(schema.jobType))
@@ -515,6 +519,8 @@ async function applyItem(
         description: content["description"] as string | null, titleLabel: content["titleLabel"] as string,
         links: content["links"] as string[], readPermission: content["readPermission"] as string,
         writePermission: content["writePermission"] as string, sortOrder: content["sortOrder"] as number,
+        recordKind: (content["recordKind"] as string | null | undefined) ?? null,
+        customerVisible: content["customerVisible"] === true,
       };
       if (!exists) { await customObjects.defineKind(ctx, { key: item.naturalKey, ...input }); return; }
       await enter(tx, ctx.actor.organizationId);
@@ -530,6 +536,7 @@ async function applyItem(
       const input = {
         label: content["label"] as string, dataType: content["dataType"] as string, options: content["options"] as string[],
         required: content["required"] as boolean, sortOrder: content["sortOrder"] as number,
+        customerVisible: content["customerVisible"] === true,
       };
       if (!exists) { await customFields.define(ctx, { entityType, key, ...input }); return; }
       await enter(tx, ctx.actor.organizationId);

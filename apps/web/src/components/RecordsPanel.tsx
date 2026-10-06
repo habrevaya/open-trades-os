@@ -2,7 +2,8 @@ import { customObjects, type ServiceContext } from "@opentradesos/api/services";
 import { customFieldText } from "@/components/CustomFieldInputs";
 
 /**
- * THE COMPANY'S OWN RECORDS ON A JOB, A CUSTOMER, AN ADDRESS OR A UNIT
+ * THE COMPANY'S OWN RECORDS ON A JOB, A CUSTOMER, AN ADDRESS, A UNIT, AN
+ * INVOICE, A PERSON OR ANOTHER RECORD
  *
  * One section per kind of record that can point here and that this person
  * may read: its records, each with its first two fields, and "Add one" for
@@ -14,14 +15,17 @@ export async function RecordsPanel({
   ctx, link, id, back,
 }: {
   ctx: ServiceContext;
-  link: "customer" | "property" | "job" | "equipment";
+  link: "customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record";
   id: string;
   /** This page, so adding one comes back here. */
   back: string;
 }) {
   const groups = await customObjects.recordsFor(ctx, { link, id });
   if (groups.length === 0) return null;
-  const param = { customer: "customerId", property: "propertyId", job: "jobId", equipment: "equipmentId" }[link];
+  const param = {
+    customer: "customerId", property: "propertyId", job: "jobId", equipment: "equipmentId",
+    invoice: "invoiceId", membership: "membershipId", record: "linkedRecordId",
+  }[link];
   return (
     <>
       {groups.map(({ kind, records, fields, canWrite }) => (

@@ -33,6 +33,8 @@ export interface AccountViewData {
   }[];
   /** The work, laid out the way the company's trade pack says. Absent, the page draws what every account shows. */
   extras?: AccountExtrasData;
+  /** The company's own records about this customer it chose to show, with only the fields marked for them. */
+  records?: { heading: string; type: string; records: { id: string; title: string; fields: { label: string; value: string }[] }[] }[];
 }
 
 export interface ReportData {
@@ -638,6 +640,34 @@ export function AccountView({
       )}
 
       {extras.blocks.map(block)}
+
+      {/*
+        THE COMPANY'S OWN RECORDS, read only: a permit, a warranty
+        registration. Only kinds the office turned on for customers, and of
+        each record only the fields marked for the customer; the server never
+        sends the others.
+      */}
+      {(account.records ?? []).map((group) => (
+        <Section key={group.type} title={group.heading}>
+          <ul className="mt-3 space-y-3 text-sm">
+            {group.records.map((record) => (
+              <li key={record.id}>
+                <span className="font-medium">{record.title}</span>
+                {record.fields.length > 0 ? (
+                  <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-ink-700">
+                    {record.fields.map((f) => (
+                      <div key={f.label} className="contents">
+                        <dt className="text-ink-500">{f.label}</dt>
+                        <dd>{f.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ))}
 
       {account.jobs.length > 0 && (
         <Section title="Your work">

@@ -341,6 +341,12 @@ time above the table of its values once it has two days of them; the line is
 the reports' own chart (M21), drawn on the server. Photographs on the account are served through the same link at
 `/c/{token}/photos/{id}` and `/portal/{slug}/account/photos/{id}`.
 
+The company's own records about the customer (a permit, a warranty
+registration) are a read only block per kind, after the layout's blocks,
+only for a kind the office turned on for customers, and showing each record's
+name and only the fields marked for the customer. Which records are about
+them, and how a field is marked, is M29's.
+
 ### Share a visit's notes with the customer
 
 On the job's page, each visit with notes offers **Show the customer these

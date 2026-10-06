@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customObjects, customers, jobs, NotFoundError } from "@opentradesos/api/services";
-import { PermissionError } from "@opentradesos/core";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { can, PermissionError } from "@opentradesos/core";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { CustomFieldInputs } from "@/components/CustomFieldInputs";
 import { Crumb } from "@/components/Detail";
 import { PageHeader } from "@/components/Table";
@@ -23,7 +23,10 @@ export default async function NewRecordPage({
   params, searchParams,
 }: {
   params: Promise<{ type: string }>;
-  searchParams: Promise<{ customerId?: string; propertyId?: string; jobId?: string; equipmentId?: string; back?: string }>;
+  searchParams: Promise<{
+    customerId?: string; propertyId?: string; jobId?: string; equipmentId?: string;
+    invoiceId?: string; membershipId?: string; linkedRecordId?: string; back?: string;
+  }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -36,13 +39,23 @@ export default async function NewRecordPage({
   if (!kind.canWrite) notFound();
 
   const carried: Record<string, string> = {};
-  for (const name of ["customerId", "propertyId", "jobId", "equipmentId"] as const) {
+  for (const name of ["customerId", "propertyId", "jobId", "equipmentId", "invoiceId", "membershipId", "linkedRecordId"] as const) {
     const value = query[name];
     if (value && UUID.test(value)) carried[name] = value;
   }
   const job = carried["jobId"] ? await jobs.get(ctx, { id: carried["jobId"] }).catch(() => null) : null;
   const customer = carried["customerId"] && !job ? await customers.get(ctx, { id: carried["customerId"] }).catch(() => null) : null;
   const back = query.back && query.back.startsWith("/") && !query.back.startsWith("//") ? query.back : undefined;
+  /**
+   * A person chosen from the team, for somebody who may see the team. The
+   * person's own page carries them in for everybody else.
+   */
+  const people = kind.links.includes("membership") && !carried["membershipId"] && can(user.actor, "user:read")
+    ? await customObjects.peopleToLink(ctx) : [];
+  /** One of the kind it points at, chosen from the ones this person may open. */
+  const pointable = kind.links.includes("record") && kind.recordKind && !carried["linkedRecordId"]
+    ? (await customObjects.listRecords(ctx, { type: kind.recordKind, limit: 200 }).catch(() => ({ data: [] }))).data
+    : [];
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -55,6 +68,14 @@ export default async function NewRecordPage({
         <TextField label={kind.titleLabel} name="title" required maxLength={200} />
         {kind.links.includes("job") && !carried["jobId"] ? (
           <TextField label="Job number (optional)" name="jobNumber" inputMode="numeric" pattern="[0-9]*" />
+        ) : null}
+        {people.length > 0 ? (
+          <Select label="Person (optional)" name="membershipId"
+                  options={[{ value: "", label: "Nobody" }, ...people.map((p) => ({ value: p.membershipId, label: p.name }))]} />
+        ) : null}
+        {pointable.length > 0 ? (
+          <Select label={`${pointable[0]!.typeLabel} (optional)`} name="linkedRecordId"
+                  options={[{ value: "", label: "None" }, ...pointable.map((r) => ({ value: r.id, label: r.title }))]} />
         ) : null}
         <CustomFieldInputs definitions={kind.fields} />
       </ActionForm>

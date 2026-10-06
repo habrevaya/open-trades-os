@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { customFields, peopleRecords, people as peopleService, staffDocuments, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { Chip } from "@opentradesos/ui";
 import { Crumb, Fact, Facts } from "@/components/Detail";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
@@ -293,6 +294,7 @@ export default async function PersonPage({ params }: { params: Promise<{ members
           back={`/people/${membershipId}`}
         />
       ) : null}
+      <RecordsPanel ctx={ctx} link="membership" id={membershipId} back={`/people/${membershipId}`} />
     </div>
   );
 }

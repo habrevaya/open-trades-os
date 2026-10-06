@@ -9,6 +9,7 @@ import { Crumb, Fact, Facts } from "@/components/Detail";
 import { PageHeader } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { removeRecord, updateRecord } from "../../actions";
+import { RecordsPanel } from "@/components/RecordsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,19 @@ export default async function RecordPage({ params }: { params: Promise<{ type: s
         <Fact label="Address">{record.property ? <a href={`/properties/${record.property.id}`} className="underline underline-offset-4">{record.property.name}</a> : null}</Fact>
         <Fact label="Job">{record.job ? <a href={`/jobs/${record.job.id}`} className="underline underline-offset-4">{record.job.name}</a> : null}</Fact>
         <Fact label="Unit">{record.equipment ? <a href={`/equipment/${record.equipment.id}`} className="underline underline-offset-4">{record.equipment.name}</a> : null}</Fact>
+        {kind.links.includes("invoice") ? (
+          <Fact label="Invoice">{record.invoice ? <a href={`/invoices/${record.invoice.id}`} className="underline underline-offset-4">{record.invoice.name}</a> : null}</Fact>
+        ) : null}
+        {kind.links.includes("membership") ? (
+          <Fact label="Person">{record.membership ? <a href={`/people/${record.membership.id}`} className="underline underline-offset-4">{record.membership.name}</a> : null}</Fact>
+        ) : null}
+        {kind.links.includes("record") ? (
+          <Fact label="Points at">
+            {record.record ? (record.record.type
+              ? <a href={`/records/${record.record.type}/${record.record.id}`} className="underline underline-offset-4">{record.record.name}</a>
+              : "A record you cannot open") : null}
+          </Fact>
+        ) : null}
         <Fact label="Added">{formatIn(record.createdAt, user.organizationTimezone)}</Fact>
       </Facts>
 
@@ -64,6 +78,9 @@ export default async function RecordPage({ params }: { params: Promise<{ type: s
           ))}
         </dl>
       )}
+
+      {/* The records of other kinds that point at this one: a truck's inspections. */}
+      <RecordsPanel ctx={ctx} link="record" id={id} back={`/records/${type}/${id}`} />
     </div>
   );
 }

@@ -31360,7 +31360,7 @@
       "post": {
         "operationId": "defineCustomObject",
         "summary": "Define a kind of record the company keeps",
-        "description": "Its name, the plural, what each one's name is called, what it may point at and who may see and change one. Add its fields afterwards with `POST /v1/custom-fields` on entity type `object:<key>`. The key cannot be changed later. Every problem with the definition is returned at once.\n\nRequires a session holding: customfield:write.",
+        "description": "Its name, the plural, what each one's name is called, what it may point at (a customer, an address, a job, a unit, an invoice, a person, or a record of the kind `recordKind` names), who may see and change one, and whether the customer is shown them on their portal (`customerVisible`, off unless sent). Add its fields afterwards with `POST /v1/custom-fields` on entity type `object:<key>`. The key cannot be changed later. Every problem with the definition is returned at once.\n\nRequires a session holding: customfield:write.",
         "tags": [
           "M29"
         ],
@@ -32379,7 +32379,7 @@
       "get": {
         "operationId": "listCustomRecords",
         "summary": "One kind's records, searched and filtered",
-        "description": "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job or unit.\n\nRequires a session holding: record:read.",
+        "description": "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job, unit, invoice, person or record.\n\nRequires a session holding: record:read.",
         "tags": [
           "M29"
         ],
@@ -32466,6 +32466,33 @@
           },
           {
             "name": "equipmentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "membershipId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "linkedRecordId",
             "in": "query",
             "required": false,
             "schema": {
@@ -106243,6 +106270,113 @@
         ]
       }
     },
+    "/v1/search": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "searchEverything",
+        "summary": "Find a customer, a job or one of the company's own records",
+        "description": "`q` is matched against a customer's name, email and phone (`customer:read`), a job's number (`job:read`) and each kind of record's names and values (`record:read` and the kind's own read permission). Every part is held to the caller's scope as its own list is, and a part the caller may not read is left out. At most five of each, and nothing for fewer than two characters.\n\nRequires a session. No further permission is checked.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Find a customer, a job or one of the company's own records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchEverythingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": []
+      }
+    },
     "/v1/service-report-templates": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -113328,7 +113462,7 @@
       "post": {
         "operationId": "createTaskTemplate",
         "summary": "Make a task come round on a schedule",
-        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`) or `last_weekday_of_month` (needs `weekday`: the last Friday, say). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
+        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` and `intervalWeeks`, 2 to 52, counted like every other week) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
         "tags": [
           "M34"
         ],
@@ -113549,7 +113683,7 @@
       "patch": {
         "operationId": "updateTaskTemplate",
         "summary": "Change a recurring task, or pause it",
-        "description": "Applies to the tasks it raises from now on. Ones already in the queue are left as they are, because somebody may be halfway through one.\n\nRequires a session holding: task:write.",
+        "description": "Applies to the tasks it raises from now on. Ones already in the queue are left as they are, because somebody may be halfway through one. `skipHolidays` can be switched either way on an existing one.\n\nRequires a session holding: task:write.",
         "tags": [
           "M34"
         ],
@@ -125067,7 +125201,7 @@
       "get": {
         "operationId": "listWorkflowTemplates",
         "summary": "Recommended automations, and which are on",
-        "description": "Following up an estimate nobody answered, and asking for a review once a job is paid. Each says what it does, what it needs from the company, and whether it is installed; an installed one is an ordinary workflow at `/v1/workflows`.\n\nRequires a session holding: workflow:read.",
+        "description": "The product's own (following up an estimate nobody answered, asking for a review once a job is paid, texting back a missed call, ringing before a warranty runs out) and those declared by a trade pack the company applied, keyed `<pack id>.<key>`. Each says what it does, what it needs from the company, and whether it is installed; an installed one is an ordinary workflow at `/v1/workflows`.\n\nRequires a session holding: workflow:read.",
         "tags": [
           "M29"
         ],
@@ -139190,6 +139324,27 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "membershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "linkedRecordId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -139293,6 +139448,70 @@
               "name"
             ]
           },
+          "invoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "membership": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "record": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "type"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -139310,6 +139529,9 @@
           "property",
           "job",
           "equipment",
+          "invoice",
+          "membership",
+          "record",
           "createdAt",
           "updatedAt"
         ]
@@ -146818,7 +147040,10 @@
               "weekly",
               "every_other_week",
               "monthly",
-              "last_weekday_of_month"
+              "last_weekday_of_month",
+              "nth_weekday_of_month",
+              "every_n_weeks",
+              "chosen_weekdays"
             ]
           },
           "weekday": {
@@ -146836,6 +147061,34 @@
             ],
             "minimum": 1,
             "maximum": 31
+          },
+          "monthWeek": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 4
+          },
+          "intervalWeeks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 2,
+            "maximum": 52
+          },
+          "daysOfWeek": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "maxItems": 7
           },
           "dueMinutes": {
             "type": "integer",
@@ -146916,7 +147169,10 @@
               "weekly",
               "every_other_week",
               "monthly",
-              "last_weekday_of_month"
+              "last_weekday_of_month",
+              "nth_weekday_of_month",
+              "every_n_weeks",
+              "chosen_weekdays"
             ]
           },
           "weekday": {
@@ -146930,6 +147186,27 @@
               "integer",
               "null"
             ]
+          },
+          "monthWeek": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "intervalWeeks": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "daysOfWeek": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer"
+            }
           },
           "dueMinutes": {
             "type": "integer"
@@ -146979,6 +147256,9 @@
           "frequency",
           "weekday",
           "monthDay",
+          "monthWeek",
+          "intervalWeeks",
+          "daysOfWeek",
           "dueMinutes",
           "checklist",
           "startsOn",
@@ -150175,6 +150455,9 @@
             "type": "integer",
             "minimum": -1000,
             "maximum": 1000
+          },
+          "customerVisible": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -150214,6 +150497,9 @@
           "sortOrder": {
             "type": "integer"
           },
+          "customerVisible": {
+            "type": "boolean"
+          },
           "rowsWithValue": {
             "type": "integer"
           },
@@ -150230,6 +150516,7 @@
           "options",
           "required",
           "sortOrder",
+          "customerVisible",
           "rowsWithValue",
           "rowsMissingValue"
         ]
@@ -150270,10 +150557,24 @@
                 "customer",
                 "property",
                 "job",
-                "equipment"
+                "equipment",
+                "invoice",
+                "membership",
+                "record"
               ]
             },
-            "maxItems": 4
+            "maxItems": 7
+          },
+          "recordKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "customerVisible": {
+            "type": "boolean"
           },
           "readPermission": {
             "type": "string",
@@ -150327,7 +150628,10 @@
                 "customer",
                 "property",
                 "job",
-                "equipment"
+                "equipment",
+                "invoice",
+                "membership",
+                "record"
               ]
             }
           },
@@ -150339,6 +150643,15 @@
           },
           "sortOrder": {
             "type": "integer"
+          },
+          "recordKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerVisible": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -150351,7 +150664,9 @@
           "links",
           "readPermission",
           "writePermission",
-          "sortOrder"
+          "sortOrder",
+          "recordKind",
+          "customerVisible"
         ]
       },
       "DefineMessageTemplateInput": {
@@ -157992,6 +158307,9 @@
                       "sortOrder": {
                         "type": "integer"
                       },
+                      "customerVisible": {
+                        "type": "boolean"
+                      },
                       "rowsWithValue": {
                         "type": "integer"
                       },
@@ -158008,6 +158326,7 @@
                       "options",
                       "required",
                       "sortOrder",
+                      "customerVisible",
                       "rowsWithValue",
                       "rowsMissingValue"
                     ]
@@ -158078,7 +158397,10 @@
                 "customer",
                 "property",
                 "job",
-                "equipment"
+                "equipment",
+                "invoice",
+                "membership",
+                "record"
               ]
             }
           },
@@ -158090,6 +158412,15 @@
           },
           "sortOrder": {
             "type": "integer"
+          },
+          "recordKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerVisible": {
+            "type": "boolean"
           },
           "fields": {
             "type": "array",
@@ -158123,6 +158454,9 @@
                 },
                 "sortOrder": {
                   "type": "integer"
+                },
+                "customerVisible": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -158133,7 +158467,8 @@
                 "dataType",
                 "options",
                 "required",
-                "sortOrder"
+                "sortOrder",
+                "customerVisible"
               ]
             }
           },
@@ -158155,6 +158490,8 @@
           "readPermission",
           "writePermission",
           "sortOrder",
+          "recordKind",
+          "customerVisible",
           "fields",
           "canRead",
           "canWrite"
@@ -158256,6 +158593,70 @@
               "name"
             ]
           },
+          "invoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "membership": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "record": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "type"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -158295,7 +158696,10 @@
                     "customer",
                     "property",
                     "job",
-                    "equipment"
+                    "equipment",
+                    "invoice",
+                    "membership",
+                    "record"
                   ]
                 }
               },
@@ -158307,6 +158711,15 @@
               },
               "sortOrder": {
                 "type": "integer"
+              },
+              "recordKind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "customerVisible": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -158319,7 +158732,9 @@
               "links",
               "readPermission",
               "writePermission",
-              "sortOrder"
+              "sortOrder",
+              "recordKind",
+              "customerVisible"
             ]
           },
           "fields": {
@@ -158354,6 +158769,9 @@
                 },
                 "sortOrder": {
                   "type": "integer"
+                },
+                "customerVisible": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -158364,7 +158782,8 @@
                 "dataType",
                 "options",
                 "required",
-                "sortOrder"
+                "sortOrder",
+                "customerVisible"
               ]
             }
           },
@@ -158382,6 +158801,9 @@
           "property",
           "job",
           "equipment",
+          "invoice",
+          "membership",
+          "record",
           "createdAt",
           "updatedAt",
           "kind",
@@ -162761,6 +163183,48 @@
                       "status",
                       "total",
                       "balance"
+                    ]
+                  }
+                },
+                "records": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "value"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "kind",
+                      "title",
+                      "fields"
                     ]
                   }
                 }
@@ -187651,6 +188115,9 @@
                 },
                 "sortOrder": {
                   "type": "integer"
+                },
+                "customerVisible": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -187661,7 +188128,8 @@
                 "dataType",
                 "options",
                 "required",
-                "sortOrder"
+                "sortOrder",
+                "customerVisible"
               ]
             }
           }
@@ -187708,7 +188176,10 @@
                       "customer",
                       "property",
                       "job",
-                      "equipment"
+                      "equipment",
+                      "invoice",
+                      "membership",
+                      "record"
                     ]
                   }
                 },
@@ -187720,6 +188191,15 @@
                 },
                 "sortOrder": {
                   "type": "integer"
+                },
+                "recordKind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerVisible": {
+                  "type": "boolean"
                 },
                 "fields": {
                   "type": "array",
@@ -187753,6 +188233,9 @@
                       },
                       "sortOrder": {
                         "type": "integer"
+                      },
+                      "customerVisible": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -187763,7 +188246,8 @@
                       "dataType",
                       "options",
                       "required",
-                      "sortOrder"
+                      "sortOrder",
+                      "customerVisible"
                     ]
                   }
                 },
@@ -187785,6 +188269,8 @@
                 "readPermission",
                 "writePermission",
                 "sortOrder",
+                "recordKind",
+                "customerVisible",
                 "fields",
                 "canRead",
                 "canWrite"
@@ -187897,6 +188383,70 @@
                     "name"
                   ]
                 },
+                "invoice": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                },
+                "membership": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                },
+                "record": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "type"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 },
@@ -187914,6 +188464,9 @@
                 "property",
                 "job",
                 "equipment",
+                "invoice",
+                "membership",
+                "record",
                 "createdAt",
                 "updatedAt"
               ]
@@ -201464,7 +202017,10 @@
                     "weekly",
                     "every_other_week",
                     "monthly",
-                    "last_weekday_of_month"
+                    "last_weekday_of_month",
+                    "nth_weekday_of_month",
+                    "every_n_weeks",
+                    "chosen_weekdays"
                   ]
                 },
                 "weekday": {
@@ -201478,6 +202034,27 @@
                     "integer",
                     "null"
                   ]
+                },
+                "monthWeek": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "intervalWeeks": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "daysOfWeek": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "integer"
+                  }
                 },
                 "dueMinutes": {
                   "type": "integer"
@@ -201527,6 +202104,9 @@
                 "frequency",
                 "weekday",
                 "monthDay",
+                "monthWeek",
+                "intervalWeeks",
+                "daysOfWeek",
                 "dueMinutes",
                 "checklist",
                 "startsOn",
@@ -204696,6 +205276,24 @@
                 },
                 "onForNewCompanies": {
                   "type": "boolean"
+                },
+                "pack": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
                 }
               },
               "required": [
@@ -204707,7 +205305,8 @@
                 "installed",
                 "blockedBy",
                 "platforms",
-                "onForNewCompanies"
+                "onForNewCompanies",
+                "pack"
               ]
             }
           }
@@ -224217,6 +224816,67 @@
           "numbers"
         ]
       },
+      "SearchEverythingOutput": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "hits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "detail": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "href": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "detail",
+                      "href"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "hits"
+              ]
+            }
+          }
+        },
+        "required": [
+          "q",
+          "groups"
+        ]
+      },
       "SellAgreementInput": {
         "type": "object",
         "properties": {
@@ -237239,6 +237899,9 @@
             "type": "integer",
             "minimum": -1000,
             "maximum": 1000
+          },
+          "customerVisible": {
+            "type": "boolean"
           }
         }
       },
@@ -237273,6 +237936,9 @@
           "sortOrder": {
             "type": "integer"
           },
+          "customerVisible": {
+            "type": "boolean"
+          },
           "rowsWithValue": {
             "type": "integer"
           },
@@ -237289,6 +237955,7 @@
           "options",
           "required",
           "sortOrder",
+          "customerVisible",
           "rowsWithValue",
           "rowsMissingValue"
         ]
@@ -237324,10 +237991,24 @@
                 "customer",
                 "property",
                 "job",
-                "equipment"
+                "equipment",
+                "invoice",
+                "membership",
+                "record"
               ]
             },
-            "maxItems": 4
+            "maxItems": 7
+          },
+          "recordKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "customerVisible": {
+            "type": "boolean"
           },
           "readPermission": {
             "type": "string",
@@ -237377,7 +238058,10 @@
                 "customer",
                 "property",
                 "job",
-                "equipment"
+                "equipment",
+                "invoice",
+                "membership",
+                "record"
               ]
             }
           },
@@ -237389,6 +238073,15 @@
           },
           "sortOrder": {
             "type": "integer"
+          },
+          "recordKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerVisible": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -237401,7 +238094,9 @@
           "links",
           "readPermission",
           "writePermission",
-          "sortOrder"
+          "sortOrder",
+          "recordKind",
+          "customerVisible"
         ]
       },
       "UpdateCustomRecordInput": {
@@ -237437,6 +238132,27 @@
             "format": "uuid"
           },
           "equipmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "membershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "linkedRecordId": {
             "type": [
               "string",
               "null"
@@ -237541,6 +238257,70 @@
               "name"
             ]
           },
+          "invoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "membership": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "record": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "type"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -237558,6 +238338,9 @@
           "property",
           "job",
           "equipment",
+          "invoice",
+          "membership",
+          "record",
           "createdAt",
           "updatedAt"
         ]
@@ -243026,7 +243809,10 @@
               "weekly",
               "every_other_week",
               "monthly",
-              "last_weekday_of_month"
+              "last_weekday_of_month",
+              "nth_weekday_of_month",
+              "every_n_weeks",
+              "chosen_weekdays"
             ]
           },
           "weekday": {
@@ -243044,6 +243830,34 @@
             ],
             "minimum": 1,
             "maximum": 31
+          },
+          "monthWeek": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 4
+          },
+          "intervalWeeks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 2,
+            "maximum": 52
+          },
+          "daysOfWeek": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "maxItems": 7
           },
           "dueMinutes": {
             "type": "integer",
@@ -243123,7 +243937,10 @@
               "weekly",
               "every_other_week",
               "monthly",
-              "last_weekday_of_month"
+              "last_weekday_of_month",
+              "nth_weekday_of_month",
+              "every_n_weeks",
+              "chosen_weekdays"
             ]
           },
           "weekday": {
@@ -243137,6 +243954,27 @@
               "integer",
               "null"
             ]
+          },
+          "monthWeek": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "intervalWeeks": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "daysOfWeek": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer"
+            }
           },
           "dueMinutes": {
             "type": "integer"
@@ -243186,6 +244024,9 @@
           "frequency",
           "weekday",
           "monthDay",
+          "monthWeek",
+          "intervalWeeks",
+          "daysOfWeek",
           "dueMinutes",
           "checklist",
           "startsOn",
@@ -245518,6 +246359,63 @@
               "recommendations",
               "contact"
             ]
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "heading": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "records": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "value"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "fields"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "heading",
+                "type",
+                "records"
+              ]
+            }
           }
         },
         "required": [
@@ -245533,7 +246431,8 @@
           "onlinePaymentAvailable",
           "requested",
           "bankPayments",
-          "extras"
+          "extras",
+          "records"
         ]
       },
       "ViewPortalChangeOrderOutput": {

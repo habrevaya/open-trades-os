@@ -55,7 +55,10 @@ export default async function KindsPage() {
                 <span className="ml-2 font-mono text-xs text-ink-500">{kind.key}</span>
                 {kind.description ? <span className="block text-xs text-ink-500">{kind.description}</span> : null}
               </Td>
-              <Td className="text-ink-700">{linkWords(kind.links)}</Td>
+              <Td className="text-ink-700">
+                {linkWords(kind.links)}
+                {kind.customerVisible ? <span className="block text-xs text-ink-500">Shown to the customer</span> : null}
+              </Td>
               <Td className="text-right tabular-nums">{kind.fields.length}</Td>
               <Td className="text-right tabular-nums">{kind.records}</Td>
             </tr>
@@ -69,7 +72,7 @@ export default async function KindsPage() {
           <ActionForm action={defineKind} submit="Define it" className="mt-3 grid max-w-3xl gap-3 sm:grid-cols-2">
             <TextField label="Key it is stored under" name="key" required maxLength={48} placeholder="permit"
                        pattern="[a-z][a-z0-9_]*" title="Lowercase letters, digits and underscores, starting with a letter" />
-            <KindFields />
+            <KindFields others={kinds.map((k) => ({ key: k.key, label: k.pluralLabel }))} />
             <p className="text-xs text-ink-500 sm:col-span-2">
               The key cannot be changed later, because its fields and every automation that uses it name it. Everything else can.
             </p>

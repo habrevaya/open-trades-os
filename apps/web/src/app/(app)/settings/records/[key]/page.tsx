@@ -8,7 +8,7 @@ import { Crumb } from "@/components/Detail";
 import { PageHeader } from "@/components/Table";
 import { FieldManager } from "../../custom-fields/FieldManager";
 import { KindFields } from "../KindFields";
-import { retireKind, updateKind } from "../actions";
+import { retireKind, setFieldForCustomer, updateKind } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,8 @@ export default async function KindPage({ params }: { params: Promise<{ key: stri
   const ctx = { actor: user.actor, db: getDb() };
   if (!can(user.actor, "settings:read")) notFound();
   const { key } = await params;
-  const kind = (await customObjects.definedKinds(ctx)).find((k) => k.key === key);
+  const kinds = await customObjects.definedKinds(ctx);
+  const kind = kinds.find((k) => k.key === key);
   if (!kind) notFound();
   const entityType = `object:${kind.key}`;
   const usage = await customFields.usage(ctx, { entityType });
@@ -47,13 +48,46 @@ export default async function KindPage({ params }: { params: Promise<{ key: stri
         <FieldManager records={[{ key: entityType, label: kind.pluralLabel }]} usage={usage} writes={writes} heading={false} />
       </section>
 
+      {/*
+        WHAT THE CUSTOMER SEES. Each field is marked on its own, off unless
+        somebody marks it, and none of it shows at all until the kind itself is
+        shown to customers. A field added later starts unmarked.
+      */}
+      <section className="mt-12" aria-labelledby="kind-portal">
+        <h2 id="kind-portal" className="text-base font-semibold">What the customer sees</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          {kind.customerVisible
+            ? `A customer sees the ${kind.pluralLabel.toLowerCase()} about them on their portal: each one's ${kind.titleLabel.toLowerCase()} and the fields marked here, and nothing else.`
+            : `Customers see none of these. Tick "The customer may see these" below to show them, then mark the fields they may read.`}
+        </p>
+        {kind.fields.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-500">No fields yet.</p>
+        ) : (
+          <ul className="mt-2 max-w-2xl divide-y divide-steel-200 rounded-md border border-steel-200 text-sm">
+            {kind.fields.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <span>
+                  {f.label}
+                  <span className="ml-2 text-xs text-ink-500">{f.customerVisible ? "The customer sees this" : "Office only"}</span>
+                </span>
+                {writes ? (
+                  <ActionForm action={setFieldForCustomer} tone="quiet"
+                              submit={f.customerVisible ? `Keep ${f.label} in the office` : `Show ${f.label} to the customer`}
+                              hidden={{ id: f.id, customerVisible: f.customerVisible ? "0" : "1" }} />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       {writes ? (
         <>
           <section className="mt-12" aria-labelledby="kind-edit">
             <h2 id="kind-edit" className="text-base font-semibold">What it is</h2>
             <ActionForm action={updateKind} submit={`Save ${kind.pluralLabel}`} hidden={{ id: kind.id }}
                         className="mt-3 grid max-w-3xl gap-3 sm:grid-cols-2">
-              <KindFields kind={kind} />
+              <KindFields kind={kind} others={kinds.map((k) => ({ key: k.key, label: k.pluralLabel }))} />
             </ActionForm>
           </section>
           <section className="mt-12" aria-labelledby="kind-retire">

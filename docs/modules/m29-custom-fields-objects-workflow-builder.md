@@ -89,13 +89,19 @@ permit number on an invoice is editing the invoice, not changing its price.
 
 **A kind of record is a list a company keeps that the product never heard of.** A
 permit, a warranty registration, the Monday truck inspection: a name, its own
-fields, what each one may point at (a customer, an address, a job, a unit) and who
-may see and change one. Its fields are ordinary custom field definitions on the
+fields, what each one may point at (a customer, an address, a job, a unit, an
+invoice, a person in the company, or one record of another kind the company
+keeps, named on the kind: the truck an inspection is of) and who may see and
+change one. Its fields are ordinary custom field definitions on the
 entity type `object:<key>`, so every rule above (closed types, a key that never
 changes, a change refused when it contradicts what is stored, every refusal at once)
 applies to a permit's fields by the same code. Its key never changes either, for the
 same reason a field's does not. A record put on a job points at that job's customer
-and address too, when the kind offers those links.
+and address too, when the kind offers those links, and one put on an invoice points
+at the invoice's customer. Pointing at an invoice needs `invoice:read`, and pointing
+at another record needs being able to open it, so a record is never the way to learn
+that an invoice or a record exists. A person is pointed at by their membership, so
+somebody who has left is still the person it was about.
 
 **Who may see a record is a gate and a narrowing.** Every record needs `record:read`
 to be seen and `record:write` to be changed, which is what a role is built with. A
@@ -105,7 +111,21 @@ both. Writing needs reading as well, because somebody who may add a permit and m
 see one would add it and then be told it does not exist. And a record pointing at a
 customer is about that customer, so somebody whose customers are narrowed (a
 technician sees the people they have been sent to) sees a record when it is on a job
-they may see, when it points at nothing of a customer's, or when they wrote it.
+they may see, when it points at a unit recorded on a visit of such a job (the unit in
+front of them, not the customer's other units), when it points at nothing of a
+customer's (no customer, address, job, unit or invoice), or when they wrote it.
+
+**A customer sees a record only when the office says so, field by field.** A kind is
+shown to customers only when somebody ticks "The customer may see these" on it, and
+then each of its fields only when somebody marks that field for the customer; both
+are off until then, and a field added later, or defined again under a retired key,
+starts unmarked. What reaches the portal is built from the marked definitions by one
+function in core, never from the stored values' keys, so an unmarked value is never
+sent, not merely not drawn. A record is about a customer when every customer it
+names agrees: its customer, its job's and its invoice's, whichever it carries, are
+that one customer. One that names one customer and another's job goes to neither,
+and an address or a unit alone puts nothing on a portal, because a house changes
+hands.
 
 **A spreadsheet loads all of it or none of it.** Every row goes through the same
 create as one typed on the form, and if any row is refused nothing is written and
@@ -337,13 +357,38 @@ number"), what it may point at, and who may see and change them.
 customer are, what it is, and retiring it (refused while records are on file unless
 "retire it anyway" is ticked, with the count; defining the key again brings them back).
 
+A kind's own page also says what the customer sees: the kind is shown to customers or
+not ("The customer may see these" on its form, `customerVisible`), and each field is
+marked "Show ... to the customer" or kept in the office, one press each (`customerVisible`
+on `PATCH /v1/custom-fields/{id}`, refused on a field that is not on a kind of record).
+
 `/records` lists the kinds the reader may see. `/records/{type}` is one kind's list,
 searched across the name and every value, filtered by a field, downloaded as a CSV
 and loaded from one at `/records/{type}/import` (checked first if you like, then all
 or nothing). `/records/{type}/new` adds one, carrying the job, customer, address or
 unit it was opened from, and `/records/{type}/{id}` changes or removes it. Every
-kind that can point at a job, a customer, an address or a unit has a panel on that
-record's page with its records and "Add one".
+kind that can point at a job, a customer, an address, a unit, an invoice or a person
+has a panel on that record's page (`/invoices/{id}` and `/people/{membershipId}`
+among them) with its records and "Add one", and a record's own page lists the
+records of other kinds pointing at it (a truck's inspections) the same way. The form
+offers the team to pick a person from, for whoever holds `user:read`, and the records
+of the kind it points at; an invoice is carried in from the invoice's page.
+
+The search box at the top of the menu (`/search`, `GET /v1/search`) finds a
+customer by name, email or phone, a job by its number, and the company's own records
+by their name or any value, each part through its own list's service, so it finds
+nothing the reader could not open from that list: a kind they may not read is not
+searched, and a narrowed technician finds only records they could see.
+
+On a technician's day, in the phone app and on `/my-day`, each visit lists the
+company's records pointing at its job or at a unit recorded on the visit, of the
+kinds they may read, with every field holding a value, read only ("Records on this
+job"). They come with the day and are on the phone with no signal; a change to one
+reaches the phone on its next sync.
+
+On the customer's portal (their account link and their sign in), each kind shown to
+customers is a read only block headed with its plural, listing the records about them
+with each one's name and the fields marked for the customer, and nothing else.
 
 Adding and changing one emits `record.created` and `record.updated`, carrying the
 kind (`record.type`), its name and every value (`record.fields`), with the values
@@ -503,6 +548,7 @@ second is a much smaller list of people.
 | `PATCH /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `DELETE /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/custom-objects/{key}/export` | `record:read` and the kind's own |
+| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read`, `job:read`, `record:read` and the kind's own) |
 | `POST /v1/custom-objects/{key}/import` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/workflows` | `workflow:read` |
 | `GET /v1/workflows/{id}/runs` | `workflow:read` |
@@ -576,14 +622,28 @@ fields are filtered in the report builder rather than on a list screen. Several
 fields on a list are joined by AND only; there is no "any of these" across fields.
 The Tasks dataset has no fields to filter by, because a task can be about anything. A field's key
 cannot be changed once made (`/settings/custom-fields` says why), and neither can a
-kind of record's. A kind of record links to a customer, an address, a job or a unit
-and to nothing else (not to an invoice, another kind, or a person), its records are
-not in the customer portal, the phone app or the global search, and its name is the
-only thing a record is required to have beyond its fields. The record form takes a job
-by its number when opened on its own; a customer, an address or a unit is linked by
-opening the form from that record's page. A CSV import links by id or job number, not
-by name. The report builder groups a kind of record by its fields, its month, its
-customer and its job type, and not by another record's fields.
+kind of record's. A kind of record points at one record of one other kind, not
+several, and an invoice, a person and a record are chosen on the form only as
+described above: an invoice is carried in from its page, a person is picked only by
+somebody holding `user:read` (anybody else opens the form from the person's page),
+and the record list offered is the first two hundred. A link is set when a record is
+made, through the API or the import; the record's page shows its links and does not
+change them. Its name is the only thing a record is required to have beyond its
+fields. The record form takes a job by its number when opened on its own; a
+customer, an address or a unit is linked by opening the form from that record's
+page. A CSV import links by id or job number, not by name. The report builder groups
+a kind of record by its fields, its month, its customer and its job type, and not by
+another record's fields, its invoice, its person or the record it points at.
+
+The search box searches customers, a job by its exact number and the company's own
+records, at most five of each; it does not search jobs by their words, invoices,
+estimates, addresses or units yet. On the phone and `/my-day` the records are read
+only and are those on the visit's job or a unit recorded on the visit, not every
+unit at the address. On the portal a customer reads their records and cannot
+change, add or comment on one, a record's attachments are not shown, and a record
+reaches a portal only through its customer, job or invoice. Whether to show the
+record's name is decided with the kind, not per record: a kind shown to customers
+shows every record's name.
 
 The sandbox copies job types, custom fields, kinds of record, saved reports, proposal
 layouts and automations; it does not copy the price book, roles, message templates,
@@ -591,7 +651,9 @@ branches, booking rules or the trade pack's checklists, and copying back offers 
 of record, custom fields, proposal layouts and automations only. Its only member is
 the person who made it. One sandbox per company at a time; throwing it away signs its
 people out and leaves its rows in the database, unread. A copied back automation that
-emails a saved report needs a report with the same name in the real company.
+emails a saved report needs a report with the same name in the real company, and a
+copied back kind of record that points at another kind needs that kind in the real
+company first, so that kind is copied back before it.
 
 A branch's conditions are three groups and never deeper: there is no "any of
 these, or all of those" inside one group, on the canvas or in the engine.
@@ -602,13 +664,14 @@ a customer can be on jobs, invoices, estimates or visits only, with the product'
 own columns that need no permission, and never with the company's own fields, a
 cost or a margin; it goes to the address on their record and nowhere else, and a
 copy to somebody in the company is a second step.
-The product's four recommended automations are code, and a trade pack adds
-its own as data; a company cannot add one to the list (it builds the workflow on
+There are four recommended automations the product ships, and they are code; a
+trade pack adds its own as data; a company cannot add one to the list (it builds the workflow on
 the canvas instead). A pack's automation starts on an event and never waits on a
 record the way the warranty call does, because the shapes a record can wait in
 belong to the service and a pack cannot be checked against them when it loads;
 its settings are whole numbers only, with no review site or other choice from
-the company's own setup; and only the HVAC pack declares one, as the example. `stop_unless` asks ten questions, from a catalogue in core, and a company
+the company's own setup; and only the HVAC pack declares one, as the example.
+`stop_unless` asks ten questions, from a catalogue in core, and a company
 cannot write its own: a question is a query, and a workflow never carries one.
 The record question compares one field with what the event carried; it cannot
 compare with a value typed into the step or ask about two fields at once (two

@@ -69,6 +69,19 @@ export interface FieldVisit {
   billable?: BillableLine[] | undefined;
   /** The job's invoices, other than void ones. Absent from older servers. */
   invoices?: FieldInvoice[] | undefined;
+  /**
+   * The company's own records on this visit's job or a unit on it (a permit,
+   * a warranty registration), read only. Absent from older servers.
+   */
+  records?: FieldRecord[] | undefined;
+}
+
+export interface FieldRecord {
+  id: string;
+  /** What one of them is called: "Permit". */
+  kind: string;
+  title: string;
+  fields: Array<{ label: string; value: string }>;
 }
 
 export interface VisitTax {

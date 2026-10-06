@@ -99,6 +99,7 @@ import { selfServiceRoutes } from "./self-service";
 import { customObjectRoutes } from "./custom-objects";
 import { proposalTemplateRoutes } from "./proposal-templates";
 import { sandboxRoutes } from "./sandbox";
+import { searchRoutes } from "./search";
 
 export * from "./common";
 export * from "./export";
@@ -131,6 +132,7 @@ export * from "./custom-fields";
 export * from "./custom-objects";
 export * from "./proposal-templates";
 export * from "./sandbox";
+export * from "./search";
 export * from "./payments";
 export * from "./email";
 export * from "./accounting";
@@ -314,6 +316,7 @@ export const routes = {
   ...peopleRecordRoutes,
   ...selfServiceRoutes,
   ...customObjectRoutes,
+  ...searchRoutes,
   ...proposalTemplateRoutes,
   ...sandboxRoutes,
 } as const;

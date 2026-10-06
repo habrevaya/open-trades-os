@@ -22,8 +22,15 @@ export const KEY = /^[a-z][a-z0-9_]{0,47}$/;
  * What a record may point at. Closed, because each one is a real column with
  * a foreign key behind it; a link to something with no column would be a
  * box on a form whose answer goes nowhere.
+ *
+ * `membership` is a person in the company (the technician a truck
+ * inspection is for), by their membership rather than their sign in, so a
+ * person who leaves is still the person the record was about. `record` is
+ * one record of another kind the company keeps, named on the kind
+ * (`recordKind`): the inspection of one truck, where trucks are a kind of
+ * their own.
  */
-export const LINKS = ["customer", "property", "job", "equipment"] as const;
+export const LINKS = ["customer", "property", "job", "equipment", "invoice", "membership", "record"] as const;
 export type Link = (typeof LINKS)[number];
 
 export const LINK_LABEL: Record<Link, string> = {
@@ -31,7 +38,26 @@ export const LINK_LABEL: Record<Link, string> = {
   property: "Address",
   job: "Job",
   equipment: "Unit",
+  invoice: "Invoice",
+  membership: "Person",
+  record: "Record",
 };
+
+/**
+ * The links that make a record about one customer. A record pointing at
+ * any of these is that customer's business, which is what decides who
+ * whose customers are narrowed may see it, and which customer's portal it
+ * can ever appear on.
+ */
+export const CUSTOMER_LINKS: readonly Link[] = ["customer", "property", "job", "equipment", "invoice"];
+
+/**
+ * The links that can put a record on a customer's portal: the customer
+ * themselves, their job, their invoice. Not an address or a unit alone,
+ * because a house changes hands and the permit the last owner pulled is
+ * not the new owner's to read.
+ */
+export const PORTAL_LINKS: readonly Link[] = ["customer", "job", "invoice"];
 
 /** The prefix that turns an object's key into the entity type its fields are defined on. */
 export const ENTITY_PREFIX = "object:";
@@ -63,6 +89,10 @@ export interface TypeInput {
   readPermission?: string | undefined;
   writePermission?: string | undefined;
   sortOrder?: number | undefined;
+  /** The kind a `record` link points at, by its key. Needed with that link and refused without it. */
+  recordKind?: string | null | undefined;
+  /** Whether the customer may see these records on their portal. Off unless somebody turns it on. */
+  customerVisible?: boolean | undefined;
 }
 
 export interface TypeDefinition {
@@ -75,6 +105,8 @@ export interface TypeDefinition {
   readPermission: Permission;
   writePermission: Permission;
   sortOrder: number;
+  recordKind: string | null;
+  customerVisible: boolean;
 }
 
 export type TypeDecision =
@@ -138,6 +170,32 @@ export function checkType(input: TypeInput): TypeDecision {
     }
   }
 
+  /**
+   * A link to another kind names which kind, because "a record" of any kind
+   * is a box whose answer could be a permit or a truck, and a list of
+   * inspections pointing at permits is nobody's list.
+   */
+  const recordKind = (input.recordKind ?? "").trim() || null;
+  if (links.includes("record") && !recordKind) {
+    problems.push("Say which kind of record these point at, like truck.");
+  }
+  if (recordKind && !KEY.test(recordKind)) problems.push(`"${recordKind}" is not the key of a kind of record.`);
+  if (recordKind && !links.includes("record")) {
+    problems.push("A kind to point at is named only when these point at a record of another kind.");
+  }
+
+  /**
+   * What a customer may see is only ever a record about them, so a kind
+   * shown on the portal has to be able to point at the customer, their job
+   * or their invoice. A kind that points at nothing of theirs could never be on
+   * anybody's portal, and a box that does nothing is a box somebody ticks
+   * believing it does.
+   */
+  const customerVisible = input.customerVisible === true;
+  if (customerVisible && !links.some((link) => PORTAL_LINKS.includes(link))) {
+    problems.push("Only a kind that points at a customer, a job or an invoice can be shown to the customer.");
+  }
+
   const readPermission = (input.readPermission ?? DEFAULT_READ).trim();
   const writePermission = (input.writePermission ?? DEFAULT_WRITE).trim();
   if (!isPermission(readPermission)) problems.push(`"${readPermission}" is not a permission anybody can hold.`);
@@ -155,8 +213,38 @@ export function checkType(input: TypeInput): TypeDecision {
       readPermission: readPermission as Permission,
       writePermission: writePermission as Permission,
       sortOrder,
+      recordKind: links.includes("record") ? recordKind : null,
+      customerVisible,
     },
   };
+}
+
+export type PortalFieldDefinition =
+  Pick<FieldDefinition, "key" | "label" | "dataType"> & { customerVisible?: boolean | undefined };
+
+/**
+ * WHAT A CUSTOMER IS SHOWN OF ONE RECORD.
+ *
+ * Only the fields the office marked as for the customer, in the kind's
+ * order, and only those holding a value. Built from the definitions rather
+ * than from the stored values, so a value under a key nothing defines (an
+ * import, a field retired since) is never shown, and neither is a field
+ * defined again under a retired key until somebody marks the new one. This
+ * is the one function the portal reads a record through.
+ */
+export function portalView(
+  record: { title: string; customFields: Record<string, unknown> },
+  definitions: readonly PortalFieldDefinition[],
+): { title: string; fields: { label: string; value: string }[] } {
+  const fields: { label: string; value: string }[] = [];
+  for (const definition of definitions) {
+    if (definition.customerVisible !== true) continue;
+    if (!Object.prototype.hasOwnProperty.call(record.customFields, definition.key)) continue;
+    const value = cellText(definition, record.customFields[definition.key]);
+    if (value.trim() === "") continue;
+    fields.push({ label: definition.label, value });
+  }
+  return { title: record.title, fields };
 }
 
 /**

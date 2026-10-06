@@ -238,6 +238,8 @@ export interface DefinitionInput {
   options?: string[] | undefined;
   required?: boolean | undefined;
   sortOrder?: number | undefined;
+  /** On a kind of record's field only: shown to the customer on their portal. */
+  customerVisible?: boolean | undefined;
 }
 
 interface Normalised {
@@ -248,6 +250,7 @@ interface Normalised {
   options: string[];
   required: boolean;
   sortOrder: number;
+  customerVisible: boolean;
 }
 
 function normalise(input: DefinitionInput): Normalised {
@@ -307,6 +310,18 @@ function normalise(input: DefinitionInput): Normalised {
     throw new ConflictError("Sort order is a whole number.");
   }
 
+  /**
+   * Shown to a customer only on a company's own kind of record, which is the
+   * one portal block that reads it. On a customer's or a job's field it would
+   * be a tick that does nothing, which somebody ticks believing it does.
+   */
+  const customerVisible = input.customerVisible === true;
+  if (customerVisible && !entityType.startsWith("object:")) {
+    throw new ConflictError(
+      "Only a field on one of your own kinds of record can be shown to the customer. The other records' fields stay with the office.",
+    );
+  }
+
   return {
     entityType,
     key,
@@ -315,6 +330,7 @@ function normalise(input: DefinitionInput): Normalised {
     options,
     required: input.required ?? false,
     sortOrder,
+    customerVisible,
   };
 }
 
@@ -523,6 +539,7 @@ export async function define(ctx: ServiceContext, input: DefinitionInput) {
       options: proposed.options,
       required: proposed.required,
       sortOrder: proposed.sortOrder,
+      customerVisible: proposed.customerVisible,
     }).returning();
 
     await audit(tx, ctx, "custom_field.defined", "custom_field_definition", row!.id, null, row!);
@@ -600,6 +617,7 @@ export async function update(
       options: input.options ?? before.options,
       required: input.required ?? before.required,
       sortOrder: input.sortOrder ?? before.sortOrder,
+      customerVisible: input.customerVisible ?? before.customerVisible,
     };
     const proposed = normalise(merged);
     const target = await targetOf(tx, ctx.actor.organizationId, proposed.entityType);
@@ -612,6 +630,7 @@ export async function update(
       options: proposed.options,
       required: proposed.required,
       sortOrder: proposed.sortOrder,
+      customerVisible: proposed.customerVisible,
       updatedAt: new Date(),
     }).where(eq(schema.customFieldDefinition.id, before.id)).returning();
 
@@ -927,6 +946,7 @@ function shape(row: typeof schema.customFieldDefinition.$inferSelect) {
     options: row.options,
     required: row.required,
     sortOrder: row.sortOrder,
+    customerVisible: row.customerVisible,
   };
 }
 
