@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { can, effectiveScope, reporting, PERMISSIONS, type Permission } from "@opentradesos/core";
 import { packs, packById, type TradePack } from "@opentradesos/trade-packs";
 import { audit, guardedRead, timezoneOf, ConflictError, NotFoundError, type ServiceContext } from "./context";
-import { CATALOGUE, KEYS, total, type Entry, type Format } from "./kpi-catalogue";
+import { CATALOGUE, KEYS, total, type BesideKey, type Entry, type Format, type Half } from "./kpi-catalogue";
 
 /**
  * THE SCORECARD A TRADE PACK ALREADY SPECIFIED
@@ -53,6 +53,14 @@ export interface KpiResult {
   needs: string | null;
   /** Set when the state is `elsewhere`: where to get it. */
   endpoint: string | null;
+  /**
+   * Counts beside the number and not in it: the records the definition
+   * leaves out (`excluded`), and the ones it counts for a reason nobody
+   * recorded (`unknown`). Empty for a figure that has neither, and the
+   * scorecard always sends it; optional so a figure built elsewhere (a
+   * screen's own test) need not invent one.
+   */
+  besides?: Array<{ key: BesideKey; label: string; count: string }>;
 }
 
 export interface Scorecard {
@@ -89,6 +97,7 @@ const TOTALS: readonly string[] = ["replace_pipeline", "panel_pipeline"];
  * that the numerator of a money KPI is (revenue over a count of jobs).
  */
 function halfIsMoney(entry: Extract<Entry, { state: "computed" }>, half: KpiHalf): boolean {
+  if (half !== "numerator" && half !== "denominator") return entry.measure.besides?.[half]?.money ?? false;
   return entry.measure[half].money ?? (entry.format === "money" && half === "numerator");
 }
 
@@ -150,7 +159,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
           needs: "This KPI is declared by the trade pack and has no entry in the catalogue, so "
             + "nobody has decided whether it can be computed. That is a bug rather than a gap.",
-          endpoint: null,
+          endpoint: null, besides: [],
         });
         continue;
       }
@@ -167,7 +176,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         result.unavailable.push({
           ...base, state: "unavailable", value: null, numerator: null, denominator: null,
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
-          needs: entry.needs, endpoint: null,
+          needs: entry.needs, endpoint: null, besides: [],
         });
         continue;
       }
@@ -176,7 +185,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         result.elsewhere.push({
           ...base, state: "elsewhere", value: null, numerator: null, denominator: null,
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
-          needs: entry.why, endpoint: entry.endpoint,
+          needs: entry.why, endpoint: entry.endpoint, besides: [],
         });
         continue;
       }
@@ -194,13 +203,17 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
           ...base, state: "unavailable", value: null, numerator: null, denominator: null,
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
           needs: `This figure is built from what jobs cost, so reading it takes ${lacking.map(permissionWords).join(" and ")}.`,
-          endpoint: null,
+          endpoint: null, besides: [],
         });
         continue;
       }
 
       const numerator = await scalar(tx, total(entry.measure.numerator.records(input.from, input.to, zone)));
       const denominator = await scalar(tx, total(entry.measure.denominator.records(input.from, input.to, zone)));
+      const besides: NonNullable<KpiResult["besides"]> = [];
+      for (const [key, half] of Object.entries(entry.measure.besides ?? {}) as Array<[BesideKey, Half]>) {
+        besides.push({ key, label: half.label, count: String(await scalar(tx, total(half.records(input.from, input.to, zone)))) });
+      }
       const value = TOTALS.includes(kpi.key)
         ? numerator.toFixed(4)
         : combine(entry.format, numerator, denominator);
@@ -217,6 +230,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         denominatorMoney: halfIsMoney(entry, "denominator"),
         needs: null,
         endpoint: null,
+        besides,
       });
     }
 
@@ -282,7 +296,8 @@ export function catalogue(ctx: ServiceContext, _input: Record<string, never>) {
 
 /* -------------------------------------------------------------- the drill */
 
-export type KpiHalf = "numerator" | "denominator";
+/** A half of the number, or one of the counts beside it. */
+export type KpiHalf = "numerator" | "denominator" | BesideKey;
 
 export interface KpiRecord {
   kind: string;
@@ -386,7 +401,9 @@ export function drill(
         + "so the records behind it are not listed for you. Somebody who sees all of the work can open them.",
       );
     }
-    const half = entry.measure[input.half];
+    const half: Half | undefined = input.half === "numerator" || input.half === "denominator"
+      ? entry.measure[input.half] : entry.measure.besides?.[input.half];
+    if (!half) throw new NotFoundError("KPI");
     /**
      * A figure built from what work costs lists what each job cost and earned,
      * so it takes what the figure takes: the same permissions the scorecard

@@ -2,6 +2,9 @@ import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, RateString } from "./common";
 
+/** Why an agreement was cancelled, from the fixed list (M08, read by M21's retention figures). */
+export const AgreementCancellationCode = z.enum(["moved", "sold", "price", "service", "switched", "not_needed", "other"]);
+
 /**
  * MEMBERSHIPS AND SERVICE AGREEMENTS, ON THE API
  *
@@ -82,6 +85,8 @@ export const AgreementView = z.object({
   renewalCount: z.number().int(),
   cancelledOn: z.string().date().nullable(),
   cancellationReason: z.string().nullable(),
+  /** The reason from the fixed list. Null on a cancellation made before there was one. */
+  cancellationCode: AgreementCancellationCode.nullable(),
   visitsIncludedThisTerm: z.number().int(),
   visitsDeliveredThisTerm: z.number().int(),
 });
@@ -449,16 +454,18 @@ export const cancelAgreement = defineRoute({
   method: "post",
   path: "/v1/agreements/{id}/cancel",
   summary: "Cancel an agreement",
-  description: "A reason is required, because it is the whole of a win-back campaign. Instalments not yet invoiced are cancelled. Whatever was billed and not earned is released: to revenue when `keepThePrepayment` is true, otherwise back to the customer's account. Leaving it deferred forever is the one answer that is wrong either way.",
+  description: "A reason from the fixed list is required, because it is the whole of a win-back campaign and because every retention, renewal and churn figure has to tell a move or a house sale from a lost customer: `moved`, `sold`, `price`, `service`, `switched`, `not_needed`, or `other` with the words in `reason`. Any reason may carry words. For `moved` or `sold`, `endPropertyLink` ends the customer's link to the address the agreement covers today (`endedLinks` says how many were ended), which is what tells a later lapse at that address from churn. Instalments not yet invoiced are cancelled. Whatever was billed and not earned is released: to revenue when `keepThePrepayment` is true, otherwise back to the customer's account. Leaving it deferred forever is the one answer that is wrong either way.",
   module: "M08",
   permissions: ["membership:write"],
   idempotent: true,
   input: z.object({
     id: Uuid,
-    reason: z.string().min(1).max(1000),
+    reasonCode: AgreementCancellationCode,
+    reason: z.string().max(1000).optional(),
     keepThePrepayment: z.boolean().default(false),
+    endPropertyLink: z.boolean().optional(),
   }),
-  output: AgreementView.extend({ released: MoneyString }),
+  output: AgreementView.extend({ released: MoneyString, endedLinks: z.number().int() }),
 });
 
 

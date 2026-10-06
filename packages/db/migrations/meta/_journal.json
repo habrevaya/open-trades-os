@@ -743,6 +743,20 @@
       "when": 1791290670108,
       "tag": "0105_medical_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1791295771494,
+      "tag": "0106_warm_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1791323142412,
+      "tag": "0107_spotty_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

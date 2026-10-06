@@ -277,6 +277,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "avg_ticket",
       "backflow_recert",
       "callback_rate",
+      "churn",
       "close_rate",
       "drive_time_pct",
       "install_gross_margin",
@@ -284,9 +285,12 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "not_out_rate",
       "oneoff_to_recurring",
       "program_attach",
+      "programme_renewal",
       "reapplication_rate",
       "reclean_rate",
+      "recurring_retention",
       "referral_share",
+      "renewal_rate",
       "replace_pipeline",
       "revenue_per_cleaner_hour",
       "revenue_per_crew_day",
@@ -311,9 +315,12 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * (M14) and job costing reads it. The rest each name what they still lack,
      * and three of those data would unlock most of them: a coded cancellation
      * reason, a flag for supplies billed back, and a finer job type class than
-     * `revenue_class`.
+     * `revenue_class`. The first of those arrived: a cancellation now carries a
+     * reason from a fixed list, and a move or a sale can end the customer's
+     * link to the address, which moved the four retention, renewal and churn
+     * figures, making twenty seven.
      */
-    expect(computed.length + elsewhere.length).toBe(23);
+    expect(computed.length + elsewhere.length).toBe(27);
     expect(KEYS.length).toBe(47);
   });
 });

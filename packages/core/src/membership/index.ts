@@ -431,3 +431,47 @@ export function endingWithin(endsOn: string | null, today: string, days: number)
   const left = daysBetween(today, endsOn);
   return left >= 0 && left <= days;
 }
+
+/* ------------------------------------------------- why it was cancelled */
+
+/**
+ * WHY A MEMBER CANCELLED, FROM A FIXED LIST.
+ *
+ * The list rather than words because the retention, renewal and churn
+ * figures have to tell a house sale or a move from a customer who left over
+ * the price or the service, and "sold the house", "sold house", "moved" and
+ * "relocating" are four strings and one fact. `other` takes words, and any
+ * reason may carry some.
+ */
+export const CANCELLATION_CODES = ["moved", "sold", "price", "service", "switched", "not_needed", "other"] as const;
+export type CancellationCode = (typeof CANCELLATION_CODES)[number];
+
+export const CANCELLATION_LABEL: Record<CancellationCode, string> = {
+  moved: "Moved house",
+  sold: "Sold the property",
+  price: "Price",
+  service: "Not happy with the service",
+  switched: "Switched to another company",
+  not_needed: "No longer needed",
+  other: "Something else",
+};
+
+/** A reason that means the customer left the home, which is offered the end of their link to it. */
+export const leftTheHome = (code: CancellationCode | null | undefined): boolean => code === "moved" || code === "sold";
+
+/**
+ * What is wrong with a reason, in words, or null. A coded reason needs no
+ * words except "something else", which is nothing without them; a
+ * cancellation with no code at all needs words, as one always did.
+ */
+export function cancellationProblem(code: string | null | undefined, words: string | null | undefined): string | null {
+  const said = (words ?? "").trim();
+  if (code === null || code === undefined) {
+    return said === "" ? "A cancellation needs a reason." : null;
+  }
+  if (!(CANCELLATION_CODES as readonly string[]).includes(code)) {
+    return `"${code}" is not one of the reasons. Pick one from the list.`;
+  }
+  if (code === "other" && said === "") return "Say in words why they cancelled.";
+  return null;
+}

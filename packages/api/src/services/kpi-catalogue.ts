@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Nineteen of the forty seven are computed here, four are
- * M22's, and the twenty four that are not each name what they still lack.)
+ * (They are read now. Twenty three of the forty seven are computed here, four are
+ * M22's, and the twenty that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -100,7 +100,18 @@ export interface Half {
 export interface Measure {
   numerator: Half;
   denominator: Half;
+  /**
+   * Counts shown BESIDE the number rather than in it, each a list of records
+   * like a half: the records a definition excludes, when it says to "count
+   * them separately so the exclusion cannot be abused", and the records the
+   * figure counts for a reason nobody recorded, so an owner is told how many
+   * of the losses are unknown rather than having them guessed at.
+   */
+  besides?: Partial<Record<BesideKey, Half>>;
 }
+
+/** What a count beside the number is. */
+export type BesideKey = "excluded" | "unknown";
 
 export type Entry =
   /**
@@ -421,6 +432,139 @@ const costedInstalls = (value: string): Records => (from, to, zone) => sql`
     and ${sql.raw(JOB_COSTING_SQL.labourNotRecorded)} = 0
     and ${sql.raw(JOB_COSTING_SQL.uncostedLines)} = 0
 `;
+
+/**
+ * WHO STAYED ON A PLAN: retention, renewal and churn.
+ *
+ * Each is core's rule (`reporting.retention`, `reporting.renewals`,
+ * `reporting.churn`), written here as SQL, and the integration test puts the
+ * same agreements through both. Read that file for what each figure means;
+ * these are its three tests, as fragments over an agreement called `a`.
+ *
+ * RUNNING ON A DAY: started, not pending, not cancelled by that day, and not
+ * past the end of a term it lapsed at.
+ */
+const runningOn = (alias: string, day: string) => sql`(
+  ${sql.raw(alias)}.deleted_at is null and ${sql.raw(alias)}.status <> 'pending'
+  and ${sql.raw(alias)}.started_on <= ${day}::date
+  and (${sql.raw(alias)}.cancelled_on is null or ${sql.raw(alias)}.cancelled_on > ${day}::date)
+  and not (${sql.raw(alias)}.status in ('lapsed', 'completed')
+    and ${sql.raw(alias)}.ends_on is not null and ${sql.raw(alias)}.ends_on <= ${day}::date)
+)`;
+
+/**
+ * THE HOME WAS LEFT: the cancellation said moved or sold, or the customer's
+ * link to the agreement's address ended after it started and by the end of
+ * the window, which catches a plan that lapsed because the house was sold.
+ * Never null: a cancellation with no code is not a move, and a null here
+ * would drop the agreement from both sides of every `not`.
+ */
+const leftTheHome = (to: string) => sql`(
+  coalesce(a.cancellation_code in ('moved', 'sold'), false)
+  or (a.property_id is not null and exists (
+    select 1 from public.customer_property cp
+    where cp.customer_id = a.customer_id and cp.property_id = a.property_id
+      and cp.ended_on is not null and cp.ended_on >= a.started_on and cp.ended_on <= ${to}::date
+  ))
+)`;
+
+/** Cancelled before the reason was chosen from a list. */
+const REASON_UNKNOWN = sql`(a.status = 'cancelled' and a.cancellation_code is null)`;
+
+const customerName = sql`(select c.name from public.customer c where c.id = x.customer_id)`;
+
+/**
+ * Accounts on a plan at the start of the window, one row per customer, with
+ * whether they are on one at its end, whether a plan they held was lost
+ * because the home was left, and whether one was cancelled for a reason
+ * nobody coded. `retention` picks from these.
+ */
+const accounts = (from: string, to: string) => sql`
+  select a.customer_id,
+         exists (select 1 from public.agreement b where b.customer_id = a.customer_id and ${runningOn("b", to)}) as kept,
+         bool_or(${leftTheHome(to)}) as left_home,
+         bool_or(${REASON_UNKNOWN}) as unknown
+  from public.agreement a
+  where ${runningOn("a", from)}
+  group by a.customer_id
+`;
+
+const accountRow = (day: string) => sql`
+  'customer'::text as kind, x.customer_id::text as id, ${customerName} as label,
+  ${day}::text as on_day, 1::numeric as value, '/customers/' || x.customer_id as href`;
+
+/** Retention's records: which accounts, by which test. See `recurring_retention`. */
+const retained = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to) => sql`
+  select ${accountRow(pick === "numerator" ? to : from)}
+  from (${accounts(from, to)}) as x
+  where ${{
+    numerator: sql`x.kept`,
+    denominator: sql`(x.kept or not x.left_home)`,
+    excluded: sql`(not x.kept and x.left_home)`,
+    unknown: sql`(not x.kept and not x.left_home and x.unknown)`,
+  }[pick]}
+`;
+
+/**
+ * Terms that reached their end in the window, by today, on an agreement not
+ * cancelled before it: recorded terms, and the current term of an agreement
+ * whose term was never written down. Renewed when the agreement went on to a
+ * later term. One row per term, which opens on the agreement.
+ */
+const termsEnded = (from: string, to: string, zone: string) => sql`
+  with terms as (
+    select t.agreement_id, t.term, t.ends_on from public.agreement_term t
+    union all
+    select g.id, g.renewal_count + 1, g.ends_on from public.agreement g
+    where g.ends_on is not null and not exists (
+      select 1 from public.agreement_term t2 where t2.agreement_id = g.id and t2.term = g.renewal_count + 1
+    )
+  )
+  select a.id as agreement_id, a.plan_id, a.customer_id, t.term, t.ends_on,
+         a.renewal_count >= t.term as renewed,
+         ${leftTheHome(to)} as left_home,
+         ${REASON_UNKNOWN} as unknown
+  from terms t
+  join public.agreement a on a.id = t.agreement_id
+  where a.deleted_at is null and a.status <> 'pending'
+    and t.ends_on >= ${from}::date and t.ends_on <= ${to}::date
+    and t.ends_on <= (now() at time zone ${zone})::date
+    and (a.cancelled_on is null or a.cancelled_on >= t.ends_on)
+`;
+
+/** Renewal's records: which terms, by which test. See `renewal_rate`. */
+const renewed = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => sql`
+  select 'agreement'::text as kind, x.agreement_id::text as id,
+         concat((select p.name from public.agreement_plan p where p.id = x.plan_id), ' for ', ${customerName},
+                ', term ', x.term) as label,
+         x.ends_on::text as on_day, 1::numeric as value, '/agreements/' || x.agreement_id as href
+  from (${termsEnded(from, to, zone)}) as x
+  where ${{
+    numerator: sql`x.renewed`,
+    denominator: sql`(x.renewed or not x.left_home)`,
+    excluded: sql`(not x.renewed and x.left_home)`,
+    unknown: sql`(not x.renewed and not x.left_home and x.unknown)`,
+  }[pick]}
+`;
+
+/** Churn's records: subscriptions on at the start, by which test. See `churn`. */
+const churned = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to) => sql`
+  select ${sql.raw(agreementRow)}
+  from public.agreement a
+  where ${runningOn("a", from)}
+    ${{
+      numerator: sql`and not ${runningOn("a", to)} and not ${leftTheHome(to)}`,
+      denominator: sql``,
+      excluded: sql`and not ${runningOn("a", to)} and ${leftTheHome(to)}`,
+      unknown: sql`and not ${runningOn("a", to)} and not ${leftTheHome(to)} and ${REASON_UNKNOWN}`,
+    }[pick]}
+`;
+
+/** The two counts every one of the four shows beside its number. */
+const besidesOf = (records: (pick: "excluded" | "unknown") => Records, what: string): NonNullable<Measure["besides"]> => ({
+  excluded: { label: `${what} left out because the customer moved or sold the home`, records: records("excluded") },
+  unknown: { label: `${what} counted whose reason was never recorded`, records: records("unknown") },
+});
 
 /* ------------------------------------------------------------- the entries */
 
@@ -825,41 +969,73 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   recurring_retention: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A coded cancellation reason. The definition EXCLUDES customers who moved "
-      + "out of the service area or sold the home, 'which are not churn the owner "
-      + "can do anything about', and `agreement.cancellation_reason` is free "
-      + "text. A customer's link to a property can be ended with a date "
-      + "(`customer_property.ended_on`, through the API), which would say the "
-      + "home was sold, but no screen sets it and cancelling an agreement does "
-      + "not ask, so most house sales would still be counted as churn. Counting a "
-      + "house sale as churn makes a retention figure that moves with the local "
-      + "property market, and an owner reading it would conclude their service "
-      + "was getting worse.",
+    measure: {
+      /**
+       * "Recurring accounts still active at the end of the period divided by
+       * accounts active at the start. EXCLUDES customers who moved out of the
+       * service area or sold the home, and EXCLUDES one time cleans entirely."
+       *
+       * An account is a customer on a plan, so a one time clean is never in
+       * it. Active at the start is a plan running on the window's first day,
+       * and still active is one running on its last, either plan if they hold
+       * two. A customer lost because the home was left (a cancellation coded
+       * moved or sold, or their link to the address ended) is out of both
+       * halves and counted beside the figure. One lost to a cancellation made
+       * before reasons were coded is counted as lost, and how many of those
+       * there are is said beside it.
+       */
+      numerator: { label: "accounts on a plan at the start still on one at the end", records: retained("numerator") },
+      denominator: { label: "accounts on a plan at the start", records: retained("denominator") },
+      besides: besidesOf((pick) => retained(pick), "Accounts"),
+    },
   },
 
   renewal_rate: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "The same coded cancellation reason as `recurring_retention`. A term is now "
-      + "a row of its own (`agreement_term`, with the day it ended), so the "
-      + "numerator, terms renewed, and the denominator, terms reaching their end, "
-      + "can be counted exactly; what is missing is the exclusion. The "
-      + "denominator has to leave out the programmes that ended because the "
-      + "property sold, and nothing records why one ended other than free text.",
+    measure: {
+      /**
+       * "Programs renewed divided by programs reaching the end of a term in
+       * the period. EXCLUDES customers who moved or sold the property, since
+       * those are not a service failure, but count them separately so the
+       * exclusion cannot be abused."
+       *
+       * A term reaches its end on its end date (`agreement_term`, or the
+       * agreement's own end for a term never written down), by today, on an
+       * agreement not cancelled before it: one cancelled half way through
+       * never reached a renewal decision. Renewed is the agreement going on
+       * to a later term. A term not renewed because the home was left is out
+       * of both halves, and counted separately beside the figure, as the
+       * definition asks.
+       */
+      numerator: { label: "terms renewed", records: renewed("numerator") },
+      denominator: { label: "terms that reached their end", records: renewed("denominator") },
+      besides: besidesOf((pick) => renewed(pick), "Terms"),
+    },
   },
 
   programme_renewal: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "The same coded cancellation reason. The lawn pack's wording EXCLUDES "
-      + "'properties that sold or where the customer moved', and seasonal "
-      + "renewal is where that matters most: a spring with a lot of house moves "
-      + "would read as a season of lost customers.",
+    measure: {
+      /**
+       * "Turf and maintenance agreements renewed for the next season divided
+       * by agreements eligible to renew. EXCLUDES properties that sold or
+       * where the customer moved."
+       *
+       * The same records as `renewal_rate`: eligible to renew is a term that
+       * reached its end in the window on an agreement still running up to
+       * it, and renewed is the agreement going on to the next season's term.
+       * A sale or a move is out of both halves and counted beside the figure,
+       * which in a spring with a lot of house moves is the number that says
+       * why the rate held up.
+       */
+      numerator: { label: "programmes renewed for the next season", records: renewed("numerator") },
+      denominator: { label: "programmes that reached the end of their season", records: renewed("denominator") },
+      besides: besidesOf((pick) => renewed(pick), "Programmes"),
+    },
   },
 
   oneoff_to_recurring: {
@@ -1227,15 +1403,27 @@ export const CATALOGUE: Record<string, Entry> = {
    */
 
   churn: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A coded cancellation reason, the same one `recurring_retention` needs. The "
-      + "definition EXCLUDES cancellations from a house sale or a move, 'which are "
-      + "not a service failure and should be tracked separately', and "
-      + "`agreement.cancellation_reason` is free text. In this trade especially: a "
-      + "street of subscriptions turning over as houses sell would read as a "
-      + "service collapsing.",
+    measure: {
+      /**
+       * "Subscriptions cancelled in the month divided by active subscriptions
+       * at the start of it. Excludes cancellations from a house sale or a
+       * move, which are not a service failure and should be tracked
+       * separately."
+       *
+       * Active at the start is a subscription running on the window's first
+       * day; cancelled in it is one of those no longer running on its last,
+       * cancelled or lapsed. The exclusion is taken off the cancellations
+       * only, because the definition's denominator is the plain count at the
+       * start, and the ones taken off are counted beside it. One cancelled
+       * before reasons were coded counts as churn, and how many did is said
+       * beside it.
+       */
+      numerator: { label: "subscriptions lost, other than to a move or a sale", records: churned("numerator") },
+      denominator: { label: "subscriptions active at the start", records: churned("denominator") },
+      besides: besidesOf((pick) => churned(pick), "Subscriptions"),
+    },
   },
 
   not_out_rate: {

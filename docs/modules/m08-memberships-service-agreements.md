@@ -347,8 +347,22 @@ agent's log line for the booking, and on the intake draft.
 ### Cancel one
 
 From the agreement's screen, or `POST /v1/agreements/{id}/cancel`. The reason
-is required: a cancellation with none is indistinguishable from a
-mistake, and the reason is the whole of a win-back campaign. Whatever has been
+is required, and is chosen from a fixed list: moved house, sold the property,
+price, not happy with the service, switched to another company, no longer
+needed, or something else, which needs words. Any reason may carry words as
+well. A cancellation with no reason is indistinguishable from a mistake, the
+reason is the whole of a win-back campaign, and coded it is what lets the
+retention, renewal and churn figures (M21) tell a house sale from a lost
+customer: "sold the house", "sold house" and "relocating" are three strings
+and one fact. The agreement's screen shows the reason chosen, and one
+cancelled before the list existed says so beside its words.
+
+A move or a sale offers to end the customer's link to the address the
+agreement covers ("They have left the address", ticked by default;
+`endPropertyLink` on the API), dated the day of the cancellation. It is what
+keeps a later lapse at that address out of the churn figures, and it is
+offered rather than done because the office may know they kept the house as a
+rental. A plan sold for any address has no one address to end. Whatever has been
 billed and not earned is released, either to revenue if the company keeps the
 prepayment or back to the customer if it does not. Leaving it sitting in
 deferred revenue forever, which is what doing nothing amounts to, is the one
@@ -447,4 +461,10 @@ pass or by a renewal; a term is not released by any screen. Terms of an
 agreement sold before terms were recorded, other than its current one, have
 no end date written down and are never released. Prorating a cancellation to
 the day, rather than releasing whole undelivered slices, is a decision nobody
-has made.
+has made. A cancellation made before reasons were chosen from a list keeps only its
+words, and nothing reads a reason back out of them; the figures count it as
+unknown. The list is the product's own and a company cannot add to it, because
+every figure that reads it has to know what each reason means. A lapse is not
+asked for a reason at all: it is a renewal that did not happen, and the only
+thing that tells a lapse after a house sale from a lost customer is the link to
+the address being ended, on the cancellation or on the address.

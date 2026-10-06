@@ -1189,25 +1189,53 @@ async function billWithin(tx: Database, ctx: ServiceContext, input: { agreementB
  * in deferred revenue forever, which is what doing nothing amounts to, is
  * the one answer that is wrong either way.
  */
-export async function cancel(
-  ctx: ServiceContext,
-  input: { id: string; reason: string; keepThePrepayment?: boolean },
-) {
+export interface CancelInput {
+  id: string;
+  /**
+   * Why, from the fixed list (`membership.CANCELLATION_CODES`). The screen and
+   * the API ask for it; a caller inside the product that has only words is
+   * recorded with no code, which the retention figures count as unknown.
+   */
+  reasonCode?: membership.CancellationCode | undefined;
+  /** Words: required for "something else", and for a cancellation with no code. */
+  reason?: string | undefined;
+  keepThePrepayment?: boolean | undefined;
+  /**
+   * For a move or a sale: end the customer's link to the address the
+   * agreement covers, today. It is the fact that tells a house sale from
+   * churn in every retention figure, including for a plan that later
+   * lapses rather than being cancelled.
+   */
+  endPropertyLink?: boolean | undefined;
+}
+
+export async function cancel(ctx: ServiceContext, input: CancelInput) {
   return guardedWrite(ctx, "membership:write", (tx) => cancelWithin(tx, ctx, input));
 }
 
-async function cancelWithin(
-  tx: Database, ctx: ServiceContext,
-  input: { id: string; reason: string; keepThePrepayment?: boolean },
-) {
+async function cancelWithin(tx: Database, ctx: ServiceContext, input: CancelInput) {
   const [before] = await tx.select().from(schema.agreement)
     .where(eq(schema.agreement.id, input.id)).limit(1);
   if (!before) throw new NotFoundError("Agreement");
   if (before.status === "cancelled") throw new ConflictError("That agreement is already cancelled.");
-  if (input.reason.trim() === "") {
-    // A cancellation with no reason is indistinguishable from a mistake,
-    // and the reason is the whole of a win-back campaign.
-    throw new ConflictError("A cancellation needs a reason.");
+  /**
+   * A cancellation with no reason is indistinguishable from a mistake, and
+   * the reason is the whole of a win-back campaign. Coded, so the retention
+   * figures can tell a house sale from a lost customer.
+   */
+  const problem = membership.cancellationProblem(input.reasonCode, input.reason);
+  if (problem) throw new ConflictError(problem);
+  const code = input.reasonCode ?? null;
+  const words = (input.reason ?? "").trim();
+  /** The words, or the reason's own name: what the agreement, the release and the event say. */
+  const said = words !== "" ? words : membership.CANCELLATION_LABEL[code!];
+  if (input.endPropertyLink && !membership.leftTheHome(code)) {
+    throw new ConflictError("Only a move or a sale ends their link to the address. Choose one of those, or leave the link as it is.");
+  }
+  if (input.endPropertyLink && !before.propertyId) {
+    throw new ConflictError(
+      "This agreement covers them at any address, so there is no one address to end their link to. End it on the address itself.",
+    );
   }
 
   const timezone = await organizationTimezone(tx, ctx.actor.organizationId);
@@ -1215,9 +1243,31 @@ async function cancelWithin(
 
   const [after] = await tx.update(schema.agreement).set({
     status: "cancelled", cancelledOn: on,
-    cancellationReason: input.reason.trim(), autoRenews: false,
+    cancellationReason: said, cancellationCode: code, autoRenews: false,
     updatedAt: new Date(),
   }).where(eq(schema.agreement.id, input.id)).returning();
+
+  /**
+   * Their link to the address ends today, when they said they moved or sold
+   * and the office ticked it. Only a link still open: one ended earlier keeps
+   * the day it ended.
+   */
+  let endedLinks = 0;
+  if (input.endPropertyLink && before.propertyId) {
+    const ended = await tx.update(schema.customerProperty)
+      .set({ endedOn: on, updatedAt: new Date() })
+      .where(and(
+        eq(schema.customerProperty.customerId, before.customerId),
+        eq(schema.customerProperty.propertyId, before.propertyId),
+        isNull(schema.customerProperty.endedOn),
+      )).returning({ id: schema.customerProperty.id });
+    endedLinks = ended.length;
+    if (endedLinks > 0) {
+      await audit(tx, ctx, "customer_property.ended", "property", before.propertyId, null, {
+        customerId: before.customerId, endedOn: on, because: `agreement cancelled: ${said}`,
+      });
+    }
+  }
 
   /**
    * Instalments not yet invoiced are cancelled. An invoiced one stands:
@@ -1245,7 +1295,7 @@ async function cancelWithin(
 
   if (m.isPositive(balance)) {
     await tx.update(schema.deferredRevenueEntry).set({
-      releasedOn: on, releaseReason: input.reason.trim(), updatedAt: new Date(),
+      releasedOn: on, releaseReason: said, updatedAt: new Date(),
     }).where(and(
       eq(schema.deferredRevenueEntry.agreementId, input.id),
       isNull(schema.deferredRevenueEntry.recognizedOn),
@@ -1267,12 +1317,12 @@ async function cancelWithin(
     entityId: input.id,
     payload: {
       agreementId: input.id, customerId: before.customerId,
-      reason: input.reason.trim(), released: m.toString(balance),
+      reason: said, reasonCode: code, released: m.toString(balance),
     },
   });
 
   await audit(tx, ctx, "agreement.cancelled", "agreement", input.id, before, after);
-  return { ...after!, released: m.toString(balance) };
+  return { ...after!, released: m.toString(balance), endedLinks };
 }
 
 /**
@@ -2232,6 +2282,7 @@ const agreementView = (row: typeof schema.agreement.$inferSelect) => ({
   renewalCount: row.renewalCount,
   cancelledOn: row.cancelledOn,
   cancellationReason: row.cancellationReason,
+  cancellationCode: row.cancellationCode,
   visitsIncludedThisTerm: row.visitsIncludedThisTerm,
   visitsDeliveredThisTerm: row.visitsDeliveredThisTerm,
 });
@@ -2423,12 +2474,12 @@ export const handlers = {
       return { instalmentId: input.id, invoiceId: invoice.id, number: invoice.number, total: invoice.total };
     }),
 
-  cancelAgreement: (ctx: ServiceContext, input: { id: string; reason: string; keepThePrepayment?: boolean | undefined }) =>
+  cancelAgreement: (ctx: ServiceContext, input: {
+    id: string; reasonCode?: membership.CancellationCode | undefined; reason?: string | undefined;
+    keepThePrepayment?: boolean | undefined; endPropertyLink?: boolean | undefined;
+  }) =>
     onceOver(ctx, "membership:write", "agreement.cancel", input.id, async (tx) => {
-      const cancelled = await cancelWithin(tx, ctx, {
-        id: input.id, reason: input.reason,
-        ...(input.keepThePrepayment !== undefined ? { keepThePrepayment: input.keepThePrepayment } : {}),
-      });
-      return { ...agreementView(cancelled), released: cancelled.released };
+      const cancelled = await cancelWithin(tx, ctx, input);
+      return { ...agreementView(cancelled), released: cancelled.released, endedLinks: cancelled.endedLinks };
     }),
 } as const;

@@ -32,6 +32,14 @@ const KpiResult = z.object({
   denominatorMoney: z.boolean(),
   needs: z.string().nullable(),
   endpoint: z.string().nullable(),
+  /**
+   * Counts beside the number and not in it, each openable like a half:
+   * `excluded`, the records the definition leaves out (a customer who moved
+   * or sold the home, on the retention, renewal and churn figures), and
+   * `unknown`, the ones it counts for a reason nobody recorded (a
+   * cancellation made before reasons were chosen from a list).
+   */
+  besides: z.array(z.object({ key: z.enum(["excluded", "unknown"]), label: z.string(), count: z.string() })),
 });
 
 export const getKpiScorecard = defineRoute({
@@ -91,12 +99,12 @@ export const getKpiRecords = defineRoute({
   path: "/v1/kpi-records",
   summary: "The records behind one half of one KPI",
   description:
-    "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
+    "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
   module: "M21",
   permissions: ["report:read"],
   input: z.object({
     key: z.string().min(1).max(80),
-    half: z.enum(["numerator", "denominator"]),
+    half: z.enum(["numerator", "denominator", "excluded", "unknown"]),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }),
@@ -105,7 +113,7 @@ export const getKpiRecords = defineRoute({
     label: z.string(),
     definition: z.string(),
     format: z.enum(["percent", "money", "number", "duration"]),
-    half: z.enum(["numerator", "denominator"]),
+    half: z.enum(["numerator", "denominator", "excluded", "unknown"]),
     halfLabel: z.string(),
     from: z.string(),
     to: z.string(),
