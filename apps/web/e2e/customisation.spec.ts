@@ -59,6 +59,9 @@ test("a kind of record is defined with its fields and used on a job", async ({ o
   await addField.getByLabel("Key it is stored under").fill("inspected_on");
   await ready(owner);
   await addField.getByRole("button", { name: "Add the field" }).click();
+  // Waited for, rather than reloaded away from: reloading straight away can
+  // abort the action's request, and then the second field was never added.
+  await expect(owner.getByRole("table")).toContainText("Inspected on");
   await owner.reload();
   await expect(owner.getByRole("table")).toContainText("Status");
   await expect(owner.getByRole("table")).toContainText("Inspected on");
