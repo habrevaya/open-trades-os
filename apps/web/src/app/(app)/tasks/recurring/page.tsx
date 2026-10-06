@@ -93,6 +93,10 @@ export default async function RecurringTasksPage() {
               then every second one after it. The last one of every month is the last Friday, say, whether
               that is the fourth or the fifth.
             </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="skipHolidays" value="yes" />
+              Not on a holiday: skip a day your holiday list says you are closed
+            </label>
             <Select label="For" name="assigneeUserId"
                     options={[{ value: "", label: "Nobody yet (the queue)" }, ...people.map((p) => ({ value: p.userId, label: p.name }))]} />
             <TextArea label="Checklist, one item a line" name="checklist" rows={3} />

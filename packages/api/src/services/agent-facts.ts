@@ -3,6 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { agents as a, time } from "@opentradesos/core";
 import { memberTestAmong, openSlots, type MemberShare } from "./booking";
 import { inForceAt } from "./pricebook";
+import { upcomingSentences } from "./holidays";
 
 /**
  * THE COMPANY'S OWN FACTS, AS AN AGENT IS GIVEN THEM
@@ -132,16 +133,21 @@ export function contactsIn(texts: readonly string[]): { phone: string | null; em
   return { phone, email };
 }
 
-/** Opening hours as sentences, one per day, closed days said. */
+/**
+ * Opening hours as sentences, one per day, closed days said, then the
+ * company's holidays in the next two months, so a caller asking whether
+ * anybody is working on the Friday after Thanksgiving is told the truth.
+ */
 export async function hoursOf(tx: Database, organizationId: string): Promise<string[]> {
   const rows = await tx.select().from(schema.businessHours)
     .where(eq(schema.businessHours.organizationId, organizationId));
-  if (rows.length === 0) return [];
-  return DAYS.map((day, index) => {
+  const holidays = (await upcomingSentences(tx, organizationId)).map((line) => `Holiday ${line}`);
+  if (rows.length === 0) return holidays;
+  return [...DAYS.map((day, index) => {
     const row = rows.find((r) => r.dayOfWeek === index && r.businessUnitId === null) ?? rows.find((r) => r.dayOfWeek === index);
     if (!row || row.closed || !row.opensAt || !row.closesAt) return `${day}: closed`;
     return `${day}: ${row.opensAt.slice(0, 5)} to ${row.closesAt.slice(0, 5)}`;
-  });
+  }), ...holidays];
 }
 
 /** Where the company works, by territory, with the postal codes each covers. */

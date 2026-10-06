@@ -708,6 +708,27 @@
       "when": 1791197156337,
       "tag": "0100_tearful_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1791200010198,
+      "tag": "0101_dashing_doomsday",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1791200747842,
+      "tag": "0102_motionless_magdalene",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1791283846550,
+      "tag": "0103_left_puff_adder",
+      "breakpoints": true
     }
   ]
 }

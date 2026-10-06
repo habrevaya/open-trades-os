@@ -127,6 +127,8 @@ export interface MeetingInput {
   jobId?: string | undefined;
   ledBy?: string | undefined;
   attendees?: AttendeeInput[] | undefined;
+  /** A topic from the library, whose words are used when no notes are sent. */
+  topicId?: string | undefined;
 }
 
 function cleanAttendees(input: AttendeeInput[]): Array<{ technicianId: string | null; name: string | null }> {
@@ -184,10 +186,17 @@ export async function createMeeting(ctx: ServiceContext, input: MeetingInput) {
     const prior = await replayed(tx, ctx, "safety.meeting_created");
     if (prior) return { id: prior };
 
+    /** From the library: the talk keeps a copy of the words, so a later edit to the topic does not rewrite it. */
+    const [fromLibrary] = input.topicId
+      ? await tx.select().from(schema.safetyTopic).where(eq(schema.safetyTopic.id, input.topicId)).limit(1)
+      : [];
+    if (input.topicId && !fromLibrary) throw new NotFoundError("Topic");
+
     const [row] = await tx.insert(schema.safetyMeeting).values({
       organizationId: ctx.actor.organizationId,
       topic,
-      notes: input.notes?.trim() || null,
+      notes: input.notes?.trim() || fromLibrary?.body || null,
+      topicId: fromLibrary?.id ?? null,
       heldAt,
       location: input.location?.trim() || null,
       jobId: input.jobId ?? null,

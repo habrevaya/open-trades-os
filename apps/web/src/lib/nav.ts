@@ -423,6 +423,9 @@ export const NAV: NavGroup[] = [
            * sees their own incident reports and the form to make one.
            */
           { href: "/compliance/safety", label: "Toolbox talks" },
+          /** The company's own talk topics, and talks raised from them on a schedule for a crew or a person. */
+          { href: "/compliance/safety/topics", label: "Talk topics" },
+          { href: "/compliance/safety/schedules", label: "Talks on a schedule" },
           { href: "/compliance/incidents", label: "Incidents" },
           /**
            * The retention rules, what a purge would remove, and holds. It needs
@@ -501,6 +504,13 @@ export const NAV: NavGroup[] = [
           /** The company's own kinds of record and their fields. Beside the fields, because they are defined the same way. */
           { href: "/settings/records", label: "Kinds of record" },
           { href: "/settings/service-area", label: "Service area" },
+          /**
+           * The days the company closes or keeps short hours, and what it charges
+           * for work booked outside its hours or on one of them. Under Settings
+           * rather than under Online booking, because the phones, the reviews
+           * clock and recurring tasks read it too.
+           */
+          { href: "/settings/holidays", label: "Holidays and rates" },
           /**
            * Labour burden and overhead rates, with their dates, which turn the
            * direct margin on job costing into the fully loaded one beside it.

@@ -134,6 +134,7 @@ export async function addTemplate(_previous: FormState, form: FormData): Promise
       ...(due !== undefined ? { dueMinutes: due } : {}),
       ...(checklist.length > 0 ? { checklist } : {}),
       startsOn: field(form, "startsOn"),
+      skipHolidays: form.get("skipHolidays") === "yes",
     });
     await taskRules.handlers.createTaskTemplate(ctx, input);
   });

@@ -384,6 +384,8 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
     .where(and(eq(schema.businessHours.organizationId, org), eq(schema.businessHours.closed, false))));
   const windows = await count(tx.select({ n }).from(schema.arrivalWindow)
     .where(eq(schema.arrivalWindow.organizationId, org)));
+  const holidays = await count(tx.select({ n }).from(schema.companyHoliday)
+    .where(eq(schema.companyHoliday.organizationId, org)));
   const people = await count(tx.select({ n }).from(schema.membership)
     .where(and(eq(schema.membership.organizationId, org), eq(schema.membership.active, true))));
   const branches = await count(tx.select({ n }).from(schema.businessUnit)
@@ -403,6 +405,20 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
       isNull(schema.priceBookItem.deletedAt),
       eq(schema.priceBookItem.active, true),
     ));
+
+  /** The two rates by name, read off the items they point at. */
+  const [rates] = await tx.select({
+    afterHours: schema.afterHoursRate.afterHoursItemId,
+    holiday: schema.afterHoursRate.holidayItemId,
+  }).from(schema.afterHoursRate).where(eq(schema.afterHoursRate.organizationId, org)).limit(1);
+  const itemName = async (id: string | null | undefined) => {
+    if (!id) return null;
+    const [item] = await tx.select({ code: schema.priceBookItem.code }).from(schema.priceBookItem)
+      .where(eq(schema.priceBookItem.id, id)).limit(1);
+    return item?.code ?? null;
+  };
+  const afterHoursCode = await itemName(rates?.afterHours);
+  const holidayCode = await itemName(rates?.holiday);
 
   const connections = await tx.select({
     capability: schema.integrationConnection.capability,
@@ -434,6 +450,7 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
     hours: [
       hours > 0 ? `Open ${plural(hours, "day")} a week.` : "No opening hours set.",
       windows > 0 ? `${plural(windows, "arrival window")} offered.` : "No arrival windows yet.",
+      holidays > 0 ? `${plural(holidays, "holiday")} on the list.` : "No holidays on the list.",
     ],
     team: [
       `${plural(people, "person", "people")} can sign in.`,
@@ -449,6 +466,10 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
           ...((book?.unclassed ?? 0) > 0 ? [`${plural(book!.unclassed, "taxable item")} with no class.`] : []),
         ]
       : ["Nothing in the price book to tax yet."],
+    rates: [
+      afterHoursCode ? `After hours, ${afterHoursCode} is offered.` : "No after hours rate chosen.",
+      holidayCode ? `On a holiday, ${holidayCode} is offered.` : "No holiday rate chosen.",
+    ],
     payments: [connected("payments").length > 0 ? `${connected("payments").join(", ")} connected.` : "No card processor connected."],
     communications: [
       connected("messaging").length > 0 ? `Texting through ${connected("messaging").join(", ")}.` : "No texting provider connected.",

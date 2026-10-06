@@ -3,12 +3,12 @@ import { test, expect, run } from "./fixtures";
 /**
  * A NEW COMPANY SETS ITSELF UP, START TO FINISH, WITHOUT THE API
  *
- * Every one of the ten steps is a real screen with a real form on it, and the
+ * Every one of the eleven steps is a real screen with a real form on it, and the
  * wizard remembers what is done: the list ticks each step off, "carry on"
  * goes to the next one outstanding after a reload, and the list is still
  * there after leaving for the app. Each step submits its own form here (a
  * name, a trade, a territory, opening hours, a teammate, a price change, a
- * tax class, a 10DLC brand) before it is marked done, so a step page that
+ * tax class, an after hours rate, a 10DLC brand) before it is marked done, so a step page that
  * draws a form that does not save fails this, not just one that does not
  * draw.
  */
@@ -23,7 +23,7 @@ test("a new company runs every setup step and the wizard remembers each one", as
   await page.getByLabel("Password").fill("correct horse battery staple");
   await page.getByRole("button", { name: "Create company" }).click();
   await expect(page).toHaveURL(/\/setup$/);
-  await expect(page.getByText("0 of 10 total")).toBeVisible();
+  await expect(page.getByText("0 of 11 total")).toBeVisible();
 
   // 1. Company details.
   await page.getByRole("link", { name: "Start with Company details" }).click();
@@ -43,7 +43,7 @@ test("a new company runs every setup step and the wizard remembers each one", as
   await expect(page).toHaveURL(/\/setup\/trade$/);
   await page.getByRole("button", { name: /^HVAC/ }).click();
   await expect(page).toHaveURL(/\/setup\?applied=hvac$/);
-  await expect(page.getByText("2 of 10 total")).toBeVisible();
+  await expect(page.getByText("2 of 11 total")).toBeVisible();
 
   // Resuming: a reload lands the same list, and carrying on goes to step three.
   await page.reload();
@@ -89,12 +89,22 @@ test("a new company runs every setup step and the wizard remembers each one", as
   await expect(shelf.getByRole("status")).toContainText("changed");
   await page.getByRole("button", { name: "This step is done, next step" }).click();
 
-  // 8. Payments: the connect form is there; this company connects later.
+  // 8. After hours and holiday rates: the pack's after hours diagnostic, chosen and so marked.
+  await expect(page).toHaveURL(/\/setup\/rates$/);
+  const afterHours = page.getByLabel("After hours rate");
+  const diagnostic = await afterHours.locator("option", { hasText: "After hours diagnostic" }).getAttribute("value");
+  await afterHours.selectOption(diagnostic!);
+  await page.getByRole("button", { name: "Save rates" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
+  await expect(page.getByText("After hours, DIAG-AH is offered.")).toBeVisible();
+  await page.getByRole("button", { name: "This step is done, next step" }).click();
+
+  // 9. Payments: the connect form is there; this company connects later.
   await expect(page).toHaveURL(/\/setup\/payments$/);
   await expect(page.getByRole("heading", { name: "Card payments" })).toBeVisible();
   await page.getByRole("button", { name: "This step is done, next step" }).click();
 
-  // 9. Phone and email: the 10DLC brand written down.
+  // 10. Phone and email: the 10DLC brand written down.
   await expect(page).toHaveURL(/\/setup\/communications$/);
   await page.getByLabel("Legal name, as registered").fill(`${company} LLC`);
   await page.getByLabel("Name customers know you by").fill(company);
@@ -102,12 +112,12 @@ test("a new company runs every setup step and the wizard remembers each one", as
   await expect(page.getByText("10DLC brand not started.")).toBeVisible();
   await page.getByRole("button", { name: "This step is done, next step" }).click();
 
-  // 10. Accounting.
+  // 11. Accounting.
   await expect(page).toHaveURL(/\/setup\/integrations$/);
   await page.getByRole("button", { name: "This step is done, back to the list" }).click();
 
   await expect(page).toHaveURL(/\/setup$/);
-  await expect(page.getByText("10 of 10 total")).toBeVisible();
+  await expect(page.getByText("11 of 11 total")).toBeVisible();
   await expect(page.getByText("Every step is done.")).toBeVisible();
 
   // Into the app, and the list is still there afterwards with every tick.
@@ -115,7 +125,7 @@ test("a new company runs every setup step and the wizard remembers each one", as
   await expect(page).not.toHaveURL(/\/setup/);
   await expect(page.getByText(company).first()).toBeVisible();
   await page.goto("/setup");
-  await expect(page.getByText("10 of 10 total")).toBeVisible();
+  await expect(page.getByText("11 of 11 total")).toBeVisible();
   await expect(page.getByRole("link", { name: "Back to the app" })).toBeVisible();
 
   // A step reopened is outstanding again, and carrying on goes to it.
@@ -124,6 +134,6 @@ test("a new company runs every setup step and the wizard remembers each one", as
   // Leaving before the step is saved would cancel the save.
   await expect(page.getByRole("button", { name: /^This step is done/ })).toBeVisible();
   await page.goto("/setup");
-  await expect(page.getByText("9 of 10 total")).toBeVisible();
+  await expect(page.getByText("10 of 11 total")).toBeVisible();
   await expect(page.getByRole("link", { name: "Carry on: Payments" })).toBeVisible();
 });

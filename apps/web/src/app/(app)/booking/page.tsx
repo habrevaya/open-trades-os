@@ -43,6 +43,11 @@ export default async function BookingPage() {
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Online booking" />
       <BookingSections ctx={ctx} />
+      <p className="mt-3 max-w-prose text-sm text-ink-500">
+        Days you close for a holiday, or open shorter, are on{" "}
+        <a href="/settings/holidays" className="underline underline-offset-4">Settings, Holidays</a>. The booking
+        page offers nothing on a closed day.
+      </p>
       <h2 className="mt-10 font-medium text-ink-900">Held for members</h2>
       <MemberHold {...await memberHoldFor(ctx)} />
     </div>

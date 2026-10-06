@@ -66,6 +66,8 @@ export const OPERATION_KINDS = [
   "task.close",
   // A cash tip handed to the technician and kept, recorded for payroll.
   "tip.record",
+  // A toolbox talk signed on the phone, with a drawn signature sent as an upload.
+  "safety.sign",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -172,6 +174,17 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * adds a row, and nothing anybody did meanwhile makes it not have.
    */
   "tip.record": "append",
+
+  /**
+   * Signing a toolbox talk moves the person's line from unsigned to signed,
+   * and only makes sense while the sheet is open and the talk has been
+   * held. A sheet the office closed while the phone was offline refuses the
+   * signature in words rather than taking it: a closed sheet is a record of
+   * who was in the room, and a signature added after it says nothing. The
+   * state is the sheet's, so `allowedFrom` names nothing and the safety
+   * service refuses.
+   */
+  "safety.sign": "transition",
 };
 
 export interface FieldOperation {

@@ -1,6 +1,6 @@
 import { and, asc, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, time, marketing as mk, customerPortal as cp, membership, SYSTEM_USER_ID } from "@opentradesos/core";
+import { money as m, time, marketing as mk, customerPortal as cp, membership, holidays as holidayRules, SYSTEM_USER_ID } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -19,6 +19,7 @@ import type {
 } from "../contracts/booking";
 import { portalBase } from "../lib/portal-base";
 import { qualifyDays } from "./qualification";
+import { loadHolidays } from "./holidays";
 
 
 /**
@@ -186,6 +187,13 @@ export async function openSlots(db: Database, input: {
   const openDays = new Set(
     hours.filter((h) => h.opensAt !== null && h.closesAt !== null).map((h) => h.dayOfWeek),
   );
+  /**
+   * The company's holiday list. On a date in it, its hours replace the
+   * week's: a closed date offers nothing, and a short day offers only the
+   * windows that fit inside its hours, so Christmas Eve until noon is not
+   * offered an afternoon arrival.
+   */
+  const holidayList = await loadHolidays(db, org.id);
 
   // The service's own ceiling wins over whatever the caller asked for, so a
   // client cannot widen the calendar past what the company opened.
@@ -222,10 +230,12 @@ export async function openSlots(db: Database, input: {
     const date = isoDate(day);
     const dow = day.getUTCDay();
 
-    if (!openDays.has(dow)) continue;
+    const holiday = holidayRules.holidayOn(holidayList, date);
+    if (holiday ? holiday.closed : !openDays.has(dow)) continue;
 
     for (const w of windows) {
       if (!w.daysOfWeek.includes(dow)) continue;
+      if (holiday?.hours && !fitsInside(w, holiday.hours)) continue;
 
       /**
        * A window that has already started today is not bookable today, and
@@ -257,6 +267,16 @@ export async function openSlots(db: Database, input: {
   }
 
   return slots;
+}
+
+/** Whether an arrival window starts and ends inside a short day's hours. */
+function fitsInside(
+  window: { startsAt: string; endsAt: string },
+  hours: { openMinute: number; closeMinute: number },
+): boolean {
+  const start = holidayRules.minutesOf(window.startsAt);
+  const end = holidayRules.minutesOf(window.endsAt);
+  return start !== null && end !== null && start >= hours.openMinute && end <= hours.closeMinute;
 }
 
 /**
@@ -1110,6 +1130,21 @@ export async function createRequest(
       throw new ConflictError(
         "That time has just been taken. Please choose another.",
       );
+    }
+    /**
+     * A date the company has since put on its holiday list, or a window
+     * outside a short day's hours, is refused the way a full window is: the
+     * page offered it before the list changed, and a request for Christmas
+     * Day is a customer waiting for somebody who is not coming.
+     */
+    const holiday = holidayRules.holidayOn(await loadHolidays(tx, org.id), input.requestedDate);
+    if (holiday) {
+      const [window] = await tx.select().from(schema.arrivalWindow)
+        .where(and(eq(schema.arrivalWindow.id, input.arrivalWindowId), eq(schema.arrivalWindow.organizationId, org.id)))
+        .limit(1);
+      if (holiday.closed || !window || !holiday.hours || !fitsInside(window, holiday.hours)) {
+        throw new ConflictError(`We are ${holiday.closed ? "closed" : "only open part of the day"} on ${input.requestedDate} (${holiday.name}). Please choose another time.`);
+      }
     }
     await assertRoom(tx, {
       organizationId: org.id, timezone: org.timezone, service, date: input.requestedDate,

@@ -286,6 +286,15 @@ its own (`task.close`) through the queue's own services, so the second of two
 people taking the same task offline is told somebody else has it. A task with
 a checklist is finished on its own page, where the items are.
 
+**Toolbox talks.** The snapshot carries the talks on the person's own sheet lines
+(`talks`), and "Toolbox talks to sign" on the day opens them: what was covered,
+then a pad to draw a signature on. The signature is kept on the phone and recorded
+first, as an upload for the talk (`signature.capture` naming the talk), then
+`safety.sign` names it, so a talk signed with no signal is signed in order when
+the phone next has one. The server finds the line from the phone's own
+technician and refuses a closed sheet, a talk not held yet or somebody not on it
+in words; a refused signature is attached to nothing (M23).
+
 **What the person may do.** The snapshot's `abilities` says, from the
 person's permissions and the company's settings, whether they may build
 estimates, take a customer's signature, raise invoices and take tasks,

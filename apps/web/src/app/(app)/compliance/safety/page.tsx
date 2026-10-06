@@ -1,9 +1,9 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { safety } from "@opentradesos/api/services";
+import { safety, safetyTalks } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
-import { ActionForm, TextField, TextArea } from "@/components/ActionForm";
+import { ActionForm, Select, TextField, TextArea } from "@/components/ActionForm";
 import { Empty, PageHeader, Table, Td, Th } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 
@@ -16,8 +16,10 @@ export const dynamic = "force-dynamic";
  *
  * Every safety meeting the company has held, who was on the sheet and who has
  * signed. A talk is recorded here with the people who were there, and each of
- * the company's own people signs it on their phone from My day; a visitor is
- * marked signed from the paper sheet, which is photographed onto the talk.
+ * the company's own people signs it on their phone (the app, or My day); a
+ * visitor is marked signed from the paper sheet, which is photographed onto
+ * the talk. Who has not signed a talk already held is listed first, because
+ * that is the list somebody has to chase.
  */
 export default async function SafetyTalksPage() {
   const user = await requireSetupUser();
@@ -38,6 +40,14 @@ export default async function SafetyTalksPage() {
   const meetings = await safety.listMeetings(ctx);
   const writes = can(user.actor, "safety:write");
   const people = writes ? await safety.people(ctx) : [];
+  const unsigned = await safetyTalks.unsigned(ctx);
+  const topics = writes ? await safetyTalks.listTopics(ctx) : [];
+  /** One entry per talk, each with the names still to sign. */
+  const waiting = [...unsigned.reduce((byTalk, line) => {
+    const talk = byTalk.get(line.meetingId) ?? { meetingId: line.meetingId, topic: line.topic, heldAt: line.heldAt, names: [] as string[] };
+    talk.names.push(line.ownPerson ? line.name : `${line.name} (paper sheet)`);
+    return byTalk.set(line.meetingId, talk);
+  }, new Map<string, { meetingId: string; topic: string; heldAt: string; names: string[] }>()).values()];
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -46,6 +56,30 @@ export default async function SafetyTalksPage() {
         What the crew was told, when, and who signed to say they heard it. This says a talk happened; it
         does not say whether it was the talk the job needed.
       </p>
+      <p className="mt-2 text-sm">
+        <a href="/compliance/safety/topics" className="text-blue-600 underline underline-offset-4">Your talk topics</a>
+        {" · "}
+        <a href="/compliance/safety/schedules" className="text-blue-600 underline underline-offset-4">Talks on a schedule</a>
+      </p>
+
+      <section aria-label="Not signed yet" className="mt-6">
+        <h2 className="text-base font-semibold">Not signed yet</h2>
+        {waiting.length === 0 ? (
+          <p className="mt-1 text-sm text-ink-500">Everybody on a talk already held has signed, or its sheet is closed.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-sm">
+            {waiting.map((talk) => (
+              <li key={talk.meetingId}>
+                <a href={`/compliance/safety/${talk.meetingId}`} className="font-medium text-blue-600 underline underline-offset-4">
+                  {talk.topic}
+                </a>
+                <span className="text-ink-500">, {formatIn(talk.heldAt, zone)}: </span>
+                {talk.names.join(", ")}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {meetings.length === 0 ? (
         <Empty title="No talks recorded yet">Record the next one below and your people sign it from their phones.</Empty>
@@ -71,13 +105,17 @@ export default async function SafetyTalksPage() {
         <section className="mt-10">
           <h2 className="text-base font-semibold">Record a talk</h2>
           <ActionForm action={act} submit="Record the talk" hidden={{ op: "create" }}>
-            <TextField label="Topic" name="topic" required maxLength={300} placeholder="Ladder safety" />
+            {topics.length > 0 ? (
+              <Select label="From your topics (optional)" name="topicId"
+                      options={[{ value: "", label: "Not from the library" }, ...topics.map((t) => ({ value: t.id, label: t.title }))]} />
+            ) : null}
+            <TextField label="Topic" name="topic" maxLength={300} placeholder="Ladder safety, or leave empty to use the topic chosen above" />
             <div className="grid gap-4 sm:grid-cols-3">
               <TextField label="When" name="heldAt" type="datetime-local" required />
               <TextField label="Where" name="location" maxLength={300} placeholder="The shop" />
               <TextField label="Led by" name="ledBy" maxLength={200} />
             </div>
-            <TextArea label="What was covered" name="notes" rows={3} />
+            <TextArea label="What was covered (empty uses the topic's own words)" name="notes" rows={3} />
             <fieldset>
               <legend className="text-sm font-medium text-ink-700">Who was there</legend>
               <div className="mt-2 grid gap-1.5 sm:grid-cols-3">

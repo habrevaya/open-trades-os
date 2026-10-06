@@ -1,5 +1,6 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
+import { HoldPanel } from "@/components/HoldPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -566,6 +567,10 @@ export default async function JobPage({ params, searchParams }: {
               ))}
             </ul>
           )}
+          {photos.some((photo) => photo.kind === "photo") ? (
+            <HoldPanel ctx={ctx} entityType="photo" entityId={id} path={`/jobs/${id}`}
+                       label="this job's photographs" timezone={user.organizationTimezone} />
+          ) : null}
         </>
       )}
 

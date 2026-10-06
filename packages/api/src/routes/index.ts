@@ -28,7 +28,7 @@ import {
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention,
+  safety, retention, holidays, afterHours, safetyTalks,
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
@@ -777,6 +777,7 @@ export const handlers = {
   addIncidentPhoto: safety.handlers.addIncidentPhoto,
 
   listRetentionPolicies: retention.handlers.listRetentionPolicies,
+  createRetentionPolicy: retention.handlers.createRetentionPolicy,
   updateRetentionPolicy: retention.handlers.updateRetentionPolicy,
   previewRetentionPurge: retention.handlers.previewRetentionPurge,
   listRetentionHolds: retention.handlers.listRetentionHolds,
@@ -784,6 +785,12 @@ export const handlers = {
   releaseRetentionHold: retention.handlers.releaseRetentionHold,
   runRetentionPurge: retention.handlers.runRetentionPurge,
   listRetentionPurgeRuns: retention.handlers.listRetentionPurgeRuns,
+  // The company's holidays, read by everything that reads its hours (M02)
+  ...holidays.handlers,
+  // Which item is charged after hours and on a holiday, offered on the invoice (M02, M13)
+  ...afterHours.handlers,
+  // Toolbox talk topics, talks on a schedule and who has not signed (M23)
+  ...safetyTalks.handlers,
   listScheduledRevisions: priceBook.revisionHandlers.listScheduledRevisions,
   publishRevision: priceBook.revisionHandlers.publishRevision,
   discardRevision: priceBook.revisionHandlers.discardRevision,

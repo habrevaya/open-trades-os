@@ -1,12 +1,13 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { retention as rules, SYSTEM_USER_ID, isSystem, time } from "@opentradesos/core";
+import { assertCan, retention as rules, SYSTEM_USER_ID, isSystem, time } from "@opentradesos/core";
 import { packById } from "@opentradesos/trade-packs";
 import { emptied } from "./files";
 import {
-  audit, guardedRead, guardedWrite, inTenant, timezoneOf, NotFoundError, UnprocessableError,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
 } from "./context";
+import { replayed, remember } from "./once";
 
 /**
  * ACTING ON RETENTION POLICIES
@@ -39,11 +40,23 @@ import {
  * did the 2019 incident reports go" has an answer that is not a shrug.
  *
  * WHAT IT CAN ACT ON. Only record types this product holds and knows how to
- * remove whole: incident reports, toolbox talks, service reports and
- * inspections. A rule about anything else (a disposal ticket, a key custody
- * log) is shown in the preview as one this product cannot act on, rather than
- * silently matching nothing. Call recordings are deleted by the recordings
- * sweep, which honours the same holds.
+ * remove whole: incident reports, toolbox talks, service reports,
+ * inspections, a job's photographs and lead form submissions. A rule about
+ * anything else (a disposal ticket, a key custody log, a timesheet, an
+ * agreement) is shown in the preview as one this product cannot act on,
+ * rather than silently matching nothing. Call recordings are deleted by the
+ * recordings sweep, which honours the same holds.
+ *
+ * WHY THE OTHERS DO NOTHING. A kind is added here only when removing it is
+ * both safe and complete: nothing else in the product reads it as evidence
+ * of money, and everything that is only its own (its photographs, its
+ * signatures) goes with it, through the file store. A timesheet is what
+ * somebody was paid from, an agreement and a rate card are what an invoice
+ * was priced from, and equipment is what a warranty and a service history
+ * point at; removing any of those would leave the ledger or an invoice
+ * describing something that is no longer there, so they are kept on file
+ * and acted on by nothing. Nothing in the ledger or on an invoice is ever
+ * removed by this file.
  */
 
 type Facts = rules.ClockFacts;
@@ -61,6 +74,8 @@ interface Candidate {
 interface Adapter {
   /** In the words the retention screen uses. */
   label: string;
+  /** The table a hold's record id is looked for in. For a job's photographs, the job. */
+  table: string;
   /** How a record's kind is decided, said plainly; null when this type has no kinds. */
   kindRule: string | null;
   /** `zone` is the company's, for the day a record is labelled with. */
@@ -79,7 +94,9 @@ const PURGE_LIMIT = 500;
  * stored file's reference count drops, and the bytes are emptied when nothing
  * points at them any more, the same way a deleted call recording's are.
  */
-async function releaseAttachments(tx: Database, organizationId: string, entityType: string, entityIds: string[]) {
+async function releaseAttachments(
+  tx: Database, organizationId: string, entityType: string, entityIds: string[], kind?: string | undefined,
+) {
   if (entityIds.length === 0) return 0;
   const rows = await tx.update(schema.attachment)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -87,6 +104,7 @@ async function releaseAttachments(tx: Database, organizationId: string, entityTy
       eq(schema.attachment.entityType, entityType),
       inArray(schema.attachment.entityId, entityIds),
       isNull(schema.attachment.deletedAt),
+      kind ? eq(schema.attachment.kind, kind) : undefined,
     ))
     .returning({ storageKey: schema.attachment.storageKey });
   for (const row of rows) {
@@ -130,6 +148,7 @@ function programCode(program: { name: string; tradePackId: string | null } | nul
 export const ADAPTERS: Record<string, Adapter> = {
   incident_report: {
     label: "Incident reports",
+    table: "incident_report",
     kindRule: "Its kind: injury, near_miss, property_damage, vehicle, environmental or other.",
     candidates: async (tx, limit, zone) => {
       const rows = await tx.select().from(schema.incidentReport)
@@ -153,6 +172,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   },
   safety_meeting: {
     label: "Toolbox talks",
+    table: "safety_meeting",
     kindRule: null,
     candidates: async (tx, limit, zone) => {
       const rows = await tx.select().from(schema.safetyMeeting).orderBy(asc(schema.safetyMeeting.heldAt)).limit(limit);
@@ -178,6 +198,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   },
   service_report: {
     label: "Service reports",
+    table: "service_report",
     kindRule: "The code of the job type on its job, such as drain or panel.",
     candidates: async (tx, limit, zone) => {
       const rows = await tx.select({
@@ -206,6 +227,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   },
   inspection: {
     label: "Inspections",
+    table: "inspection",
     kindRule: "The trade pack's code for its inspection programme, such as backflow-annual.",
     candidates: async (tx, limit) => {
       const rows = await tx.select({
@@ -265,6 +287,109 @@ export const ADAPTERS: Record<string, Adapter> = {
       const photos = await releaseAttachments(tx, ctx.actor.organizationId, "inspection", [id]);
       await tx.delete(schema.inspection).where(eq(schema.inspection.id, id));
       return { propertyId: row.propertyId, performedOn: row.performedOn, result: row.result, photos };
+    },
+  },
+  /**
+   * A JOB'S PHOTOGRAPHS, as one record held and removed together: every
+   * photograph on the job and on its visits. The job, its visits, its
+   * invoices and its service reports stay. A signature on a visit is not a
+   * photograph (it is what a customer signed an estimate or an invoice with)
+   * and is never removed. A photograph an invoice or an estimate also shows
+   * is a second attachment pointing at the same stored file, so the file
+   * stays until nothing points at it.
+   *
+   * Kept whatever the clock says while the job is not finished, and while an
+   * invoice on it is still owed, because those are the two moments somebody
+   * reaches for the pictures.
+   */
+  photo: {
+    label: "A job's photographs",
+    table: "job",
+    kindRule: "The code of the job type on the job, such as drain or panel.",
+    candidates: async (tx, limit, zone) => {
+      const rows = await tx.execute<{
+        id: string; number: number; status: string; created_at: Date; completed_at: Date | null;
+        type_code: string | null; owed: boolean;
+      }>(sql`
+        select j.id, j.number, j.status, j.created_at, j.completed_at, t.code as type_code,
+          exists (
+            select 1 from public.invoice i
+            where i.job_id = j.id and i.deleted_at is null
+              and i.status in ('open', 'partially_paid') and i.balance > 0
+          ) as owed
+        from public.job j
+        left join public.job_type t on t.id = j.job_type_id
+        where exists (
+          select 1 from public.attachment a
+          where a.deleted_at is null and a.kind = 'photo'
+            and ((a.entity_type = 'job' and a.entity_id = j.id)
+              or (a.entity_type = 'visit' and a.entity_id in (select v.id from public.visit v where v.job_id = j.id)))
+        )
+        order by j.created_at asc
+        limit ${limit}`);
+      return [...rows].map((row) => {
+        const createdAt = new Date(row.created_at);
+        const completedAt = row.completed_at ? new Date(row.completed_at) : null;
+        const finished = ["completed", "invoiced", "paid", "cancelled"].includes(row.status);
+        return {
+          id: row.id,
+          label: `Photographs on job ${row.number}, ${completedAt ? `finished ${day(completedAt, zone)}` : `opened ${day(createdAt, zone)}`}${row.type_code ? ` (${row.type_code})` : ""}`,
+          kind: row.type_code,
+          facts: { createdAt, recordDate: completedAt ?? createdAt, workCompletedAt: completedAt },
+          keep: !finished ? "Kept: the job is not finished."
+            : row.owed ? "Kept: an invoice on this job is still owed." : undefined,
+        };
+      });
+    },
+    purge: async (tx, ctx, id) => {
+      const [job] = await tx.select({ number: schema.job.number }).from(schema.job).where(eq(schema.job.id, id)).limit(1);
+      if (!job) throw new NotFoundError("Job");
+      const visits = (await tx.select({ id: schema.visit.id }).from(schema.visit).where(eq(schema.visit.jobId, id)))
+        .map((v) => v.id);
+      const onJob = await releaseAttachments(tx, ctx.actor.organizationId, "job", [id], "photo");
+      const onVisits = await releaseAttachments(tx, ctx.actor.organizationId, "visit", visits, "photo");
+      return { jobNumber: job.number, photos: onJob + onVisits };
+    },
+  },
+  /**
+   * WHAT SOMEBODY SENT ON A LEAD FORM, kept whether or not it was any good.
+   * The customer, the job and the marketing touch it led to are their own
+   * records and stay. Kept while a booking draft the intake assistant made
+   * from it is still waiting for the office, because that draft reads it.
+   */
+  form_submission: {
+    label: "Lead form submissions",
+    table: "form_submission",
+    kindRule: "The form's own name in its embed code, such as quote.",
+    candidates: async (tx, limit, zone) => {
+      const rows = await tx.execute<{ id: string; created_at: Date; slug: string; waiting: boolean }>(sql`
+        select s.id, s.created_at, f.slug,
+          exists (
+            select 1 from public.ai_agent_proposal p
+            where p.organization_id = s.organization_id and p.source_kind = 'form_submission'
+              and p.source_id = s.id::text and p.status = 'proposed'
+          ) as waiting
+        from public.form_submission s
+        join public.web_form f on f.id = s.form_id
+        order by s.created_at asc
+        limit ${limit}`);
+      return [...rows].map((row) => {
+        const createdAt = new Date(row.created_at);
+        return {
+          id: row.id,
+          label: `"${row.slug}" form sent ${day(createdAt, zone)}`,
+          kind: row.slug,
+          facts: { createdAt, recordDate: createdAt },
+          keep: row.waiting ? "Kept: a booking draft made from it is still waiting for the office." : undefined,
+        };
+      });
+    },
+    purge: async (tx, ctx, id) => {
+      const [row] = await tx.select().from(schema.formSubmission).where(eq(schema.formSubmission.id, id)).limit(1);
+      if (!row) throw new NotFoundError("Form submission");
+      const files = await releaseAttachments(tx, ctx.actor.organizationId, "form_submission", [id]);
+      await tx.delete(schema.formSubmission).where(eq(schema.formSubmission.id, id));
+      return { formId: row.formId, state: row.state, createdAt: row.createdAt, files };
     },
   },
 };
@@ -436,6 +561,62 @@ export async function updatePolicy(
   });
 }
 
+/** The kinds a company may write a rule about: the ones something here acts on. */
+export const WRITABLE_TYPES = [...Object.keys(ADAPTERS), ...Object.keys(ELSEWHERE)];
+
+export interface PolicyInput {
+  name: string;
+  entityType: string;
+  entityKind?: string | null | undefined;
+  clockStart: string;
+  retainMonths: number;
+  basis?: string | null | undefined;
+}
+
+/**
+ * A rule the company writes itself.
+ *
+ * Purging is OFF, always, whatever is asked: the same footing a rule a trade
+ * pack seeds starts on, so the first thing anybody sees of a new rule is its
+ * preview, and removing anything is a second decision taken with that list
+ * in front of them. Only about kinds of record something here acts on; a rule
+ * about a kind nothing purges would sit on the screen looking like it did.
+ */
+export async function createPolicy(ctx: ServiceContext, input: PolicyInput): Promise<PolicyView> {
+  assertCan(ctx.actor, "compliance:write");
+  const name = input.name.trim();
+  if (name === "") throw new ConflictError("Give the rule a name.");
+  if (!WRITABLE_TYPES.includes(input.entityType)) {
+    throw new ConflictError(`Nothing in this product removes "${input.entityType}" records, so a rule about them would do nothing.`);
+  }
+  if (!(rules.CLOCK_STARTS as readonly string[]).includes(input.clockStart)) {
+    throw new ConflictError(`"${input.clockStart}" is not a clock this product knows. Choose when the time starts from the list.`);
+  }
+  if (!Number.isInteger(input.retainMonths) || input.retainMonths < 1 || input.retainMonths > 1200) {
+    throw new UnprocessableError("A period is a whole number of months from 1 to 1200.", [
+      { path: "retainMonths", message: "1 to 1200 months." },
+    ]);
+  }
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const seen = await replayed<PolicyView>(tx, ctx, "retention_policy");
+    if (seen) return seen;
+    const [row] = await tx.insert(schema.retentionPolicy).values({
+      organizationId: ctx.actor.organizationId,
+      name,
+      entityType: input.entityType,
+      entityKind: input.entityKind?.trim() || null,
+      clockStart: input.clockStart as Policy["clockStart"],
+      retainMonths: input.retainMonths,
+      basis: input.basis?.trim() || null,
+      purgeAllowed: false,
+    }).returning();
+    await audit(tx, ctx, "retention.policy_created", "retention_policy", row!.id, null, row);
+    const view = policyView(row!);
+    await remember(tx, ctx, "retention_policy", row!.id, view);
+    return view;
+  });
+}
+
 export interface PreviewRow {
   policy: PolicyView;
   counts: { due: number; held: number; notYet: number; kept: number };
@@ -508,12 +689,28 @@ export async function preview(
 
 /* ----------------------------------------------------------------- holds */
 
-const HELD_TYPES = new Set([...Object.keys(ADAPTERS), "call_recording"]);
 
-export async function listHolds(ctx: ServiceContext, input: { includeReleased?: boolean | undefined } = {}) {
+export interface HoldView {
+  id: string;
+  entityType: string;
+  entityId: string;
+  reason: string;
+  placedAt: string;
+  releasedAt: string | null;
+  releaseNote: string | null;
+}
+
+export async function listHolds(
+  ctx: ServiceContext,
+  input: { includeReleased?: boolean | undefined; entityType?: string | undefined; entityId?: string | undefined } = {},
+): Promise<HoldView[]> {
   return guardedRead(ctx, "compliance:read", async (tx) => {
     const rows = await tx.select().from(schema.retentionHold)
-      .where(input.includeReleased ? undefined : isNull(schema.retentionHold.releasedAt))
+      .where(and(
+        input.includeReleased ? undefined : isNull(schema.retentionHold.releasedAt),
+        input.entityType ? eq(schema.retentionHold.entityType, input.entityType) : undefined,
+        input.entityId ? eq(schema.retentionHold.entityId, input.entityId) : undefined,
+      ))
       .orderBy(desc(schema.retentionHold.placedAt)).limit(500);
     return rows.map((row) => ({
       id: row.id, entityType: row.entityType, entityId: row.entityId, reason: row.reason,
@@ -523,6 +720,17 @@ export async function listHolds(ctx: ServiceContext, input: { includeReleased?: 
   });
 }
 
+/** The hold on one record, for that record's own page, or null when it is not held. */
+export async function holdOn(ctx: ServiceContext, input: { entityType: string; entityId: string }): Promise<HoldView | null> {
+  return (await listHolds(ctx, input))[0] ?? null;
+}
+
+/** The kinds that can be held, and the table each one's id is looked for in. */
+export const HOLDABLE: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(ADAPTERS).map(([type, adapter]) => [type, adapter.table])),
+  call_recording: "call",
+};
+
 /**
  * Keep this record whatever its age. Placing a hold on a record that already
  * has one changes nothing and succeeds: two holds on one record would need
@@ -531,9 +739,10 @@ export async function listHolds(ctx: ServiceContext, input: { includeReleased?: 
 export async function placeHold(ctx: ServiceContext, input: { entityType: string; entityId: string; reason: string }) {
   const reason = input.reason.trim();
   if (reason === "") throw new UnprocessableError("Say why it is being kept.", [{ path: "reason", message: "Required." }]);
-  if (!HELD_TYPES.has(input.entityType)) {
+  const table = HOLDABLE[input.entityType];
+  if (!table) {
     throw new UnprocessableError(`Nothing purges "${input.entityType}" records, so there is nothing to hold them against.`, [
-      { path: "entityType", message: `One of ${[...HELD_TYPES].join(", ")}.` },
+      { path: "entityType", message: `One of ${Object.keys(HOLDABLE).join(", ")}.` },
     ]);
   }
   return guardedWrite(ctx, "compliance:write", async (tx) => {
@@ -545,8 +754,7 @@ export async function placeHold(ctx: ServiceContext, input: { entityType: string
       )).limit(1);
     if (existing) return { id: existing.id, placedAt: existing.placedAt.toISOString() };
     const exists = await tx.execute(sql`
-      select 1 from ${sql.raw(`public.${input.entityType === "call_recording" ? "call" : input.entityType}`)}
-      where id = ${input.entityId} limit 1`);
+      select 1 from ${sql.raw(`public.${table}`)} where id = ${input.entityId} limit 1`);
     if (exists.length === 0) throw new NotFoundError("Record");
     const [row] = await tx.insert(schema.retentionHold).values({
       organizationId: ctx.actor.organizationId,
@@ -736,8 +944,11 @@ export const handlers = {
   previewRetentionPurge: async (
     ctx: ServiceContext, input: { policyId?: string | undefined; sample?: number | undefined },
   ) => ({ rules: await preview(ctx, input) }),
-  listRetentionHolds: async (ctx: ServiceContext, input: { includeReleased?: boolean | undefined }) =>
-    ({ holds: await listHolds(ctx, input) }),
+  createRetentionPolicy: (ctx: ServiceContext, input: PolicyInput) => createPolicy(ctx, input),
+  listRetentionHolds: async (
+    ctx: ServiceContext,
+    input: { includeReleased?: boolean | undefined; entityType?: string | undefined; entityId?: string | undefined },
+  ) => ({ holds: await listHolds(ctx, input) }),
   placeRetentionHold: (ctx: ServiceContext, input: { entityType: string; entityId: string; reason: string }) =>
     placeHold(ctx, input),
   releaseRetentionHold: (ctx: ServiceContext, input: { id: string; note?: string | undefined }) => releaseHold(ctx, input),

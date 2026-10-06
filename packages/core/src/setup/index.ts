@@ -39,7 +39,7 @@ export interface SetupStep {
 
 export const SETUP_STEP_KEYS = [
   "company", "trade", "service-area", "hours", "team",
-  "pricebook", "tax", "payments", "communications", "integrations",
+  "pricebook", "tax", "rates", "payments", "communications", "integrations",
 ] as const;
 export type SetupStepKey = (typeof SETUP_STEP_KEYS)[number];
 
@@ -82,10 +82,12 @@ export const SETUP_STEPS: readonly SetupStep[] = [
     key: "hours",
     title: "Hours and availability",
     /**
-     * Holidays and after hours rates have no screen anywhere and are not
-     * promised. The on call rota is its own screen under the schedule.
+     * The holiday list is drawn here as well as under Settings, because it
+     * is the other half of "when are you open". After hours and holiday
+     * rates are their own step, after the price book they are chosen from.
+     * The on call rota is its own screen under the schedule.
      */
-    summary: "Which days you are open and the arrival windows you let people pick.",
+    summary: "Which days you are open, the days you close for holidays, and the arrival windows you let people pick.",
     essential: true,
     hasLeadTime: false,
     permission: "booking:configure",
@@ -117,6 +119,19 @@ export const SETUP_STEPS: readonly SetupStep[] = [
      */
     summary: "Which of your items are taxable and under which class. Rates are set on the document.",
     essential: true,
+    hasLeadTime: false,
+    permission: "pricebook:write",
+  },
+  {
+    key: "rates",
+    title: "After hours and holiday rates",
+    /**
+     * After the price book, because both rates are items in it, marked as
+     * the after hours rate a membership plan can waive. The invoice offers
+     * the item for work booked outside the hours; nothing adds it by itself.
+     */
+    summary: "Which item you charge for work booked outside your hours, and which on a holiday. The invoice offers it; it is never added on its own.",
+    essential: false,
     hasLeadTime: false,
     permission: "pricebook:write",
   },

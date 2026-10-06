@@ -15,6 +15,7 @@ export const OperationKind = z.enum([
   "invoice.raise",
   "task.claim", "task.close",
   "tip.record",
+  "safety.sign",
 ]);
 
 export const OperationStatus = z.enum([
@@ -430,6 +431,22 @@ export const getFieldSnapshot = defineRoute({
       overdue: z.boolean(),
       checklistTotal: z.number().int(),
       checklistDone: z.number().int(),
+    })),
+    /**
+     * The toolbox talks on this person's own sheet lines: the ones waiting for
+     * their signature, and the last fortnight's signed ones, each with why it
+     * cannot be signed yet when it cannot. Their own lines only. Empty for
+     * somebody who is not a technician.
+     */
+    talks: z.array(z.object({
+      meetingId: Uuid,
+      topic: z.string(),
+      notes: z.string().nullable(),
+      heldAt: z.string().datetime(),
+      location: z.string().nullable(),
+      ledBy: z.string().nullable(),
+      signedAt: z.string().datetime().nullable(),
+      cannotSign: z.string().nullable(),
     })),
     /**
      * What this person may do on site, so the phone offers only what the

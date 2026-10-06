@@ -160,6 +160,13 @@ and the three that come round on a named day take `weekday`. The worker raises e
 timezone, so Monday's task is not raised on Sunday evening in Chicago, and
 each is paused and resumed from the same screen.
 
+A template can be told to skip holidays ("Not on a holiday" on the form,
+`skipHolidays` in the API): an occurrence on a date the company's holiday list
+(`/settings/holidays`, M02) says it is closed raises nothing, and the day is
+written down as dealt with, with an audit line naming the holiday, so it is not
+raised the day after instead. A short day on the list is a working day and is
+raised as usual. The schedule reads back with ", not on a holiday".
+
 Never twice: the task carries the template and the day, a unique index on the
 pair decides, and the worker inserts with `on conflict do nothing`, so a worker
 killed mid pass, restarted, or running twice raises the day's task once. A
@@ -278,7 +285,8 @@ not on the phone.
 
 Escalation counts hours, not working hours: a task due Friday at five escalates
 on Saturday morning under a twelve hour rule, and a company without weekend
-cover sets the rule at sixty. A rule edited after it has acted does not act
+cover sets the rule at sixty. For the same reason it does not read the holiday
+list: a task due the evening before Christmas escalates on Christmas Day. A rule edited after it has acted does not act
 again on the tasks it already acted on. The notice is a task and an email; there
 is no text message or push notification to staff, because the product has no
 staff messaging channel apart from email.
@@ -286,9 +294,12 @@ staff messaging channel apart from email.
 Recurring tasks have no "first Monday of the month", no "every third week" and no
 choice of which weekdays beyond a named one: weekdays only is always Monday to
 Friday, and a company with a different working week uses a weekly task for each
-day. An every other week task cannot be told to skip a week for a holiday: the
-off week is the off week. A change to a template applies to the tasks it raises
-from then on, and a missed occurrence is not backfilled, deliberately.
+day. A template set to skip holidays skips the occurrence on a closed holiday
+rather than moving it to the next working day, deliberately, and an every other
+week task's off week stays the off week whatever the holidays. A change to a
+template applies to the tasks it raises from then on, and a missed occurrence is
+not backfilled, deliberately. Skipping holidays is set when a template is made or
+through the API; the recurring screen does not change it on an existing one.
 
 Reporting lines are set only on the escalation screen, and are read by escalation
 and shown on the person's own page; nothing else in the product reads them, and

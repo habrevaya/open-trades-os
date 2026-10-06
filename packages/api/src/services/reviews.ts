@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { reviews as rv } from "@opentradesos/core";
+import { loadHolidays } from "./holidays";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
@@ -731,7 +732,14 @@ export async function workList(ctx: ServiceContext, now = new Date()) {
       ));
 
     const byId = new Map(rows.map((row) => [row.id, row]));
-    const items = rv.responseWorkList(rows.map(toCore), responsePolicy(policyRow), now);
+    /**
+     * With the company's holiday list, so a one star posted the evening
+     * before Christmas is not shown as overdue on the twenty sixth: the
+     * clock does not run on a closed date, and a short day counts its own
+     * hours.
+     */
+    const policy = { ...responsePolicy(policyRow), holidays: await loadHolidays(tx, ctx.actor.organizationId) };
+    const items = rv.responseWorkList(rows.map(toCore), policy, now);
 
     return items.map((item) => {
       const row = byId.get(item.review.id)!;
