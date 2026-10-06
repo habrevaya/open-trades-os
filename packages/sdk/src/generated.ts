@@ -15191,10 +15191,15 @@ export interface ListWorkflowTemplatesOutput {
       key: string;
       label: string;
       help: string;
-      kind: "number" | "platform";
+      kind: "number" | "platform" | "choice";
       default?: number;
       min?: number;
       max?: number;
+      options?: Array<{
+        value: string;
+        label: string;
+      }>;
+      defaultChoice?: string;
     }>;
     installed: {
       id: string;

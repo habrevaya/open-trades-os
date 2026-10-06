@@ -1,0 +1,2 @@
+CREATE TYPE "public"."review_request_source" AS ENUM('office', 'automation');--> statement-breakpoint
+ALTER TABLE "review_request" ADD COLUMN "source" "review_request_source" DEFAULT 'office' NOT NULL;

@@ -11,6 +11,7 @@ import { mintGrant } from "./portal";
 import { sendTransactional } from "./comms-send";
 import * as email from "./email";
 import * as reviews from "./reviews";
+import * as reviewAsks from "./review-asks";
 
 /**
  * WHAT A WORKFLOW STEP ACTUALLY DOES
@@ -937,7 +938,7 @@ export async function requestReview(
     : undefined;
 
   const outcome = await reviews.requestWithin(tx, ctx.actor.organizationId, {
-    jobId, ...(platform ? { platform } : {}),
+    jobId, source: "automation", ...(platform ? { platform } : {}),
   }, now);
 
   const output: Record<string, unknown> = {
@@ -969,8 +970,6 @@ export async function sendReviewRequest(
   runId: string,
   now: Date,
 ): Promise<StepResult> {
-  const organizationId = ctx.actor.organizationId;
-  const channel = config["channel"] === "email" ? "email" as const : "sms" as const;
   const jobId = jobIdOf(event);
   if (!jobId) return { ok: true, output: { sent: false, because: "the event names no job" } };
 
@@ -984,60 +983,24 @@ export async function sendReviewRequest(
   if (request.sendAt && request.sendAt > now) {
     return { ok: true, output: { sent: false, because: "it is not due yet", sendAt: request.sendAt.toISOString() } };
   }
+  /** A step written on the canvas with no words is refused, not given the product's. */
+  if (String(config["body"] ?? "").trim() === "") return { ok: false, reason: "step has no body" };
 
-  const url = request.platform ? await reviews.reviewUrlFor(tx, request.platform) : null;
-  if (!url) {
-    return {
-      ok: false,
-      reason: request.platform
-        ? `no link is declared for ${request.platform}, so there is nowhere to send them`
-        : "the request names no review site, so there is nowhere to send them",
-    };
+  /**
+   * The send itself is `reviewAsks.deliverRequest`, which the worker uses for a
+   * request the office queued: by text, by email, or by text first and then
+   * email, through the same consent gate, marked sent or failed the same way.
+   */
+  const outcome = await reviewAsks.deliverRequest(tx, ctx, request, {
+    channel: reviewAsks.channelOf(config), wording: reviewAsks.wordingOf(config),
+    automationRef: `run:${runId}`, now,
+  });
+  switch (outcome.kind) {
+    case "cannot_send": return { ok: false, reason: outcome.reason };
+    case "not_queued": return { ok: true, output: { sent: false, because: outcome.because } };
+    case "refused": return { ok: true, output: { sent: false, refused: outcome.refused } };
+    case "sent": return { ok: true, output: { sent: false, queued: true, messageId: outcome.messageId, channel: outcome.channel } };
   }
-
-  const [customer] = await tx.select().from(schema.customer)
-    .where(eq(schema.customer.id, request.customerId)).limit(1);
-  const [org] = await tx.select({ name: schema.organization.name })
-    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
-
-  const scope = {
-    customer: { ...(customer ?? {}), name: customer?.name.split(" ")[0] || customer?.name || "" },
-    organization: { name: org?.name ?? "" },
-    review: { url, platform: request.platform },
-  };
-  const body = render(String(config["body"] ?? ""), scope).trim();
-  if (body === "") return { ok: false, reason: "step has no body" };
-
-  const address = channel === "email" ? customer?.email : customer?.phone;
-  let messageId: string | null = null;
-  let refused: string | null = address ? null : `customer has no ${channel === "email" ? "email address" : "phone number"}`;
-  if (address && channel === "sms") {
-    const outcome = await sendTransactional(tx, { organizationId, address, body, customerId: request.customerId });
-    if (outcome.sent) messageId = outcome.messageId;
-    else refused = outcome.explanation;
-  } else if (address) {
-    const subject = render(String(config["subject"] ?? "How did we do?"), scope).trim() || "How did we do?";
-    const outcome = await email.queue({ ...ctx, db: tx }, {
-      to: address, subject, text: body, customerId: request.customerId,
-    });
-    if (outcome.queued) messageId = outcome.messageId;
-    else refused = outcome.explanation;
-  }
-
-  if (!messageId) {
-    await tx.update(schema.reviewRequest).set({
-      state: "failed", withheldDetail: refused, updatedAt: new Date(),
-    }).where(and(eq(schema.reviewRequest.id, request.id), eq(schema.reviewRequest.state, "queued")));
-    return { ok: true, output: { sent: false, refused } };
-  }
-
-  await tx.update(schema.message).set({ automationRef: `run:${runId}` })
-    .where(eq(schema.message.id, messageId));
-  await tx.update(schema.reviewRequest).set({
-    state: "sent", sentAt: new Date(), messageId, updatedAt: new Date(),
-  }).where(and(eq(schema.reviewRequest.id, request.id), eq(schema.reviewRequest.state, "queued")));
-
-  return { ok: true, output: { sent: false, queued: true, messageId } };
 }
 
 /* --------------------------------------------------------- a missed call */

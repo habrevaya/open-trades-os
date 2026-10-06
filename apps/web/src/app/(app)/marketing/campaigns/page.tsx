@@ -254,12 +254,12 @@ export default async function CampaignsPage(
                   <code className="font-mono">?{"{{ campaign.utm }}"}</code>.
                 </p>
                 <label className="mt-2 flex flex-col gap-1 text-sm">
-                  <span className="text-ink-700">Version B message</span>
+                  <span className="text-ink-700">Version B words</span>
                   <textarea name="variantBBody" rows={3}
                             className="w-full rounded border border-steel-300 p-2 text-sm" />
                 </label>
                 <label className="mt-2 flex flex-col gap-1 text-sm">
-                  <span className="text-ink-700">Version B subject, for an email (blank keeps the first subject)</span>
+                  <span className="text-ink-700">Version B headline, for an email (blank keeps the first one)</span>
                   <input name="variantBSubject" className={`${input} w-full`} />
                 </label>
               </fieldset>

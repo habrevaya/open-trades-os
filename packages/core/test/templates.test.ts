@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   TEMPLATES, buildTemplate, flattenPlan, checkBranches, canPublish, STEP_PERMISSIONS,
-  CHECKS, isCheck,
+  CHECKS, isCheck, REVIEW_ASK_WORDING, REVIEW_ASK_CHANNELS, DEFAULT_REVIEW_ASK_CHANNEL, isReviewAskChannel,
 } from "../src/automation/index.js";
 import { SUBSCRIBABLE } from "../src/events/index.js";
 import { ROLE_PRESETS } from "../src/access/roles.js";
@@ -77,6 +77,57 @@ describe("asking for a review", () => {
 
   it("needs to know where to send them", () => {
     expect(buildTemplate("review_after_paid", { hours: 2 }).ok).toBe(false);
+  });
+
+  const askStep = (values: Record<string, unknown>) => {
+    const built = buildTemplate("review_after_paid", { hours: 2, platform: "google", ...values });
+    if (!built.ok) throw new Error(built.reason);
+    return flattenPlan(built.definition.steps).find((s) => s.kind === "send_review_request")!;
+  };
+
+  it("asks by text unless told otherwise", () => {
+    expect(askStep({}).config).toEqual({ channel: "sms", body: REVIEW_ASK_WORDING.sms });
+    expect(askStep({ channel: "sms" }).config).toEqual({ channel: "sms", body: REVIEW_ASK_WORDING.sms });
+  });
+
+  it("asks by email when that is the choice, with a subject of its own", () => {
+    expect(askStep({ channel: "email" }).config).toEqual({
+      channel: "email", subject: REVIEW_ASK_WORDING.emailSubject, body: REVIEW_ASK_WORDING.emailBody,
+    });
+  });
+
+  it("asks by text first and then email in one step, so the email can never be sent as well as the text", () => {
+    const built = buildTemplate("review_after_paid", { hours: 2, platform: "google", channel: "sms_then_email" });
+    if (!built.ok) throw new Error(built.reason);
+    const steps = flattenPlan(built.definition.steps);
+    expect(steps.map((s) => s.kind)).toEqual(["wait", "request_review", "send_review_request"]);
+    expect(steps[2]!.config).toEqual({
+      channel: "sms_then_email", body: REVIEW_ASK_WORDING.sms,
+      subject: REVIEW_ASK_WORDING.emailSubject, emailBody: REVIEW_ASK_WORDING.emailBody,
+    });
+    expect(built.definition.description).toContain("by text, then by email if the text cannot be sent");
+  });
+
+  it("refuses a way of asking that is not one of the three, rather than choosing one", () => {
+    expect(buildTemplate("review_after_paid", { hours: 2, platform: "google", channel: "fax" })).toEqual({
+      ok: false, reason: "How to ask has to be by text, by email, or by text first and then email.",
+    });
+  });
+
+  it("declares the choice as a parameter, three ways with text the default", () => {
+    const parameter = TEMPLATES.find((t) => t.key === "review_after_paid")!.parameters.find((p) => p.key === "channel")!;
+    expect(parameter.kind).toBe("choice");
+    expect(parameter.options!.map((o) => o.value)).toEqual(["sms", "email", "sms_then_email"]);
+    expect(parameter.defaultChoice).toBe(DEFAULT_REVIEW_ASK_CHANNEL);
+    expect(REVIEW_ASK_CHANNELS.every((c) => isReviewAskChannel(c.value))).toBe(true);
+    expect(isReviewAskChannel("both")).toBe(false);
+  });
+
+  it("writes nothing a customer would take for an incentive or a nudge toward five stars", () => {
+    for (const text of [REVIEW_ASK_WORDING.sms, REVIEW_ASK_WORDING.emailSubject, REVIEW_ASK_WORDING.emailBody]) {
+      expect(text).not.toMatch(/five star|5 star|discount|free|\$|gift|reward|in exchange/i);
+      expect(text).not.toMatch(/\u2014|\u2013/);
+    }
   });
 });
 

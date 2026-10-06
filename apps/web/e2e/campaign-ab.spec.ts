@@ -22,7 +22,7 @@ test("Campaigns: a second version is checked, read back beside the first, and co
   await form.getByLabel("Name").fill(`Same words ${run}`);
   await form.getByRole("checkbox").and(form.locator('[value="served_at_least_once"]')).check();
   await form.getByRole("textbox", { name: "Message" }).fill(body);
-  await form.getByRole("textbox", { name: "Version B message" }).fill(body);
+  await form.getByRole("textbox", { name: "Version B words" }).fill(body);
   await form.getByRole("button", { name: "Save as a draft" }).click();
   await expect(form.getByRole("alert").filter({ hasText: "nothing to test" })).toBeVisible();
 
@@ -31,7 +31,7 @@ test("Campaigns: a second version is checked, read back beside the first, and co
   await form.getByLabel("Name").fill(name);
   await form.getByRole("checkbox").and(form.locator('[value="served_at_least_once"]')).check();
   await form.getByRole("textbox", { name: "Message" }).fill(body);
-  await form.getByRole("textbox", { name: "Version B message" })
+  await form.getByRole("textbox", { name: "Version B words" })
     .fill("Comfort Co here: tune up special, $79 until Friday. Reply STOP to opt out.");
   await form.getByRole("button", { name: "Save as a draft" }).click();
   const row = owner.getByRole("table", { name: "Campaigns" }).getByRole("row").filter({ hasText: name });

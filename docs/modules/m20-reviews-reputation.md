@@ -139,9 +139,48 @@ cannot be replied to from here, and the reply is marked refused with that reason
 ### Ask
 
 `POST /v1/reviews/requests` decides about one job and writes the answer either way.
-`GET /v1/reviews/requests/due` is what to send,
-`POST /v1/reviews/requests/{id}/sent` records that it went, and
+A job it may ask about is queued for its send window, and the worker sends it
+when the window arrives (see "Requests the office queued", below).
+`GET /v1/reviews/requests/due` is what is queued and due,
+`POST /v1/reviews/requests/{id}/sent` records that one went (refused if it
+already did, so a drain of your own and the worker cannot ask twice), and
 `GET /v1/reviews/requests/withheld` is the other half, with the reason.
+
+### How the ask reaches the customer
+
+By text, by email, or by text first and then email, a choice made when the
+recommended automation is turned on (`How to ask` on `/automations`, or
+`values.channel` of `POST /v1/workflow-templates/{key}/install` for
+`review_after_paid`, as `sms`, `email` or `sms_then_email`; text is the default, which is what it
+always did). Text first and then email is one step on the canvas that tries the
+text and sends the email only if the text could not go (the customer has no
+phone number, replied STOP, or has not agreed to texts, or the company has no
+number cleared to text from), never as well as it: one ask per job, whichever
+way it went. If neither can go the request is marked failed with both reasons
+in words, and the run does not turn red. The email carries a subject
+("How did we do, Maria?"), the customer's first name and the review link, in
+plain words the company changes on the canvas. Neither message offers anything
+for a review or says anything about stars: a test holds the wording to that.
+
+### Requests the office queued
+
+A request made with `POST /v1/reviews/requests` (the reviews screen) whose
+answer was "not before this time" is sent by the worker on its passes, through
+the same send the automation uses. Each pass takes the requests the office
+queued whose window has arrived and, for each one, puts the job to the reviews
+module again, now: quiet hours (a request the worker reaches at nine at night
+waits for the morning and has its time moved), the cooldown, an open complaint,
+a callback, an opt out. A request that no longer passes is marked withheld, with
+its reason, and nothing is sent. One that does is sent by text, by email or by
+text then email, through the consent gate every message goes through, and
+marked sent with the message that carried it. It is asked the way the company's
+own recommended automation asks (the way chosen on its install, and the words
+on its send step, which the company may have edited), and by text in the default
+words when no automation is installed. A request an automation queued is not
+the worker's: that automation's run parks until the window and sends in its own
+words, so the two never race. A request whose review site has lost its link, or
+whose site's declared rules no longer allow the ask, is marked failed with the
+reason rather than tried again every few seconds.
 
 ### Record and reply
 
@@ -179,6 +218,8 @@ doing this grants it.
 | `POST /v1/reviews` | `review:respond` |
 | `POST /v1/reviews/{id}/response` | `review:respond` |
 | `POST /v1/reviews/requests` | `review:respond` |
+| `GET /v1/reviews/requests/due` | `review:respond` |
+| `POST /v1/reviews/requests/{id}/sent` | `review:respond` |
 | `GET /v1/reviews/requests/withheld` | `review:respond` |
 | `PUT /v1/reviews/policy` | `settings:write` |
 | `GET /v1/reviews/platforms` | `settings:read` |
@@ -208,8 +249,9 @@ twice about one job. It cannot be turned on until the policy is set and a review
 site has been declared with its link, and the screen says which is missing.
 
 **Is the ask a marketing message?** It is sent as an account message, through
-the same consent and suppression gate as every other text, and a customer who
-withdrew marketing consent is withheld by the decision itself.
+the same consent and suppression gate as every other text (and as a transactional
+email), and a customer who withdrew marketing consent is withheld by the decision
+itself.
 
 ## What is not built
 
@@ -225,9 +267,16 @@ still moderated by Google, so one marked posted here can be absent there; the
 next hourly read shows what Google shows. Editing a reply already posted is
 done on Google. There is no
 sentiment analysis and deliberately no predicted rating. The ask is scheduled
-only by the recommended automation, which starts from a paid invoice: a job
-that is never invoiced, or paid by a credit note, is never asked about unless
-somebody asks by hand. The automation sends by text; an email ask is a change
-on its canvas. Requests the policy queued for later from the office's own
-`POST /v1/reviews/requests` are still sent by nobody unless an automation or a
-person works the due list.
+by the recommended automation, which starts from a paid invoice, and by the
+worker for what the office queues by hand: a job that is never invoiced, or paid
+by a credit note, is never asked about unless somebody asks by hand. How to ask
+is by text, by email, or by text first and then email, and nothing else: no
+third channel, no second reminder when the first ask went unanswered, and
+text first and then email is a fallback when the text cannot go, not a follow up
+when it was ignored (nothing here knows whether a review was left by the person
+asked, because a review is matched to a customer only when somebody says so). The
+email ask is tested against the fake email provider, not a live inbox, and the
+worker's due list uses the wording and way of the company's installed automation
+or the default by text, not a choice of its own per request. Both messages go as
+account messages, not promotions: a company that wants the consent record of a
+marketing message on them has to ask by a campaign instead.

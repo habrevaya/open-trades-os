@@ -750,6 +750,13 @@
       "when": 1791322706898,
       "tag": "0106_square_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1791323622101,
+      "tag": "0107_secret_starbolt",
+      "breakpoints": true
     }
   ]
 }

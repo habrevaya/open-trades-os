@@ -346,7 +346,7 @@ export function AbTestResults({ results }: { results: AbResults }) {
   ];
   return (
     <div className="mt-3 max-w-2xl">
-      <p className={`rounded border p-3 text-sm ${results.winner ? "border-green-300 bg-green-50" : "border-steel-200 bg-steel-100"}`}>
+      <p className={`rounded border p-3 text-sm ${results.winner ? "border-green-700 bg-steel-100" : "border-steel-200 bg-steel-100"}`}>
         {results.headline}
       </p>
       <Table label="The two versions" head={<><Th>People</Th><Th>Version A</Th><Th>Version B</Th></>}>

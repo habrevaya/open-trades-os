@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import postgres from "postgres";
 import { campaign as cp, type Actor } from "@opentradesos/core";
 import * as campaigns from "../src/services/campaigns";
@@ -37,6 +37,11 @@ const owner = (): ServiceContext => ({
 const previousBase = process.env["PUBLIC_BASE_URL"];
 
 const PEOPLE = 400;
+/**
+ * A send to four hundred people is a few seconds on its own and a good deal more
+ * on a machine running a whole suite, which the default five seconds is not.
+ */
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 beforeAll(async () => {
   if (!url) return;

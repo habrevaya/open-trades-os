@@ -14,6 +14,7 @@ import { deliverDue } from "./delivery-schedules";
 import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
+import { askPass as reviewAskPass } from "./review-asks";
 import { taskPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
 import { nightlyPass as truckFillPass } from "./truck-fills";
@@ -214,6 +215,12 @@ export interface PassOptions {
    */
   schedules?: boolean;
   /**
+   * The review asks the office queued for later, worked on every pass. On by
+   * default; `false` turns it off, and `{ now }` is the moment it judges them
+   * at, which is how a test stands at three in the afternoon whatever the hour.
+   */
+  reviewAsks?: false | { now?: Date };
+  /**
    * The AI agents' own pass, inside the clock. On by default; a deployment
    * that wants no agent to run in the background turns it off here, and an
    * agent nobody turned on costs a single read either way.
@@ -380,6 +387,24 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Review asks the office queued for later, whose time has come: each is put
+     * to the reviews module again, now (quiet hours, the cooldown, an open
+     * complaint, an opt out), and sent by text or email through the same send the
+     * recommended automation uses. Its own try, for the reason the task pass has
+     * one, and before the drain so what it queues leaves on this pass.
+     */
+    try {
+      const asks = options.reviewAsks;
+      for (const result of asks === false ? [] : await reviewAskPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}), ...(asks?.now ? { now: asks.now } : {}),
+      })) {
+        if (result.sent > 0) delivered.add(result.organizationId);
+        if (result.error) console.error(`[worker] review asks ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] review asks:", (error as Error).message);
     }
     /**
      * Estimates past their date, marked expired in each company's own

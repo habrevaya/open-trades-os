@@ -42,6 +42,15 @@ import { job } from "./work";
  * by the operator too, for the same reason: see core's section 5, which
  * ships no default platform policies at all.
  */
+/**
+ * WHO IS TO SEND A QUEUED REQUEST. A request the office queued (`POST
+ * /v1/reviews/requests`) is sent by the worker when its window arrives. One an
+ * automation queued is sent by that automation's own run, which parks until the
+ * window and then sends in its own words and channel; the worker leaves it alone
+ * so the two never race for the same ask.
+ */
+export const reviewRequestSource = pgEnum("review_request_source", ["office", "automation"]);
+
 export const reviewRequestState = pgEnum("review_request_state", [
   /** Decided and waiting for its send window. */
   "queued",
@@ -200,6 +209,7 @@ export const reviewRequest = pgTable("review_request", {
   customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
   platform: text("platform"),
   state: reviewRequestState("state").notNull().default("queued"),
+  source: reviewRequestSource("source").notNull().default("office"),
   /** When the policy said it may go, which is not when it went. */
   sendAt: timestamp("send_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),

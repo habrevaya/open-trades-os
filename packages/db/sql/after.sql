@@ -1670,6 +1670,36 @@ returns table (organization_id uuid)
 revoke all on function app.estimate_expiry_organizations(int, date) from public;
 grant execute on function app.estimate_expiry_organizations(int, date) to background;
 
+-- ---- Companies with review requests the office queued, due now -------------
+-- A request made from the reviews screen or `POST /v1/reviews/requests` that the
+-- policy said to send later is sent by the worker when its time comes. The
+-- worker has no tenant until it picks one, so it asks here which companies have
+-- one due and nothing else: a list of ids. A request an automation queued is
+-- not listed (its own run sends it), and a suspended company is left alone, like
+-- every other pass.
+drop function if exists app.review_ask_organizations(int);
+create or replace function app.review_ask_organizations(p_limit int default 200, p_now timestamptz default null)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct r.organization_id from public.review_request r
+       where r.state = 'queued'
+         and r.source = 'office'
+         and r.deleted_at is null
+         and r.send_at is not null
+         and r.send_at <= coalesce(p_now, now())
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.review_ask_organizations(int, timestamptz) from public;
+grant execute on function app.review_ask_organizations(int, timestamptz) to background;
+
 -- ---- Companies with automatic payments, or card charges to follow up ------
 -- A customer who agreed can have each bill charged to their saved card as it
 -- is issued, and a charge the worker made may need following up: a declined
