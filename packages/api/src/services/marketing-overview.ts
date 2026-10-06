@@ -36,7 +36,10 @@ export interface OverviewRow {
   channels: string[];
   sessions: number;
   engagedSessions: number;
+  /** People credited to this source, a fraction under a split model. */
   leads: number;
+  /** The same in ten thousandths of a person. */
+  leadsWeight: number;
   booked: string;
   revenue: string;
   /** Leads per hundred sessions, or null with no sessions to divide by. */
@@ -67,11 +70,11 @@ export async function overview(ctx: ServiceContext, input: { from: string; to: s
       gte(schema.analyticsSessionDay.day, input.from), lte(schema.analyticsSessionDay.day, input.to),
     )).groupBy(schema.analyticsSessionDay.source);
 
-    const rows = new Map<string, { channels: string[]; sessions: number; engaged: number; leads: number; bookedWeight: number; revenue: m.Money }>();
+    const rows = new Map<string, { channels: string[]; sessions: number; engaged: number; leadsWeight: number; bookedWeight: number; revenue: m.Money }>();
     const at = (key: string) => {
       let row = rows.get(key);
       if (!row) {
-        row = { channels: [], sessions: 0, engaged: 0, leads: 0, bookedWeight: 0, revenue: m.zero() };
+        row = { channels: [], sessions: 0, engaged: 0, leadsWeight: 0, bookedWeight: 0, revenue: m.zero() };
         rows.set(key, row);
       }
       return row;
@@ -85,7 +88,7 @@ export async function overview(ctx: ServiceContext, input: { from: string; to: s
       const key = keyOf.get(r.key) ?? "unknown";
       const row = at(key);
       row.channels.push(r.label);
-      row.leads += r.leads;
+      row.leadsWeight += r.leadsWeight;
       row.bookedWeight += r.bookedWeight;
       row.revenue = m.add(row.revenue, m.money(r.revenue));
     }
@@ -96,11 +99,12 @@ export async function overview(ctx: ServiceContext, input: { from: string; to: s
       channels: r.channels,
       sessions: r.sessions,
       engagedSessions: r.engaged,
-      leads: r.leads,
+      leads: r.leadsWeight / mk.WEIGHT_SCALE,
+      leadsWeight: r.leadsWeight,
       booked: mk.weightText(r.bookedWeight),
       revenue: m.toString(m.round(r.revenue, 2)),
-      leadsPer100Sessions: r.sessions > 0 ? ((r.leads * 100) / r.sessions).toFixed(1) : null,
-    })).sort((a, b) => b.sessions - a.sessions || b.leads - a.leads || a.label.localeCompare(b.label));
+      leadsPer100Sessions: r.sessions > 0 ? ((r.leadsWeight * 100) / (r.sessions * mk.WEIGHT_SCALE)).toFixed(1) : null,
+    })).sort((a, b) => b.sessions - a.sessions || b.leadsWeight - a.leadsWeight || a.label.localeCompare(b.label));
 
     const queries = await tx.select({
       query: schema.searchQueryDay.query,
@@ -155,6 +159,7 @@ export async function overview(ctx: ServiceContext, input: { from: string; to: s
         sessions: out.reduce((sum, r) => sum + r.sessions, 0),
         engagedSessions: out.reduce((sum, r) => sum + r.engagedSessions, 0),
         leads: byChannel.total.leads,
+        leadsWeight: byChannel.total.leadsWeight,
         booked: byChannel.total.booked,
         revenue: m.toString(m.round(m.money(byChannel.total.revenue), 2)),
         searchClicks: searchTotals?.clicks ?? 0,

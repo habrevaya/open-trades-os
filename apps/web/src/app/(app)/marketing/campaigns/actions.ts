@@ -50,6 +50,8 @@ export async function act(_previous: CampaignState, form: FormData): Promise<Cam
           ...(field(form, "body") ? { body: field(form, "body")! } : {}),
           ...(field(form, "templateCode") ? { templateCode: field(form, "templateCode")! } : {}),
           subject: channel === "email" ? (field(form, "subject") ?? null) : null,
+          ...(field(form, "variantBBody") ? { variantBBody: field(form, "variantBBody")! } : {}),
+          ...(channel === "email" && field(form, "variantBSubject") ? { variantBSubject: field(form, "variantBSubject")! } : {}),
           ...(field(form, "utmCampaign") ? { utmCampaign: field(form, "utmCampaign")! } : {}),
         });
         const at = whenFrom(form, zone);

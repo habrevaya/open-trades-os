@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * makes the account bid towards work.
  *
  * A file for a platform that is not connected, because it works today with
- * no developer token, and both Google Ads and Meta accept an offline
+ * no developer token, and Google Ads, Meta and Microsoft Advertising accept an offline
  * conversion upload in exactly this shape. A connected one sends by itself. The model splits the money between platforms
  * when both touched a job, and it is named here because this is the one place
  * a modelling choice becomes money an ad account spends.
@@ -32,7 +32,7 @@ export default async function ConversionsPage() {
    * doing both anyway cannot double one.
    */
   const sending = (await adPlatforms.platforms({ actor: user.actor, db: getDb() }))
-    .filter((p) => (p.provider === "google_ads" || p.provider === "meta_ads") && p.status === "connected"
+    .filter((p) => (p.provider === "google_ads" || p.provider === "meta_ads" || p.provider === "bing_ads") && p.status === "connected"
       && !p.notices.some((n) => n.includes("not being sent")));
   const today = todayIn(user.organizationTimezone);
   const monthAgo = new Date(Date.parse(`${today}T12:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
@@ -80,6 +80,10 @@ export default async function ConversionsPage() {
           <button type="submit" name="format" value="meta"
                   className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium">
             Download for Meta
+          </button>
+          <button type="submit" name="format" value="microsoft"
+                  className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium">
+            Download for Microsoft Advertising
           </button>
         </div>
       </form>

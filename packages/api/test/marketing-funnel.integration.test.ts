@@ -92,7 +92,7 @@ type Cells = Funnel["total"];
 /** Every kind of drill as one shape, so a test can read whichever list came back. */
 type Drilled = {
   calls?: { callId: string; outcome: string; customerName: string | null }[];
-  leads?: { customerId: string | null }[];
+  leads?: { customerId: string | null; weight: number; share: string }[];
   jobs?: { jobId: string; weight: number; revenue: string }[];
   spend?: { amount: string }[];
 };
@@ -102,7 +102,7 @@ const drill = async (input: Parameters<typeof report.drill>[1]): Promise<Drilled
 /**
  * THE DRILL ADDS UP TO THE CELL, for every row and every column.
  *
- * Calls and people are counted, booked and completed jobs' shares are summed
+ * Calls are counted, people's and booked and completed jobs' shares are summed
  * in ten thousandths, revenue and spend are summed to the cent. A drill that
  * did not add up to the number somebody clicked would be the report's own
  * evidence against it.
@@ -119,7 +119,8 @@ async function assertDrillsAddUp(funnel: Funnel, input: report.FunnelInput) {
           expect(drilled.calls?.length, why).toBe(cells[measure]);
           break;
         case "leads":
-          expect(drilled.leads?.length, why).toBe(cells.leads);
+          /** A person's share on this row, so a person split across two rows is half a lead on each. */
+          expect(drilled.leads!.reduce((s, l) => s + l.weight, 0), why).toBe(cells.leadsWeight);
           break;
         case "booked":
           expect(drilled.jobs!.reduce((s, j) => s + j.weight, 0), why).toBe(cells.bookedWeight);

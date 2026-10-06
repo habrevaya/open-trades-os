@@ -478,6 +478,11 @@ export const MERGE_FIELDS = [
   { key: "customer.name", label: "Their name as it is on the account", example: "Maria Lopez" },
   { key: "company.name", label: "Your company's name", example: "Hartley Heating and Air" },
   { key: "company.phone", label: "Your main number", example: "+15125550100" },
+  {
+    key: "campaign.utm",
+    label: "The link tag that credits a click to this campaign and this version",
+    example: "utm_campaign=spring-tune-up&utm_content=a",
+  },
 ] as const;
 
 export type MergeField = (typeof MERGE_FIELDS)[number]["key"];
@@ -510,11 +515,53 @@ export function mergeScope(input: {
   customerName: string;
   companyName: string;
   companyPhone?: string | null | undefined;
+  /** The campaign's own link tag and the version this person got, for `{{ campaign.utm }}`. */
+  campaign?: { utmCampaign: string; variant: "a" | "b" } | undefined;
 }): Record<string, unknown> {
   return {
     customer: { firstName: firstNameOf(input.customerName), name: input.customerName.trim() },
     company: { name: input.companyName, phone: input.companyPhone ?? "" },
+    ...(input.campaign
+      ? { campaign: { utm: linkTag(input.campaign.utmCampaign, input.campaign.variant) } }
+      : {}),
   };
+}
+
+/**
+ * What goes on the end of a link so a click is credited to this campaign and to
+ * the version the person was sent: `?utm_campaign=...&utm_content=a`. Put in by
+ * the merge field, so version A and version B can carry the very same link text
+ * and a click still says which one it came from.
+ */
+export function linkTag(utmCampaign: string, variant: "a" | "b"): string {
+  return `utm_campaign=${encodeURIComponent(utmCampaign)}&utm_content=${variant}`;
+}
+
+/**
+ * The second version of a campaign, checked the way the first is, and checked
+ * against it: a "test" of two identical messages tests nothing and would still
+ * print a result.
+ */
+export function checkVersionB(input: {
+  channel: "sms" | "email";
+  body: string;
+  subject?: string | null | undefined;
+  versionB: { body: string; subject?: string | null | undefined };
+}): { ok: true } | { ok: false; refusals: BodyRefusal[] | { reason: "same"; message: string }[] } {
+  const verdict = checkBody({ channel: input.channel, subject: input.versionB.subject, body: input.versionB.body });
+  if (!verdict.ok) return { ok: false, refusals: verdict.refusals };
+  const same = input.versionB.body.trim() === input.body.trim()
+    && (input.versionB.subject?.trim() ?? "") === (input.subject?.trim() ?? "");
+  if (same) {
+    return {
+      ok: false,
+      refusals: [{
+        reason: "same",
+        message: "Version B says the same thing as version A, so there is nothing to test. Change the words, or the subject for an email.",
+      }],
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -601,3 +648,5 @@ export function reachRate(result: CampaignResult): string | null {
   if (result.selected === 0) return null;
   return ((result.queued / result.selected) * 100).toFixed(1);
 }
+
+export * from "./ab.js";

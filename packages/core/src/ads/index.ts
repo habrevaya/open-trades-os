@@ -178,7 +178,12 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsLeads: false,
     pullsReviews: false,
     pullsAnalytics: false,
-    sends: [],
+    /**
+     * A paid job as an offline conversion on the click's msclkid. Only the
+     * click id goes (`personalData` is false), and nothing is restated: see
+     * `RESTATES`.
+     */
+    sends: ["purchase"],
     answersFor: ["bing_ads"],
     personalData: false,
   },

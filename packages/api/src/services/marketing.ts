@@ -1607,9 +1607,25 @@ export async function conversions(
       ));
     const sentByConnector = new Set(sends.map((row) => `${row.provider}:${row.jobId}`));
 
+    /**
+     * A customer who said their details are not to be used for advertising has
+     * nothing about them told to any platform, not even the click, and a file
+     * the office uploads by hand is no different from a connection sending it:
+     * a click id beside a booked job is the customer whatever the platform
+     * calls it. So their jobs are left out of every file.
+     */
+    const refusedCustomers = new Set((await tx.select({ customerId: schema.advertisingConsent.customerId })
+      .from(schema.advertisingConsent)
+      .where(and(
+        eq(schema.advertisingConsent.organizationId, ctx.actor.organizationId),
+        eq(schema.advertisingConsent.choice, "refused"),
+        isNull(schema.advertisingConsent.supersededAt),
+      ))).map((row) => row.customerId));
+
     const out: ConversionRow[] = [];
 
     for (const job of jobRows) {
+      if (refusedCustomers.has(job.customerId)) continue;
       /**
        * The revenue every marketing figure uses (`REVENUE_SQL`), so the value
        * told to Google is the value on the marketing report, without the
@@ -1700,8 +1716,31 @@ export async function conversions(
  */
 export function conversionsCsv(
   rows: readonly ConversionRow[],
-  platform: "google" | "meta",
+  platform: "google" | "meta" | "microsoft",
 ): string {
+  if (platform === "microsoft") {
+    /**
+     * Microsoft Advertising's offline conversion template, by its own header
+     * names. The goal named has to be an offline conversion goal made in the
+     * account first, spelled exactly as it is there, and the time is UTC (the
+     * web importer offers a time zone; this file is written so it needs none).
+     * "Booked job" is the same name the Google file uses, so one name is
+     * made in each account.
+     */
+    return [
+      "Microsoft Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency",
+      ...rows
+        .filter((row) => row.source === "bing_ads")
+        .map((row) => [
+          row.clickId,
+          "Booked job",
+          row.convertedAt.toISOString().slice(0, 19) + "Z",
+          row.value,
+          "USD",
+        ].join(",")),
+    ].join("\n");
+  }
+
   if (platform === "google") {
     const lines = [
       "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency",
@@ -1755,7 +1794,7 @@ export const conversionHandlers = {
   getConversions: async (ctx: ServiceContext, input: {
     from: string; to: string;
     model?: ("first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based") | undefined;
-    format?: ("google" | "meta") | undefined;
+    format?: ("google" | "meta" | "microsoft") | undefined;
   }): Promise<{
     model: string;
     rows: { clickId: string; source: string; convertedAt: Date; value: string; jobId: string }[];

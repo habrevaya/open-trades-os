@@ -1,3 +1,4 @@
+import { marketing as mk } from "@opentradesos/core";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { marketingOverview } from "@opentradesos/api/services";
@@ -70,7 +71,7 @@ export default async function OverviewPage(
           ["Sessions", String(view.totals.sessions)],
           ["Searches that clicked through", String(view.totals.searchClicks)],
           ["Times shown in search", String(view.totals.searchImpressions)],
-          ["Leads", String(view.totals.leads)],
+          ["Leads", mk.weightText(view.totals.leadsWeight)],
           ["Booked jobs", view.totals.booked],
         ].map(([label, value]) => (
           <div key={label} className="rounded border border-steel-200 p-3">
@@ -98,7 +99,7 @@ export default async function OverviewPage(
                 </Td>
                 <Td>{r.sessions}</Td>
                 <Td>{r.engagedSessions}</Td>
-                <Td>{r.leads}</Td>
+                <Td>{mk.weightText(r.leadsWeight)}</Td>
                 <Td>{r.leadsPer100Sessions ?? ""}</Td>
                 <Td>{r.booked}</Td>
                 <Td><Money value={r.revenue} /></Td>

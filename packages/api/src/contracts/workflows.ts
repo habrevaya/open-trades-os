@@ -178,10 +178,13 @@ export const WorkflowTemplateView = z.object({
     key: z.string(),
     label: z.string(),
     help: z.string(),
-    kind: z.enum(["number", "platform"]),
+    kind: z.enum(["number", "platform", "choice"]),
     default: z.number().int().optional(),
     min: z.number().int().optional(),
     max: z.number().int().optional(),
+    /** For a choice: what can be picked, and what is picked unless somebody picks another. */
+    options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+    defaultChoice: z.string().optional(),
   })),
   /** The ordinary workflow it installed, when it is installed. */
   installed: z.object({ id: Uuid, enabled: z.boolean(), name: z.string() }).nullable(),

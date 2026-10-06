@@ -1063,6 +1063,9 @@ export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
       if (provider === "meta_ads" && settings["sendConversions"] !== false && !text(settings, "pixelId")) {
         notices.push("No pixel id is entered, so booked and paid jobs are not being sent to Meta.");
       }
+      if (provider === "bing_ads" && settings["sendConversions"] !== false && !text(settings, "conversionName")) {
+        notices.push("No offline conversion goal is named, so paid jobs are not being sent to Microsoft Advertising.");
+      }
       if (provider === "meta_lead_ads" && !text(settings, "pageId")) {
         notices.push("No Page id is entered, so no instant form leads are read.");
       }

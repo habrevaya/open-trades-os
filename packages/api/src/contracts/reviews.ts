@@ -144,7 +144,7 @@ export const requestReview = defineRoute({
   path: "/v1/reviews/requests",
   summary: "Decide whether to ask about one job",
   description:
-    "Decides from facts about the WORK: finished, paid, complaint open, did we come back, have we asked this person recently. Nothing about how happy they seemed, because that is review gating. A withheld request is still a row, so 'why did this customer never get asked' has an answer.",
+    "Decides from facts about the WORK: finished, paid, complaint open, did we come back, have we asked this person recently. Nothing about how happy they seemed, because that is review gating. A withheld request is still a row, so 'why did this customer never get asked' has an answer. One that may be asked is queued for its send window and SENT BY THE WORKER when the window arrives, by text, in the words and the way (text, email, or text first and then email) of the company's own recommended automation if it has turned one on, and by text in the default words if not: put to the same decision again at that moment (quiet hours, the cooldown, an open complaint, an opt out) and through the same consent gate every message goes through. A request made by the recommended automation itself is sent by that automation's run, not by the worker.",
   module: "M20",
   permissions: ["review:respond"],
   idempotent: true,
@@ -171,6 +171,8 @@ export const listDueRequests = defineRoute({
   method: "get",
   path: "/v1/reviews/requests/due",
   summary: "Requests whose send window has arrived",
+  description:
+    "What is queued and due, the office's and an automation's alike. The worker sends the office's own on every pass, so this list is mostly empty; a request still here is one the worker has not reached, or one an automation's run is about to send.",
   module: "M20",
   permissions: ["review:respond"],
   input: z.object({}),

@@ -436,7 +436,11 @@ export async function requestFor(ctx: ServiceContext, input: { jobId: string; pl
 export async function requestWithin(
   tx: Database,
   organizationId: string,
-  input: { jobId: string; platform?: string | undefined },
+  input: {
+    jobId: string; platform?: string | undefined;
+    /** Who is to send it when it is queued: the office's request goes by the worker, an automation's by its own run. */
+    source?: "office" | "automation" | undefined;
+  },
   now: Date = new Date(),
 ): Promise<RequestOutcome> {
   const policyRow = await policyFor(tx, organizationId);
@@ -478,6 +482,7 @@ export async function requestWithin(
         jobId: facts.jobId,
         customerId: facts.customerId,
         platform: input.platform ?? null,
+        source: input.source ?? "office",
         state: "queued" as const,
         sendAt: decision.sendAt,
         withheldReason: null,
@@ -488,6 +493,7 @@ export async function requestWithin(
         jobId: facts.jobId,
         customerId: facts.customerId,
         platform: input.platform ?? null,
+        source: input.source ?? "office",
         state: "withheld" as const,
         sendAt: null,
         withheldReason: decision.withheld,

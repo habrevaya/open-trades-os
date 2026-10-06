@@ -327,7 +327,9 @@ export const getMarketingOverview = defineRoute({
       channels: z.array(z.string()),
       sessions: z.number().int(),
       engagedSessions: z.number().int(),
-      leads: z.number().int(),
+      /** People credited to this source under the model: a fraction under a split model. */
+      leads: z.number(),
+      leadsWeight: z.number().int(),
       booked: z.string(),
       revenue: MoneyString,
       leadsPer100Sessions: z.string().nullable(),
@@ -335,7 +337,8 @@ export const getMarketingOverview = defineRoute({
     totals: z.object({
       sessions: z.number().int(),
       engagedSessions: z.number().int(),
-      leads: z.number().int(),
+      leads: z.number(),
+      leadsWeight: z.number().int(),
       booked: z.string(),
       revenue: MoneyString,
       searchClicks: z.number().int(),

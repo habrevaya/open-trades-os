@@ -28,11 +28,68 @@ export interface TemplateParameter {
   label: string;
   /** One sentence beside the box, in a trades owner's words. */
   help: string;
-  kind: "number" | "platform";
+  kind: "number" | "platform" | "choice";
   /** For a number: the default, and the inclusive bounds. */
   default?: number;
   min?: number;
   max?: number;
+  /** For a choice: what can be picked, and which is picked unless somebody picks another. */
+  options?: { value: string; label: string }[];
+  defaultChoice?: string;
+}
+
+/**
+ * HOW A REVIEW ASK REACHES THE CUSTOMER
+ *
+ * By text, by email, or by text first and then email: the email only when the
+ * text could not be sent (no number, or a number that has not agreed to texts),
+ * never both. Asking the same person twice about one job is the thing this
+ * module's one request per job exists to prevent, and a second message because
+ * the first one worked would be that.
+ */
+export type ReviewAskChannel = "sms" | "email" | "sms_then_email";
+
+export const REVIEW_ASK_CHANNELS: readonly { value: ReviewAskChannel; label: string }[] = [
+  { value: "sms", label: "By text" },
+  { value: "email", label: "By email" },
+  { value: "sms_then_email", label: "By text, and by email if the text cannot be sent" },
+];
+
+export const DEFAULT_REVIEW_ASK_CHANNEL: ReviewAskChannel = "sms";
+
+export const isReviewAskChannel = (value: unknown): value is ReviewAskChannel =>
+  REVIEW_ASK_CHANNELS.some((c) => c.value === value);
+
+/**
+ * What the ask says, in each channel. The company's to change on the canvas;
+ * the same words are what the worker sends for a request somebody queued by hand
+ * when no automation says otherwise. `{{ review.url }}` is the review site the
+ * request was made for, and a placeholder that resolves to nothing becomes an
+ * empty string rather than braces in a customer's message.
+ */
+export const REVIEW_ASK_WORDING = {
+  sms: "Hi {{ customer.name }}, thank you for choosing {{ organization.name }}. If you "
+    + "have a minute, a review helps a local business like ours more than anything: "
+    + "{{ review.url }}",
+  emailSubject: "How did we do, {{ customer.name }}?",
+  emailBody: "Hi {{ customer.name }},\n\nThank you for choosing {{ organization.name }}. If you have a "
+    + "minute, a review helps a local business like ours more than anything. You can leave one here:\n\n"
+    + "{{ review.url }}\n\nIf anything was not right, just reply to this email and we will sort it out.\n\n"
+    + "{{ organization.name }}",
+} as const;
+
+/** The configuration of the send step for a channel. One place, so the install and the worker say the same thing. */
+export function reviewAskConfig(channel: ReviewAskChannel): Record<string, unknown> {
+  if (channel === "email") {
+    return { channel, subject: REVIEW_ASK_WORDING.emailSubject, body: REVIEW_ASK_WORDING.emailBody };
+  }
+  if (channel === "sms_then_email") {
+    return {
+      channel, body: REVIEW_ASK_WORDING.sms,
+      subject: REVIEW_ASK_WORDING.emailSubject, emailBody: REVIEW_ASK_WORDING.emailBody,
+    };
+  }
+  return { channel: "sms", body: REVIEW_ASK_WORDING.sms };
 }
 
 export interface TemplateDefinition {
@@ -91,8 +148,8 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
     key: "review_after_paid",
     name: "Ask for a review after a paid job",
     summary:
-      "A while after a job's invoice is paid in full, ask the customer for a review, by text, "
-      + "if your review rules allow it and they have not been asked recently.",
+      "A while after a job's invoice is paid in full, ask the customer for a review, by text, by email, "
+      + "or by text first and then email, if your review rules allow it and they have not been asked recently.",
     needs:
       "Your review rules set under Reviews, and the place customers leave reviews declared there with its link. "
       + "The rules decide who is asked and when; this only does the asking.",
@@ -108,6 +165,14 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
         label: "Where to send them",
         help: "One of the review sites you have declared, with its link.",
         kind: "platform",
+      },
+      {
+        key: "channel",
+        label: "How to ask",
+        help: "Text first and then email only sends the email when the text could not go. Nobody is asked twice.",
+        kind: "choice",
+        options: REVIEW_ASK_CHANNELS.map((c) => ({ ...c })),
+        defaultChoice: DEFAULT_REVIEW_ASK_CHANNEL,
       },
     ],
   },
@@ -238,6 +303,12 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
     const hours = numberOf(template.parameters[0]!, values["hours"]);
     if (typeof hours === "string") return { ok: false, reason: hours };
     const platform = typeof values["platform"] === "string" ? values["platform"].trim() : "";
+    const chosen = values["channel"] === undefined || values["channel"] === null || values["channel"] === ""
+      ? DEFAULT_REVIEW_ASK_CHANNEL : values["channel"];
+    if (!isReviewAskChannel(chosen)) {
+      return { ok: false, reason: "How to ask has to be by text, by email, or by text first and then email." };
+    }
+    const how = chosen === "sms" ? "by text" : chosen === "email" ? "by email" : "by text, then by email if the text cannot be sent";
     if (platform === "") {
       return {
         ok: false,
@@ -251,21 +322,13 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
         name: template.name,
         description:
           `Installed from the recommended list. ${hours} ${hours === 1 ? "hour" : "hours"} after a job's `
-          + "invoice is paid, ask for a review if your review rules allow it.",
+          + `invoice is paid, ask for a review ${how} if your review rules allow it.`,
         triggerKind: "event",
         triggerEvents: ["invoice.paid"],
         steps: [
           { kind: "wait", config: { days: 0, hours } },
           { kind: "request_review", config: { platform } },
-          {
-            kind: "send_review_request",
-            config: {
-              channel: "sms",
-              body: "Hi {{ customer.name }}, thank you for choosing {{ organization.name }}. If you "
-                + "have a minute, a review helps a local business like ours more than anything: "
-                + "{{ review.url }}",
-            },
-          },
+          { kind: "send_review_request", config: reviewAskConfig(chosen) },
         ],
       },
     };

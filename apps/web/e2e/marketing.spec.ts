@@ -171,6 +171,14 @@ test("a call on a tracking campaign's number becomes a paid job, and the funnel 
   await owner.goBack();
   await funnel.getByRole("row").filter({ hasText: campaign }).getByRole("link", { name: `${campaign} spend` }).click();
   await expect(owner.getByRole("table", { name: "Spend" })).toContainText(money("300"));
+  await owner.goBack();
+
+  // A lead opens into the person with the share of them this row is credited, a whole one under the company's model.
+  await funnel.getByRole("row").filter({ hasText: campaign }).getByRole("link", { name: `${campaign} leads` }).click();
+  const leads = owner.getByRole("table", { name: "Leads" });
+  await expect(leads).toContainText(`Rosa Delgado ${run}`);
+  await expect(leads.getByRole("columnheader", { name: "Share" })).toBeVisible();
+  await expect(leads.getByRole("row").filter({ hasText: `Rosa Delgado ${run}` }).getByRole("cell").last()).toHaveText("1");
 
   // By number, the same story on the number's own row.
   await owner.goto(`/marketing?by=number&from=${range(-2)}&to=${range(2)}`);

@@ -19018,7 +19018,7 @@
       "get": {
         "operationId": "campaignResults",
         "summary": "What the campaign brought back",
-        "description": "Replies, opt outs, jobs and revenue. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.\n\nRequires a session holding: campaign:read.",
+        "description": "Replies, opt outs, jobs and revenue, and for an A/B test the two versions side by side: people sent, people who clicked, people who replied where replies are read back, and people who booked, with the counts for each version and a plain sentence on each. A winner is named only when a two proportion test says the gap is more than luck explains, with the bar divided across the measures compared; otherwise `winner` is null and the counts speak for themselves. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.\n\nRequires a session holding: campaign:read.",
         "tags": [
           "M19"
         ],
@@ -61700,7 +61700,8 @@
               "type": "string",
               "enum": [
                 "google",
-                "meta"
+                "meta",
+                "microsoft"
               ]
             }
           }
@@ -62255,7 +62256,7 @@
       "get": {
         "operationId": "getMarketingFunnel",
         "summary": "Spend, calls, leads, booked jobs, revenue and return, by channel, campaign or number",
-        "description": "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.\n\nRequires a session holding: adspend:read.",
+        "description": "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range, each credited across the touches they made in the range under the same model and by the same function that credits a job, so a person is one lead on one row under a model that gives them to one touch, half a lead on each of two rows under a split model, and the rows add back to the total. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.\n\nRequires a session holding: adspend:read.",
         "tags": [
           "M19"
         ],
@@ -62402,7 +62403,7 @@
       "get": {
         "operationId": "drillMarketingFunnel",
         "summary": "The calls, people, jobs or spend lines behind one cell of the funnel",
-        "description": "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls and people count to it, jobs' shares and revenue sum to it, and spend lines sum to it.\n\nRequires a session holding: adspend:read.",
+        "description": "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls count to it, people's shares and jobs' shares and revenue sum to it, and spend lines sum to it.\n\nRequires a session holding: adspend:read.",
         "tags": [
           "M19"
         ],
@@ -101863,7 +101864,7 @@
       "post": {
         "operationId": "requestReview",
         "summary": "Decide whether to ask about one job",
-        "description": "Decides from facts about the WORK: finished, paid, complaint open, did we come back, have we asked this person recently. Nothing about how happy they seemed, because that is review gating. A withheld request is still a row, so 'why did this customer never get asked' has an answer.\n\nRequires a session holding: review:respond.",
+        "description": "Decides from facts about the WORK: finished, paid, complaint open, did we come back, have we asked this person recently. Nothing about how happy they seemed, because that is review gating. A withheld request is still a row, so 'why did this customer never get asked' has an answer. One that may be asked is queued for its send window and SENT BY THE WORKER when the window arrives, by text, in the words and the way (text, email, or text first and then email) of the company's own recommended automation if it has turned one on, and by text in the default words if not: put to the same decision again at that moment (quiet hours, the cooldown, an open complaint, an opt out) and through the same consent gate every message goes through. A request made by the recommended automation itself is sent by that automation's run, not by the worker.\n\nRequires a session holding: review:respond.",
         "tags": [
           "M20"
         ],
@@ -101992,7 +101993,7 @@
       "get": {
         "operationId": "listDueRequests",
         "summary": "Requests whose send window has arrived",
-        "description": "Requires a session holding: review:respond.",
+        "description": "What is queued and due, the office's and an automation's alike. The worker sends the office's own on every pass, so this list is mostly empty; a request still here is one the worker has not reached, or one an automation's run is about to send.\n\nRequires a session holding: review:respond.",
         "tags": [
           "M20"
         ],
@@ -134366,6 +134367,13 @@
                 "address": {
                   "type": "string"
                 },
+                "variant": {
+                  "type": "string",
+                  "enum": [
+                    "a",
+                    "b"
+                  ]
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -134405,6 +134413,7 @@
                 "customerId",
                 "customerName",
                 "address",
+                "variant",
                 "state",
                 "skipReason",
                 "skipExplanation",
@@ -134467,6 +134476,21 @@
               "body": {
                 "type": "string"
               },
+              "variantBBody": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "variantBSubject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "abTest": {
+                "type": "boolean"
+              },
               "utmCampaign": {
                 "type": "string"
               },
@@ -134520,6 +134544,9 @@
               "audienceInWords",
               "subject",
               "body",
+              "variantBBody",
+              "variantBSubject",
+              "abTest",
               "utmCampaign",
               "messagingCampaignId",
               "scheduledFor",
@@ -134573,6 +134600,157 @@
           },
           "revenue": {
             "type": "string"
+          },
+          "abTest": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "versions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "string",
+                      "enum": [
+                        "a",
+                        "b"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "selected": {
+                      "type": "integer"
+                    },
+                    "sent": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "clicks": {
+                      "type": "integer"
+                    },
+                    "replies": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "booked": {
+                      "type": "integer"
+                    },
+                    "jobs": {
+                      "type": "integer"
+                    },
+                    "revenue": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "label",
+                    "selected",
+                    "sent",
+                    "skipped",
+                    "clicks",
+                    "replies",
+                    "booked",
+                    "jobs",
+                    "revenue"
+                  ]
+                }
+              },
+              "repliesKnown": {
+                "type": "boolean"
+              },
+              "untaggedClicks": {
+                "type": "integer"
+              },
+              "measures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "measure": {
+                      "type": "string",
+                      "enum": [
+                        "clicks",
+                        "replies",
+                        "booked"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "verdict": {
+                      "type": "string",
+                      "enum": [
+                        "no_data",
+                        "too_few",
+                        "no_clear_difference",
+                        "a_higher",
+                        "b_higher"
+                      ]
+                    },
+                    "rateA": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "rateB": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "pValue": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "measure",
+                    "label",
+                    "verdict",
+                    "rateA",
+                    "rateB",
+                    "pValue",
+                    "sentence"
+                  ]
+                }
+              },
+              "winner": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              },
+              "headline": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "versions",
+              "repliesKnown",
+              "untaggedClicks",
+              "measures",
+              "winner",
+              "headline"
+            ]
           }
         },
         "required": [
@@ -134582,7 +134760,8 @@
           "replies",
           "optOuts",
           "jobs",
-          "revenue"
+          "revenue",
+          "abTest"
         ]
       },
       "CancelAgreementInput": {
@@ -134817,6 +134996,21 @@
           "body": {
             "type": "string"
           },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -134896,6 +135090,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -139300,6 +139497,18 @@
             "minLength": 1,
             "maxLength": 64
           },
+          "variantBBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
           "utmCampaign": {
             "type": "string",
             "minLength": 1,
@@ -139364,6 +139573,21 @@
           },
           "body": {
             "type": "string"
+          },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
           },
           "utmCampaign": {
             "type": "string"
@@ -139444,6 +139668,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -153483,6 +153710,9 @@
                 "type": "integer"
               },
               "leads": {
+                "type": "number"
+              },
+              "leadsWeight": {
                 "type": "integer"
               },
               "booked": {
@@ -153551,6 +153781,7 @@
               "missed",
               "firstTime",
               "leads",
+              "leadsWeight",
               "booked",
               "bookedWeight",
               "completed",
@@ -153692,6 +153923,12 @@
                 },
                 "touches": {
                   "type": "integer"
+                },
+                "share": {
+                  "type": "string"
+                },
+                "weight": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -153700,7 +153937,9 @@
                 "customerName",
                 "callerE164",
                 "firstAt",
-                "touches"
+                "touches",
+                "share",
+                "weight"
               ]
             }
           },
@@ -157950,6 +158189,21 @@
           "body": {
             "type": "string"
           },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -158029,6 +158283,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -169893,6 +170150,9 @@
                   "type": "integer"
                 },
                 "leads": {
+                  "type": "number"
+                },
+                "leadsWeight": {
                   "type": "integer"
                 },
                 "booked": {
@@ -169973,6 +170233,7 @@
                 "missed",
                 "firstTime",
                 "leads",
+                "leadsWeight",
                 "booked",
                 "bookedWeight",
                 "completed",
@@ -170010,6 +170271,9 @@
                 "type": "integer"
               },
               "leads": {
+                "type": "number"
+              },
+              "leadsWeight": {
                 "type": "integer"
               },
               "booked": {
@@ -170078,6 +170342,7 @@
               "missed",
               "firstTime",
               "leads",
+              "leadsWeight",
               "booked",
               "bookedWeight",
               "completed",
@@ -170142,6 +170407,9 @@
                   "type": "integer"
                 },
                 "leads": {
+                  "type": "number"
+                },
+                "leadsWeight": {
                   "type": "integer"
                 },
                 "booked": {
@@ -170165,6 +170433,7 @@
                 "sessions",
                 "engagedSessions",
                 "leads",
+                "leadsWeight",
                 "booked",
                 "revenue",
                 "leadsPer100Sessions"
@@ -170181,6 +170450,9 @@
                 "type": "integer"
               },
               "leads": {
+                "type": "number"
+              },
+              "leadsWeight": {
                 "type": "integer"
               },
               "booked": {
@@ -170201,6 +170473,7 @@
               "sessions",
               "engagedSessions",
               "leads",
+              "leadsWeight",
               "booked",
               "revenue",
               "searchClicks",
@@ -186496,6 +186769,21 @@
                 "body": {
                   "type": "string"
                 },
+                "variantBBody": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "variantBSubject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "abTest": {
+                  "type": "boolean"
+                },
                 "utmCampaign": {
                   "type": "string"
                 },
@@ -186575,6 +186863,9 @@
                 "audienceInWords",
                 "subject",
                 "body",
+                "variantBBody",
+                "variantBSubject",
+                "abTest",
                 "utmCampaign",
                 "messagingCampaignId",
                 "scheduledFor",
@@ -206642,7 +206933,8 @@
                         "type": "string",
                         "enum": [
                           "number",
-                          "platform"
+                          "platform",
+                          "choice"
                         ]
                       },
                       "default": {
@@ -206653,6 +206945,27 @@
                       },
                       "max": {
                         "type": "integer"
+                      },
+                      "options": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "label"
+                          ]
+                        }
+                      },
+                      "defaultChoice": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -210834,6 +211147,34 @@
               "subject"
             ]
           },
+          "renderedB": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "for": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "body": {
+                "type": "string"
+              },
+              "subject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "for",
+              "body",
+              "subject"
+            ]
+          },
           "count": {
             "type": "integer"
           },
@@ -210895,6 +211236,7 @@
         },
         "required": [
           "rendered",
+          "renderedB",
           "count",
           "overflow",
           "inWords",
@@ -239036,6 +239378,21 @@
             ],
             "maxLength": 300
           },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
           "scheduledFor": {
             "type": [
               "string",
@@ -239097,6 +239454,21 @@
           },
           "body": {
             "type": "string"
+          },
+          "variantBBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variantBSubject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abTest": {
+            "type": "boolean"
           },
           "utmCampaign": {
             "type": "string"
@@ -239177,6 +239549,9 @@
           "audienceInWords",
           "subject",
           "body",
+          "variantBBody",
+          "variantBSubject",
+          "abTest",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",

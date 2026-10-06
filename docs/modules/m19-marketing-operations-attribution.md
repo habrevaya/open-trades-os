@@ -326,8 +326,19 @@ seven in the evening in Austin is that day's call:
   answered call and a voicemail is a missed one.
 - **Leads**: people (the customer, else the number that rang, else the
   browser) with a touch in the range. New callers and form fills count before
-  anybody makes them a customer. One person touching two channels is a lead for
-  each and once in the total.
+  anybody makes them a customer. Each person is credited across the touches
+  they made in the range under the chosen model, by `creditAcross`, the same
+  core function that credits a job across its touches. Under first, last or
+  last non direct touch a person is one lead on one row; under an even or
+  weighted split half a person is on each of two rows, and the halves add back
+  to one. So the rows add up to the total, which is each person once, and a
+  person who touched two channels is no longer a whole lead on both. A cell
+  reads "3" or "1.5" and opens into the people behind it, each with their
+  share (`leads` and `leadsWeight`, in ten thousandths, beside `bookedWeight`
+  on the funnel). Cost per lead and the booking rate divide by these credited
+  leads. A per lead campaign's price is still charged on the people its own
+  tag or number brought in the range, whatever row they are credited to,
+  because the marketplace billed for the lead it sold.
 - **Booked jobs**: jobs created in the range and not cancelled, each split
   across its own touches under the model. A split model puts half a job on two
   rows and the halves add back to one. A job nothing was recorded for is on a
@@ -357,10 +368,17 @@ rather than refused. Every ratio is empty, never zero, when its denominator is.
 - `Marketing > Spend` (`/marketing/spend`): a day's spend by channel or
   tracking campaign, typed again to replace it, and an ads platform's CSV
   uploaded through the same import the API offers.
-- `Marketing > Conversions` (`/marketing/conversions`): the Google Ads and Meta
-  offline conversion files for a date range and a model, for a platform that is
-  not connected. A job a connected platform has been sent is left out of its
-  file, so uploading the file as well cannot count it twice.
+- `Marketing > Conversions` (`/marketing/conversions`): the Google Ads, Meta and
+  Microsoft Advertising offline conversion files for a date range and a model,
+  for a platform that is not connected (`GET /v1/marketing/conversions` with
+  `format` of `google`, `meta` or `microsoft`). A job a connected platform has
+  been sent is left out of its file, so uploading the file as well cannot count
+  it twice, and so is a job whose customer said their details are not to be
+  used for advertising, since a click id beside a booked job is the customer.
+  Microsoft's file is its offline conversion template by its own header names
+  (`Microsoft Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion
+  Currency`), the time in UTC, the goal named "Booked job": make an offline
+  conversion goal of that name in the account first.
 - `Marketing > Return on spend` (`/marketing/roi`): the funnel's money columns
   (spend, leads, booked jobs, revenue, cost per lead, cost per booked job and
   revenue per dollar) by ad platform, channel or tracking campaign, every
@@ -573,7 +591,8 @@ and number where Google discloses them. A lead read twice is the same lead.
 
 ### Conversions sent back
 
-Every quarter hour. Google Ads is sent each **paid** job (every invoice on it
+Every quarter hour. Microsoft Advertising is sent each **paid** job as an
+offline conversion (see below). Google Ads is sent each **paid** job (every invoice on it
 paid) as a click conversion: the gclid, gbraid or wbraid from the visit, the
 platform's share of the job's revenue as its value, the job's event id as
 Google's `orderId`. Meta is sent a **Lead** when a job is booked and a
@@ -627,6 +646,48 @@ change is recorded once (`ad_conversion_adjustment`, one row per place in line
 per send under a unique index), a value unchanged since writes nothing, and the
 list is on `Marketing > Ad platforms > Conversions sent` and
 `GET /v1/marketing/conversion-adjustments`. Google Analytics is not restated.
+
+### Booked jobs back to Microsoft Advertising
+
+A paid job is sent to Microsoft Advertising as an offline conversion through the
+Campaign Management service's documented upload (`ApplyOfflineConversions`,
+`POST .../CampaignManagement/v13/OfflineConversions/Apply`), on the `msclkid`
+of the click that won it. It goes through the same send as Google's and Meta's:
+once per job, written before the request, only when one of the job's own
+touches came from Microsoft (its share of the revenue under the company's
+model is the value), nothing at all for a customer who said no, every send and
+every withheld one on `Conversions sent` with the reason. What is particular to
+Microsoft:
+
+- **A goal made first.** Microsoft takes an offline conversion only against an
+  offline conversion goal that already exists in the account, matched by name.
+  Type that name in `Offline conversion goal for booked jobs` on the connection
+  (`conversionName`); until one is entered nothing is sent and the platform
+  screen says so. Microsoft asks for two hours between making a goal and the
+  first upload, and a conversion that is more than ninety days old, or later
+  than the goal's conversion window after the click, is refused or not counted
+  by Microsoft, in its words, on the send.
+- **Only the click.** `ConversionName`, a UTC `ConversionTime`, the value and
+  currency, and the `MicrosoftClickId`. The hashed email and phone fields
+  Microsoft offers are never filled, whatever the personal data setting says:
+  the conversion is matched on the click, and the customer's details are not
+  needed to do that. A job from Microsoft with no click id is withheld
+  ("nothing to match"). A conversion is moved one second past the click when
+  the job was booked in the same instant, because Microsoft counts only a
+  conversion later than the click.
+- **Not restated.** The upload has no change or retraction, and Microsoft keeps
+  the first of two conversions on the same click and time, so a job whose
+  revenue moves after it was sent is not told again (Google's and Meta's are).
+  What this product sends is what Microsoft has.
+- **Refusals.** Microsoft names the items it would not take by their position;
+  each such job is recorded as refused with Microsoft's words and can be tried
+  again. An error that names no item refuses the whole request, in its words.
+
+**This is tested against a fake of Microsoft only.** The fake answers the way
+the documentation says (`packages/api/test/ads-microsoft-conversions.integration.test.ts`);
+no conversion has been sent to a real Microsoft Advertising account, and
+nobody has checked that one is counted. It needs the operator's own developer
+token and a goal, like the spend pull.
 
 ### Microsoft Advertising spend
 
@@ -767,8 +828,8 @@ In order, with the permission each step needs:
    register `PUBLIC_URL/settings/integrations/oauth` as the return address with
    Google and Meta, put the OAuth clients and the developer token in the secret
    store, then save each platform's settings and sign in on `Settings >
-   Integrations`. Choose the conversion action (Google Ads) and the pixel
-   (Meta) or nothing is sent, and decide what the company sends about
+   Integrations`. Choose the conversion action (Google Ads), the pixel
+   (Meta) or the offline conversion goal (Microsoft Advertising) or nothing is sent, and decide what the company sends about
    customers before switching sending on; the website snippet has to be on the
    site for Google Analytics to have a visit to tie a job to.
 
@@ -814,12 +875,84 @@ scheduled send acts as the person who wrote the campaign, with what they hold
 when it fires: somebody whose access was taken away does not send on Wednesday.
 
 A body may say `{{ customer.firstName }}`, `{{ customer.name }}`,
-`{{ company.name }}` and `{{ company.phone }}`, in the message templates' own
+`{{ company.name }}`, `{{ company.phone }}` and `{{ campaign.utm }}` (the link
+tag, below), in the message templates' own
 syntax, filled per recipient by the one renderer this product has. Anything
 else is refused when the campaign is saved, because the renderer turns an
 unknown field into nothing. A campaign can start from a message template
 (`templateCode`), whose words are copied in. The preview shows the message as
 the first person on the list will read it.
+
+### Test two ways of saying it
+
+A text or an email campaign can carry a second version of its body (and, for an
+email, its subject): `variantBBody` and `variantBSubject` on `POST /v1/campaigns`
+and `PATCH /v1/campaigns/{id}`, or "Test a second way of saying it" on the new
+campaign form. Version B is checked as version A is (the merge fields, no
+subject on a text, the carrier's length) and against it: a version B that says
+what version A says is refused, because a test of two identical messages would
+still print a result. An email's version B with no subject of its own is sent
+under version A's, so the words alone can be tested. Both versions can be
+changed only before the campaign goes, like the rest of it, and `variantBBody:
+null` takes the test off a draft.
+
+**The split.** When the send selects its recipients, each person's half is a
+stable hash of the campaign id and the customer id (`campaign.variantFor`, in
+whole numbers, no library): random as far as anything about the customer goes,
+and the same person gets the same half on every run. It is written on the
+recipient row (`campaign_recipient.variant`), so a send that carries on the next
+day under a carrier's cap never moves anybody, and the results read what was
+sent. It is a half and a half, not a choice of shares, and the halves are close
+to even rather than exactly even. The hash includes the campaign, so the same
+people are not always version A. A preview of a saved test shows both versions as
+the first person on the list would read them.
+
+**Counting clicks by version.** A click is credited to a campaign by its utm
+tag. `{{ campaign.utm }}` in either body writes the tag and the version
+(`utm_campaign=spring-tune-up&utm_content=a`), so end the link with
+`?{{ campaign.utm }}` and both versions can carry the same link text while a
+click says which one it came from. A link typed by hand with no `utm_content`
+is still credited to the campaign for the jobs it books, but its click is in
+neither column: it is shown as "followed the link without a version on it".
+
+**What the results show.** `GET /v1/campaigns/{id}/results` returns `abTest`
+beside the campaign's own figures (and "Compare the versions" shows it on the
+screen), with the two versions' counts side by side:
+
+- **Sent to**: recipients queued with that version (skipped ones are counted
+  apart).
+- **Clicked the link**: people who arrived on the tag with that version, once
+  each, never more than the people sent to.
+- **Replied**: conversations that got an inbound message after the version was
+  sent. Known for texts. For an email only when the company's mail has a reply
+  domain; without one `replies` is null, "Not known" on the screen, and it is
+  left out of the test rather than counted as nobody.
+- **Booked a job**: recipients of that version with a job credited to the
+  campaign. It is counted by who was sent the version, not by which link they
+  followed, and a job is credited to a campaign only when the click on its tag
+  was recorded, so it undercounts bookings that never followed a tagged link.
+  Jobs and revenue by version are shown as facts.
+
+**No winner without proof.** Each measure is compared with a pooled two
+proportion z test, two sided, written in core with unit tests
+(`campaign.compareRates`, `judgeTest`, in `packages/core/src/campaign/ab.ts`),
+and each comparison comes back as a plain sentence with the counts: "40 of 200
+(20.0%) for version A against 62 of 200 (31.0%) for version B. Version B did
+better. If the two versions were really the same, a gap this big would turn up
+by chance about 1 time in 86." A version is named better only when the chance of
+that gap being luck is under the bar. The bar is five in a hundred divided by
+the number of measures compared (clicks, replies where known, bookings:
+Bonferroni), because comparing three things at once makes a false alarm likelier
+and the conservative answer is to ask more of each. The test refuses to speak
+when the numbers are too small for it to mean anything (fewer than five
+expected in a cell), and says "too few to tell" rather than "no difference",
+which would be a claim. `winner` is null unless some measure clearly favours
+one version and none clearly favours the other; when each wins something the
+headline says there is no single winner. A campaign of a few hundred people
+rarely proves anything about bookings; the screen says so rather than leaning
+toward whichever half looks better. Whether to act on a result is the owner's
+call: the product names a winner only to say the difference is more than luck,
+not that the better version will do as well next time.
 
 ### What is deliberately not returned
 
@@ -1042,9 +1175,12 @@ sample and therefore not a test of anything.
   documentation would show. Each needs the operator's own developer or partner
   approval first, and Angi, Thumbtack and Yelp approve only partners they
   choose.
-- **Microsoft Advertising is spend only.** Booked jobs are not sent back to
-  Microsoft (its offline conversion upload is not built), and the conversion
-  file covers Google and Meta only.
+- **Microsoft Advertising conversions are tested against a fake only.** The
+  offline conversion upload follows Microsoft's documentation and has never
+  reached a real account, so a difference (the goal name's matching, the time
+  window, how a partial error is placed) would show first there. It sends the
+  click id alone, and a job whose value changes later is not restated, because
+  the upload cannot take one back.
 - **The marketplaces' tokens.** Thumbtack's and Yelp's access tokens are read
   from the secret store as they are; there is no sign in flow for either, and a
   token the platform expires has to be replaced there. Angi has no reply API,
@@ -1106,7 +1242,12 @@ sample and therefore not a test of anything.
   A credit note reward is not applied to an invoice until somebody applies it.
 - **An outbound campaign's own phone number.** A text campaign's credit comes
   from a click on its utm tag, not from a reply to a dedicated number.
-- **No A/B test.** Two campaigns to two audiences is the available answer.
-- **Leads by first touch in the range.** A person is a lead in every channel
-  they touched in the range; the funnel does not yet credit a lead under the
-  attribution model the way it credits a job.
+- **A/B tests are two versions, halved.** Two versions of one campaign, split
+  evenly by hash; not three or more, not uneven shares (nine tenths to the old
+  words, one tenth to the new), no sending the winner to the rest of the list
+  automatically, and the audience is split once at send time. A click is counted
+  by version only when the link carries `{{ campaign.utm }}` (or its own
+  `utm_content` of `a` or `b`), a reply to an email only when the company's mail
+  has a reply domain, and a booking only when the click on the tag was recorded.
+  Significance is a plain two proportion test with a conservative bar, tested
+  with unit tests and a fake list, not tuned against real campaigns.

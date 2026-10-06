@@ -114,7 +114,7 @@ export default async function MarketingPage(
         <>
           <dl className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
             <Figure label="Spend" href={rowsHref(params, "all", "spend")} value={<Money value={report.total.spend} />} />
-            <Figure label="Leads" href={rowsHref(params, "all", "leads")} value={String(report.total.leads)} />
+            <Figure label="Leads" href={rowsHref(params, "all", "leads")} value={mk.weightText(report.total.leadsWeight)} />
             <Figure label="Booked jobs" href={rowsHref(params, "all", "booked")} value={report.total.booked} />
             <Figure label="Revenue" href={rowsHref(params, "all", "revenue")} value={<Money value={report.total.revenue} />} />
             <Figure
@@ -147,7 +147,7 @@ export default async function MarketingPage(
                 <Td><Cell href={rowsHref(params, row.key, "answered")} label={`${row.label} answered`}>{row.answered}</Cell></Td>
                 <Td><Cell href={rowsHref(params, row.key, "missed")} label={`${row.label} missed`}>{row.missed}</Cell></Td>
                 <Td><Cell href={rowsHref(params, row.key, "firstTime")} label={`${row.label} first time`}>{row.firstTime}</Cell></Td>
-                <Td><Cell href={rowsHref(params, row.key, "leads")} label={`${row.label} leads`}>{row.leads}</Cell></Td>
+                <Td><Cell href={rowsHref(params, row.key, "leads")} label={`${row.label} leads`}>{mk.weightText(row.leadsWeight)}</Cell></Td>
                 <Td><Cell href={rowsHref(params, row.key, "booked")} label={`${row.label} booked`}>{row.booked}</Cell></Td>
                 <Td>{row.bookingRate ? `${row.bookingRate}%` : <NotMeasured />}</Td>
                 <Td><Cell href={rowsHref(params, row.key, "completed")} label={`${row.label} completed`}>{row.completed}</Cell></Td>
@@ -167,8 +167,10 @@ export default async function MarketingPage(
           <p className="mt-2 max-w-3xl text-xs text-ink-500">
             Booked jobs are the jobs created in these dates, credited across what each customer did
             before it. Under an even or weighted split a job can be half on two rows. Leads are people
-            who called, filled in a form or were sent by a marketplace in these dates, so somebody who
-            rang last month and booked this month is last month&rsquo;s lead and this month&rsquo;s job.
+            who called, filled in a form or were sent by a marketplace in these dates, credited the same
+            way: a person who found you through two channels is one lead on one row, or half a lead on
+            each under a split, and the rows add up to the total. Somebody who rang last month and
+            booked this month is last month&rsquo;s lead and this month&rsquo;s job.
           </p>
         </>
       )}

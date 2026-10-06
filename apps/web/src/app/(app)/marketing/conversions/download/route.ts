@@ -20,7 +20,8 @@ export async function GET(request: Request): Promise<Response> {
   const from = url.searchParams.get("from") ?? "";
   const to = url.searchParams.get("to") ?? "";
   if (!iso.test(from) || !iso.test(to)) return new Response("Give the dates as 2026-04-01.", { status: 400 });
-  const format = url.searchParams.get("format") === "meta" ? "meta" as const : "google" as const;
+  const asked = url.searchParams.get("format");
+  const format = asked === "meta" ? "meta" as const : asked === "microsoft" ? "microsoft" as const : "google" as const;
   const model = mk.ATTRIBUTION_MODEL_KEYS.find((key) => key === url.searchParams.get("model")) ?? "position_based";
 
   try {

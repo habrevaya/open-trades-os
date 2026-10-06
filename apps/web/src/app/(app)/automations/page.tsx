@@ -125,6 +125,15 @@ export default async function AutomationsPage() {
                         options={template.platforms.map((p) => ({ value: p.platform, label: p.displayName }))}
                         className="block w-56"
                       />
+                    ) : parameter.kind === "choice" ? (
+                      <Select
+                        key={parameter.key}
+                        label={parameter.label}
+                        name={`value.${parameter.key}`}
+                        options={parameter.options ?? []}
+                        {...(parameter.defaultChoice ? { defaultValue: parameter.defaultChoice } : {})}
+                        className="block w-72"
+                      />
                     ) : (
                       <TextField
                         key={parameter.key}

@@ -33,8 +33,12 @@ import { revenueByJob } from "./marketing";
  *   time are core's call outcome classifier's answer, not a status column.
  *
  *   Leads: PEOPLE (`mk.leadKey`: the customer, else the number that rang,
- *   else the browser) with a touch between F and T. One person touching two
- *   channels is a lead for each, and once in the total.
+ *   else the browser) with a touch between F and T, each CREDITED across the
+ *   touches they made in the range under the model, by the same core function
+ *   a job is credited by (`mk.creditAcross`). Under a model that gives a
+ *   person to one touch they are a lead on one row; under a split model half a
+ *   person is on each of two rows, and the halves add back to one. So the rows
+ *   add up to the total, which is each person once.
  *
  *   Booked jobs: jobs created between F and T and not cancelled, each
  *   credited across its own touches under the model, so a split model puts
@@ -99,8 +103,12 @@ interface LeadItem {
   customerId: string | null;
   customerName: string | null;
   callerE164: string | null;
+  /** The first of this person's touches that fell on this row. */
   firstAt: Date;
+  /** How many of this person's touches in the range fell on this row. */
   touches: number;
+  /** This row's share of the person, in `mk.WEIGHT_SCALE`. */
+  weight: number;
 }
 
 interface JobItem {
@@ -320,28 +328,45 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
       eq(schema.marketingTouch.organizationId, org),
       gte(schema.marketingTouch.occurredAt, from),
       lt(schema.marketingTouch.occurredAt, end),
-    ));
+    ))
+    /** A stable order, so two touches at the same instant are credited the same way every time the report runs. */
+    .orderBy(schema.marketingTouch.occurredAt, schema.marketingTouch.id);
   for (const { touch } of touchRows) if (touch.callId) touchCallIds.add(touch.callId);
   await loadCallNumbers(tx, org, [...touchCallIds].filter((id) => !callNumber.has(id)), callNumber);
 
+  /**
+   * Group each person's touches in the range, then credit the person across
+   * them the way a job is credited across its touches: the same model, the
+   * same core function. Before this, a person was a whole lead on every row
+   * they touched, so the rows added up to more than the total.
+   */
   const people = new Map<string, LeadItem>();
-  const addLead = (into: Map<string, LeadItem>, key: string, t: TouchRow, name: string | null) => {
-    const existing = into.get(key);
-    if (existing) {
-      existing.touches += 1;
-      if (t.occurredAt < existing.firstAt) existing.firstAt = t.occurredAt;
-      return;
-    }
-    into.set(key, {
-      key, customerId: t.customerId, customerName: name, callerE164: t.callerE164,
-      firstAt: t.occurredAt, touches: 1,
-    });
-  };
+  const touchesOfPerson = new Map<string, { touch: TouchRow; customerName: string | null }[]>();
   for (const { touch, customerName } of touchRows) {
     const key = mk.leadKey(touch);
     if (!key) continue;
-    addLead(bucket(touchDim(touch)).leads, key, touch, customerName);
-    addLead(people, key, touch, customerName);
+    const list = touchesOfPerson.get(key) ?? [];
+    list.push({ touch, customerName });
+    touchesOfPerson.set(key, list);
+  }
+  const leadOn = (
+    into: Map<string, LeadItem>, key: string, weight: number,
+    own: { touch: TouchRow; customerName: string | null }[],
+  ) => {
+    const earliest = own.reduce((a, b) => (b.touch.occurredAt < a.touch.occurredAt ? b : a));
+    into.set(key, {
+      key, customerId: earliest.touch.customerId, customerName: earliest.customerName,
+      callerE164: earliest.touch.callerE164,
+      firstAt: earliest.touch.occurredAt, touches: own.length, weight,
+    });
+  };
+  for (const [key, own] of touchesOfPerson) {
+    const dims = own.map((o) => touchDim(o.touch));
+    const credited = mk.creditAcross(model, own.map((o) => toCoreTouch(o.touch)), (i) => dims[i]!, NONE);
+    for (const { bucket: dim, weight } of credited) {
+      leadOn(bucket(dim).leads, key, weight, own.filter((_, i) => dims[i] === dim));
+    }
+    leadOn(people, key, mk.WEIGHT_SCALE, own);
   }
 
   /* ---- booked jobs ---- */
@@ -382,17 +407,8 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
 
   for (const { job, customerName } of jobRows) {
     const touches = touchesByJob.get(job.id) ?? [];
-    const decision = mk.shareTouches(model, touches.map(toCoreTouch));
-    const byDim = new Map<string, number>();
-    if (decision.ok) {
-      for (const share of decision.shares) {
-        const dim = touchDim(touches[share.index]!);
-        byDim.set(dim, (byDim.get(dim) ?? 0) + share.weight);
-      }
-    } else {
-      byDim.set(NONE, mk.WEIGHT_SCALE);
-    }
-    const dims = [...byDim.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const dims = mk.creditAcross(model, touches.map(toCoreTouch), (i) => touchDim(touches[i]!), NONE)
+      .map((c): [string, number] => [c.bucket, c.weight]);
     const total = revenue.get(job.id) ?? m.zero("USD");
     /** Split at the cent so the shares add back to the job's revenue exactly. */
     const shares = m.allocate(total, dims.map(([, w]) => String(w)), 2);
@@ -565,7 +581,10 @@ export interface FunnelCells {
   answered: number;
   missed: number;
   firstTime: number;
+  /** People credited to this row: "3", "1.5" under a split model, as a number to four places. */
   leads: number;
+  /** The same in ten thousandths of a person, for anything that adds them up. */
+  leadsWeight: number;
   /** Credited booked jobs as a person reads them: "3", "1.5". */
   booked: string;
   /** The same, in ten thousandths, for anything that adds them up. */
@@ -581,13 +600,14 @@ export interface FunnelCells {
   roas: string | null;
 }
 
-function cellsOf(b: Bucket, leadCount: number): FunnelCells {
+function cellsOf(b: Bucket): FunnelCells {
+  const leadsWeight = [...b.leads.values()].reduce((sum, l) => sum + l.weight, 0);
   const spend = b.spend.reduce((sum, s) => m.add(sum, s.amount), m.zero("USD"));
   const bookedWeight = b.jobs.reduce((sum, j) => sum + j.weight, 0);
   const completedWeight = b.jobs.filter((j) => j.completed).reduce((sum, j) => sum + j.weight, 0);
   const invoicedWeight = b.jobs.filter((j) => !m.isZero(j.revenue)).reduce((sum, j) => sum + j.weight, 0);
   const revenue = b.jobs.reduce((sum, j) => m.add(sum, j.revenue), m.zero("USD"));
-  const figures = mk.funnelFigures({ spend, leads: leadCount, bookedWeight, invoicedWeight, revenue });
+  const figures = mk.funnelFigures({ spend, leads: leadsWeight / mk.WEIGHT_SCALE, bookedWeight, invoicedWeight, revenue });
   const text = (value: m.Money | null) => (value ? m.toString(m.round(value, 2)) : null);
   return {
     spend: m.toString(spend),
@@ -595,7 +615,8 @@ function cellsOf(b: Bucket, leadCount: number): FunnelCells {
     answered: b.calls.filter((c) => c.answered).length,
     missed: b.calls.filter((c) => c.missed).length,
     firstTime: b.calls.filter((c) => c.firstTime === true).length,
-    leads: leadCount,
+    leads: leadsWeight / mk.WEIGHT_SCALE,
+    leadsWeight,
     booked: mk.weightText(bookedWeight),
     bookedWeight,
     completed: mk.weightText(completedWeight),
@@ -629,7 +650,7 @@ export async function funnel(ctx: ServiceContext, input: FunnelInput) {
       key,
       label: built.labels.get(key)?.label ?? key,
       detail: built.labels.get(key)?.detail ?? null,
-      ...cellsOf(b, b.leads.size),
+      ...cellsOf(b),
     })).sort((a, b) =>
       (a.key === NONE ? 1 : 0) - (b.key === NONE ? 1 : 0)
       || Number(m.compare(m.money(b.spend, "USD"), m.money(a.spend, "USD")))
@@ -645,7 +666,7 @@ export async function funnel(ctx: ServiceContext, input: FunnelInput) {
       /** Shown beside the figures, always. */
       modelWrongAbout: mk.ATTRIBUTION_MODELS[built.model].wrongAbout,
       rows,
-      total: cellsOf(total, total.leads.size),
+      total: cellsOf(total),
     };
   });
 }
@@ -674,7 +695,7 @@ export async function drill(ctx: ServiceContext, input: FunnelInput & { key: str
       share: mk.weightText(j.weight), weight: j.weight, revenue: m.toString(j.revenue),
     }));
 
-    const base = { key: input.key, label, measure: input.measure, model: built.model, cell: cellsOf(b, b.leads.size) };
+    const base = { key: input.key, label, measure: input.measure, model: built.model, cell: cellsOf(b) };
     switch (input.measure) {
       case "calls": return { ...base, kind: "calls" as const, calls: calls(() => true) };
       case "answered": return { ...base, kind: "calls" as const, calls: calls((c) => c.answered) };
@@ -684,7 +705,7 @@ export async function drill(ctx: ServiceContext, input: FunnelInput & { key: str
         ...base, kind: "leads" as const,
         leads: [...b.leads.values()]
           .sort((x, y) => x.firstAt.getTime() - y.firstAt.getTime())
-          .map((l) => ({ ...l, firstAt: l.firstAt.toISOString() })),
+          .map((l) => ({ ...l, firstAt: l.firstAt.toISOString(), share: mk.weightText(l.weight) })),
       };
       case "booked": return { ...base, kind: "jobs" as const, jobs: jobs(() => true) };
       case "completed": return { ...base, kind: "jobs" as const, jobs: jobs((j) => j.completed) };
