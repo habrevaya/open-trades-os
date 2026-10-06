@@ -645,6 +645,17 @@ sight of the record), and only the ones somebody chose with **Show the
 customer** or all of them when the company says so (M05). There is still no
 unauthenticated way to read one.
 
+Revoking a browser is weaker than revoking a phone. A phone's revocation ends its
+token, and only signing in again on it lifts it. A browser has no token of its
+own: `/my-day` registers it on the person's ordinary sign in each time the day is
+opened, and registering lifts a revocation, so a revoked browser syncs again the
+next time its technician opens their day. The page fetching itself to keep its
+copy for no signal only looks the device up, so that fetch does not lift it.
+Holding a browser's revocation until the person signs in again needs the session's
+start to be known where the day is drawn, and is not built; to stop a browser,
+the office deactivates the person, which ends every sign in they have, or takes
+`field:sync` from their role.
+
 `/my-day` opens with no signal only once it has been opened on that phone
 with one, only in a browser that keeps service workers (any current one, on
 HTTPS or localhost), and only as the day was when it was last saved: a

@@ -32,6 +32,25 @@ import type {
  * which half and will either redo work or not redo it, and both are wrong.
  */
 
+/**
+ * The device already registered under an installation id, read and nothing
+ * else: no `last_seen_at`, no token bound, no revocation lifted. For a read
+ * that is not the person opening their day, such as the page fetching itself
+ * to keep a copy for no signal, which must not undo the office revoking it.
+ * Null when it has never been registered.
+ */
+export async function registered(ctx: ServiceContext, installationId: string) {
+  return guardedRead(ctx, "field:sync", async (tx) => {
+    const [existing] = await tx.select({ id: schema.device.id, lastSequence: schema.device.lastSequence })
+      .from(schema.device)
+      .where(and(
+        eq(schema.device.organizationId, ctx.actor.organizationId),
+        eq(schema.device.installationId, installationId),
+      )).limit(1);
+    return existing ? { deviceId: existing.id, lastSequence: existing.lastSequence } : null;
+  });
+}
+
 export async function register(ctx: ServiceContext, input: z.infer<typeof registerDevice.input>) {
   return guardedWrite(ctx, "field:sync", async (tx) => {
     const technicianId = await technicianFor(tx, ctx);

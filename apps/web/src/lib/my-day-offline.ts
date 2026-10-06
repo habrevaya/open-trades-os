@@ -30,6 +30,11 @@ export const DAY_CACHE = "ots-my-day";
 export const STATIC_CACHE = "ots-my-day-static";
 /** Who the kept day belongs to, kept as an entry in the day's own cache. */
 export const OWNER_KEY = "/my-day/__owner";
+/**
+ * Sent on the page's own fetch of itself for the copy, so the server can tell
+ * it from the person opening their day and leave the device as it is.
+ */
+export const CACHE_FILL_HEADER = "x-ots-cache-fill";
 /** The most script and style files kept, so old builds' files do not pile up. */
 export const MAX_STATIC = 300;
 
