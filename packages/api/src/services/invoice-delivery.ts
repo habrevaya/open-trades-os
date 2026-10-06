@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, money as m, time, type Actor } from "@opentradesos/core";
+import { branding as brand, money as m, time, work, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -188,6 +188,8 @@ const MAX_LINK_DAYS = 365;
 interface InvoiceForSend {
   id: string;
   number: number;
+  /** The branch's code it was made with, printed in front of the number everywhere the customer reads it. */
+  numberPrefix: string | null;
   customerId: string;
   jobId: string | null;
   status: string;
@@ -206,6 +208,7 @@ async function loadForSend(tx: Database, invoiceId: string): Promise<InvoiceForS
   const [row] = await tx.select({
     id: schema.invoice.id,
     number: schema.invoice.number,
+    numberPrefix: schema.invoice.numberPrefix,
     customerId: schema.invoice.customerId,
     jobId: schema.invoice.jobId,
     status: schema.invoice.status,
@@ -329,7 +332,9 @@ function compose(input: {
   const total = money(invoice.total, invoice.currency);
   const due = dueLine(invoice.dueOn);
 
-  const subject = `Invoice ${invoice.number} from ${organizationName}`;
+  /** As the PDF attached to it and the invoice page print it (`work.documentNumber`). */
+  const number = work.documentNumber(invoice.numberPrefix, invoice.number);
+  const subject = `Invoice ${number} from ${organizationName}`;
 
   const action = payable ? "View and pay your invoice" : "View your invoice";
   const amountLine = payable
@@ -339,7 +344,7 @@ function compose(input: {
   const text = [
     `Hello ${invoice.customerName},`,
     "",
-    `Invoice ${invoice.number} from ${organizationName} is ready.`,
+    `Invoice ${number} from ${organizationName} is ready.`,
     amountLine,
     "",
     ...(note ? [note, ""] : []),
@@ -362,7 +367,7 @@ function compose(input: {
     `<div style="font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;`
     + `font-size:16px;line-height:1.5;color:#111827;max-width:560px">`,
     `<p>Hello ${escapeHtml(invoice.customerName)},</p>`,
-    `<p>Invoice ${invoice.number} from ${escapeHtml(organizationName)} is ready.<br>`,
+    `<p>Invoice ${escapeHtml(number)} from ${escapeHtml(organizationName)} is ready.<br>`,
     `<strong>${escapeHtml(amountLine)}</strong></p>`,
     ...(note ? [`<p>${escapeHtml(note)}</p>`] : []),
     `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 20px;`
@@ -524,7 +529,7 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
     if (live.length > 0 && input.resend !== true) {
       const last = live[live.length - 1]!;
       throw new ConflictError(
-        `Invoice ${invoice.number} was already sent to ${last.destination ?? "a link"} on `
+        `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)} was already sent to ${last.destination ?? "a link"} on `
         + `${time.dateIn(last.createdAt, await timezoneOf(tx, ctx.actor.organizationId))} and the send is `
         + `${last.state}. Pass resend to send it again.`,
       );
@@ -736,7 +741,7 @@ async function recordSendEvent(
       customerId: invoice.payerCustomerId ?? invoice.customerId,
       jobId: invoice.jobId,
       kind: "invoice_sent",
-      headline: `Invoice ${invoice.number} sent`,
+      headline: `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)} sent`,
       isCustomerVisible: true,
     });
   }
@@ -1109,6 +1114,8 @@ export interface PortalInvoiceTip {
 export interface PortalInvoice {
   organizationName: string;
   number: number;
+  /** The branch's code the invoice was printed with, or null. The portal prints them together. */
+  numberPrefix: string | null;
   status: string;
   issuedOn: string | null;
   dueOn: string | null;
@@ -1166,6 +1173,7 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
   return inGrant(db, grant, async (tx) => {
     const [invoice] = await tx.select({
       number: schema.invoice.number,
+      numberPrefix: schema.invoice.numberPrefix,
       status: schema.invoice.status,
       issuedOn: schema.invoice.issuedOn,
       dueOn: schema.invoice.dueOn,
@@ -1262,6 +1270,7 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
     return {
       organizationName: org?.name ?? "",
       number: invoice.number,
+      numberPrefix: invoice.numberPrefix,
       status: invoice.status,
       issuedOn: invoice.issuedOn,
       dueOn: invoice.dueOn,
@@ -1378,6 +1387,7 @@ export async function startPayment(
       customerId: schema.invoice.customerId,
       payerCustomerId: schema.invoice.payerCustomerId,
       number: schema.invoice.number,
+      numberPrefix: schema.invoice.numberPrefix,
       balance: schema.invoice.balance,
       currency: schema.invoice.currency,
       status: schema.invoice.status,
@@ -1391,7 +1401,7 @@ export async function startPayment(
 
   if (!m.isPositive(m.money(invoice.balance, invoice.currency))) {
     throw new ConflictError(
-      `Invoice ${invoice.number} has nothing outstanding. It may already have been paid.`,
+      `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)} has nothing outstanding. It may already have been paid.`,
     );
   }
 
@@ -1408,7 +1418,7 @@ export async function startPayment(
      * customer thought they were paying rather than oldest balance first.
      */
     invoiceIds: [invoiceId],
-    description: `Invoice ${invoice.number}`,
+    description: `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)}`,
     /**
      * As the customer typed it. `intent` checks it against the company's
      * tip settings and this invoice's balance, and refuses it when nobody

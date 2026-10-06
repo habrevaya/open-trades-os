@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, isNull, lt, not, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { agents as a, assertCan, comms, time } from "@opentradesos/core";
+import { agents as a, assertCan, comms, time, work } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, inTenant, scopeOf, ConflictError, type ServiceContext,
 } from "./context";
@@ -76,7 +76,8 @@ export async function run(
   const due = await guardedRead(ctx, "invoice:read", async (tx) => {
     const company = await companyOf(tx, organizationId, now);
     const invoices = await tx.select({
-      id: schema.invoice.id, number: schema.invoice.number, dueOn: schema.invoice.dueOn,
+      id: schema.invoice.id, number: schema.invoice.number, numberPrefix: schema.invoice.numberPrefix,
+      dueOn: schema.invoice.dueOn,
       balance: schema.invoice.balance, customerId: schema.invoice.customerId,
       customerName: schema.customer.name, email: schema.customer.email, phone: schema.customer.phone,
     }).from(schema.invoice)
@@ -129,7 +130,8 @@ export async function run(
     const prompt = a.collectionsPrompt({
       company: due.company, tone: settings.tone, stepTone: step.tone,
       facts: {
-        customerName: invoice.customerName, invoiceNumber: invoice.number, amountOwed,
+        /** The number the customer's invoice is printed with, so the reminder quotes what they hold. */
+        customerName: invoice.customerName, invoiceNumber: work.documentNumber(invoice.numberPrefix, invoice.number), amountOwed,
         dueDate: invoice.dueOn!, daysOverdue, remindersSoFar: reminders, channel,
       },
     });

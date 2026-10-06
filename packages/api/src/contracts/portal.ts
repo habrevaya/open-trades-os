@@ -170,6 +170,8 @@ export const viewPortalJob = defineRoute({
   output: z.object({
     organizationName: z.string(),
     jobNumber: z.number().int(),
+    /** The branch's code the job was printed with ("HOU"), or null. */
+    jobNumberPrefix: z.string().nullable(),
     status: z.string(),
     summary: z.string().nullable(),
     propertyAddress: z.string(),

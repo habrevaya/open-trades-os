@@ -68,6 +68,8 @@ export const CustomerStatement = z.object({
   openInvoices: z.array(z.object({
     id: Uuid,
     number: z.number().int(),
+    /** The branch's code the invoice was printed with ("HOU"), or null. */
+    numberPrefix: z.string().nullable(),
     issuedOn: z.string().date().nullable(),
     dueOn: z.string().date().nullable(),
     total: MoneyString,

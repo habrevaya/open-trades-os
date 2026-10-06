@@ -542,6 +542,7 @@ export async function viewJob(
     return {
       organizationName: org?.name ?? "",
       jobNumber: job.number,
+      jobNumberPrefix: job.numberPrefix,
       /**
        * The VISIT's state, not the job's.
        *

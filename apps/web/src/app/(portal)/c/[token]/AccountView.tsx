@@ -1,17 +1,19 @@
 import type { ReactNode } from "react";
+import { work } from "@opentradesos/core";
 import { ReadingsChart } from "@/components/ReadingsChart";
 
 export interface AccountViewData {
   organizationName: string;
   customerName: string;
   properties: { id: string; line1: string; line2: string | null; city: string; state: string; postalCode: string }[];
-  jobs: { id: string; number: number; summary: string; status: string; completedAt: string | null }[];
+  /** `numberPrefix` is the branch's code a job or invoice was printed with, printed here the same way. */
+  jobs: { id: string; number: number; numberPrefix?: string | null; summary: string; status: string; completedAt: string | null }[];
   visits: {
-    id: string; jobNumber: number; summary: string; status: string;
+    id: string; jobNumber: number; jobNumberPrefix?: string | null; summary: string; status: string;
     windowStart: string | null; windowEnd: string | null; technicianName: string | null;
   }[];
   invoices: {
-    id: string; number: number; status: string; issuedOn: string | null; dueOn: string | null;
+    id: string; number: number; numberPrefix?: string | null; status: string; issuedOn: string | null; dueOn: string | null;
     currency: string; total: string; balance: string; payable: boolean;
     /** A bank payment for it is on its way. */
     bankPaymentPending?: boolean;
@@ -50,7 +52,7 @@ export interface ReportData {
 export interface AccountExtrasData {
   blocks: { kind: BlockKind; title: string; config: Record<string, unknown>; declared: boolean }[];
   history: {
-    visitId: string; jobId: string; jobNumber: number; summary: string; date: string | null; status: string;
+    visitId: string; jobId: string; jobNumber: number; jobNumberPrefix?: string | null; summary: string; date: string | null; status: string;
     technicianName: string | null; notes: string | null; report: ReportData | null;
   }[];
   equipment: {
@@ -318,7 +320,7 @@ export function AccountView({
                       <span className="shrink-0 text-ink-700">{h.date ? day(h.date) : ""}</span>
                     </div>
                     <p className="text-xs text-ink-500">
-                      Job #{h.jobNumber}{h.technicianName ? `, with ${h.technicianName}` : ""}
+                      Job #{work.documentNumber(h.jobNumberPrefix, h.jobNumber)}{h.technicianName ? `, with ${h.technicianName}` : ""}
                     </p>
                     {h.notes && <p className="mt-1 whitespace-pre-line text-ink-700">{h.notes}</p>}
                     {h.report && <Report report={h.report} />}
@@ -453,7 +455,7 @@ export function AccountView({
               {settled.map((i) => (
                 <li key={i.id} className="flex justify-between gap-4">
                   <span>
-                    Invoice #{i.number}{i.issuedOn ? `, ${day(i.issuedOn)}` : ""}
+                    Invoice #{work.documentNumber(i.numberPrefix, i.number)}{i.issuedOn ? `, ${day(i.issuedOn)}` : ""}
                     {pdfHref ? (
                       <a href={pdfHref(i.id)} className="ml-2 text-xs text-blue-600 underline underline-offset-4">PDF</a>
                     ) : null}
@@ -592,7 +594,7 @@ export function AccountView({
               <li key={invoice.id}>
                 <div className="flex justify-between gap-4 text-sm">
                   <span>
-                    Invoice #{invoice.number}
+                    Invoice #{work.documentNumber(invoice.numberPrefix, invoice.number)}
                     {invoice.dueOn && <span className="text-ink-500">, due {day(invoice.dueOn)}</span>}
                     {pdfHref ? (
                       <a href={pdfHref(invoice.id)} className="ml-2 text-xs text-blue-600 underline underline-offset-4">PDF</a>
@@ -647,7 +649,7 @@ export function AccountView({
                 <span>
                   {j.summary}
                   <span className="block text-xs text-ink-500">
-                    Job #{j.number}{j.completedAt ? `, done ${day(j.completedAt)}` : ""}
+                    Job #{work.documentNumber(j.numberPrefix, j.number)}{j.completedAt ? `, done ${day(j.completedAt)}` : ""}
                   </span>
                 </span>
                 <span className="shrink-0 text-right text-ink-700">

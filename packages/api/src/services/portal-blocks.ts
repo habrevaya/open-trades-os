@@ -69,6 +69,8 @@ export interface AccountExtras {
     visitId: string;
     jobId: string;
     jobNumber: number;
+    /** The branch's code the job was printed with, or null. */
+    jobNumberPrefix: string | null;
     summary: string;
     date: string | null;
     status: string;
@@ -265,6 +267,7 @@ export async function accountExtras(
   const past = await tx.select({
     visit: schema.visit,
     jobNumber: schema.job.number,
+    jobNumberPrefix: schema.job.numberPrefix,
     summary: schema.job.summary,
     technicianName: schema.technician.displayName,
   })
@@ -287,6 +290,7 @@ export async function accountExtras(
     visitId: p.visit.id,
     jobId: p.visit.jobId,
     jobNumber: p.jobNumber,
+    jobNumberPrefix: p.jobNumberPrefix,
     summary: p.summary,
     date: isoDay(p.visit.completedAt ?? p.visit.windowStart),
     status: p.visit.status,

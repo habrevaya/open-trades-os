@@ -18,6 +18,8 @@
  * reads the wrong sentence, so there is exactly one of these and both callers
  * import it.
  */
+import { work } from "@opentradesos/core";
+
 /**
  * Fills `{{ job.summary }}` style placeholders from the event payload.
  *
@@ -33,8 +35,25 @@
 export function render(template: string, scope: Record<string, unknown>): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_, path: string) => {
     const value = readPath(scope, path);
-    return value === null || value === undefined ? "" : String(value);
+    if (value === null || value === undefined) return "";
+    return printedNumber(scope, path, value) ?? String(value);
   });
+}
+
+/**
+ * A JOB OR INVOICE NUMBER AS IT IS PRINTED. `{{ job.number }}` read off a job
+ * that carries its branch's code (`number_prefix`, written when it was made)
+ * is "HOU-1042", the way the job page, the PDF and the email print it; a
+ * text quoting the bare 1042 is a number the customer cannot find on their
+ * paperwork. A record with no code prints its number alone, as before.
+ */
+function printedNumber(scope: Record<string, unknown>, path: string, value: unknown): string | null {
+  const parts = path.split(".");
+  if (parts[parts.length - 1] !== "number" || parts.length < 2) return null;
+  const prefix = readPath(scope, [...parts.slice(0, -1), "numberPrefix"].join("."));
+  return typeof prefix === "string" && prefix !== "" && (typeof value === "number" || typeof value === "string")
+    ? work.documentNumber(prefix, value)
+    : null;
 }
 
 /** Exported because the step executor reads event payloads with the same path rules. */

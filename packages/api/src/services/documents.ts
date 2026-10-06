@@ -2,7 +2,7 @@ import { deflateSync, inflateSync } from "node:zlib";
 import { and, asc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
 import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, money as m, pdf, reporting, time } from "@opentradesos/core";
+import { branding as brand, money as m, pdf, reporting, time, work } from "@opentradesos/core";
 import { contactOf, guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
 import { invoiceScopeFilter, estimateScopeFilter } from "./scope";
 import { InvalidGrantError, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
@@ -95,6 +95,7 @@ export async function invoiceDocWithin(
 ): Promise<pdf.InvoicePdfInput> {
   const [invoice] = await tx.select({
     number: schema.invoice.number,
+    numberPrefix: schema.invoice.numberPrefix,
     status: schema.invoice.status,
     issuedOn: schema.invoice.issuedOn,
     dueOn: schema.invoice.dueOn,
@@ -182,6 +183,7 @@ export async function invoiceDocWithin(
   return {
     company: await companyOf(tx, organizationId),
     number: invoice.number,
+    numberPrefix: invoice.numberPrefix,
     status: invoice.status,
     issuedOn: invoice.issuedOn,
     dueOn: invoice.dueOn,
@@ -207,7 +209,7 @@ export async function invoiceDocWithin(
 }
 
 const invoiceFile = (doc: pdf.InvoicePdfInput): PdfFile => ({
-  filename: `invoice-${doc.number}.pdf`,
+  filename: `invoice-${work.documentNumber(doc.numberPrefix, doc.number)}.pdf`,
   bytes: pdf.invoicePdf(doc, RENDER),
 });
 

@@ -1,5 +1,5 @@
 import { Money } from "@opentradesos/ui";
-import type { branding } from "@opentradesos/core";
+import { work, type branding } from "@opentradesos/core";
 import { formatDay } from "@/lib/dates";
 import { CompanyContact } from "./CompanyContact";
 
@@ -18,7 +18,7 @@ export interface StatementData {
     charge: string | null; credit: string | null; balance: string;
   }[];
   aging: { current: string; days1To30: string; days31To60: string; days61To90: string; over90: string };
-  openInvoices: { id: string; number: number; issuedOn: string | null; dueOn: string | null; total: string; balance: string; daysOverdue: number }[];
+  openInvoices: { id: string; number: number; numberPrefix?: string | null | undefined; issuedOn: string | null; dueOn: string | null; total: string; balance: string; daysOverdue: number }[];
 }
 
 /**
@@ -127,8 +127,8 @@ export function StatementView({ statement, timezone, invoiceHref, withContact = 
                   <tr key={invoice.id}>
                     <td className="py-2 font-mono tabular-nums">
                       {invoiceHref
-                        ? <a href={invoiceHref(invoice.id)} className="hover:underline">{invoice.number}</a>
-                        : invoice.number}
+                        ? <a href={invoiceHref(invoice.id)} className="hover:underline">{work.documentNumber(invoice.numberPrefix, invoice.number)}</a>
+                        : work.documentNumber(invoice.numberPrefix, invoice.number)}
                     </td>
                     <td className={`py-2 ${invoice.daysOverdue > 0 ? "text-red-600" : "text-ink-700"}`}>
                       {invoice.dueOn ? formatDay(invoice.dueOn, timezone) : ""}

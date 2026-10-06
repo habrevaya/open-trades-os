@@ -511,10 +511,13 @@ export const viewPayerPortal = defineRoute({
     owed: MoneyString,
     invoices: z.array(z.object({
       number: z.number().int(),
+      /** The branch's code the invoice was printed with ("HOU"), or null; `jobNumberPrefix` the job's. */
+      numberPrefix: z.string().nullable(),
       issuedOn: z.string().date().nullable(),
       dueOn: z.string().date().nullable(),
       purchaseOrderNumber: z.string().nullable(),
       jobNumber: z.number().int().nullable(),
+      jobNumberPrefix: z.string().nullable(),
       customerName: z.string(),
       siteAddress: z.string(),
       claimReference: z.string().nullable(),
