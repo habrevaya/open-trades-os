@@ -9,7 +9,8 @@
  * sum the server does, line for line: the price times the quantity, less any
  * discount, less the member's discount where a plan gives one (per line,
  * rounded to the cent on each, off what is left), tax held at full precision
- * per line and the document rounded once at the bottom.
+ * per line and the document rounded once at the bottom, then shared back onto
+ * the lines by largest remainder so they add up to it (`tax.shareTax`).
  *
  * IMPORTS NOTHING, ON PURPOSE. The phone app bundles this one file
  * (`@opentradesos/core/field-pricing`), and the bundler that builds it does
@@ -63,6 +64,31 @@ function times(amount: bigint, factor: string): bigint {
 }
 
 const toCents = (amount: bigint): bigint => divideHalfUp(amount, 100n) * 100n;
+
+/**
+ * A rounded total shared between exact parts by largest remainder, written
+ * out on bigints because this file imports nothing: `tax.shareTax` in core,
+ * which the parity test holds this to.
+ */
+function shareCents(exact: readonly bigint[], total: bigint): bigint[] {
+  const cent = 100n;
+  const floors = exact.map((x) => x - (((x % cent) + cent) % cent));
+  let left = total - floors.reduce((a, b) => a + b, 0n);
+  const order = exact
+    .map((x, i) => ({ i, rest: x - floors[i]! }))
+    .sort((a, b) => (b.rest > a.rest ? 1 : b.rest < a.rest ? -1 : a.i - b.i));
+  const out = [...floors];
+  const owing = order.filter((x) => x.rest > 0n);
+  for (let k = 0; left > 0n && owing.length > 0; k += 1) {
+    out[owing[k % owing.length]!.i]! += cent;
+    left -= cent;
+  }
+  for (let k = order.length - 1; left < 0n && k >= 0; k -= 1) {
+    out[order[k]!.i]! -= cent;
+    left += cent;
+  }
+  return out;
+}
 
 /** The same test as `membership.usableRate`: a fraction strictly between nothing and all of it. */
 function usableRate(rate: string | null | undefined): rate is string {
@@ -193,14 +219,19 @@ export function priceOnSite(
   const discountTotal = toCents(counted.reduce((sum, w) => sum + w.discount, 0n));
   const taxTotal = toCents(counted.reduce((sum, w) => sum + w.tax, 0n));
   const total = toCents(subtotal - discountTotal + taxTotal);
+  /**
+   * Each line's tax as the server shows it: every line priced, the ones
+   * outside the total too, and their tax rounded once and shared back.
+   */
+  const lineTax = shareCents(worked.map((w) => w.tax), toCents(worked.reduce((sum, w) => sum + w.tax, 0n)));
 
   return {
-    lines: worked.map((w) => ({
+    lines: worked.map((w, i) => ({
       memberDiscount: show(w.memberOff),
       discountAmount: show(w.discount),
       gross: show(w.gross),
       lineTotal: show(toCents(w.net)),
-      taxAmount: show(toCents(w.tax)),
+      taxAmount: show(lineTax[i]!),
       included: w.included,
     })),
     totals: {

@@ -156,6 +156,17 @@ lost response: by its number, or for a Xero allocation by reading the credit not
 matching the invoice, amount and date. A write off sent after a credit note was used
 on the invoice credits only what was left owing.
 
+**Sales tax goes over as the document charged it, one line per rate.** The tax on an
+invoice or a credit note is sent as its own line against the mapped sales tax
+account (2200), never through QuickBooks' automated sales tax or a Xero tax rate,
+because their engines would work the tax out again from their own tables and the
+books would disagree with the document the customer holds. A document that charged
+two of the company's rates (M13) is sent as one line per rate on that account,
+"Sales tax, Travis County 8.25%", read from the ledger's one entry per rate, so the
+books show what each rate collected; one rate is one "Sales tax" line, as before.
+No mapping of a rate to a QuickBooks tax agency or a Xero tax rate is asked for,
+because nothing sent uses one.
+
 ## Setup
 
 QuickBooks Online or Xero is connected at `/settings/integrations`.
@@ -303,7 +314,9 @@ Retainage held on an application for payment is booked here to retainage
 receivable against revenue (M12) and not sent: the books there carry the
 application's invoice as billed, net of retainage, and revenue there is gross only
 once a bookkeeper posts the retainage by journal. The accounting settings do not ask
-for account 1210 to be mapped, because nothing sent lands on it. There is no
+for account 1210 to be mapped, because nothing sent lands on it. Sales tax arrives in the books as lines on the liability account, so QuickBooks'
+sales tax centre and Xero's sales tax report do not show it by agency or
+jurisdiction; tax by rate for filing is read here (`/books/sales-tax`). There is no
 reconciliation screen against a bank feed, and no fixed asset or depreciation
 handling: a company that needs those does them in the accounting system, which is
 where they belong.

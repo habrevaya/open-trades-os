@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { afterHours, customers, jobs, priceBook, NotFoundError } from "@opentradesos/api/services";
+import { afterHours, customers, jobs, priceBook, taxRates, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can, money } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Composer, type ComposerLine } from "../Composer";
@@ -60,6 +60,10 @@ export default async function NewInvoicePage({
   const items = [...listed, ...offers.map((o) => o.item).filter((item) => !listed.some((l) => l.id === item.id))]
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const tax = await taxRates.picker(ctx, {
+    customerId, propertyId: (job?.propertyId as string | null | undefined) ?? null, permission: "invoice:read",
+  });
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <Crumb href={job ? `/jobs/${job.id}` : `/customers/${customerId}`}>
@@ -79,6 +83,7 @@ export default async function NewInvoicePage({
         items={items}
         submit="Create invoice"
         offers={offers}
+        tax={{ worked: tax.worked?.note ?? "", choices: tax.choices, chosen: "" }}
       />
     </div>
   );

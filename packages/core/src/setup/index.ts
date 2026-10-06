@@ -112,12 +112,13 @@ export const SETUP_STEPS: readonly SetupStep[] = [
     key: "tax",
     title: "Sales tax",
     /**
-     * NAMES WHAT EXISTS. There are no tax jurisdictions and no rate table: a
-     * rate is carried on the line it was charged on, and taxability is a
-     * property of a price book item. Determining a rate is on the list of
-     * things this project has decided not to build (BUILD.md).
+     * NAMES WHAT EXISTS. The company's own rates (a name, a percentage from a
+     * day, the usual one) and which price book items are taxable. No tax
+     * jurisdictions: looking a rate up from an address is on the list of
+     * things this project has decided not to build (BUILD.md). Marking the
+     * step done needs the price book; the rates need company settings.
      */
-    summary: "Which of your items are taxable and under which class. Rates are set on the document.",
+    summary: "The sales tax rates you charge, your usual one, and which of your items are taxable.",
     essential: true,
     hasLeadTime: false,
     permission: "pricebook:write",

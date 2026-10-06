@@ -27,6 +27,15 @@ export const InvoiceLine = z.object({
   /** The rate AS APPLIED, frozen on the line. Never recomputed on read. */
   taxRate: RateString,
   taxAmount: MoneyString,
+  /** Which of the company's sales tax rates it charged (`/v1/tax-rates`), when it was one of them. */
+  taxRateId: Uuid.nullable().optional(),
+  /**
+   * Where the rate came from: `address`, `customer` or `default` (the
+   * company's rates), `exempt`, `none` (no rate applies), `off` (the company
+   * charges no sales tax), `chosen`, `estimate` or `given` (history). Null on
+   * a line that is not taxable.
+   */
+  taxSource: z.string().nullable().optional(),
   lineTotal: MoneyString,
   costCode: z.string().nullable(),
   priceBookItemVersionId: Uuid.nullable(),
@@ -106,6 +115,13 @@ export const InvoiceLineInput = z.object({
    */
   taxAmount: MoneyString.optional(),
   /**
+   * Charge this line one of the company's sales tax rates
+   * (`/v1/tax-rates`) rather than the one worked out for the customer and
+   * address: a part taxed at a different district's rate. Must be in force
+   * on the invoice's date. Ignored on a line that is not taxable.
+   */
+  taxRateId: Uuid.optional(),
+  /**
    * Link the price book item and keep this line's own name, price and
    * taxability. Without it a linked line is re-priced from the item's
    * CURRENT version, which is right for a new invoice and rewrites what a
@@ -128,7 +144,7 @@ export const createInvoice = defineRoute({
   path: "/v1/invoices",
   summary: "Create an invoice",
   description:
-    "From a job, or standalone. Totals are computed server side from the lines. A client's own totals are never used; sent as `expectedTotals` they are a cross check that refuses the invoice when they differ to the cent.",
+    "From a job, or standalone. Totals are computed server side from the lines. A client's own totals are never used; sent as `expectedTotals` they are a cross check that refuses the invoice when they differ to the cent. Sales tax on the taxable lines is the company's rate for the customer and the job's address on the invoice's date (`/v1/tax-rates`), unless `taxRateId` says otherwise; each line's tax is the document's tax, rounded once, shared back so the lines add up to it.",
   module: "M13",
   permissions: ["invoice:write"],
   idempotent: true,
@@ -162,6 +178,15 @@ export const createInvoice = defineRoute({
     dueOn: z.string().date().optional(),
     memo: z.string().max(2000).optional(),
     lines: z.array(InvoiceLineInput).min(1),
+    /**
+     * The sales tax rate on the taxable lines. Left off, it is worked out
+     * from the company's rates: the address's, else the customer's, else the
+     * usual one, at the percentage in force on the invoice's date, and
+     * nothing for a customer exempt on a certificate that has not lapsed.
+     * One of the company's rates charges that instead; null charges none. A
+     * line's own `taxRateId` wins over both.
+     */
+    taxRateId: Uuid.nullable().optional(),
     /**
      * One invoice-level amount the lines do not account for: an
      * invoice-wide discount (negative) or a charge (positive). Becomes a
@@ -510,7 +535,7 @@ export const updateInvoice = defineRoute({
   path: "/v1/invoices/{id}",
   summary: "Edit a draft invoice",
   description:
-    "Drafts only. Lines, when sent, replace the draft's lines and are priced by the same rules as a new invoice. An issued invoice is refused: void it and raise another.",
+    "Drafts only. Lines, when sent, replace the draft's lines and are priced by the same rules as a new invoice, sales tax included: worked out from the company's rates on today's date, or the `taxRateId` sent with them. An issued invoice is refused: void it and raise another.",
   module: "M13",
   permissions: ["invoice:write"],
   /** A replacement, not an increment: sending the same edit twice leaves the same draft. */
@@ -518,6 +543,8 @@ export const updateInvoice = defineRoute({
   input: z.object({
     id: Uuid,
     lines: z.array(InvoiceLineInput).min(1).optional(),
+    /** As on create, and only with `lines`: the draft is priced again at it. */
+    taxRateId: Uuid.nullable().optional(),
     adjustment: z.object({ name: z.string().min(1).max(200), amount: MoneyString }).optional(),
     expectedTotals: z.object({
       subtotal: MoneyString.optional(),
@@ -537,7 +564,7 @@ export const issueInvoice = defineRoute({
   path: "/v1/invoices/{id}/issue",
   summary: "Issue a draft invoice",
   description:
-    "Posts it to the ledger, moves its job to invoiced, consumes the client's authorisation, and makes it something that can be sent and paid. The issue date follows the same rules as on create.",
+    "Posts it to the ledger, moves its job to invoiced, consumes the client's authorisation, and makes it something that can be sent and paid. The issue date follows the same rules as on create. A line taxed from the company's rates is checked against the rate in force on the issue date, and the draft is refused, in words, when that rate has changed since it was priced: save it again to price it at the new rate.",
   module: "M13",
   permissions: ["invoice:write"],
   idempotent: true,

@@ -113,7 +113,13 @@ readable as the record of what was authorised when an old estimate was written.
 ### Build and send
 
 `POST /v1/estimates` with the options and lines. `/estimates/new` is the office
-form. `POST /v1/estimates/{id}/send` freezes it, issues the approval link and
+form. Its sales tax is the company's rate for the customer and address on the day
+it is written (M13), on the taxable lines, unless a rate is typed on the form
+(`taxRate`) or one of the company's rates chosen (`taxRateId`); a typed rate that
+matches one of the company's is recorded as that rate. An estimate the field
+assistant or an inspection's deficiency drafts takes the same rate. The rate on
+each line goes onto the invoice it converts to as signed, and issuing that
+invoice never second guesses it. `POST /v1/estimates/{id}/send` freezes it, issues the approval link and
 puts it in front of the customer, and needs `estimate:send` with
 `portal:grant`, because it is both.
 

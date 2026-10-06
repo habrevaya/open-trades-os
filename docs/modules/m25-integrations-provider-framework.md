@@ -96,6 +96,17 @@ at all, the lead being read back from Yelp with the company's token. A marketpla
 whose API the company cannot get at is read from its lead emails instead, forwarded
 to one address per company (M19).
 
+**Sales tax is a seam with one provider, the company's own table.** The `tax`
+capability's interface is core's `TaxProvider`: a question about one sale (the day,
+the customer's exemption and named rate, the address and its named rate) and an
+answer (a rate, which of the company's rates it is, and why). The registry is
+`packages/api/src/tax`, in the shape of the other seams, and its only provider is
+`table`, which answers from the rates the company set up (M13). No Avalara, TaxJar
+or other commercial adapter is written: looking a rate up from an address is
+deliberately not built (BUILD.md), and the seam is where one would register. Such
+an adapter would be asked before the transaction that writes the document, as
+every network seam here is; the table needs no network and is asked inside it.
+
 **A mail house is a seam of one method.** Print this finished piece and post it,
 under the piece's own id as the printer's idempotency key (`packages/api/src/direct-mail`,
 with Lob). Who gets one, what it says and what it cost stay in the service.

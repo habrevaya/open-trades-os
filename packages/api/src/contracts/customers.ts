@@ -21,6 +21,12 @@ export const Customer = z.object({
   acquisitionCampaignId: Uuid.nullable().optional(),
   paymentTermsDays: z.number().int(),
   taxExempt: z.boolean(),
+  /** The exemption certificate's number, as the customer gave it. */
+  taxExemptCertificate: z.string().nullable().optional(),
+  /** The last day the certificate covers. After it the customer is taxed like anybody else. */
+  taxExemptExpiresOn: z.string().date().nullable().optional(),
+  /** The company's sales tax rate this customer is charged where their address names none (`/v1/tax-rates`). */
+  taxRateId: Uuid.nullable().optional(),
   doNotService: z.boolean(),
   doNotServiceReason: z.string().nullable(),
   tags: z.array(z.string()),
@@ -85,7 +91,16 @@ export const CustomerCreate = z.object({
   channelId: Uuid.optional(),
   campaignId: Uuid.optional(),
   paymentTermsDays: z.number().int().min(0).max(365).default(0),
+  /**
+   * Exempt from sales tax. Nothing is charged while the certificate is in
+   * force; record its number and the last day it covers, because a sale
+   * billed exempt on a lapsed certificate is tax the company still owes.
+   */
   taxExempt: z.boolean().default(false),
+  taxExemptCertificate: z.string().max(100).optional(),
+  taxExemptExpiresOn: z.string().date().optional(),
+  /** One of the company's sales tax rates, charged where the address names none. Left off for the usual rate. */
+  taxRateId: Uuid.optional(),
   tags: z.array(z.string()).default([]),
   customFields: z.record(z.unknown()).default({}),
   /**
@@ -186,6 +201,9 @@ export const updateCustomer = defineRoute({
     leadSource: z.string().max(100).nullable().optional(),
     channelId: Uuid.nullable().optional(),
     campaignId: Uuid.nullable().optional(),
+    taxExemptCertificate: z.string().max(100).nullable().optional(),
+    taxExemptExpiresOn: z.string().date().nullable().optional(),
+    taxRateId: Uuid.nullable().optional(),
   }).merge(CustomerStanding),
   output: Customer,
 });

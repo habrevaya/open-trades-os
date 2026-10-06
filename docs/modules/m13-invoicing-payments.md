@@ -155,7 +155,63 @@ into a form. The webhook address Settings shows has to be pasted into the Stripe
 dashboard; that is not something this product can do on its screens, and the
 screen says so.
 
+The sales tax rates the company charges are set up on `/settings/tax`, and on
+the setup wizard's tax step (`/setup/tax`), by somebody holding
+`settings:write`: a name and a percentage from a day for each rate, which one
+is usual, and whether the company charges sales tax at all.
+
 ## Using it
+
+### Sales tax
+
+The company writes down the rates it already charges ("Travis County 8.25%").
+Nothing looks a rate up from an address; that stays a decision this product has
+not taken (BUILD.md). Each rate is a name and a history of percentages from a
+day, so a county raising its rate on the first is a new percentage dated the
+first (`POST /v1/tax-rates/{id}/versions`) and every invoice already raised keeps
+what it charged. One rate is the usual one. A customer can name a rate of their
+own, an address can name one, and a customer can be exempt on a certificate
+whose number and last day are recorded on their page (`/customers/{id}`) or with
+`PATCH /v1/customers/{id}`; an address's rate is set on `/properties/{id}` or
+with `PATCH /v1/properties/{id}`. Which items are taxed is the price book's
+(`/pricebook/tax`): an item says whether it is taxed, a shelf says what an item
+added to it later is, and with nothing said labour is not taxed and everything
+else is. A line typed by hand is a part, taxed, or labour, not taxed, and the
+Tax box on the line says otherwise.
+
+A sale's rate is decided once, in this order (`core/tax.resolve`): nothing when
+the company says it charges no sales tax; nothing when the invoice's customer is
+exempt on a certificate whose last day has not passed; the address's rate; the
+job customer's rate; the usual rate; otherwise nothing. A lapsed certificate is
+taxed, because tax not collected on one is still owed, and the office is told
+why on every screen that shows the rate. A named rate with no percentage in
+force yet, or a retired one, is passed over. The percentage is the one in force
+on the invoice's date. It goes through a tax provider seam (`packages/api/src/tax`,
+`core/tax.TaxProvider`) whose only provider is this table.
+
+Every way an invoice is raised takes it: the office's invoice (`/invoices/new`
+and `POST /v1/invoices`), a draft saved again, "Bill this job" on `/jobs/{id}`, an
+estimate and the invoice converted from it, and an invoice raised on site on the
+phone or `/my-day`, whose day carries the visit's rate so the figure the
+customer signs is the server's. The office can choose another of the company's
+rates, or none, for a whole invoice or one line (`taxRateId` on the invoice and
+on a line), and on a draft. Each line records the rate, which of the company's
+rates it was, and where it came from (`taxRateId` and `taxSource` on the line).
+
+A draft is priced on the day it is written. Issuing it checks the lines the
+company's rates decided against the rate in force on the issue date and refuses,
+in words, when it has moved since; saving the draft prices it again. A rate a
+person chose, or one carried from a signed estimate, is not second guessed.
+
+The tax is worked out on each line, rounded once on the invoice, and shared back
+onto the lines by largest remainder, so each line's tax is within a cent of its
+own rate and the lines add up to the invoice's tax exactly. Sales tax payable is
+posted one ledger entry per rate, each carrying the rate and the sales it was
+charged on; a void and a credit note take back exactly what was posted.
+`/books/sales-tax` and `GET /v1/reports/sales-tax` read tax collected by rate
+from those entries for any period (`report.financial:read`), net of voids and
+credits, with anything else on the account (a payment to the state journalled
+by hand) shown so it reconciles to the ledger.
 
 ### Raise and issue
 
@@ -439,6 +495,12 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/visits/{id}/financing-link` | `payment:collect`, and the technician on the visit or `invoice:send` |
 | `POST /v1/financing/applications/{id}/refresh` | `payment:collect` |
 | `GET /v1/financing/report` | `report.financial:read` |
+| `GET /v1/tax-rates` | `settings:read` |
+| `POST /v1/tax-rates` | `settings:write` |
+| `POST /v1/tax-rates/{id}/versions` | `settings:write` |
+| `POST /v1/tax-rates/{id}/retire` | `settings:write` |
+| `PATCH /v1/tax-settings` | `settings:write` |
+| `GET /v1/reports/sales-tax` | `report.financial:read` |
 | `GET /v1/deposits` | `deposit:read` |
 | `POST /v1/deposits` | `deposit:collect` |
 | `POST /v1/deposits/{id}/refund` | `deposit:refund` |
@@ -498,7 +560,14 @@ failure by email to the address on their record, or by text when the email
 cannot go and it is not quiet hours; when neither can go, the office task
 says so. A bank payment returned days later sends the link and leaves the
 office the bank payment's own task. Tax rate determination is deliberately not
-built: the rate is on the line it was charged on, and BUILD.md says why. Overdue
+built: the company writes down the rates it charges, a rate is never looked up
+from an address, and BUILD.md says why. A rate is one percentage per sale: a
+county and a city rate charged together are written down as one combined rate,
+and a filing report that splits them by jurisdiction is not built. An item is
+taxed or not, whatever the rate; a reduced rate for one kind of item is the
+office choosing that rate on the line. The report reads only what was posted
+with its rate: invoices issued before rates were recorded on the ledger, and
+agreement billing, are a row of their own rather than placed on a rate. Overdue
 invoices are chased by the collections agent (M27): a reminder per step the
 company sets, drafted on the company's model key and sent from
 `/invoices/reminders` by a person or on its own when the company lets it. It

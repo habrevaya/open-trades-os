@@ -114,6 +114,11 @@ const ORDER = [
   "customer_tag",
   "customer_property", "contact", "property", "customer",
   /**
+   * The company's sales tax rates. Lines, customers and addresses name them,
+   * so they go after all three; the setting names the default rate.
+   */
+  "tax_setting", "tax_rate_version", "tax_rate",
+  /**
    * An approval step can be for one vendor, one price book category or one
    * location, so it goes before all three. A decision that copied it points
    * at it with set null and does not hold it up.

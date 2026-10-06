@@ -189,6 +189,8 @@ export * as safetyTalks from "./safety-talks";
 /** Consumer financing, the costing rates, the company budget and manual journals (M13, M15, M14). */
 export * as financing from "./financing";
 export * as costing from "./costing";
+/** The company's sales tax rates, the rate a sale is charged, and tax collected by rate (M13). */
+export * as taxRates from "./tax";
 export * as budgets from "./budgets";
 export * as journals from "./journals";
 export * as stockUnits from "./stock-units";

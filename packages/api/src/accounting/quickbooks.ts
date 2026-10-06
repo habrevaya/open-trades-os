@@ -259,14 +259,15 @@ function salesLines(
    * customer would differ. The invoice the customer holds is the authority;
    * see rule 3 at the top of schema/billing.ts.
    */
-  const taxLine = tax
-    ? [{
-      Amount: amountOf(tax.amount),
-      DetailType: "SalesItemLineDetail",
-      Description: "Sales tax",
-      SalesItemLineDetail: { ItemRef: { value: tax.accountExternalId }, Qty: 1 },
-    }]
-    : [];
+  const parts = tax && tax.byRate && tax.byRate.length > 1
+    ? tax.byRate
+    : tax ? [{ description: "Sales tax", amount: tax.amount }] : [];
+  const taxLine = parts.map((part) => ({
+    Amount: amountOf(part.amount),
+    DetailType: "SalesItemLineDetail",
+    Description: part.description,
+    SalesItemLineDetail: { ItemRef: { value: tax!.accountExternalId }, Qty: 1 },
+  }));
   return [...lines, ...taxLine];
 }
 

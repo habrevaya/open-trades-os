@@ -356,12 +356,19 @@ on its own payer's receivable by the same path as any invoice. The job's
 authorisation applies to the payer it belongs to, and each payer's contract
 limit to theirs.
 
-**The tax follows the line to whoever pays it.** The sales tax rate on the
-job's taxable lines is typed on the billing preview (`taxRate` on both calls,
-as a fraction: 0.0825), because nothing in this product decides a rate for
-anybody (M13). Each payer's invoice is then taxed on that payer's part of each
-taxable line at the line's rate, and a payer whose customer record says tax
-exempt is taxed on nothing. The tax is worked out once on the whole job,
+**The tax follows the line to whoever pays it.** Each taxable line carries its
+own rate: the one the company's rates (M13) give the job's address and customer
+today, or one of the company's rates chosen for that line on the billing preview
+(`lineRates` on both calls, `line:<job line id>=<rate id>` or `=none`), so a job
+whose parts owe two districts' rates is billed in parts at each. A figure typed
+for the whole job (`taxRate`, as a fraction: 0.0825) still charges every taxable
+line at it. The preview shows each line's rate and offers the company's rates
+beside it. Each payer's invoice is then taxed on that payer's part of each
+taxable line at the line's rate, and a payer exempt on a certificate whose last
+day has not passed is taxed on nothing; the job customer's own exemption does
+not untax a warranty company's part. Each invoice line records which of the
+company's rates it charged, and the ledger posts each payer's tax one entry per
+rate. The tax is worked out once on the whole job,
 rounded once, and shared between the payers and then between their lines by
 largest remainder (`core/splits.taxAcross`): two payers each owing half a cent
 are not each charged a cent, so the invoices' tax adds up to exactly what one
@@ -474,11 +481,11 @@ from sixty days ahead. A contract whose rises differ by year, or by trade, loads
 next year's card by hand. A rate typed with more than four decimal places of a
 percentage is rounded when it is saved.
 
-**Tax rates on a split.** The rate is one figure for the job's taxable lines,
-typed by whoever bills it, so a job whose taxable lines owe different rates
-cannot be billed in parts at each one. Nothing looks up a jurisdiction's
-rate, and a payer is exempt for everything or nothing, as the customer record
-says.
+**Tax rates on a split.** Each line is billed at its own rate, but the rates
+are the company's own: nothing looks up a jurisdiction's rate, and a line taxed
+at a different district's rate is chosen for it on the preview by a person. A
+payer is exempt for everything or nothing, as the customer record says, and
+nothing taxes one payer's part of a line at a different rate from another's.
 
 **Member pricing on the deductible.** The plan discount comes off the
 customer's own part of a job billed by payer at our price, and never off their

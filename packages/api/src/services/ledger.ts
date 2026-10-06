@@ -53,6 +53,7 @@ export async function writePosting(
       ...(branches[index] ? { businessUnitId: branches[index]! } : {}),
       ...(entry.memo ? { memo: entry.memo } : {}),
       ...(entry.reversesEntryId ? { reversesEntryId: entry.reversesEntryId } : {}),
+      ...(entry.metadata ? { metadata: entry.metadata } : {}),
     })),
   );
 

@@ -40,6 +40,14 @@ export const priceBookCategory = pgTable("price_book_category", {
   name: text("name").notNull(),
   code: text("code"),
   sortOrder: integer("sort_order").notNull().default(0),
+  /**
+   * Whether what is on this shelf is taxed, when the company has said. An
+   * item added to the shelf without saying takes this, and setting a whole
+   * shelf on the tax screen writes it beside each item. Null for a shelf
+   * nobody has answered for, where an item falls back to its kind: labour
+   * untaxed, everything else taxed (`core/tax.defaultTaxable`).
+   */
+  taxable: boolean("taxable"),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("price_book_category_org_idx").on(t.organizationId),

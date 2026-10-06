@@ -47,8 +47,13 @@ export interface Builder {
   active: number;
 }
 
-export function newBuilder(newId: () => string, title = ""): Builder {
-  return { title, taxPercent: "", options: [blankOption(OPTION_NAMES[0], newId)], active: 0 };
+/**
+ * A new estimate, its sales tax starting at the visit's own rate (`visit.tax.percent`), the one
+ * the server would charge without being told, so the figure the customer signs for is the
+ * server's. The technician can change it; blank charges none.
+ */
+export function newBuilder(newId: () => string, title = "", taxPercent = ""): Builder {
+  return { title, taxPercent: taxPercent === "0" ? "" : taxPercent, options: [blankOption(OPTION_NAMES[0], newId)], active: 0 };
 }
 
 function blankOption(name: string, newId: () => string): DraftOption {

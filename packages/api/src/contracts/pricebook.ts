@@ -80,7 +80,12 @@ export const createPriceBookItem = defineRoute({
     categoryId: Uuid.optional(),
     price: MoneyString,
     cost: MoneyString.optional(),
-    taxable: z.boolean().default(true),
+    /**
+     * Whether a sales tax rate is charged on it. Left off, it is what its
+     * shelf says (`categoryTaxable` on `/v1/item-tax`), and on a shelf that
+     * says nothing, taxed unless it is labour.
+     */
+    taxable: z.boolean().optional(),
     taxClass: z.string().max(50).optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).optional(),

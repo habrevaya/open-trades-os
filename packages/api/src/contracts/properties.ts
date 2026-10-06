@@ -29,6 +29,8 @@ export const Property = z.object({
   locationSource: z.string().nullable(),
   locatedAt: z.string().datetime().nullable(),
   territoryId: Uuid.nullable(),
+  /** The company's sales tax rate charged on work here (`/v1/tax-rates`). Null for the customer's, or the usual one. */
+  taxRateId: Uuid.nullable().optional(),
   squareFeet: z.string().nullable(),
   yearBuilt: z.string().nullable(),
   gateCode: z.string().nullable(),
@@ -49,6 +51,8 @@ export const PropertyCreate = z.object({
   accessNotes: z.string().max(2000).optional(),
   hazardNotes: z.string().max(2000).optional(),
   hasDog: z.boolean().default(false),
+  /** One of the company's sales tax rates, charged on work here. Left off for the customer's, or the usual one. */
+  taxRateId: Uuid.optional(),
   customFields: z.record(z.unknown()).default({}),
   /** Link to a customer on create, with the role they hold. */
   customerId: Uuid.optional(),
@@ -90,6 +94,12 @@ export const updateProperty = defineRoute({
     /** Shown to a technician before they get out of the truck. */
     hazardNotes: z.string().max(2000).nullable().optional(),
     hasDog: z.boolean().optional(),
+    /**
+     * The sales tax rate charged on work here, which wins over the
+     * customer's because the rate follows where the work is done. Null for
+     * the customer's, or the usual one.
+     */
+    taxRateId: Uuid.nullable().optional(),
     customFields: z.record(z.unknown()).optional(),
   }),
   output: Property,

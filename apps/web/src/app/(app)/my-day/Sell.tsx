@@ -106,7 +106,7 @@ function EstimateBuilder({ visit, priceBook, onSave, onCancel }: {
   onSave: (builder: Builder) => Promise<string | null>; onCancel: () => void;
 }) {
   const newId = () => crypto.randomUUID();
-  const [builder, setBuilder] = useState<Builder>(() => newBuilder(newId, visit.summary));
+  const [builder, setBuilder] = useState<Builder>(() => newBuilder(newId, visit.summary, visit.tax.percent));
   const [query, setQuery] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [price, setPrice] = useState("");
@@ -230,6 +230,7 @@ function EstimateBuilder({ visit, priceBook, onSave, onCancel }: {
         <span className="text-sm font-medium">Sales tax, percent</span>
         <input value={builder.taxPercent} onChange={(e) => setBuilder({ ...builder, taxPercent: e.target.value })} inputMode="decimal"
                placeholder="Leave empty for none" className={field} />
+        <span className="mt-1 block text-xs text-ink-500">{visit.tax.note}</span>
       </label>
 
       {problem && <p role="alert" className="rounded bg-red-tint px-3 py-2 text-sm text-red-600">{problem}</p>}
@@ -401,7 +402,7 @@ export function InvoicePanel({ visit, abilities, handlers }: { visit: DayVisit; 
     .map((e) => ({ estimate: e, invoice: invoiceFromEstimate(e) }))
     .filter((x) => x.invoice !== null);
   const work = visit.billable.filter((b) => !leftOut.includes(b.id));
-  const priced = invoiceFromWork(work, visit.member);
+  const priced = invoiceFromWork(work, visit.member, visit.tax.rate);
   const chosen = signedFor.find((x) => x.estimate.id === source) ?? null;
   const total = chosen ? chosen.invoice!.total : priced.totals.total;
   const canBill = signedFor.length > 0 || visit.billable.length > 0;
@@ -447,7 +448,7 @@ export function InvoicePanel({ visit, abilities, handlers }: { visit: DayVisit; 
               <input type="radio" name={`bill-${visit.id}`} checked={source === "work"} onChange={() => setSource("work")} />
               <span>
                 <span className="block font-medium">The parts and charges recorded</span>
-                <span className="block text-sm tabular-nums">{formatAmount(invoiceFromWork(visit.billable, visit.member).totals.total)}</span>
+                <span className="block text-sm tabular-nums">{formatAmount(invoiceFromWork(visit.billable, visit.member, visit.tax.rate).totals.total)}</span>
               </span>
             </label>
           )}

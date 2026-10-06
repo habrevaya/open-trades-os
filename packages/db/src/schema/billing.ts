@@ -5,6 +5,7 @@ import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
 import { job, jobType } from "./work";
 import { priceBookItemVersion } from "./pricebook";
+import { taxRate } from "./tax";
 
 /**
  * MONEY
@@ -261,6 +262,10 @@ export const estimateLine = pgTable("estimate_line", {
   /** The rate AS APPLIED, carried onto the invoice on conversion. */
   taxRate: rate("tax_rate").notNull().default("0"),
   taxAmount: money("tax_amount").notNull().default("0"),
+  /** The company's rate it charged, when it was one of them. See `invoice_line.tax_rate_id`. */
+  taxRateId: uuid("tax_rate_id").references(() => taxRate.id),
+  /** Where the rate came from. See `invoice_line.tax_source`. */
+  taxSource: text("tax_source"),
   lineTotal: money("line_total").notNull().default("0"),
   /**
    * Optional lines are priced and shown but excluded from the option total
@@ -482,6 +487,26 @@ export const invoiceLine = pgTable("invoice_line", {
   /** The rate AS APPLIED. Never recomputed on read. */
   taxRate: rate("tax_rate").notNull().default("0"),
   taxAmount: money("tax_amount").notNull().default("0"),
+  /**
+   * WHICH OF THE COMPANY'S RATES THIS LINE CHARGED, when it was one of them.
+   * `tax_rate` above is still the figure; this is the name a filing report
+   * groups by, so "Travis County" is one row however many invoices charged
+   * it. Null for a line nobody taxed, a rate typed by hand that matches none
+   * of the company's, and history. No cascade: a rate is retired, never
+   * removed, because lines name it.
+   */
+  taxRateId: uuid("tax_rate_id").references(() => taxRate.id),
+  /**
+   * Where the line's rate came from, written when the line is priced:
+   * `address`, `customer` or `default` (the company's table, `core/tax`),
+   * `exempt` (the customer's certificate), `none` (no rate applies), `off`
+   * (the company charges no sales tax), `chosen` (a person picked it),
+   * `estimate` (carried from the option signed for), `given` (history).
+   * Null on a line that is not taxable, and on lines written before it was
+   * recorded. Issuing a draft checks the first six against the rate in force
+   * on the day it is issued.
+   */
+  taxSource: text("tax_source"),
   lineTotal: money("line_total").notNull().default("0"),
   /** Commercial and builder clients require cost coding at the line. */
   costCode: text("cost_code"),

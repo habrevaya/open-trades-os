@@ -49844,7 +49844,7 @@
       "post": {
         "operationId": "createInvoice",
         "summary": "Create an invoice",
-        "description": "From a job, or standalone. Totals are computed server side from the lines. A client's own totals are never used; sent as `expectedTotals` they are a cross check that refuses the invoice when they differ to the cent.\n\nRequires a session holding: invoice:write.",
+        "description": "From a job, or standalone. Totals are computed server side from the lines. A client's own totals are never used; sent as `expectedTotals` they are a cross check that refuses the invoice when they differ to the cent. Sales tax on the taxable lines is the company's rate for the customer and the job's address on the invoice's date (`/v1/tax-rates`), unless `taxRateId` says otherwise; each line's tax is the document's tax, rounded once, shared back so the lines add up to it.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M13"
         ],
@@ -50430,7 +50430,7 @@
       "patch": {
         "operationId": "updateInvoice",
         "summary": "Edit a draft invoice",
-        "description": "Drafts only. Lines, when sent, replace the draft's lines and are priced by the same rules as a new invoice. An issued invoice is refused: void it and raise another.\n\nRequires a session holding: invoice:write.",
+        "description": "Drafts only. Lines, when sent, replace the draft's lines and are priced by the same rules as a new invoice, sales tax included: worked out from the company's rates on today's date, or the `taxRateId` sent with them. An issued invoice is refused: void it and raise another.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M13"
         ],
@@ -50955,7 +50955,7 @@
       "post": {
         "operationId": "issueInvoice",
         "summary": "Issue a draft invoice",
-        "description": "Posts it to the ledger, moves its job to invoiced, consumes the client's authorisation, and makes it something that can be sent and paid. The issue date follows the same rules as on create.\n\nRequires a session holding: invoice:write.",
+        "description": "Posts it to the ledger, moves its job to invoiced, consumes the client's authorisation, and makes it something that can be sent and paid. The issue date follows the same rules as on create. A line taxed from the company's rates is checked against the rate in force on the issue date, and the draft is refused, in words, when that rate has changed since it was priced: save it again to price it at the new rate.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M13"
         ],
@@ -51835,7 +51835,7 @@
       "get": {
         "operationId": "listItemTax",
         "summary": "Which items are taxed, and under which class",
-        "description": "Every live price book item, with its shelf, whether it is taxable and its tax class, as of now. No rates: a rate is set on the document it is charged on.\n\nRequires a session holding: pricebook:read.",
+        "description": "Every live price book item, with its shelf, whether it is taxable and its tax class, as of now, and what each shelf says about tax for an item added to it. The rates themselves are the company's (`/v1/tax-rates`), charged on the lines these say are taxable.\n\nRequires a session holding: pricebook:read.",
         "tags": [
           "M02"
         ],
@@ -51927,7 +51927,7 @@
       "post": {
         "operationId": "setItemTax",
         "summary": "Set whether items are taxed, many at once",
-        "description": "A new version of each item that changes, exactly as a price change is, so an invoice that charged tax on an item last month still says it did. Items already as asked are left alone. An exempt item cannot be taxable.\n\nRequires a session holding: pricebook:write.",
+        "description": "A new version of each item that changes, exactly as a price change is, so an invoice that charged tax on an item last month still says it did. Items already as asked are left alone. An exempt item cannot be taxable. With `categoryId`, the shelf says the same for every item added to it later.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M02"
         ],
@@ -52803,7 +52803,7 @@
       "post": {
         "operationId": "billJob",
         "summary": "Bill a job to whoever pays for it, one invoice per payer",
-        "description": "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent. When the job's own customer holds a membership plan, its discount comes off their own part, at our price, as the line's member discount; a third party's part never takes one.\n\nRequires a session holding: invoice:write.",
+        "description": "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. Each payer's invoice is taxed on that payer's part of each taxable line at the line's own rate (the company's rate for the job, a line's own from `lineRates`, or one `taxRate` for all), and the tax across the invoices adds up to the tax on the whole job to the cent. When the job's own customer holds a membership plan, its discount comes off their own part, at our price, as the line's member discount; a third party's part never takes one.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M31"
         ],
@@ -52956,6 +52956,21 @@
             "schema": {
               "type": "string",
               "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+            }
+          },
+          {
+            "name": "lineRates",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^[a-z]+(:[0-9a-f-]{36})?=([0-9a-f-]{36}|none)$"
+              },
+              "maxItems": 500
             }
           }
         ],
@@ -97644,6 +97659,124 @@
         ]
       }
     },
+    "/v1/reports/sales-tax": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getSalesTaxReport",
+        "summary": "Sales tax collected by rate, for filing",
+        "description": "Read from the ledger: every invoice, void and credit note's entries on sales tax payable between `from` and `to` (days in the company's calendar), grouped by the rate each entry records, with the sales it was charged on. Voids and credits count against the period they happened in. `otherMovements` is everything else on the account in the period (a payment to the state journalled by hand), so the rows and it add up to the account's movement.\n\nRequires a session holding: report.financial:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sales tax collected by rate, for filing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesTaxReportOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report.financial:read"
+        ]
+      }
+    },
     "/v1/restores": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -112257,6 +112390,633 @@
         ]
       }
     },
+    "/v1/tax-rates": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createTaxRate",
+        "summary": "Add a sales tax rate",
+        "description": "A name and a percentage from a day (today when left off). The first rate a company adds becomes its usual rate, as does any sent with `makeDefault`. A second rate in use with the same name is refused; sending the same name and percentage again returns what is there.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaxRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a sales tax rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaxRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "get": {
+        "operationId": "listTaxRates",
+        "summary": "The sales tax rates the company charges",
+        "description": "Every rate the company has written down, with each percentage and the day it started, which one is in force today, and which is the usual one. These are the company's own rates: nothing here looks a rate up from an address.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M13"
+        ],
+        "responses": {
+          "200": {
+            "description": "The sales tax rates the company charges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTaxRatesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/tax-rates/{id}/retire": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "retireTaxRate",
+        "summary": "Stop using a rate",
+        "description": "Takes the rate off every list from now on. Lines that charged it keep naming it, and customers and addresses that named it are charged the usual rate. The usual rate cannot be retired until another is the usual one. Retiring a retired rate changes nothing.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireTaxRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop using a rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireTaxRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/tax-rates/{id}/versions": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addTaxRateVersion",
+        "summary": "Change a rate's percentage from a day",
+        "description": "The rate's new percentage starts on `effectiveFrom`. Documents already written keep what they charged; a draft issued on or after the day is checked against it. A second, different percentage on the same day is refused; the same one sent again returns what is there.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTaxRateVersionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Change a rate's percentage from a day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddTaxRateVersionOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/tax-settings": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateTaxSettings",
+        "summary": "Say whether the company charges sales tax, and its usual rate",
+        "description": "`chargesTax: false` charges no sales tax on anything raised from now on, whatever rates are named. `defaultTaxRateId` is the rate charged where no customer or address names one; null for none. A field left out keeps what it had.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaxSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say whether the company charges sales tax, and its usual rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateTaxSettingsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/team": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -124472,6 +125232,162 @@
           "doneBy"
         ]
       },
+      "AddTaxRateVersionInput": {
+        "type": "object",
+        "properties": {
+          "percent": {
+            "type": "string",
+            "maxLength": 12
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "percent",
+          "effectiveFrom"
+        ]
+      },
+      "AddTaxRateVersionOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "chargesTax": {
+            "type": "boolean"
+          },
+          "answered": {
+            "type": "boolean"
+          },
+          "defaultTaxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "current": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "percent": {
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "percent",
+                    "effectiveFrom"
+                  ]
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "percent": {
+                        "type": "string"
+                      },
+                      "effectiveFrom": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "past",
+                          "current",
+                          "scheduled"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rate",
+                      "percent",
+                      "effectiveFrom",
+                      "note",
+                      "state"
+                    ]
+                  }
+                },
+                "customers": {
+                  "type": "integer"
+                },
+                "addresses": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "retired",
+                "isDefault",
+                "current",
+                "versions",
+                "customers",
+                "addresses"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "chargesTax",
+          "answered",
+          "defaultTaxRateId",
+          "rates"
+        ]
+      },
       "AdvanceRegulatorySubmissionInput": {
         "type": "object",
         "properties": {
@@ -127329,6 +128245,19 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                       },
+                      "taxRateId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "taxSource": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "taxAmount": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -129431,6 +130360,15 @@
           "taxRate": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "lineRates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 120,
+              "pattern": "^[a-z]+(:[0-9a-f-]{36})?=([0-9a-f-]{36}|none)$"
+            },
+            "maxItems": 500
           }
         }
       },
@@ -132542,6 +133480,19 @@
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                           },
+                          "taxRateId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "uuid"
+                          },
+                          "taxSource": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "taxAmount": {
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -135460,6 +136411,18 @@
             "type": "boolean",
             "default": false
           },
+          "taxExemptCertificate": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "taxExemptExpiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "taxRateId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -135655,6 +136618,26 @@
           },
           "taxExempt": {
             "type": "boolean"
+          },
+          "taxExemptCertificate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxExemptExpiresOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "doNotService": {
             "type": "boolean"
@@ -135947,8 +136930,14 @@
           },
           "taxRate": {
             "type": "string",
-            "pattern": "^-?\\d+(\\.\\d{1,6})?$",
-            "default": "0"
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "options": {
             "type": "array",
@@ -136247,6 +137236,19 @@
                       "taxRate": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "taxRateId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "taxSource": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       },
                       "taxAmount": {
                         "type": "string",
@@ -136842,6 +137844,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "taxRateId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
                 "priceAsGiven": {
                   "type": "boolean"
                 },
@@ -136875,6 +137881,13 @@
               ]
             },
             "minItems": 1
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "adjustment": {
             "type": "object",
@@ -137098,6 +138111,19 @@
                 "taxAmount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "lineTotal": {
                   "type": "string",
@@ -139837,8 +140863,7 @@
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "taxable": {
-            "type": "boolean",
-            "default": true
+            "type": "boolean"
           },
           "taxClass": {
             "type": "string",
@@ -140517,6 +141542,10 @@
             "type": "boolean",
             "default": false
           },
+          "taxRateId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "customFields": {
             "type": "object",
             "additionalProperties": {},
@@ -140653,6 +141682,13 @@
             "format": "date-time"
           },
           "territoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "taxRateId": {
             "type": [
               "string",
               "null"
@@ -142963,6 +143999,166 @@
           "nextOn"
         ]
       },
+      "CreateTaxRateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "percent": {
+            "type": "string",
+            "maxLength": 12
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "makeDefault": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "percent"
+        ]
+      },
+      "CreateTaxRateOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "chargesTax": {
+            "type": "boolean"
+          },
+          "answered": {
+            "type": "boolean"
+          },
+          "defaultTaxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "current": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "percent": {
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "percent",
+                    "effectiveFrom"
+                  ]
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "percent": {
+                        "type": "string"
+                      },
+                      "effectiveFrom": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "past",
+                          "current",
+                          "scheduled"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rate",
+                      "percent",
+                      "effectiveFrom",
+                      "note",
+                      "state"
+                    ]
+                  }
+                },
+                "customers": {
+                  "type": "integer"
+                },
+                "addresses": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "retired",
+                "isDefault",
+                "current",
+                "versions",
+                "customers",
+                "addresses"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "chargesTax",
+          "answered",
+          "defaultTaxRateId",
+          "rates"
+        ]
+      },
       "CreateTerritoryInput": {
         "type": "object",
         "properties": {
@@ -145201,6 +146397,19 @@
                       "taxRate": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "taxRateId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "taxSource": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       },
                       "taxAmount": {
                         "type": "string",
@@ -154120,6 +155329,26 @@
           "taxExempt": {
             "type": "boolean"
           },
+          "taxExemptCertificate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxExemptExpiresOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "doNotService": {
             "type": "boolean"
           },
@@ -156421,6 +157650,19 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                       },
+                      "taxRateId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "taxSource": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "taxAmount": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -158083,6 +159325,37 @@
                     "excludedItemIds"
                   ]
                 },
+                "tax": {
+                  "type": "object",
+                  "properties": {
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "percent": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "percent",
+                    "label",
+                    "source",
+                    "note"
+                  ]
+                },
                 "estimates": {
                   "type": "array",
                   "items": {
@@ -158355,6 +159628,7 @@
                 "parts",
                 "inspections",
                 "member",
+                "tax",
                 "estimates",
                 "billable",
                 "invoices"
@@ -160250,6 +161524,19 @@
                 "taxAmount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "lineTotal": {
                   "type": "string",
@@ -169123,6 +170410,13 @@
             ],
             "format": "uuid"
           },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "squareFeet": {
             "type": [
               "string",
@@ -171926,6 +173220,86 @@
           "attendees",
           "signed",
           "photos"
+        ]
+      },
+      "GetSalesTaxReportOutput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "rate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "percent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taxableSales": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxCollected": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "taxRateId",
+                "name",
+                "rate",
+                "percent",
+                "taxableSales",
+                "taxCollected"
+              ]
+            }
+          },
+          "totalCollected": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "otherMovements": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "accountMovement": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "rows",
+          "totalCollected",
+          "otherMovements",
+          "accountMovement"
         ]
       },
       "GetSandboxOutput": {
@@ -176042,6 +177416,19 @@
                 "taxAmount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "lineTotal": {
                   "type": "string",
@@ -183224,6 +184611,26 @@
                 "taxExempt": {
                   "type": "boolean"
                 },
+                "taxExemptCertificate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taxExemptExpiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "doNotService": {
                   "type": "boolean"
                 },
@@ -186388,6 +187795,19 @@
                     "null"
                   ]
                 },
+                "categoryId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "categoryTaxable": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "taxable": {
                   "type": "boolean"
                 },
@@ -186403,6 +187823,8 @@
                 "code",
                 "name",
                 "category",
+                "categoryId",
+                "categoryTaxable",
                 "taxable",
                 "taxClass"
               ]
@@ -191448,6 +192870,13 @@
                   ],
                   "format": "uuid"
                 },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "squareFeet": {
                   "type": [
                     "string",
@@ -195937,6 +197366,141 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ListTaxRatesOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "chargesTax": {
+            "type": "boolean"
+          },
+          "answered": {
+            "type": "boolean"
+          },
+          "defaultTaxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "current": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "percent": {
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "percent",
+                    "effectiveFrom"
+                  ]
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "percent": {
+                        "type": "string"
+                      },
+                      "effectiveFrom": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "past",
+                          "current",
+                          "scheduled"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rate",
+                      "percent",
+                      "effectiveFrom",
+                      "note",
+                      "state"
+                    ]
+                  }
+                },
+                "customers": {
+                  "type": "integer"
+                },
+                "addresses": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "retired",
+                "isDefault",
+                "current",
+                "versions",
+                "customers",
+                "addresses"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "chargesTax",
+          "answered",
+          "defaultTaxRateId",
+          "rates"
         ]
       },
       "ListTeamOutput": {
@@ -202955,6 +204519,25 @@
                 "taxRate": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taxLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -202975,7 +204558,10 @@
                 "rateCardLineId",
                 "outOfScope",
                 "taxable",
-                "taxRate"
+                "taxRate",
+                "taxRateId",
+                "taxSource",
+                "taxLabel"
               ]
             }
           },
@@ -203140,6 +204726,41 @@
           "outOfScope": {
             "type": "integer"
           },
+          "tax": {
+            "type": "object",
+            "properties": {
+              "worked": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "worked",
+              "source",
+              "choices"
+            ]
+          },
           "problems": {
             "type": "array",
             "items": {
@@ -203194,6 +204815,7 @@
           "reconciles",
           "taxTotal",
           "outOfScope",
+          "tax",
           "problems",
           "existing"
         ]
@@ -214228,6 +215850,145 @@
           "requests"
         ]
       },
+      "RetireTaxRateInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetireTaxRateOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "chargesTax": {
+            "type": "boolean"
+          },
+          "answered": {
+            "type": "boolean"
+          },
+          "defaultTaxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "current": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "percent": {
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "percent",
+                    "effectiveFrom"
+                  ]
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "percent": {
+                        "type": "string"
+                      },
+                      "effectiveFrom": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "past",
+                          "current",
+                          "scheduled"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rate",
+                      "percent",
+                      "effectiveFrom",
+                      "note",
+                      "state"
+                    ]
+                  }
+                },
+                "customers": {
+                  "type": "integer"
+                },
+                "addresses": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "retired",
+                "isDefault",
+                "current",
+                "versions",
+                "customers",
+                "addresses"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "chargesTax",
+          "answered",
+          "defaultTaxRateId",
+          "rates"
+        ]
+      },
       "RetireWageScaleInput": {
         "type": "object",
         "properties": {
@@ -218235,6 +219996,19 @@
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                           },
+                          "taxRateId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "uuid"
+                          },
+                          "taxSource": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "taxAmount": {
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -220533,6 +222307,10 @@
               "service",
               "exempt"
             ]
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -230895,6 +232673,27 @@
             "type": "boolean",
             "default": false
           },
+          "taxExemptCertificate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "taxExemptExpiresOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -231025,6 +232824,26 @@
           },
           "taxExempt": {
             "type": "boolean"
+          },
+          "taxExemptCertificate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxExemptExpiresOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "doNotService": {
             "type": "boolean"
@@ -231336,6 +233155,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "taxRateId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
                 "priceAsGiven": {
                   "type": "boolean"
                 },
@@ -231369,6 +233192,13 @@
               ]
             },
             "minItems": 1
+          },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "adjustment": {
             "type": "object",
@@ -231609,6 +233439,19 @@
                 "taxAmount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "lineTotal": {
                   "type": "string",
@@ -234589,6 +236432,13 @@
           "hasDog": {
             "type": "boolean"
           },
+          "taxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "customFields": {
             "type": "object",
             "additionalProperties": {}
@@ -234689,6 +236539,13 @@
             "format": "date-time"
           },
           "territoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "taxRateId": {
             "type": [
               "string",
               "null"
@@ -236346,6 +238203,156 @@
           "lastRaisedOn",
           "schedule",
           "nextOn"
+        ]
+      },
+      "UpdateTaxSettingsInput": {
+        "type": "object",
+        "properties": {
+          "chargesTax": {
+            "type": "boolean"
+          },
+          "defaultTaxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "UpdateTaxSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "chargesTax": {
+            "type": "boolean"
+          },
+          "answered": {
+            "type": "boolean"
+          },
+          "defaultTaxRateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "current": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "percent": {
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "percent",
+                    "effectiveFrom"
+                  ]
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "percent": {
+                        "type": "string"
+                      },
+                      "effectiveFrom": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "past",
+                          "current",
+                          "scheduled"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rate",
+                      "percent",
+                      "effectiveFrom",
+                      "note",
+                      "state"
+                    ]
+                  }
+                },
+                "customers": {
+                  "type": "integer"
+                },
+                "addresses": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "retired",
+                "isDefault",
+                "current",
+                "versions",
+                "customers",
+                "addresses"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "chargesTax",
+          "answered",
+          "defaultTaxRateId",
+          "rates"
         ]
       },
       "UpdateTechnicianInput": {
@@ -240016,6 +242023,19 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "lineTotal": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -240913,6 +242933,19 @@
                 "taxAmount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxRateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taxSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "lineTotal": {
                   "type": "string",

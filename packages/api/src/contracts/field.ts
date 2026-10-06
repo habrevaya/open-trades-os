@@ -298,6 +298,24 @@ export const VisitForField = z.object({
     excludedItemIds: z.array(Uuid),
   }).nullable(),
   /**
+   * The sales tax a sale on this visit is charged today, worked out by the
+   * server from the company's rates: this address's, the customer's, or the
+   * usual one, or nothing for a customer exempt on a certificate in force.
+   * The phone taxes an invoice for recorded work at it, on the lines that
+   * are taxable, and starts the estimate builder's percentage at it.
+   */
+  tax: z.object({
+    /** A fraction: "0.0825". "0" when nothing is charged. */
+    rate: RateString,
+    /** As a person reads it: "8.25". */
+    percent: z.string(),
+    /** "Travis County 8.25%", or null when it is none of the company's rates. */
+    label: z.string().nullable(),
+    source: z.string(),
+    /** Why, in a sentence, for the screen. */
+    note: z.string(),
+  }),
+  /**
    * Estimates the technician can show the customer: the ones on this visit's
    * job, and the customer's undecided ones at this address that belong to no
    * job yet. Prices only. No cost and no margin, because this is what is

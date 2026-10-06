@@ -67,6 +67,10 @@ const REFUSED: Record<string, Refused> = {
   costing_rate_day_idx: { file: "costing.ts", how: "check", says: "already has a rate from" },
   /** A journal reversed twice, which would take the same money back twice. */
   journal_entry_reverses_idx: { file: "journals.ts", how: "check", says: "was already reversed by journal" },
+  /** A second sales tax rate in use under one name: two rows on a filing report that mean the same thing. */
+  tax_rate_name_idx: { file: "tax.ts", how: "check", says: "There is already a rate called" },
+  /** A second, different percentage for one rate on one day: "what did it charge on the 1st" would have two answers. */
+  tax_rate_version_day_idx: { file: "tax.ts", how: "check", says: "already has a percentage from" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
@@ -314,6 +318,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
   after_hours_rate_org_idx: "One choice of after hours and holiday rate per company, upserted.",
+  tax_setting_org_idx: "One sales tax answer per company, upserted.",
   ai_agent_setting_agent_idx: "One settings row per agent per company, upserted.",
   ai_agent_proposal_open_idx:
     "One open draft per agent per source. Inserted with on conflict do nothing, and the open draft is returned instead.",

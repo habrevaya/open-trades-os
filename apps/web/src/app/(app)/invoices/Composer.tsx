@@ -38,10 +38,29 @@ export interface ComposerOffer {
   because: string[];
 }
 
-const blank = (): ComposerLine => ({ name: "", quantity: "1", unitPrice: "", discountAmount: "", taxable: false });
+/**
+ * The sales tax the invoice will charge, and what else it could: the rate
+ * the company's rates give this customer and address, each of the company's
+ * rates in force today, or none. Chosen once for the invoice; the server
+ * charges it on the taxable lines.
+ */
+export interface ComposerTax {
+  /** What it is without anybody choosing, in a sentence. */
+  worked: string;
+  choices: Array<{ id: string; label: string }>;
+  /** "" for worked out, "none", or a rate's id. */
+  chosen: string;
+}
+
+/**
+ * A line typed by hand is a part, taxed, or labour, not taxed, which is how
+ * most states that tax parts treat labour. The box is still there to say
+ * otherwise.
+ */
+const blank = (taxable: boolean): ComposerLine => ({ name: "", quantity: "1", unitPrice: "", discountAmount: "", taxable });
 
 export function Composer({
-  action, hidden, lines, items, submit, draftable = true, adjustment, memo, dueOn, purchaseOrderNumber, offers = [],
+  action, hidden, lines, items, submit, draftable = true, adjustment, memo, dueOn, purchaseOrderNumber, offers = [], tax,
 }: {
   action: (previous: FormState, form: FormData) => Promise<FormState>;
   hidden: Record<string, string>;
@@ -55,14 +74,15 @@ export function Composer({
   dueOn?: string | undefined;
   purchaseOrderNumber?: string | undefined;
   offers?: ComposerOffer[] | undefined;
+  tax?: ComposerTax | undefined;
 }) {
   const [state, runForm, pending] = useKeptAction(action, null);
   const [rows, setRows] = useState<(ComposerLine & { key: number })[]>(
-    () => (lines.length > 0 ? lines : [blank()]).map((line, key) => ({ ...line, key })),
+    () => (lines.length > 0 ? lines : [blank(true)]).map((line, key) => ({ ...line, key })),
   );
   const [next, setNext] = useState(rows.length);
 
-  const add = () => { setRows((r) => [...r, { ...blank(), key: next }]); setNext((n) => n + 1); };
+  const add = (taxable: boolean) => { setRows((r) => [...r, { ...blank(taxable), key: next }]); setNext((n) => n + 1); };
   const remove = (key: number) => setRows((r) => r.filter((row) => row.key !== key));
   const itemById = new Map(items.map((item) => [item.id, item]));
   /** An offered rate as a line from the price book, at the book's price, for as many visits as it is for. */
@@ -172,14 +192,34 @@ export function Composer({
             </div>
           );
         })}
-        <button type="button" onClick={add}
-                className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
-          Add a line
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => add(true)}
+                  className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
+            Add a line
+          </button>
+          <button type="button" onClick={() => add(false)}
+                  className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
+            Add labour
+          </button>
+        </div>
         <p className="text-xs text-ink-500">
-          Tax is worked out by the server from what is marked taxable, at the rate the company charges.
+          A line you add is a part and taxed; labour is not. Tick or untick Tax to say otherwise. Price book items are
+          taxed as the price book says.
         </p>
       </fieldset>
+
+      {tax ? (
+        <label className="block max-w-xl">
+          <span className="text-sm font-medium text-ink-700">Sales tax</span>
+          <select name="taxRateId" defaultValue={tax.chosen}
+                  className="mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm">
+            <option value="">As worked out: {tax.worked}</option>
+            {tax.choices.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            <option value="none">No sales tax on this invoice</option>
+          </select>
+          <span className="mt-1 block text-xs text-ink-500">Charged on the taxable lines at the percentage in force on the invoice&rsquo;s date.</span>
+        </label>
+      ) : null}
 
       <fieldset className="grid gap-4 sm:grid-cols-2">
         <legend className="mb-1 text-sm font-medium text-ink-700">Adjustment</legend>
