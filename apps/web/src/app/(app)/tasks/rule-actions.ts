@@ -5,7 +5,8 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { tasks, taskChecklist, taskRules } from "@opentradesos/api/services";
 import {
-  createTask, closeTask, addTaskChecklistItem, createTaskTemplate, createTaskEscalationRule, setReportingLine,
+  createTask, closeTask, addTaskChecklistItem, createTaskTemplate, updateTaskTemplate, createTaskEscalationRule,
+  setReportingLine,
 } from "@opentradesos/api/contracts";
 import { time } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
@@ -112,7 +113,7 @@ export async function finishTask(_previous: FormState, form: FormData): Promise<
 }
 
 /** The schedules that come round on a named day of the week; the others ignore the day box. */
-const WEEKDAY_FREQUENCIES = ["weekly", "every_other_week", "last_weekday_of_month"];
+const WEEKDAY_FREQUENCIES = ["weekly", "every_other_week", "last_weekday_of_month", "nth_weekday_of_month", "every_n_weeks"];
 
 export async function addTemplate(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
@@ -120,6 +121,9 @@ export async function addTemplate(_previous: FormState, form: FormData): Promise
     const frequency = field(form, "frequency");
     const weekday = field(form, "weekday");
     const monthDay = field(form, "monthDay");
+    const monthWeek = field(form, "monthWeek");
+    const intervalWeeks = field(form, "intervalWeeks");
+    const days = form.getAll("daysOfWeek").map((d) => Number(d));
     const assignee = field(form, "assigneeUserId");
     const due = minutesOf(field(form, "dueTime"));
     const checklist = lines(field(form, "checklist"));
@@ -130,6 +134,9 @@ export async function addTemplate(_previous: FormState, form: FormData): Promise
       frequency,
       ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined ? { weekday: Number(weekday) } : {}),
       ...(frequency === "monthly" && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
+      ...(frequency === "nth_weekday_of_month" && monthWeek !== undefined ? { monthWeek: Number(monthWeek) } : {}),
+      ...(frequency === "every_n_weeks" && intervalWeeks !== undefined ? { intervalWeeks: Number(intervalWeeks) } : {}),
+      ...(frequency === "chosen_weekdays" ? { daysOfWeek: days } : {}),
       ...(assignee ? { assigneeUserId: assignee } : {}),
       ...(due !== undefined ? { dueMinutes: due } : {}),
       ...(checklist.length > 0 ? { checklist } : {}),
@@ -146,6 +153,22 @@ export async function setTemplateActive(_previous: FormState, form: FormData): P
   const state = await attempt(form, async () => {
     const { ctx } = await session();
     await taskRules.updateTemplate(ctx, { id: String(form.get("id") ?? ""), active: form.get("active") === "1" });
+  });
+  refresh("/tasks/recurring");
+  return state;
+}
+
+/**
+ * Switch "not on a holiday" on an existing template. It applies from the
+ * next occurrence; a day already raised or already skipped stays as it was.
+ */
+export async function setTemplateSkipHolidays(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const { ctx } = await session();
+    const input = parsed(updateTaskTemplate.input, {
+      id: String(form.get("id") ?? ""), skipHolidays: form.get("skipHolidays") === "1",
+    });
+    await taskRules.handlers.updateTaskTemplate(ctx, input);
   });
   refresh("/tasks/recurring");
   return state;

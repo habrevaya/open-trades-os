@@ -141,31 +141,47 @@ and `POST /v1/tasks/{id}/checklist/{itemId}/remove`.
 ### Recurring tasks
 
 `/tasks/recurring` is the work that comes round every day, every weekday
-(Monday to Friday), every week on a weekday, every other week on a weekday,
-every month on a date (the 31st is held to the last day of a shorter month) or
-on the last given weekday of every month (the last Friday, whether it is the
-fourth or the fifth), with who it goes to, when on the day it is due, its
-priority and a checklist. The rules for which day each one is for are in core's
-`tasks` module with unit tests, so the worker, the API and the screen cannot
-count differently.
+(Monday to Friday), on the days of the week the company ticks (Monday,
+Wednesday and Saturday for a crew that works those), every week on a weekday,
+every other week or every so many weeks on a weekday, every month on a date
+(the 31st is held to the last day of a shorter month), on the first, second,
+third or fourth given weekday of every month (the first Monday), or on the last
+given weekday of every month (the last Friday, whether it is the fourth or the
+fifth), with who it goes to, when on the day it is due, its priority and a
+checklist. The rules for which day each one is for are in core's `tasks`
+module with unit tests, so the worker, the API and the screen cannot count
+differently.
 
 An every other week task is counted from its first day: the first of its
 weekday on or after "Starting", and every fourteenth day after that, so
 "Starting" is what says which of the two weeks is the on week, and editing it
-moves the on week. A weekdays task is never raised for a Saturday or a Sunday;
-a worker that was down over a weekend raises Friday's, as it raises the latest
-one of any schedule, and nothing more. In the API the frequencies are `daily`,
-`weekdays`, `weekly`, `every_other_week`, `monthly` and `last_weekday_of_month`,
-and the three that come round on a named day take `weekday`. The worker raises each one on the day in the COMPANY'S
-timezone, so Monday's task is not raised on Sunday evening in Chicago, and
-each is paused and resumed from the same screen.
+moves the on week. Every so many weeks (two to fifty two) is counted the same
+way with its own gap, so every third Wednesday starting on a Monday is that
+Wednesday and every twenty first day after it. The fifth given weekday of a
+month is not offered, because most months do not have one; the last one is. A
+weekdays task is never raised for a Saturday or a Sunday, and a ticked days task
+is never raised on a day that is not ticked; a worker that was down over a
+weekend raises Friday's, as it raises the latest one of any schedule, and
+nothing more. In the API the frequencies are `daily`, `weekdays`,
+`chosen_weekdays` (with `daysOfWeek`, any of 0 for Sunday to 6 for Saturday,
+stored once each and in order), `weekly`, `every_other_week`, `every_n_weeks`
+(with `intervalWeeks`), `monthly`, `nth_weekday_of_month` (with `monthWeek`, 1
+to 4) and `last_weekday_of_month`, and the ones that come round on a named day
+take `weekday`. A template keeps only the settings its schedule reads, so one
+changed from ticked days to monthly forgets the days. The worker raises each one
+on the day in the COMPANY'S timezone, so Monday's task is not raised on Sunday
+evening in Chicago, and each is paused and resumed from the same screen.
 
 A template can be told to skip holidays ("Not on a holiday" on the form,
 `skipHolidays` in the API): an occurrence on a date the company's holiday list
 (`/settings/holidays`, M02) says it is closed raises nothing, and the day is
 written down as dealt with, with an audit line naming the holiday, so it is not
 raised the day after instead. A short day on the list is a working day and is
-raised as usual. The schedule reads back with ", not on a holiday".
+raised as usual. The schedule reads back with ", not on a holiday". It is
+switched on and off on an existing template from the same list ("Skip
+holidays" and "Raise on holidays too", `skipHolidays` on
+`PATCH /v1/task-templates/{id}`), and applies from the next occurrence: a day
+already skipped stays skipped.
 
 Never twice: the task carries the template and the day, a unique index on the
 pair decides, and the worker inserts with `on conflict do nothing`, so a worker
@@ -291,15 +307,17 @@ again on the tasks it already acted on. The notice is a task and an email; there
 is no text message or push notification to staff, because the product has no
 staff messaging channel apart from email.
 
-Recurring tasks have no "first Monday of the month", no "every third week" and no
-choice of which weekdays beyond a named one: weekdays only is always Monday to
-Friday, and a company with a different working week uses a weekly task for each
-day. A template set to skip holidays skips the occurrence on a closed holiday
-rather than moving it to the next working day, deliberately, and an every other
-week task's off week stays the off week whatever the holidays. A change to a
-template applies to the tasks it raises from then on, and a missed occurrence is
-not backfilled, deliberately. Skipping holidays is set when a template is made or
-through the API; the recurring screen does not change it on an existing one.
+Recurring tasks have no fifth given weekday of the month (most months have
+none; the last one is offered instead), no gap of more than fifty two weeks,
+and one weekday for an every so many weeks task: every third Monday and
+Thursday is two templates. A template set to skip holidays skips the occurrence
+on a closed holiday rather than moving it to the next working day,
+deliberately, and an every other week task's off week stays the off week
+whatever the holidays. A change to a template applies to the tasks it raises
+from then on, and a missed occurrence is not backfilled, deliberately. The
+recurring screen adds templates, pauses and resumes them and switches skipping
+holidays; changing an existing one's title, schedule or checklist is through
+`PATCH /v1/task-templates/{id}`, not the screen.
 
 Reporting lines are set only on the escalation screen, and are read by escalation
 and shown on the person's own page; nothing else in the product reads them, and

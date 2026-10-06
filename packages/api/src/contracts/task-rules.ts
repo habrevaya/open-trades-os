@@ -19,6 +19,7 @@ import { TaskPriority } from "./tasks";
 const IsoDate = z.string().date();
 const Frequency = z.enum([
   "daily", "weekdays", "weekly", "every_other_week", "monthly", "last_weekday_of_month",
+  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
 ]);
 
 const Template = z.object({
@@ -30,10 +31,16 @@ const Template = z.object({
   assigneeName: z.string().nullable(),
   queue: z.string().nullable(),
   frequency: Frequency,
-  /** For `weekly`, `every_other_week` and `last_weekday_of_month`: 0 is Sunday. */
+  /** For the frequencies that come round on a named day of the week: 0 is Sunday. */
   weekday: z.number().int().nullable(),
   /** For monthly: 1 to 31, held to the month's length. */
   monthDay: z.number().int().nullable(),
+  /** For `nth_weekday_of_month`: 1 is the first, 4 the fourth. */
+  monthWeek: z.number().int().nullable(),
+  /** For `every_n_weeks`: the gap in weeks, 2 to 52. */
+  intervalWeeks: z.number().int().nullable(),
+  /** For `chosen_weekdays`: the days, 0 for Sunday, each once and in order. */
+  daysOfWeek: z.array(z.number().int()).nullable(),
   /** Minutes after the company's midnight. */
   dueMinutes: z.number().int(),
   checklist: z.array(z.string()),
@@ -57,6 +64,9 @@ const TemplateFields = {
   frequency: Frequency,
   weekday: z.number().int().min(0).max(6).nullable().optional(),
   monthDay: z.number().int().min(1).max(31).nullable().optional(),
+  monthWeek: z.number().int().min(1).max(4).nullable().optional(),
+  intervalWeeks: z.number().int().min(2).max(52).nullable().optional(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
   dueMinutes: z.number().int().min(0).max(1439).optional(),
   checklist: z.array(z.string().min(1).max(300)).max(50).optional(),
   startsOn: IsoDate.optional(),
@@ -81,7 +91,7 @@ export const createTaskTemplate = defineRoute({
   path: "/v1/task-templates",
   summary: "Make a task come round on a schedule",
   description:
-    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`) or `last_weekday_of_month` (needs `weekday`: the last Friday, say). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
+    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` and `intervalWeeks`, 2 to 52, counted like every other week) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
   module: "M34",
   permissions: ["task:write"],
   idempotent: true,
@@ -94,7 +104,7 @@ export const updateTaskTemplate = defineRoute({
   path: "/v1/task-templates/{id}",
   summary: "Change a recurring task, or pause it",
   description:
-    "Applies to the tasks it raises from now on. Ones already in the queue are left as they are, because somebody may be halfway through one.",
+    "Applies to the tasks it raises from now on. Ones already in the queue are left as they are, because somebody may be halfway through one. `skipHolidays` can be switched either way on an existing one.",
   module: "M34",
   permissions: ["task:write"],
   input: z.object({

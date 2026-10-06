@@ -23,25 +23,61 @@ import { addDays, addMonths, compareDates, parseDate } from "../recurrence/index
  *
  * `every_other_week` is a weekday every second week, counted from the first
  * such weekday on or after `startsOn`, so "Starting" on the form is what says
- * which of the two weeks is the on week. `weekdays` is Monday to Friday and
- * nothing else. `last_weekday_of_month` is the last Friday (or whichever day)
- * of each month, which is the fourth in some months and the fifth in others.
+ * which of the two weeks is the on week. `every_n_weeks` is the same count
+ * with any gap, so every third Monday is counted the same way and an every
+ * other week task is simply the one with a gap of two. `weekdays` is Monday
+ * to Friday and nothing else; `chosen_weekdays` is whichever days a company
+ * works, Monday, Wednesday and Saturday for a crew that does. The last of the
+ * month is the last Friday (or whichever day), which is the fourth in some
+ * months and the fifth in others, and `nth_weekday_of_month` is the first,
+ * second, third or fourth, which every month has.
  */
 export type TaskFrequency =
-  | "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  | "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month"
+  | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+
+export const TASK_FREQUENCIES: readonly TaskFrequency[] = [
+  "daily", "weekdays", "weekly", "every_other_week", "monthly", "last_weekday_of_month",
+  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
+];
 
 /** The frequencies that come round on a named day of the week. */
-export const NEEDS_WEEKDAY: readonly TaskFrequency[] = ["weekly", "every_other_week", "last_weekday_of_month"];
+export const NEEDS_WEEKDAY: readonly TaskFrequency[] = [
+  "weekly", "every_other_week", "last_weekday_of_month", "nth_weekday_of_month", "every_n_weeks",
+];
+
+/**
+ * The most weeks between two occurrences: a year. A gap longer than that is
+ * a date in a calendar rather than something that comes round.
+ */
+export const MAX_INTERVAL_WEEKS = 52;
 
 export interface TaskSchedule {
   frequency: TaskFrequency;
-  /** For weekly, every other week and the last of the month: 0 is Sunday, 6 is Saturday. */
+  /** For the frequencies in `NEEDS_WEEKDAY`: 0 is Sunday, 6 is Saturday. */
   weekday?: number | null | undefined;
   /** For monthly: 1 to 31, held to the month's length. */
   monthDay?: number | null | undefined;
+  /** For the given weekday of the month: 1 is the first, 4 the fourth. The last has its own frequency. */
+  monthWeek?: number | null | undefined;
+  /** For every so many weeks: 2 to 52. */
+  intervalWeeks?: number | null | undefined;
+  /** For chosen weekdays: the days, 0 for Sunday, at least one. */
+  daysOfWeek?: readonly number[] | null | undefined;
   /** No occurrence before this day. */
   startsOn: string;
 }
+
+/** The weeks of the month a "given weekday" task can be on. Every month has four of each weekday. */
+export const MONTH_WEEKS = ["first", "second", "third", "fourth"] as const;
+
+/**
+ * The days a chosen weekdays schedule holds, cleaned: each once, in order,
+ * Sunday first. What the service stores, so two templates choosing the same
+ * days in a different order read back the same.
+ */
+export const cleanDays = (days: readonly number[] | null | undefined): number[] =>
+  [...new Set((days ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
 
 export const WEEKDAYS = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
@@ -62,10 +98,39 @@ export function checkSchedule(schedule: TaskSchedule): ScheduleVerdict {
         ok: false,
         message: schedule.frequency === "weekly"
           ? "A weekly task needs the day of the week it comes round on."
-          : schedule.frequency === "every_other_week"
-            ? "A task every other week needs the day of the week it comes round on."
-            : "Say which day of the week the last one is, the last Friday of the month for example.",
+          : schedule.frequency === "every_other_week" || schedule.frequency === "every_n_weeks"
+            ? "A task every few weeks needs the day of the week it comes round on."
+            : schedule.frequency === "nth_weekday_of_month"
+              ? "Say which day of the week it is, the first Monday of the month for example."
+              : "Say which day of the week the last one is, the last Friday of the month for example.",
       };
+    }
+  }
+  if (schedule.frequency === "nth_weekday_of_month") {
+    const week = schedule.monthWeek;
+    if (week === null || week === undefined || !Number.isInteger(week) || week < 1 || week > 4) {
+      return {
+        ok: false,
+        message: "Say which one in the month: the first, second, third or fourth. For the last one, choose the last of the month.",
+      };
+    }
+  }
+  if (schedule.frequency === "every_n_weeks") {
+    const weeks = schedule.intervalWeeks;
+    if (weeks === null || weeks === undefined || !Number.isInteger(weeks) || weeks < 2 || weeks > MAX_INTERVAL_WEEKS) {
+      return {
+        ok: false,
+        message: `Say every how many weeks, from 2 to ${MAX_INTERVAL_WEEKS}. A task every week is a weekly one.`,
+      };
+    }
+  }
+  if (schedule.frequency === "chosen_weekdays") {
+    const raw = schedule.daysOfWeek ?? [];
+    if (raw.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return { ok: false, message: "A day of the week is 0 for Sunday to 6 for Saturday." };
+    }
+    if (cleanDays(raw).length === 0) {
+      return { ok: false, message: "Tick at least one day of the week it comes round on." };
     }
   }
   if (schedule.frequency === "monthly") {
@@ -114,14 +179,35 @@ function lastWeekdayIn(date: string, weekday: number): string {
 }
 
 /**
- * The first occurrence of an every other week task: the first of its weekday
- * on or after the day it starts. Every later one is a multiple of fourteen
- * days from it, so which week is the on week never depends on today.
+ * The given weekday's nth occurrence in the month a date falls in: the first
+ * Monday of October, the third Thursday. Never past the 28th, because the
+ * fourth of any weekday is at most the 28th, which is why the fifth is not
+ * offered: it is missing from most months, and "the last" is its own choice.
+ */
+function nthWeekdayIn(date: string, weekday: number, week: number): string {
+  const first = `${date.slice(0, 8)}01`;
+  const ahead = (weekday - weekdayOf(first) + 7) % 7;
+  return addDays(first, ahead + 7 * (week - 1));
+}
+
+/** The gap in days between two occurrences of a task that comes round every so many weeks. */
+const gapOf = (schedule: TaskSchedule): number =>
+  7 * (schedule.frequency === "every_other_week" ? 2 : schedule.intervalWeeks ?? 2);
+
+/**
+ * The first occurrence of an every other week (or every so many weeks)
+ * task: the first of its weekday on or after the day it starts. Every later
+ * one is a whole number of gaps from it, so which week is the on week never
+ * depends on today.
  */
 function firstEveryOtherWeek(schedule: TaskSchedule): string {
   const ahead = ((schedule.weekday ?? 0) - weekdayOf(schedule.startsOn) + 7) % 7;
   return addDays(schedule.startsOn, ahead);
 }
+
+/** Whether a day is one of a chosen weekdays schedule's days. */
+const isChosenDay = (schedule: TaskSchedule, date: string): boolean =>
+  cleanDays(schedule.daysOfWeek).includes(weekdayOf(date));
 
 /** Saturday and Sunday are not working days; a weekend day belongs to the Friday before it. */
 const isWeekend = (date: string): boolean => {
@@ -157,10 +243,29 @@ export function occurrenceOnOrBefore(schedule: TaskSchedule, day: string): strin
       found = addDays(day, -back);
       break;
     }
-    case "every_other_week": {
+    case "every_other_week":
+    case "every_n_weeks": {
       const first = firstEveryOtherWeek(schedule);
       if (compareDates(day, first) < 0) return null;
-      found = addDays(first, Math.floor(daysBetween(first, day) / 14) * 14);
+      const gap = gapOf(schedule);
+      found = addDays(first, Math.floor(daysBetween(first, day) / gap) * gap);
+      break;
+    }
+    case "chosen_weekdays": {
+      // The latest chosen day in the week up to today. A schedule with no
+      // days chosen is refused when it is saved, so this always finds one.
+      let back = 0;
+      while (back < 7 && !isChosenDay(schedule, addDays(day, -back))) back += 1;
+      if (back === 7) return null;
+      found = addDays(day, -back);
+      break;
+    }
+    case "nth_weekday_of_month": {
+      const week = schedule.monthWeek ?? 1;
+      const thisMonth = nthWeekdayIn(day, schedule.weekday ?? 0, week);
+      found = compareDates(thisMonth, day) <= 0
+        ? thisMonth
+        : nthWeekdayIn(addMonths(`${day.slice(0, 8)}01`, -1), schedule.weekday ?? 0, week);
       break;
     }
     case "monthly": {
@@ -196,10 +301,24 @@ export function occurrenceAfter(schedule: TaskSchedule, day: string): string {
       const ahead = ((schedule.weekday ?? 0) - weekdayOf(from) + 7) % 7 || 7;
       return addDays(from, ahead);
     }
-    case "every_other_week": {
+    case "every_other_week":
+    case "every_n_weeks": {
       const first = firstEveryOtherWeek(schedule);
       if (compareDates(from, first) < 0) return first;
-      return addDays(first, (Math.floor(daysBetween(first, from) / 14) + 1) * 14);
+      const gap = gapOf(schedule);
+      return addDays(first, (Math.floor(daysBetween(first, from) / gap) + 1) * gap);
+    }
+    case "chosen_weekdays": {
+      let next = addDays(from, 1);
+      for (let i = 0; i < 7 && !isChosenDay(schedule, next); i += 1) next = addDays(next, 1);
+      return next;
+    }
+    case "nth_weekday_of_month": {
+      const week = schedule.monthWeek ?? 1;
+      const thisMonth = nthWeekdayIn(from, schedule.weekday ?? 0, week);
+      return compareDates(thisMonth, from) > 0
+        ? thisMonth
+        : nthWeekdayIn(addMonths(`${from.slice(0, 8)}01`, 1), schedule.weekday ?? 0, week);
     }
     case "monthly": {
       const thisMonth = monthlyIn(from, schedule.monthDay ?? 1);
@@ -239,6 +358,16 @@ const ordinal = (n: number): string => {
   return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
 };
 
+/**
+ * Days as an owner would list them, Monday first, because a working week
+ * starts on a Monday: "Monday, Wednesday and Saturday".
+ */
+function listDays(days: readonly number[]): string {
+  const names = [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => WEEKDAYS[d] ?? "");
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /** The schedule as an owner would say it. */
 export function describeSchedule(schedule: TaskSchedule): string {
   switch (schedule.frequency) {
@@ -252,6 +381,12 @@ export function describeSchedule(schedule: TaskSchedule): string {
       return `Every other ${WEEKDAYS[schedule.weekday ?? 0]}`;
     case "last_weekday_of_month":
       return `On the last ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
+    case "nth_weekday_of_month":
+      return `On the ${MONTH_WEEKS[(schedule.monthWeek ?? 1) - 1] ?? "first"} ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
+    case "every_n_weeks":
+      return `Every ${schedule.intervalWeeks ?? 2} weeks on ${WEEKDAYS[schedule.weekday ?? 0]}`;
+    case "chosen_weekdays":
+      return `Every ${listDays(cleanDays(schedule.daysOfWeek))}`;
     case "monthly":
       return (schedule.monthDay ?? 1) >= 29
         ? `On the ${ordinal(schedule.monthDay ?? 1)} of every month, or the last day when a month is shorter`

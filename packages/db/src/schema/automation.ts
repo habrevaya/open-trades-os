@@ -486,6 +486,9 @@ export const taskFrequency = pgEnum("task_frequency", [
   // Added later: a weekday every second week, Monday to Friday only, and the
   // last given weekday of the month. core's tasks module says how each counts.
   "every_other_week", "weekdays", "last_weekday_of_month",
+  // And later still: the first to fourth given weekday of the month, every
+  // so many weeks, and whichever days of the week a company chooses.
+  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
 ]);
 
 /**
@@ -508,10 +511,16 @@ export const taskTemplate = pgTable("task_template", {
   assigneeUserId: uuid("assignee_user_id").references(() => user.id, { onDelete: "set null" }),
   queue: text("queue"),
   frequency: taskFrequency("frequency").notNull(),
-  /** For weekly, every other week and the last of the month: 0 is Sunday, 6 is Saturday. */
+  /** For the frequencies that come round on a named day of the week: 0 is Sunday, 6 is Saturday. */
   weekday: integer("weekday"),
   /** For monthly: the day of the month, held to the month's length. */
   monthDay: integer("month_day"),
+  /** For the given weekday of the month: 1 is the first, 4 the fourth. */
+  monthWeek: integer("month_week"),
+  /** For every so many weeks: the gap, 2 to 52, counted from the first such weekday on or after `starts_on`. */
+  intervalWeeks: integer("interval_weeks"),
+  /** For chosen weekdays: the days, 0 for Sunday, each once and in order. */
+  daysOfWeek: integer("days_of_week").array(),
   /** When on the day it is due, in minutes after the company's midnight. */
   dueMinutes: integer("due_minutes").notNull().default(17 * 60),
   /** Copied onto each task it raises, so ticking Monday's does not tick Tuesday's. */
