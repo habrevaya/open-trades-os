@@ -31,6 +31,7 @@ import { leadConnectorRoutes } from "./lead-connectors";
 import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
 import { financeRoutes } from "./finance";
+import { taxRoutes } from "./tax";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
 import { payRuleRoutes } from "./pay-rules";
@@ -133,6 +134,7 @@ export * from "./lead-connectors";
 export * from "./invoice-delivery";
 export * from "./profitability";
 export * from "./finance";
+export * from "./tax";
 export * from "./crews";
 export * from "./payroll";
 export * from "./pay-rules";
@@ -237,6 +239,7 @@ export const routes = {
   ...invoiceDeliveryRoutes,
   ...profitabilityRoutes,
   ...financeRoutes,
+  ...taxRoutes,
   ...crewRoutes,
   ...payrollRoutes,
   ...payRuleRoutes,

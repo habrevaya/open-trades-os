@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, field, money as m } from "@opentradesos/core";
+import { can, field, money as m, tax } from "@opentradesos/core";
 import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
@@ -1013,7 +1013,12 @@ async function effect(
         quantity: String(op.payload["quantity"] ?? "1"),
         unitPrice: String(op.payload["unitPrice"] ?? "0"),
         unitCost: (op.payload["unitCost"] as string) ?? null,
-        taxable: op.payload["taxable"] !== false,
+        /**
+         * As the phone said; when it said nothing, a part is taxed and labour
+         * is not (`tax.defaultTaxable`), as a line typed by hand in the office is.
+         */
+        taxable: typeof op.payload["taxable"] === "boolean"
+          ? op.payload["taxable"] : tax.defaultTaxable(op.payload["kind"] as string | undefined),
         technicianId,
         nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
         occurredAt: op.occurredAt,

@@ -7,6 +7,7 @@ import {
   NotFoundError, ConflictError, UnprocessableError, timezoneOf,
 } from "./context";
 import { writePosting } from "./ledger";
+import * as billing from "./billing";
 import { nextNumber } from "./jobs";
 import type {
   createCreditNote, listCreditNotes, CreditNoteReason,
@@ -439,6 +440,25 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createCr
 
 /* -------------------------------------------------------------- issuing */
 
+/**
+ * The tax a credit note gives back, by rate: each line at the rate its
+ * invoice line charged, under the company's rate that line named. Left as
+ * one figure when the invoice it credits posted its own tax as one figure
+ * (issued before rates were recorded on the ledger), so a rate's row in the
+ * filing report is never taken down by more than it was put up by.
+ */
+async function creditedByRate(tx: Database, ctx: ServiceContext, note: Note) {
+  if (note.invoiceId && !(await billing.postedTaxByRate(tx, ctx.actor.organizationId, note.invoiceId))) return undefined;
+  const lines = await tx.select({
+    taxable: schema.creditNoteLine.taxable, taxRate: schema.creditNoteLine.taxRate,
+    taxAmount: schema.creditNoteLine.taxAmount, lineTotal: schema.creditNoteLine.lineTotal,
+    taxRateId: schema.invoiceLine.taxRateId,
+  }).from(schema.creditNoteLine)
+    .leftJoin(schema.invoiceLine, eq(schema.invoiceLine.id, schema.creditNoteLine.invoiceLineId))
+    .where(eq(schema.creditNoteLine.creditNoteId, note.id));
+  return billing.taxByRateOf(lines, usd(note.taxTotal));
+}
+
 async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: boolean): Promise<void> {
   /** Checked again: the invoice may have been credited or closed since the draft. */
   const invoice = note.invoiceId ? await invoiceFor(tx, note.invoiceId) : null;
@@ -453,6 +473,7 @@ async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: b
     customerId: note.customerId,
     ...(note.invoiceId ? { invoiceId: note.invoiceId } : {}),
     ...(invoice?.jobId ? { jobId: invoice.jobId } : {}),
+    taxByRate: await creditedByRate(tx, ctx, note),
   }));
 
   const [issued] = await tx.update(schema.creditNote).set({
@@ -771,6 +792,8 @@ export async function voidNote(ctx: ServiceContext, input: { id: string; reason:
       totals: { subtotal: usd(note.subtotal), taxTotal: usd(note.taxTotal), total: usd(note.total) },
       customerId: note.customerId,
       ...(credited?.jobId ? { jobId: credited.jobId } : {}),
+      /** Each rate restored exactly as the credit note took it off. */
+      taxByRate: await billing.postedTaxByRate(tx, ctx.actor.organizationId, note.id, "credit_note"),
     }));
     await tx.update(schema.creditNote).set({
       status: "void", balance: "0", voidedAt: new Date(), updatedAt: new Date(),

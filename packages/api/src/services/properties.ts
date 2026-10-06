@@ -6,6 +6,7 @@ import {
 } from "./context";
 import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
+import * as taxRates from "./tax";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } from "../contracts/properties";
@@ -230,6 +231,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       tx, ctx.actor.organizationId, "property", input.customFields,
     );
     await assertUnclaimed(tx, "property", input.externalRef);
+    await taxRates.assertUsable(tx, ctx.actor.organizationId, input.taxRateId, "taxRateId");
 
     const [property] = await tx.insert(schema.property).values({
       organizationId: ctx.actor.organizationId,
@@ -246,6 +248,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       accessNotes: input.accessNotes ?? null,
       hazardNotes: input.hazardNotes ?? null,
       hasDog: input.hasDog,
+      taxRateId: input.taxRateId ?? null,
       customFields: input.customFields,
       ...provenance(input.externalRef),
     }).returning();
@@ -379,6 +382,7 @@ export async function update(
     accessNotes?: string | null | undefined;
     hazardNotes?: string | null | undefined;
     hasDog?: boolean | undefined;
+    taxRateId?: string | null | undefined;
     customFields?: Record<string, unknown> | undefined;
   },
 ) {
@@ -406,6 +410,7 @@ export async function update(
         tx, ctx.actor.organizationId, "property", input.customFields, before.customFields,
       );
     }
+    await taxRates.assertUsable(tx, ctx.actor.organizationId, input.taxRateId, "taxRateId");
 
     const [after] = await tx.update(schema.property).set({
       ...(input.nickname !== undefined ? { nickname: input.nickname } : {}),
@@ -416,6 +421,7 @@ export async function update(
       ...(input.accessNotes !== undefined ? { accessNotes: input.accessNotes } : {}),
       ...(input.hazardNotes !== undefined ? { hazardNotes: input.hazardNotes } : {}),
       ...(input.hasDog !== undefined ? { hasDog: input.hasDog } : {}),
+      ...(input.taxRateId !== undefined ? { taxRateId: input.taxRateId } : {}),
       ...(input.customFields !== undefined ? { customFields: input.customFields } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.property.id, input.id)).returning();

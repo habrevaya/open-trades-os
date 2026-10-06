@@ -1085,8 +1085,7 @@ export async function quoteDeficiency(
       customerId: row.customerId,
       propertyId: row.propertyId,
       title: `Correct: ${row.description}`.slice(0, 200),
-      taxRate: "0",
-      options: [{
+        options: [{
         name: insp.SEVERITY[TO_CORE[row.severity] ?? "wear"].heading.slice(0, 100),
         description: [evidence, row.code ? `Code reference: ${row.code}.` : null].filter(Boolean).join(" ").slice(0, 2000),
         isRecommended: true,

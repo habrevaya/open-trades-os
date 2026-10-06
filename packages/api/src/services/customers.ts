@@ -11,6 +11,7 @@ import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter, customerBranchFilter } from "./scope";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
+import * as taxRates from "./tax";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
 
 type ListInput = z.infer<typeof listCustomers.input>;
@@ -199,6 +200,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       tx, ctx.actor.organizationId, "customer", input.customFields,
     );
     await assertUnclaimed(tx, "customer", input.externalRef);
+    await taxRates.assertUsable(tx, ctx.actor.organizationId, input.taxRateId, "taxRateId");
 
     /**
      * WHERE THEY CAME FROM, checked against the channel list. A key, a
@@ -230,6 +232,9 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       acquisitionCampaignId: declared?.campaignId ?? null,
       paymentTermsDays: String(input.paymentTermsDays),
       taxExempt: input.taxExempt,
+      taxExemptCertificate: input.taxExemptCertificate?.trim() || null,
+      taxExemptExpiresOn: input.taxExemptExpiresOn ?? null,
+      taxRateId: input.taxRateId ?? null,
       tags: input.tags,
       customFields: input.customFields,
       ...provenance(input.externalRef),
@@ -365,6 +370,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
         tx, ctx.actor.organizationId, "customer", input.customFields, before.customFields,
       );
     }
+    await taxRates.assertUsable(tx, ctx.actor.organizationId, input.taxRateId, "taxRateId");
 
     /**
      * A lead source changed by hand is checked against the channel list and
@@ -393,6 +399,9 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
       ...(input.type !== undefined ? { type: input.type } : {}),
       ...sourceColumns,
       ...(input.taxExempt !== undefined ? { taxExempt: input.taxExempt } : {}),
+      ...(input.taxExemptCertificate !== undefined ? { taxExemptCertificate: input.taxExemptCertificate?.trim() || null } : {}),
+      ...(input.taxExemptExpiresOn !== undefined ? { taxExemptExpiresOn: input.taxExemptExpiresOn } : {}),
+      ...(input.taxRateId !== undefined ? { taxRateId: input.taxRateId } : {}),
       ...(input.tags !== undefined ? { tags: input.tags } : {}),
       /** Stored as text, because net terms arrive from imports as "30 days". */
       ...(input.paymentTermsDays !== undefined

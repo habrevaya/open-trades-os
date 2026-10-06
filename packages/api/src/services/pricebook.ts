@@ -1,5 +1,6 @@
 import { and, eq, desc, gt, inArray, lt, lte, or, ilike, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { tax } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError,
@@ -229,6 +230,17 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
     }
     await assertUnclaimed(tx, "price_book_item", input.externalRef);
 
+    /**
+     * WHETHER IT IS TAXED, when the caller did not say: what its shelf says,
+     * and on a shelf that says nothing, taxed unless it is labour, because
+     * that is how most states that tax parts treat labour (`tax.defaultTaxable`).
+     */
+    const [shelf] = input.categoryId
+      ? await tx.select({ taxable: schema.priceBookCategory.taxable }).from(schema.priceBookCategory)
+        .where(eq(schema.priceBookCategory.id, input.categoryId)).limit(1)
+      : [];
+    const taxable = input.taxable ?? shelf?.taxable ?? tax.defaultTaxable(input.kind);
+
     const [item] = await tx.insert(schema.priceBookItem).values({
       organizationId: ctx.actor.organizationId,
       categoryId: input.categoryId ?? null,
@@ -246,7 +258,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       description: input.description ?? null,
       price: input.price,
       cost: input.cost ?? null,
-      taxable: input.taxable,
+      taxable,
       taxClass: input.taxClass ?? null,
       laborMinutes: input.laborMinutes ?? null,
       warrantyMonths: input.warrantyMonths ?? null,

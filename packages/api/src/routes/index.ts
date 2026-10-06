@@ -29,7 +29,7 @@ import {
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
   safety, retention,
-  financing, costing, budgets, journals,
+  financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
   me, staffDocuments,
@@ -476,6 +476,8 @@ export const handlers = {
   /** Consumer financing (M13), the costing rates and the budget (M15), manual journals (M14). */
   ...financing.handlers,
   ...costing.handlers,
+  /** The company's sales tax rates, and tax collected by rate (M13). */
+  ...taxRates.handlers,
   ...budgets.handlers,
   ...journals.handlers,
 

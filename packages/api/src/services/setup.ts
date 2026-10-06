@@ -267,6 +267,8 @@ export interface TaxRow {
   code: string;
   name: string;
   category: string | null;
+  categoryId: string | null;
+  categoryTaxable: boolean | null;
   taxable: boolean;
   taxClass: string | null;
 }
@@ -282,6 +284,8 @@ export async function taxTable(ctx: ServiceContext): Promise<TaxRow[]> {
       code: schema.priceBookItem.code,
       name: schema.priceBookItemVersion.name,
       category: schema.priceBookCategory.name,
+      categoryId: schema.priceBookCategory.id,
+      categoryTaxable: schema.priceBookCategory.taxable,
       taxable: schema.priceBookItemVersion.taxable,
       taxClass: schema.priceBookItemVersion.taxClass,
     }).from(schema.priceBookItem)
@@ -308,13 +312,17 @@ export async function taxTable(ctx: ServiceContext): Promise<TaxRow[]> {
  * are left alone, so this does not mint a version of every item in a
  * category to change three of them.
  *
- * No rate here, deliberately. A rate is set on the document it is charged on,
- * because rates are the jurisdiction's and determining them is a thing this
- * project has decided not to build (BUILD.md). What an item can say is
- * whether it is taxable at all and which kind of thing it is.
+ * No rate here. The rates are the company's own (`services/tax.ts`), charged
+ * on whatever this says is taxable; working out which rate the law applies
+ * is a thing this project has decided not to build (BUILD.md). What an item
+ * says is whether it is taxable at all and which kind of thing it is.
+ *
+ * A whole shelf set at once also writes the answer on the shelf, so an item
+ * added to it next month is taxed as its neighbours are without anybody
+ * remembering to say so.
  */
 export async function setItemTax(
-  ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null },
+  ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null; categoryId?: string | undefined },
 ): Promise<{ changed: number }> {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
     const seen = await replayed<{ changed: number }>(tx, ctx, "item_tax");
@@ -340,6 +348,20 @@ export async function setItemTax(
       if (row.version.taxable === input.taxable && (row.version.taxClass ?? null) === taxClass) continue;
       await reviseWithin(tx, ctx, row, { taxable: input.taxable, taxClass }, now);
       changed += 1;
+    }
+    if (input.categoryId) {
+      const [shelf] = await tx.select().from(schema.priceBookCategory)
+        .where(and(eq(schema.priceBookCategory.id, input.categoryId), isNull(schema.priceBookCategory.deletedAt))).limit(1);
+      if (!shelf) throw new NotFoundError("Price book category");
+      if (rows.some((r) => r.item.categoryId !== shelf.id)) {
+        throw new ConflictError(`Some of those items are not on ${shelf.name}.`);
+      }
+      if (shelf.taxable !== input.taxable) {
+        const [after] = await tx.update(schema.priceBookCategory).set({ taxable: input.taxable, updatedAt: now })
+          .where(eq(schema.priceBookCategory.id, shelf.id)).returning();
+        await audit(tx, ctx, "pricebook.category_tax_set", "price_book_category", shelf.id,
+          { taxable: shelf.taxable }, { taxable: after!.taxable });
+      }
     }
     const answer = { changed };
     await remember(tx, ctx, "item_tax", null, answer);
@@ -476,6 +498,6 @@ export const handlers = {
   getCompanyDetails: (ctx: ServiceContext) => details(ctx),
   updateCompanyDetails: (ctx: ServiceContext, input: CompanyDetailsInput) => updateDetails(ctx, input),
   listItemTax: async (ctx: ServiceContext) => ({ items: await taxTable(ctx) }),
-  setItemTax: (ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null }) =>
+  setItemTax: (ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null; categoryId?: string | undefined }) =>
     setItemTax(ctx, input),
 } as const;
