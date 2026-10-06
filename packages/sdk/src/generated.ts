@@ -8995,6 +8995,23 @@ export interface GetPurchaseOrderOutput {
   vendorAccount: string | null;
   expectedAt: string | null;
   submittedAt: string | null;
+  acknowledgedAt: string | null;
+  promisedOn: string | null;
+  vendorReference: string | null;
+  replies: Array<{
+    id: string;
+    promisedOn: string | null;
+    previousPromisedOn: string | null;
+    reference: string | null;
+    note: string | null;
+    recordedByName: string | null;
+    recordedAt: string;
+  }>;
+  followUp: {
+    kind: "not_acknowledged" | "past_promise";
+    days: number;
+    sentence: string;
+  } | null;
   notes: string | null;
   total: string;
   lines: Array<{
@@ -9077,6 +9094,10 @@ export interface GetPurchaseOrderOutput {
     sentBy: string | null;
     linkExpiresAt: string | null;
   }>;
+}
+
+export interface GetPurchasingSettingsOutput {
+  acknowledgeAfterDays: number;
 }
 
 export interface GetRateCardTermsOutput {
@@ -13293,6 +13314,14 @@ export interface ListPurchaseOrdersOutput {
     status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
     vendorName: string;
     expectedAt: string | null;
+    submittedAt: string | null;
+    acknowledgedAt: string | null;
+    promisedOn: string | null;
+    followUp: {
+      kind: "not_acknowledged" | "past_promise";
+      days: number;
+      sentence: string;
+    } | null;
     lineCount: number;
     total: string;
     outstanding: boolean;
@@ -16543,6 +16572,19 @@ export interface RecordPublicTouchOutput {
   touchId: string | null;
 }
 
+export interface RecordPurchaseOrderAcknowledgementInput {
+  promisedOn?: string | null;
+  reference?: string | null;
+  note?: string | null;
+}
+
+export interface RecordPurchaseOrderAcknowledgementOutput {
+  id: string;
+  status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
+  promisedOn: string | null;
+  acknowledgedAt: string;
+}
+
 export interface RecordRecurringCompletionInput {
   completedOn: string;
 }
@@ -19493,6 +19535,14 @@ export interface SetPurchaseOrderStatusInput {
 export interface SetPurchaseOrderStatusOutput {
   id: string;
   status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
+}
+
+export interface SetPurchasingSettingsInput {
+  acknowledgeAfterDays: number;
+}
+
+export interface SetPurchasingSettingsOutput {
+  acknowledgeAfterDays: number;
 }
 
 export interface SetRateCardLinesInput {
@@ -24070,6 +24120,8 @@ export interface GetPurchaseOrderApprovalsInput {
   id: string;
 }
 
+export type GetPurchasingSettingsInput = Record<string, never>;
+
 export interface GetRateCardTermsInput {
   rateCardId: string;
 }
@@ -25371,6 +25423,10 @@ export interface RecordProjectLienRecordParams {
   projectId: string;
 }
 
+export interface RecordPurchaseOrderAcknowledgementParams {
+  id: string;
+}
+
 export interface RecordRecurringCompletionParams {
   id: string;
 }
@@ -26576,6 +26632,7 @@ export interface OperationTypes {
   getPublicPortalBranding: { input: GetPublicPortalBrandingInput; output: GetPublicPortalBrandingOutput };
   getPurchaseOrder: { input: GetPurchaseOrderInput; output: GetPurchaseOrderOutput };
   getPurchaseOrderApprovals: { input: GetPurchaseOrderApprovalsInput; output: GetPurchaseOrderApprovalsOutput };
+  getPurchasingSettings: { input: GetPurchasingSettingsInput; output: GetPurchasingSettingsOutput };
   getRateCardTerms: { input: GetRateCardTermsInput; output: GetRateCardTermsOutput };
   getRating: { input: GetRatingInput; output: GetRatingOutput };
   getRatingByTechnician: { input: GetRatingByTechnicianInput; output: GetRatingByTechnicianOutput };
@@ -26928,6 +26985,7 @@ export interface OperationTypes {
   recordPerDiem: { input: RecordPerDiemInput; output: RecordPerDiemOutput };
   recordProjectLienRecord: { input: RecordProjectLienRecordParams & RecordProjectLienRecordInput; output: RecordProjectLienRecordOutput };
   recordPublicTouch: { input: RecordPublicTouchInput; output: RecordPublicTouchOutput };
+  recordPurchaseOrderAcknowledgement: { input: RecordPurchaseOrderAcknowledgementParams & RecordPurchaseOrderAcknowledgementInput; output: RecordPurchaseOrderAcknowledgementOutput };
   recordRecurringCompletion: { input: RecordRecurringCompletionParams & RecordRecurringCompletionInput; output: RecordRecurringCompletionOutput };
   recordRefund: { input: RecordRefundParams & RecordRefundInput; output: RecordRefundOutput };
   recordRentalCharge: { input: RecordRentalChargeParams & RecordRentalChargeInput; output: RecordRentalChargeOutput };
@@ -27096,6 +27154,7 @@ export interface OperationTypes {
   setProjectPhaseStatus: { input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput; output: SetProjectPhaseStatusOutput };
   setProposalTerms: { input: SetProposalTermsInput; output: SetProposalTermsOutput };
   setPurchaseOrderStatus: { input: SetPurchaseOrderStatusParams & SetPurchaseOrderStatusInput; output: SetPurchaseOrderStatusOutput };
+  setPurchasingSettings: { input: SetPurchasingSettingsInput; output: SetPurchasingSettingsOutput };
   setRateCardLines: { input: SetRateCardLinesParams & SetRateCardLinesInput; output: SetRateCardLinesOutput };
   setRateCardTerms: { input: SetRateCardTermsParams & SetRateCardTermsInput; output: SetRateCardTermsOutput };
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
@@ -27569,6 +27628,7 @@ export const OPERATIONS = {
   getPublicPortalBranding: { method: "GET", path: "/v1/public/portal/{organizationSlug}/branding", pathParams: ["organizationSlug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getPurchaseOrder: { method: "GET", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   getPurchaseOrderApprovals: { method: "GET", path: "/v1/purchase-orders/{id}/approvals", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
+  getPurchasingSettings: { method: "GET", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   getRateCardTerms: { method: "GET", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getRating: { method: "GET", path: "/v1/reviews/rating", pathParams: [], queryParams: ["platform"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRatingByTechnician: { method: "GET", path: "/v1/reviews/by-technician", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -27921,6 +27981,7 @@ export const OPERATIONS = {
   recordPerDiem: { method: "POST", path: "/v1/per-diem", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   recordProjectLienRecord: { method: "POST", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordPublicTouch: { method: "POST", path: "/v1/public/touches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  recordPurchaseOrderAcknowledgement: { method: "POST", path: "/v1/purchase-orders/{id}/acknowledgement", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordRecurringCompletion: { method: "POST", path: "/v1/recurring-schedules/{id}/completed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordRefund: { method: "POST", path: "/v1/payments/{id}/refunds", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   recordRentalCharge: { method: "POST", path: "/v1/rentals/{id}/charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -28089,6 +28150,7 @@ export const OPERATIONS = {
   setProjectPhaseStatus: { method: "POST", path: "/v1/project-phases/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProposalTerms: { method: "PUT", path: "/v1/proposal-terms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPurchaseOrderStatus: { method: "POST", path: "/v1/purchase-orders/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  setPurchasingSettings: { method: "POST", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setRateCardLines: { method: "PUT", path: "/v1/rate-cards/{rateCardId}/lines", pathParams: ["rateCardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setRateCardTerms: { method: "PUT", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -31212,6 +31274,15 @@ export abstract class GeneratedOperations {
    */
   getPurchaseOrderApprovals(input: GetPurchaseOrderApprovalsInput, options?: CallOptions): Promise<GetPurchaseOrderApprovalsOutput> {
     return this.call("getPurchaseOrderApprovals", input, options);
+  }
+
+  /**
+   * How long a vendor may sit on an order before the list says to ring them.
+   *
+   * GET /v1/purchasing/settings. Needs po:read.
+   */
+  getPurchasingSettings(input: GetPurchasingSettingsInput = {} as GetPurchasingSettingsInput, options?: CallOptions): Promise<GetPurchasingSettingsOutput> {
+    return this.call("getPurchasingSettings", input, options);
   }
 
   /**
@@ -34383,6 +34454,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Write down what the vendor said back.
+   *
+   * POST /v1/purchase-orders/{id}/acknowledgement. Needs po:write.
+   */
+  recordPurchaseOrderAcknowledgement(input: RecordPurchaseOrderAcknowledgementParams & RecordPurchaseOrderAcknowledgementInput, options?: CallOptions): Promise<RecordPurchaseOrderAcknowledgementOutput> {
+    return this.call("recordPurchaseOrderAcknowledgement", input, options);
+  }
+
+  /**
    * The visit actually happened.
    *
    * POST /v1/recurring-schedules/{id}/completed. Needs job:write.
@@ -35892,6 +35972,15 @@ export abstract class GeneratedOperations {
    */
   setPurchaseOrderStatus(input: SetPurchaseOrderStatusParams & SetPurchaseOrderStatusInput, options?: CallOptions): Promise<SetPurchaseOrderStatusOutput> {
     return this.call("setPurchaseOrderStatus", input, options);
+  }
+
+  /**
+   * Set how long a vendor may sit on an order before the list says to ring them.
+   *
+   * POST /v1/purchasing/settings. Needs po:write.
+   */
+  setPurchasingSettings(input: SetPurchasingSettingsInput, options?: CallOptions): Promise<SetPurchasingSettingsOutput> {
+    return this.call("setPurchasingSettings", input, options);
   }
 
   /**

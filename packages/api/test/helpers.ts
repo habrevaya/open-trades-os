@@ -147,7 +147,7 @@ const ORDER = [
   "landed_cost_bill_charge", "landed_cost_bill", "vendor_return",
   "purchase_order_receipt_charge", "purchase_order_receipt",
   "purchase_order_approval_notice",
-  "purchase_order_approval", "purchase_order_send",
+  "purchase_order_approval", "purchase_order_send", "purchase_order_acknowledgement",
   "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the

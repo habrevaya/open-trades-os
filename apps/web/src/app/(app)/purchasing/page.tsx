@@ -1,9 +1,12 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { company, inventory, vendorCatalogue } from "@opentradesos/api/services";
+import { company, inventory, purchaseAcknowledgements, vendorCatalogue } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { ActionForm, TextField } from "@/components/ActionForm";
+import { formatDay } from "@/lib/dates";
 import { AddVendor, OrderBuilder, Advance, PartOrder } from "./Forms";
+import { chaseAfter } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +36,16 @@ export default async function PurchasingPage() {
     );
   }
 
-  const [orders, suggestions, vendorList, parts, locations] = await Promise.all([
+  const [orders, suggestions, vendorList, parts, locations, chase] = await Promise.all([
     inventory.purchaseOrders(ctx),
     inventory.toOrder(ctx),
     inventory.vendors(ctx),
     can(user.actor, "vendor:read") ? vendorCatalogue.links(ctx, {}) : Promise.resolve([]),
     can(user.actor, "settings:read") ? company.listLocations(ctx) : Promise.resolve([]),
+    purchaseAcknowledgements.getSettings(ctx),
   ]);
+  const needCall = orders.filter((o) => o.followUp !== null);
+  const zone = user.organizationTimezone;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 lg:px-6">
@@ -75,6 +81,32 @@ export default async function PurchasingPage() {
         }))}
       />
 
+      <section className="mt-10" aria-labelledby="needs-a-call">
+        <h2 id="needs-a-call" className="font-medium text-ink-900">Orders to ring about</h2>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          Sent and not answered for {chase.acknowledgeAfterDays} {chase.acknowledgeAfterDays === 1 ? "day" : "days"}, or
+          past the day the vendor promised it by with something still owed. Write down what they say on the order.
+        </p>
+        {needCall.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-700">Nothing to chase.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-sm">
+            {needCall.map((o) => (
+              <li key={o.id}>
+                <a href={`/purchasing/${o.id}`} className="font-medium underline underline-offset-4">#{o.number}</a>
+                {" "}{o.followUp!.sentence}
+              </li>
+            ))}
+          </ul>
+        )}
+        {can(user.actor, "po:write") ? (
+          <ActionForm action={chaseAfter} submit="Save" tone="quiet" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Ring a vendor who has not answered after this many days" name="acknowledgeAfterDays"
+                       inputMode="numeric" defaultValue={String(chase.acknowledgeAfterDays)} className="block w-96" />
+          </ActionForm>
+        ) : null}
+      </section>
+
       <h2 className="mt-10 font-medium text-ink-900">Orders</h2>
       {orders.length === 0 ? (
         <Empty title="No orders yet">
@@ -85,7 +117,7 @@ export default async function PurchasingPage() {
       ) : (
         <Table head={
           <>
-            <Th>Number</Th><Th>Vendor</Th><Th>Status</Th>
+            <Th>Number</Th><Th>Vendor</Th><Th>Status</Th><Th>Promised</Th>
             <Th className="text-right">Lines</Th>
             <Th className="text-right">Total</Th>
             <Th>Next</Th>
@@ -98,6 +130,9 @@ export default async function PurchasingPage() {
               </Td>
               <Td>{order.vendorName}</Td>
               <Td className="text-ink-500">{order.status.replace(/_/g, " ")}</Td>
+              <Td className={order.followUp?.kind === "past_promise" ? "text-amber-700" : "text-ink-500"}>
+                {order.promisedOn ? formatDay(order.promisedOn, zone) : order.followUp ? "No answer" : ""}
+              </Td>
               <Td className="text-right tabular-nums">{order.lineCount}</Td>
               <Td className="text-right tabular-nums">${Number(order.total).toFixed(2)}</Td>
               <Td><Advance id={order.id} status={order.status} /></Td>

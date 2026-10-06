@@ -200,3 +200,68 @@ test("how a tip is shared is chosen on the pay rules, and kept", async ({ owner 
   await owner.reload();
   await expect(owner.getByLabel("Share a tip")).toHaveValue("even");
 });
+
+test("an order nobody answered is listed to ring about, and writing down their promise takes it off", async ({ owner }) => {
+  const code = `ACK${run.slice(-6).toUpperCase()}`;
+  const vendor = `Ferguson ${run}`;
+  await owner.goto("/pricebook/items/new");
+  await owner.getByLabel("Kind").selectOption("material");
+  await owner.getByLabel("Code").fill(code);
+  await owner.getByLabel("Name").fill(`Valve ${run}`);
+  await owner.getByLabel("Price").fill("40.00");
+  await owner.getByRole("button", { name: "Add to the price book" }).click();
+  await expect(owner).toHaveURL(/\/pricebook\/items\/[0-9a-f-]{36}$/);
+
+  await owner.goto("/purchasing");
+  await owner.getByLabel("Name", { exact: true }).fill(vendor);
+  await owner.getByRole("button", { name: "Add vendor" }).click();
+  await expect(owner.getByRole("row").filter({ hasText: vendor })).toBeVisible();
+  const byPart = owner.locator("form").filter({ has: owner.getByLabel("Part, line 1") });
+  await byPart.getByLabel("Vendor").selectOption({ label: vendor });
+  await byPart.getByLabel("Deliver to").selectOption({ label: "Shop" });
+  await byPart.getByLabel("Part, line 1").fill(code);
+  await byPart.getByLabel("Quantity, line 1").fill("3");
+  await byPart.getByLabel("Price, line 1").fill("25");
+  await byPart.getByRole("button", { name: "Create a draft order" }).click();
+  await expect(byPart.getByRole("status")).toContainText("Saved.");
+  await owner.reload();
+  await owner.getByRole("row").filter({ hasText: vendor }).getByRole("button", { name: "Send to vendor" }).click();
+  await expect(owner.getByRole("row").filter({ hasText: vendor }).filter({ hasText: "#" })).toContainText("submitted");
+
+  // Sent a week ago, as far as the list is concerned: the clock is the only thing the page cannot move.
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      update public.purchase_order set submitted_at = now() - interval '7 days'
+       where vendor_id in (select id from public.vendor where name = ${vendor})`);
+  } finally {
+    await db.$close();
+  }
+
+  await owner.goto("/purchasing");
+  const chase = owner.getByRole("region", { name: "Orders to ring about" });
+  await expect(chase).toContainText(vendor);
+  await chase.getByRole("link").first().click();
+  await expect(owner.getByRole("heading", { level: 1 })).toContainText(vendor);
+  await expect(owner.getByText(/^Ring them:/)).toBeVisible();
+
+  const when = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
+  const reply = owner.getByRole("region", { name: "What the vendor said back" });
+  await reply.getByLabel("The day they promised it by").fill(when);
+  await reply.getByLabel("Their reference for the order").fill(`SO-${run.slice(-4)}`);
+  await reply.getByRole("button", { name: "Write down their reply" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: /^Written down\./ })).toBeVisible();
+  await owner.reload();
+  await expect(owner.getByText(/^Ring them:/)).toHaveCount(0);
+  await expect(reply).toContainText(`their reference SO-${run.slice(-4)}`);
+
+  await owner.goto("/purchasing");
+  await expect(owner.getByRole("region", { name: "Orders to ring about" })).not.toContainText(vendor);
+  await expect(owner.getByRole("row").filter({ hasText: vendor }).filter({ hasText: "#" })).toContainText("acknowledged");
+
+  // The number of days is the company's to say, and a slip is said back.
+  const settings = owner.getByRole("region", { name: "Orders to ring about" });
+  await settings.getByLabel("Ring a vendor who has not answered after this many days").fill("0");
+  await settings.getByRole("button", { name: "Save" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "1 to 30" })).toBeVisible();
+});

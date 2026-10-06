@@ -304,6 +304,17 @@ export const purchaseOrder = pgTable("purchase_order", {
    */
   expectedAt: timestamp("expected_at", { withTimezone: true }),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  /**
+   * What the vendor said back, put in by hand from their reply (never read
+   * out of an email). The first time they confirmed, and the day they
+   * promised it by as it stands now. `expected_at` stays what the buyer asked
+   * for; the reorder engine and the purchasing list both read the promise
+   * when there is one, so "late" and "past its promise" are one fact. Every
+   * reply, with the promise before it, is in `purchase_order_acknowledgement`.
+   */
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  promisedOn: date("promised_on"),
+  /** The vendor's own number for the order, from their confirmation. */
   vendorReference: text("vendor_reference"),
   notes: text("notes"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -607,6 +618,29 @@ export const purchaseOrderSend = pgTable("purchase_order_send", {
   orderIdx: index("purchase_order_send_order_idx").on(t.purchaseOrderId, t.createdAt),
   tokenIdx: uniqueIndex("purchase_order_send_token_idx").on(t.linkTokenHash)
     .where(sql`${t.linkTokenHash} is not null`),
+}));
+
+/**
+ * EVERY TIME THE VENDOR ANSWERED, as the buyer wrote it down.
+ *
+ * A promise date moves: "Friday" becomes "the 20th". Keeping each reply, with
+ * the promise it replaced, is how "they have pushed it twice" is something a
+ * buyer can say, and how the order's current promise has a record behind it.
+ */
+export const purchaseOrderAcknowledgement = pgTable("purchase_order_acknowledgement", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  promisedOn: date("promised_on"),
+  previousPromisedOn: date("previous_promised_on"),
+  reference: text("reference"),
+  note: text("note"),
+  recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Their name as it was then, because a person's own row is all row level security lets anybody read. */
+  recordedByName: text("recorded_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orderIdx: index("purchase_order_acknowledgement_order_idx").on(t.organizationId, t.purchaseOrderId, t.createdAt),
 }));
 
 /* ===================================================================== */

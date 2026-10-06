@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
-  me, staffDocuments, expenses, payExtras, cashTips,
+  me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements,
 } from "../services/index";
 
 /**
@@ -1037,6 +1037,11 @@ export const handlers = {
   correctCashTip: cashTips.handlers.correctCashTip,
   listCashTips: cashTips.handlers.listCashTips,
   listMyCashTips: cashTips.handlers.listMyCashTips,
+
+  // What the vendor said back, written down by hand (M16)
+  recordPurchaseOrderAcknowledgement: purchaseAcknowledgements.handlers.recordPurchaseOrderAcknowledgement,
+  getPurchasingSettings: purchaseAcknowledgements.handlers.getPurchasingSettings,
+  setPurchasingSettings: purchaseAcknowledgements.handlers.setPurchasingSettings,
 
   // Setup, the team and branches (M02, M01)
   getSetup: setup.handlers.getSetup,

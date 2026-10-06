@@ -351,6 +351,19 @@ export const createVendor = defineRoute({
 
 /* ------------------------------------------------------- purchase orders */
 
+/**
+ * THE CALL TO MAKE ABOUT AN ORDER, when there is one: sent and nobody has
+ * answered for the company's own number of days, or past the day the vendor
+ * promised with something still owed. Null otherwise.
+ */
+export const OrderFollowUp = z.object({
+  kind: z.enum(["not_acknowledged", "past_promise"]),
+  /** Days since it was sent, or since the day they promised. */
+  days: z.number().int(),
+  /** Said in words, for the list: who, since when, and what is wrong. */
+  sentence: z.string(),
+}).nullable();
+
 export const PurchaseOrderSummary = z.object({
   id: Uuid,
   /** Per organization and sequential. A vendor asking "which PO was that" needs an answer shorter than a uuid. */
@@ -358,6 +371,13 @@ export const PurchaseOrderSummary = z.object({
   status: PurchaseOrderStatus,
   vendorName: z.string(),
   expectedAt: z.string().datetime().nullable(),
+  /** When it went to the vendor. */
+  submittedAt: z.string().datetime().nullable(),
+  /** The first time somebody wrote down a reply from the vendor. */
+  acknowledgedAt: z.string().datetime().nullable(),
+  /** The day the vendor promised it by, as the company's calendar day. */
+  promisedOn: z.string().nullable(),
+  followUp: OrderFollowUp,
   lineCount: z.number().int(),
   total: MoneyString,
   /** True while any line is still owed. */
@@ -368,10 +388,56 @@ export const listPurchaseOrders = defineRoute({
   method: "get",
   path: "/v1/purchase-orders",
   summary: "List purchase orders",
+  description: "Each with when it was sent, when the vendor first answered, the day they promised it by and, when there is one, the call to make: nobody has answered after the company's number of days (`GET /v1/purchasing/settings`), or the promise has passed with something still owed.",
   module: "M16",
   permissions: ["po:read"],
   input: z.object({}),
   output: z.object({ purchaseOrders: z.array(PurchaseOrderSummary) }),
+});
+
+export const recordPurchaseOrderAcknowledgement = defineRoute({
+  method: "post",
+  path: "/v1/purchase-orders/{id}/acknowledgement",
+  summary: "Write down what the vendor said back",
+  description:
+    "By hand, from their reply: the day they promised it by (`promisedOn`, the company's calendar day), their own reference and what else they said. Nothing is read out of an email. The first reply moves a sent order to acknowledged; every reply is kept with the promise it replaced, so a date that has moved says so. What the buyer asked for stays as it was; the reorder suggestions and the purchasing list both read the promise, due at the end of that day, so they agree about what is late. A draft was never sent, and a received or cancelled order has nothing left to promise; an order they have already answered needs something new said.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    promisedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date like 2026-11-01").nullable().optional(),
+    reference: z.string().max(100).nullable().optional(),
+    note: z.string().max(1000).nullable().optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    status: PurchaseOrderStatus,
+    promisedOn: z.string().nullable(),
+    acknowledgedAt: z.string().datetime(),
+  }),
+});
+
+export const getPurchasingSettings = defineRoute({
+  method: "get",
+  path: "/v1/purchasing/settings",
+  summary: "How long a vendor may sit on an order before the list says to ring them",
+  module: "M16",
+  permissions: ["po:read"],
+  input: z.object({}),
+  output: z.object({ acknowledgeAfterDays: z.number().int() }),
+});
+
+export const setPurchasingSettings = defineRoute({
+  method: "post",
+  path: "/v1/purchasing/settings",
+  summary: "Set how long a vendor may sit on an order before the list says to ring them",
+  description: "Whole days, 1 to 30. An order sent and not answered for this long is on the purchasing list as needing a call.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({ acknowledgeAfterDays: z.number().int().min(1).max(30) }),
+  output: z.object({ acknowledgeAfterDays: z.number().int() }),
 });
 
 export const createPurchaseOrder = defineRoute({
@@ -490,6 +556,21 @@ export const getPurchaseOrder = defineRoute({
     vendorAccount: z.string().nullable(),
     expectedAt: z.string().datetime().nullable(),
     submittedAt: z.string().datetime().nullable(),
+    acknowledgedAt: z.string().datetime().nullable(),
+    promisedOn: z.string().nullable(),
+    /** Their own number for the order, from their confirmation. */
+    vendorReference: z.string().nullable(),
+    /** Every time they answered, oldest first, with the promise each one replaced. */
+    replies: z.array(z.object({
+      id: Uuid,
+      promisedOn: z.string().nullable(),
+      previousPromisedOn: z.string().nullable(),
+      reference: z.string().nullable(),
+      note: z.string().nullable(),
+      recordedByName: z.string().nullable(),
+      recordedAt: z.string().datetime(),
+    })),
+    followUp: OrderFollowUp,
     notes: z.string().nullable(),
     total: MoneyString,
     lines: z.array(z.object({
@@ -766,5 +847,6 @@ export const inventoryRoutes = {
   listReorderSuggestions, getJobMaterialCost,
   listVendors, createVendor,
   listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, editPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  recordPurchaseOrderAcknowledgement, getPurchasingSettings, setPurchasingSettings,
   listVendorItems, setVendorItem, removeVendorItem, previewVendorCatalogue, applyVendorCatalogue,
 } as const;

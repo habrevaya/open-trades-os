@@ -243,3 +243,41 @@ describe("sharing a tip between the people on a job", () => {
     expect(shares("hours", "0").shares).toEqual([]);
   });
 });
+
+describe("which purchase orders need a phone call", () => {
+  const base = {
+    status: "submitted" as const, vendorName: "Ferguson", submittedOn: "2026-10-01", promisedOn: null as string | null,
+    outstanding: true, today: "2026-10-05", acknowledgeAfterDays: 3,
+  };
+
+  it("says an order nobody has answered, once it is older than the company's days", async () => {
+    const { followUpFor } = await import("../src/inventory/index.js");
+    expect(followUpFor({ ...base, today: "2026-10-03" })).toBeNull();
+    const call = followUpFor({ ...base, today: "2026-10-04" });
+    expect(call).toMatchObject({ kind: "not_acknowledged", days: 3 });
+    expect(call!.sentence).toBe("Ferguson has not answered. It was sent on 2026-10-01, 3 days ago.");
+    expect(followUpFor({ ...base, submittedOn: "2026-10-04", acknowledgeAfterDays: 1 })).toMatchObject({ days: 1, sentence: expect.stringContaining("1 day ago") });
+  });
+
+  it("says an order past its promise while something is owed, and nothing once it has all arrived", async () => {
+    const { followUpFor } = await import("../src/inventory/index.js");
+    const promised = { ...base, status: "acknowledged" as const, promisedOn: "2026-10-03" };
+    const call = followUpFor(promised);
+    expect(call).toMatchObject({ kind: "past_promise", days: 2 });
+    expect(call!.sentence).toBe("Ferguson promised it by 2026-10-03, 2 days ago, and it has not all arrived.");
+    // The promised day itself is not late.
+    expect(followUpFor({ ...promised, promisedOn: "2026-10-05" })).toBeNull();
+    expect(followUpFor({ ...promised, outstanding: false })).toBeNull();
+    expect(followUpFor({ ...promised, status: "partially_received" })).toMatchObject({ kind: "past_promise" });
+  });
+
+  it("prefers the broken promise, and leaves drafts, finished and cancelled orders alone", async () => {
+    const { followUpFor } = await import("../src/inventory/index.js");
+    expect(followUpFor({ ...base, promisedOn: "2026-10-02" })).toMatchObject({ kind: "past_promise" });
+    for (const status of ["draft", "received", "cancelled"] as const) {
+      expect(followUpFor({ ...base, status, promisedOn: "2026-10-02" })).toBeNull();
+    }
+    // An order that was acknowledged without a date is not chased for silence.
+    expect(followUpFor({ ...base, status: "acknowledged" })).toBeNull();
+  });
+});
