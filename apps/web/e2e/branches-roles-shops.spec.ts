@@ -33,10 +33,12 @@ test("the roles screen lists a role that names no scope and gives it the whole c
 
   await check.getByLabel(`Yes, people with ${name} should see every job, customer, invoice and report.`).check();
   await check.getByRole("button", { name: `Give ${name} the whole company` }).click();
-  await expect(owner.getByText(`${name} now sees the whole company.`)).toBeVisible();
 
-  await owner.reload();
+  // Fixed: it leaves the roles to check, and its row says what its holders now see.
   const row = owner.getByRole("row").filter({ hasText: name });
+  await expect(row).toContainText("The whole company");
+  await expect(owner.getByRole("button", { name: `Give ${name} the whole company` })).toHaveCount(0);
+  await owner.reload();
   await expect(row).toContainText("The whole company");
   await expect(row).not.toContainText("Check this");
 });
