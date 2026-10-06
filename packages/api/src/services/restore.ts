@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { desc, eq, isNull, sql } from "drizzle-orm";
@@ -627,9 +627,8 @@ function freshLike(value: string): string {
   const alphabet = /^[0-9a-f]+$/.test(value) ? "0123456789abcdef"
     : /^[A-Z0-9]+$/.test(value) ? "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
       : "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = randomBytes(Math.max(value.length, 8));
   let out = "";
-  for (let i = 0; i < Math.max(value.length, 8); i++) out += alphabet[bytes[i]! % alphabet.length];
+  for (let i = 0; i < Math.max(value.length, 8); i++) out += alphabet[randomInt(alphabet.length)];
   return out;
 }
 

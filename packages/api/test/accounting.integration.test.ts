@@ -2141,7 +2141,7 @@ run("credit notes, as each book is sent them", () => {
   it("sends tax at several rates to QuickBooks as one line per rate on the tax account", async () => {
     const calls: Call[] = [];
     await qbo(calls, () => ({ CreditMemo: { Id: "cm-2", SyncToken: "0" } })).pushCreditNote(twoRates);
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     const body = JSON.parse(sent[0]!.body!) as { Line: Record<string, unknown>[] };
     expect(body.Line.slice(1)).toEqual([
       expect.objectContaining({ Amount: 8.25, Description: "Sales tax, Travis County 8.25%", SalesItemLineDetail: { ItemRef: { value: "tax-2200" }, Qty: 1 } }),
@@ -2152,7 +2152,7 @@ run("credit notes, as each book is sent them", () => {
   it("sends tax at several rates to Xero as one line per rate, none of it worked out by Xero", async () => {
     const calls: Call[] = [];
     await xero(calls, () => ({ CreditNotes: [{ CreditNoteID: "xcn-2" }] })).pushCreditNote(twoRates);
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     const body = (JSON.parse(sent[0]!.body!) as { CreditNotes: Record<string, unknown>[] }).CreditNotes[0]!;
     expect((body["LineItems"] as unknown[]).slice(1)).toEqual([
       expect.objectContaining({ LineAmount: 8.25, AccountID: "tax-2200", TaxType: "NONE", Description: "Sales tax, Travis County 8.25%" }),
@@ -2175,7 +2175,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await qbo(calls, () => ({ Purchase: { Id: "pu-3", SyncToken: "0" } })).pushCreditNoteRefund!(paidBack);
     expect(result).toMatchObject({ ok: true, externalId: "pu-3" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/purchase");
     const body = JSON.parse(sent[0]!.body!) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -2194,7 +2194,7 @@ run("credit notes, as each book is sent them", () => {
     const calls: Call[] = [];
     const result = await xero(calls, () => ({ Payments: [{ PaymentID: "xp-9" }] })).pushCreditNoteRefund!(paidBack);
     expect(result).toMatchObject({ ok: true, externalId: "xp-9" });
-    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
     expect(sent[0]!.method).toBe("PUT");
     expect(new URL(sent[0]!.url).pathname).toBe("/Payments");
     expect(JSON.parse(sent[0]!.body!)).toEqual({
