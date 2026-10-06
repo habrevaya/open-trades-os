@@ -414,14 +414,24 @@ refused as a failed step if the wording has lost its link), `request_review`
 `text_caller` (text the number on a `call.missed` event, through the consent
 checked transactional sender, from the company's ordinary number and never a
 tracking one; a refusal by STOP is a step that did not send, not a failure).
-`stop_unless` asks one of five questions: `estimate_undecided`,
+`stop_unless` asks one of ten questions: `estimate_undecided`,
 `caller_not_reached` (no later call from that number was answered and nobody here
 rang it), `invoice_unpaid` (the invoice is open or part paid with money still
 owing), `visit_still_booked` (not cancelled, finished or a no show, and still at
-the time the event said, because a move raises its own event) and `job_not_done`
-(not finished, invoiced, paid or cancelled). Each reads the record the event names
+the time the event said, because a move raises its own event), `job_not_done`
+(not finished, invoiced, paid or cancelled), `agreement_active` (the agreement is
+active, not cancelled, lapsed, paused, past due or finished),
+`agreement_not_renewed` and `agreement_renewed` (whether the agreement has started
+a new term since the event, read from its terms on file, so a renewal by the
+worker counts the same as one by a person), `task_open` (the task is open or
+being worked, not done or dismissed) and `record_field_unchanged` (a field on one
+of the company's own records still holds the value the event carried; the step
+names the field by its key, "Which field" on the canvas, and never a value, and
+a step with no field or a field that is not a key is refused at publish with
+its number). Each reads the record the event names
 (its own entity, or the id the payload carries), and a no ends the run as
-finished with the rest written down as skipped. A plain message by email goes
+finished with the rest written down as skipped. A record removed since, or an
+event naming nothing the question is about, is a no as well. A plain message by email goes
 through the email sender, from the company's address, checked against the do not
 email list when it is sent; it is always transactional, and a step asking for a
 marketing email is refused at publish, because a promotion needs an unsubscribe
@@ -576,6 +586,8 @@ own columns that need no permission, and never with the company's own fields, a
 cost or a margin; it goes to the address on their record and nowhere else, and a
 copy to somebody in the company is a second step.
 There are four recommended automations and the list is code, not something a company or a trade pack can add
-to. `stop_unless` asks five questions, from a catalogue in core: there is none yet
-about an agreement, a task or one of the company's own records. The plain message
-step emails only transactional mail.
+to. `stop_unless` asks ten questions, from a catalogue in core, and a company
+cannot write its own: a question is a query, and a workflow never carries one.
+The record question compares one field with what the event carried; it cannot
+compare with a value typed into the step or ask about two fields at once (two
+steps do). The plain message step emails only transactional mail.

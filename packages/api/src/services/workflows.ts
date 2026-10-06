@@ -298,6 +298,11 @@ function check(
     return `This build cannot check ${String(badCheck.config?.["check"] ?? "nothing")}. `
       + `Choose one of: ${Object.values(automation.CHECKS).map((c) => c.label.toLowerCase()).join("; ")}.`;
   }
+  const checkSettings = input.steps.findIndex((step) =>
+    step.kind === "stop_unless" && automation.checkSettingsProblem(step.config) !== null);
+  if (checkSettings >= 0) {
+    return `Step ${checkSettings + 1}: ${automation.checkSettingsProblem(input.steps[checkSettings]!.config)}`;
+  }
 
   if (input.triggerKind === "event") {
     if ((input.triggerEvents ?? []).length === 0) {

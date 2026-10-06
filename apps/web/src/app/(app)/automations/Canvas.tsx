@@ -695,17 +695,34 @@ function CheckFields({
   config, set,
 }: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
   const checks = Object.entries(automation.CHECKS);
+  const check = String(config["check"] ?? checks[0]?.[0] ?? "");
   return (
-    <label className="mt-3 block text-sm">
-      <span className="block text-ink-700">Carry on only while</span>
-      <select
-        value={String(config["check"] ?? checks[0]?.[0] ?? "")}
-        onChange={(e) => set({ ...config, check: e.target.value })}
-        className={`${FIELD} w-full`}
-      >
-        {checks.map(([key, check]) => <option key={key} value={key}>{check.label}</option>)}
-      </select>
-    </label>
+    <div className="mt-3 space-y-2 text-sm">
+      <label className="block">
+        <span className="block text-ink-700">Carry on only while</span>
+        <select
+          value={check}
+          onChange={(e) => set({ ...config, check: e.target.value })}
+          className={`${FIELD} w-full`}
+        >
+          {checks.map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}
+        </select>
+      </label>
+      {automation.checkNeedsField(check) && (
+        <label className="block">
+          <span className="block text-ink-700">Which field (its key, like status)</span>
+          <input
+            value={String(config["field"] ?? "")}
+            onChange={(e) => set({ ...config, field: e.target.value })}
+            className={`${FIELD} w-60`}
+          />
+          <span className="mt-1 block text-xs text-ink-500">
+            Compared with what the field said when the record was added or changed. Use it on an automation
+            that starts when one of your own records is added or changed.
+          </span>
+        </label>
+      )}
+    </div>
   );
 }
 

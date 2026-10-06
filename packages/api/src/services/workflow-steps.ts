@@ -617,7 +617,7 @@ export async function stopUnless(
     return { ok: false, reason: `this build has no check called ${String(check)}` };
   }
 
-  const verdict = await holds(tx, check, event);
+  const verdict = await holds(tx, check, event, config);
   if (verdict.holds) return { ok: true, output: { check, held: true } };
 
   return {
@@ -631,6 +631,7 @@ async function holds(
   tx: Database,
   check: automation.CheckKey,
   event: typeof schema.domainEvent.$inferSelect,
+  config: Record<string, unknown>,
 ): Promise<{ holds: true } | { holds: false; because: string }> {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   switch (check) {
@@ -709,7 +710,84 @@ async function holds(
       }
       return { holds: true };
     }
+    case "agreement_active": {
+      const id = idOf(event, ["agreement.id", "agreementId"], "agreement");
+      if (!id) return { holds: false, because: "the event names no agreement" };
+      const [row] = await tx.select({ status: schema.agreement.status })
+        .from(schema.agreement).where(eq(schema.agreement.id, id)).limit(1);
+      if (!row) return { holds: false, because: "the agreement is gone" };
+      if (row.status !== "active") return { holds: false, because: `the agreement is ${row.status.replace("_", " ")} now` };
+      return { holds: true };
+    }
+    case "agreement_not_renewed":
+    case "agreement_renewed": {
+      const id = idOf(event, ["agreement.id", "agreementId"], "agreement");
+      if (!id) return { holds: false, because: "the event names no agreement" };
+      const [row] = await tx.select({ id: schema.agreement.id })
+        .from(schema.agreement).where(eq(schema.agreement.id, id)).limit(1);
+      if (!row) return { holds: false, because: "the agreement is gone" };
+      /**
+       * A NEW TERM WRITTEN AFTER THE EVENT is a renewal since. Read from the
+       * terms rather than the agreement's end date, because a person can
+       * move an end date without renewing anything, and a renewal by the
+       * worker writes a term exactly as one by a person does. The term an
+       * `agreement.renewed` event is about was written in the same
+       * transaction as the event, so it is not "since" its own event.
+       */
+      const [later] = await tx.select({ term: schema.agreementTerm.term }).from(schema.agreementTerm)
+        .where(and(
+          eq(schema.agreementTerm.agreementId, id),
+          sql`${schema.agreementTerm.term} > 1`,
+          sql`${schema.agreementTerm.createdAt} > ${event.createdAt.toISOString()}::timestamptz`,
+        )).limit(1);
+      if (check === "agreement_not_renewed") {
+        return later ? { holds: false, because: "the agreement was renewed since" } : { holds: true };
+      }
+      return later ? { holds: true } : { holds: false, because: "the agreement has not been renewed since" };
+    }
+    case "task_open": {
+      const id = idOf(event, ["task.id", "taskId"], "task");
+      if (!id) return { holds: false, because: "the event names no task" };
+      const [row] = await tx.select({ status: schema.task.status, title: schema.task.title })
+        .from(schema.task).where(eq(schema.task.id, id)).limit(1);
+      if (!row) return { holds: false, because: "the task is gone" };
+      if (row.status !== "open" && row.status !== "in_progress") {
+        return { holds: false, because: `the task is ${row.status.replace("_", " ")} now` };
+      }
+      return { holds: true };
+    }
+    case "record_field_unchanged":
+      return recordFieldUnchanged(tx, config, event);
   }
+}
+
+/**
+ * Does a field on one of the company's own records still say what the event
+ * said. The value compared is the event's (`record.fields.<key>`), so the
+ * step only names the field: a permit's status was "submitted" when the
+ * event fired, and the run carries on only while it still is. A record that
+ * was removed since is a no, like any record that is gone.
+ */
+async function recordFieldUnchanged(
+  tx: Database,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+): Promise<{ holds: true } | { holds: false; because: string }> {
+  const field = typeof config["field"] === "string" ? config["field"].trim() : "";
+  if (!field) return { holds: false, because: "the step names no field" };
+  const id = idOf(event, ["record.id", "recordId"], "custom_object_record");
+  if (!id) return { holds: false, because: "the event names no record" };
+  const fields = readPath(event.payload, "record.fields");
+  if (!fields || typeof fields !== "object") return { holds: false, because: "the event carries no fields" };
+  const [row] = await tx.select({
+    title: schema.customObjectRecord.title, customFields: schema.customObjectRecord.customFields,
+    deletedAt: schema.customObjectRecord.deletedAt,
+  }).from(schema.customObjectRecord).where(eq(schema.customObjectRecord.id, id)).limit(1);
+  if (!row || row.deletedAt) return { holds: false, because: "the record is gone" };
+  const then = Object.prototype.hasOwnProperty.call(fields, field) ? (fields as Record<string, unknown>)[field] : undefined;
+  const now = Object.prototype.hasOwnProperty.call(row.customFields, field) ? row.customFields[field] : undefined;
+  if (!automation.sameValue(then, now)) return { holds: false, because: `${row.title}'s ${field} has changed since` };
+  return { holds: true };
 }
 
 /**

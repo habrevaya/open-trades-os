@@ -360,12 +360,112 @@ export const CHECKS = {
     label: "The job is not finished or cancelled yet",
     entity: "job",
   },
+  /**
+   * The agreement is still active: not cancelled, lapsed, paused, past due
+   * or finished. A "how was your tune up" text to a member who cancelled
+   * last week reads as a company that does not know who its members are.
+   */
+  agreement_active: {
+    label: "The agreement is still active",
+    entity: "agreement",
+  },
+  /**
+   * The agreement has NOT started a new term since the event. The question a
+   * renewal reminder turns on: a member who renewed on day two is not asked
+   * again on day ten. Asked of the terms on file, never of the event, so a
+   * renewal by the worker counts the same as one by a person.
+   */
+  agreement_not_renewed: {
+    label: "The agreement has not been renewed since",
+    entity: "agreement",
+  },
+  /**
+   * The agreement HAS started a new term since the event: the other side of
+   * the same question, for a thank you that should only go to a member who
+   * stayed.
+   */
+  agreement_renewed: {
+    label: "The agreement has been renewed since",
+    entity: "agreement",
+  },
+  /**
+   * The task is still open or being worked. "Remind them in two days if
+   * nobody has dealt with it" stops being worth a reminder once somebody has
+   * marked it done or dismissed it.
+   */
+  task_open: {
+    label: "The task is still open",
+    entity: "task",
+  },
+  /**
+   * One field on one of the company's own records still holds the value the
+   * event carried. "Ring the inspector a week after the permit went to
+   * submitted, unless it has moved on": the field is named in the step
+   * (`field`), the value is the event's, never typed into the step, so a
+   * step cannot be pointed at a value the record never had.
+   */
+  record_field_unchanged: {
+    label: "A field on the record still says what it did",
+    entity: "custom_object_record",
+  },
 } as const;
 
 export type CheckKey = keyof typeof CHECKS;
 
 export const isCheck = (value: unknown): value is CheckKey =>
   typeof value === "string" && Object.prototype.hasOwnProperty.call(CHECKS, value);
+
+/** The checks that need a setting of their own beside which check it is. */
+const CHECK_SETTINGS: Partial<Record<CheckKey, "field">> = { record_field_unchanged: "field" };
+
+/** A field key as M29 stores one: lowercase, starting with a letter. */
+const FIELD_KEY = /^[a-z][a-z0-9_]{0,47}$/;
+
+/**
+ * What is wrong with a `stop_unless` step's settings, in words, or null.
+ *
+ * Asked at publish, so a step that could only ever fail is refused where it
+ * can be fixed rather than written down as failed on every run. A check
+ * that needs a field is refused without one, and a field that is not a key
+ * M29 could have stored is refused too: a typo there would hold forever,
+ * because a field nothing stores always "still" says nothing.
+ */
+export function checkSettingsProblem(config: Record<string, unknown> | undefined): string | null {
+  const check = config?.["check"];
+  if (!isCheck(check)) return null;
+  if (CHECK_SETTINGS[check] === "field") {
+    const field = config?.["field"];
+    if (typeof field !== "string" || field.trim() === "") {
+      return "Say which field on the record has to still say what it did.";
+    }
+    if (!FIELD_KEY.test(field.trim())) {
+      return `"${field}" is not a field's key. A key is lowercase letters, digits and underscores, like status.`;
+    }
+  }
+  return null;
+}
+
+/** Whether a check asks about a field the step names. What the canvas draws a box for. */
+export const checkNeedsField = (check: unknown): boolean =>
+  isCheck(check) && CHECK_SETTINGS[check] === "field";
+
+/**
+ * Two stored values the same, as M29 stores them: JSON, compared by value,
+ * with the order of a list of choices mattering no more than it does on the
+ * screen. A value that was absent and is still absent is the same.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown): unknown => {
+    if (v === undefined || v === null || v === "") return null;
+    if (Array.isArray(v)) return [...v].map(String).sort();
+    if (typeof v === "object") {
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => x.localeCompare(y))
+        .map(([k, inner]) => [k, norm(inner)]));
+    }
+    return v;
+  };
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+}
 
 /**
  * Whether this author may publish this definition.
