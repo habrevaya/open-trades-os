@@ -279,6 +279,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "callback_rate",
       "close_rate",
       "drive_time_pct",
+      "install_gross_margin",
       "maint_attach",
       "not_out_rate",
       "oneoff_to_recurring",
@@ -288,6 +289,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "referral_share",
       "replace_pipeline",
       "revenue_per_cleaner_hour",
+      "revenue_per_crew_day",
       "revenue_per_stop",
       "revenue_per_tech",
       "stops_per_day",
@@ -299,15 +301,19 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     ]);
 
     /**
-     * Twenty one of forty seven answered. `drive_time_pct` moved because the
+     * Twenty three of forty seven answered. `drive_time_pct` moved because the
      * commute leg turned out to be where the definition says it is, before the
      * first stop and after the last, and `backflow_recert` because M33's
-     * inspections give an assembly a typed test date. The rest each name a
-     * missing datum, and three of those data would unlock most of them: a coded
-     * cancellation reason, a cost posting, and a finer job type class than
+     * inspections give an assembly a typed test date. `revenue_per_crew_day`
+     * moved because a crew's day can be read off what its members punched on
+     * the crew's own visits, one a day however many people are on it, and
+     * `install_gross_margin` because a cost can now be journalled to a job
+     * (M14) and job costing reads it. The rest each name what they still lack,
+     * and three of those data would unlock most of them: a coded cancellation
+     * reason, a flag for supplies billed back, and a finer job type class than
      * `revenue_class`.
      */
-    expect(computed.length + elsewhere.length).toBe(21);
+    expect(computed.length + elsewhere.length).toBe(23);
     expect(KEYS.length).toBe(47);
   });
 });

@@ -138,6 +138,14 @@ export interface LedgerEntry {
   jobId?: string | undefined;
   customerId?: string | undefined;
   /**
+   * The branch this entry belongs to, when somebody said so. Only a manual
+   * journal line names one. Every other posting is left to the one door that
+   * writes them (`writePosting`), which works the branch out from the invoice
+   * or the job the posting came from, so a posting builder here never has to
+   * know which branch a document is in.
+   */
+  businessUnitId?: string | undefined;
+  /**
    * The entry this one takes back, when it is a reversal. Only a manual
    * journal's reversal sets it today; the column has existed since the first
    * migration so that a correction can point at what it corrects.
@@ -1261,6 +1269,17 @@ export interface JournalLineInput {
   debit?: string | undefined;
   credit?: string | undefined;
   memo?: string | undefined;
+  /**
+   * WHAT THE LINE IS ABOUT, each optional and each the company's own (the
+   * service checks that; here they are only checked to be ids). A branch for
+   * rent that is one shop's, a job for a supplier bill that is one job's, a
+   * customer for a cost that is one customer's. A line that names a job and
+   * no branch takes the job's branch when it is written, like every other
+   * posting does.
+   */
+  businessUnitId?: string | undefined;
+  jobId?: string | undefined;
+  customerId?: string | undefined;
 }
 
 export type JournalCheck =
@@ -1268,6 +1287,7 @@ export type JournalCheck =
   | { ok: false; problems: { line: number | null; message: string }[] };
 
 const JOURNAL_ACCOUNT = /^[1-9]\d{2,9}$/;
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Whether a set of lines is a journal that may be posted, with every problem
@@ -1313,11 +1333,25 @@ export function checkJournal(lines: readonly JournalLineInput[], currency = "USD
       return;
     }
     const memo = line.memo?.trim();
+    const about: Partial<Pick<LedgerEntry, "businessUnitId" | "jobId" | "customerId">> = {};
+    let named = true;
+    for (const [field, label] of [["businessUnitId", "branch"], ["jobId", "job"], ["customerId", "customer"]] as const) {
+      const value = line[field]?.trim();
+      if (!value) continue;
+      if (!ID.test(value)) {
+        problems.push({ line: n, message: `The ${label} on this line is not one of yours.` });
+        named = false;
+        continue;
+      }
+      about[field] = value.toLowerCase();
+    }
+    if (!named) return;
     entries.push({
       direction: debit !== "" ? "debit" : "credit",
       accountCode: code,
       amount,
       ...(memo ? { memo } : {}),
+      ...about,
     });
   });
 
@@ -1359,7 +1393,11 @@ export function postJournal(input: { journalId: string; occurredAt: Date; entrie
 export function reverseJournal(input: {
   journalId: string;
   occurredAt: Date;
-  original: readonly { id: string; direction: Direction; accountCode: string; amount: Money; memo?: string | null }[];
+  original: readonly {
+    id: string; direction: Direction; accountCode: string; amount: Money; memo?: string | null;
+    /** What the line was about, carried onto the line that takes it back so the two net to nothing on the same branch, job and customer. */
+    businessUnitId?: string | null; jobId?: string | null; customerId?: string | null;
+  }[];
   memo: string;
 }): Posting {
   return assertBalanced({
@@ -1372,6 +1410,9 @@ export function reverseJournal(input: {
       amount: entry.amount,
       memo: input.memo,
       reversesEntryId: entry.id,
+      ...(entry.businessUnitId ? { businessUnitId: entry.businessUnitId } : {}),
+      ...(entry.jobId ? { jobId: entry.jobId } : {}),
+      ...(entry.customerId ? { customerId: entry.customerId } : {}),
     })),
   });
 }

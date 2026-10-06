@@ -23,7 +23,19 @@ export interface CostingData {
     extendedCost: string | null; billed: boolean; nonBillableReason: string | null;
   }[];
   labour: { technicianId: string | null; technicianName: string | null; hours: string; cost: string; unpricedHours: string }[];
+  /** Lines of an accountant's journal entries that name this job. */
+  journalLines: {
+    transactionId: string; journalNumber: number; accountCode: string; direction: string; amount: string;
+    memo: string | null; countedIn: "revenue" | "material" | "fees" | null;
+  }[];
 }
+
+/** Where a journal line shows up in the figures above, in the words an owner reads them in. */
+const COUNTED_IN: Record<"revenue" | "material" | "fees", string> = {
+  revenue: "in revenue",
+  material: "in materials",
+  fees: "in card fees",
+};
 
 /**
  * WHAT THIS JOB COST AGAINST WHAT IT BROUGHT IN
@@ -126,6 +138,33 @@ export function Costing({ data }: { data: CostingData }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {data.journalLines.length > 0 && (
+        <div className="mt-4">
+          <h3 className="text-sm font-medium">Booked to this job by journal</h3>
+          <table className="mt-1 w-full text-sm" aria-label="Journal lines on this job">
+            <tbody className="divide-y divide-steel-200">
+              {data.journalLines.map((line, i) => (
+                <tr key={`${line.transactionId}-${i}`}>
+                  <td className="py-1.5 pr-3">
+                    <a href="/books" className="underline underline-offset-4">Journal {line.journalNumber}</a>
+                    <span className="ml-2 font-mono text-ink-500">{line.accountCode}</span>
+                    {line.memo ? <span className="ml-2 text-ink-700">{line.memo}</span> : null}
+                  </td>
+                  <td className="py-1.5 pr-3 text-xs text-ink-500">
+                    {line.direction === "debit" ? "Debit" : "Credit"},{" "}
+                    {line.countedIn ? `counted ${COUNTED_IN[line.countedIn]}` : "not counted here"}
+                  </td>
+                  <td className="py-1.5 text-right"><Money value={line.amount} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-1 max-w-prose text-xs text-ink-500">
+            Labour is counted from the hours on the clock, so a journal line to a labour account is listed here and left out of the margin.
+          </p>
+        </div>
       )}
 
       <p className="mt-3 max-w-prose text-xs text-ink-500">

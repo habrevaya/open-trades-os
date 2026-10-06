@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { journals, budgets } from "@opentradesos/api/services";
+import { journals, budgets, UnprocessableError } from "@opentradesos/api/services";
 import { createJournalEntry, importBudget, setBudgetLine } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { JOURNAL_ROWS } from "./rows";
@@ -18,16 +18,46 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
  */
 export async function postJournal(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
-    const lines = Array.from({ length: JOURNAL_ROWS }, (_, i) => ({
-      accountCode: field(form, `account:${i}`),
-      debit: field(form, `debit:${i}`)?.replace(/[$,\s]/g, ""),
-      credit: field(form, `credit:${i}`)?.replace(/[$,\s]/g, ""),
-      memo: field(form, `memo:${i}`),
-    })).filter((line) => line.accountCode || line.debit || line.credit);
+    const service = await ctx();
+    const lines = [];
+    for (let i = 0; i < JOURNAL_ROWS; i += 1) {
+      const line = {
+        accountCode: field(form, `account:${i}`),
+        debit: field(form, `debit:${i}`)?.replace(/[$,\s]/g, ""),
+        credit: field(form, `credit:${i}`)?.replace(/[$,\s]/g, ""),
+        memo: field(form, `memo:${i}`),
+      };
+      if (!line.accountCode && !line.debit && !line.credit) continue;
+      /**
+       * What the line is about: a branch from the list, a job by its number
+       * and a customer by their name, which nobody has the id of. Looked up
+       * only when typed, and each refusal names the line that asked.
+       */
+      const job = field(form, `job:${i}`);
+      const customer = field(form, `customer:${i}`);
+      const found = job || customer
+        ? await journals.findAbout(service, { job, customer }).catch((error: unknown) => {
+          /** By name rather than class: see `refusalOf`. The line it was about goes in front of what it says. */
+          if (error instanceof Error && error.name === "UnprocessableError") {
+            const issues = (error as Error & { issues?: { path: string; message: string }[] }).issues ?? [];
+            throw new UnprocessableError("The journal cannot be posted", issues.map((issue) => ({
+              ...issue, message: `Line ${lines.length + 1}: ${issue.message}`,
+            })));
+          }
+          throw error;
+        })
+        : { jobId: null, customerId: null };
+      lines.push({
+        ...line,
+        businessUnitId: field(form, `branch:${i}`),
+        jobId: found.jobId ?? undefined,
+        customerId: found.customerId ?? undefined,
+      });
+    }
     const input = parsed(createJournalEntry.input, {
       occurredOn: field(form, "occurredOn"), memo: field(form, "memo") ?? "", lines,
     });
-    const entry = await journals.create(await ctx(), input);
+    const entry = await journals.create(service, input);
     return { message: `Posted as journal ${entry.number}.` };
   });
   revalidatePath("/books");

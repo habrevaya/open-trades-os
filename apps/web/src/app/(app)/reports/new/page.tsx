@@ -48,6 +48,8 @@ export default async function NewReportPage({
   const view = {
     chart: typeof params.chart === "string" ? params.chart : undefined,
     measure: typeof params.measure === "string" ? params.measure : undefined,
+    split: typeof params.split === "string" ? params.split : undefined,
+    arrange: typeof params.arrange === "string" ? params.arrange : undefined,
   };
   const branchOptions = await branches.options(ctx);
 

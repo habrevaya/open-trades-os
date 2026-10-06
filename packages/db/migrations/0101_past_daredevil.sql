@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "ledger_entry_unit_idx" ON "ledger_entry" USING btree ("organization_id","business_unit_id","occurred_at");

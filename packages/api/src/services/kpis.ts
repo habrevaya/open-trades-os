@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, effectiveScope, type Permission } from "@opentradesos/core";
+import { can, effectiveScope, reporting, PERMISSIONS, type Permission } from "@opentradesos/core";
 import { packs, packById, type TradePack } from "@opentradesos/trade-packs";
 import { audit, guardedRead, timezoneOf, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import { CATALOGUE, KEYS, total, type Entry, type Format } from "./kpi-catalogue";
@@ -46,6 +46,9 @@ export interface KpiResult {
   denominator: string | null;
   numeratorLabel: string | null;
   denominatorLabel: string | null;
+  /** Each half is dollars: the number is shown as money rather than as a count. */
+  numeratorMoney: boolean;
+  denominatorMoney: boolean;
   /** Set when the state is `unavailable`: the one datum that is missing. */
   needs: string | null;
   /** Set when the state is `elsewhere`: where to get it. */
@@ -64,31 +67,11 @@ export interface Scorecard {
 }
 
 /**
- * How two scalars become the number on the screen.
- *
- * A zero denominator is NULL and never zero. Nought per cent close rate says
- * every estimate lost; no estimates presented says there is nothing to measure,
- * and those are different months with different answers. This codebase has made
- * the same choice in `utilisation`, `reachRate` and `overageCapture`, and it is
- * the same reason each time.
+ * How two scalars become the number on the screen is core's `combine`: a zero
+ * denominator is null and never zero, and it is tested there without a
+ * database. The halves it is given come from the SQL in `kpi-catalogue.ts`.
  */
-function combine(format: Format, numerator: number, denominator: number): string | null {
-  if (denominator === 0) return null;
-  switch (format) {
-    case "percent":
-      return ((numerator / denominator) * 100).toFixed(1);
-    case "money":
-      /**
-       * Four decimal places, as every money column in this schema is. A figure
-       * rounded to cents here and summed elsewhere would not reconcile against
-       * the ledger it came from.
-       */
-      return (numerator / denominator).toFixed(4);
-    case "duration":
-    case "number":
-      return (numerator / denominator).toFixed(2);
-  }
-}
+const combine = reporting.combine;
 
 /**
  * A money total rather than a ratio.
@@ -100,6 +83,17 @@ function combine(format: Format, numerator: number, denominator: number): string
  * looking at.
  */
 const TOTALS: readonly string[] = ["replace_pipeline", "panel_pipeline"];
+
+/**
+ * Whether one half of a computed KPI is dollars: the half says so, and failing
+ * that the numerator of a money KPI is (revenue over a count of jobs).
+ */
+function halfIsMoney(entry: Extract<Entry, { state: "computed" }>, half: KpiHalf): boolean {
+  return entry.measure[half].money ?? (entry.format === "money" && half === "numerator");
+}
+
+/** A permission as its own words, for a sentence an owner reads: "See job cost, gross margin and profitability". */
+const permissionWords = (permission: Permission) => `"${PERMISSIONS[permission]}"`;
 
 async function scalar(tx: Database, statement: ReturnType<typeof sql>): Promise<number> {
   const rows = await tx.execute<{ value: string | null }>(statement);
@@ -153,7 +147,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
           key: kpi.key, label: kpi.label, definition: kpi.definition,
           format: (kpi.format as Format) ?? "number", target: kpi.target ?? null,
           state: "unavailable", value: null, numerator: null, denominator: null,
-          numeratorLabel: null, denominatorLabel: null,
+          numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
           needs: "This KPI is declared by the trade pack and has no entry in the catalogue, so "
             + "nobody has decided whether it can be computed. That is a bug rather than a gap.",
           endpoint: null,
@@ -172,7 +166,8 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
       if (entry.state === "needs") {
         result.unavailable.push({
           ...base, state: "unavailable", value: null, numerator: null, denominator: null,
-          numeratorLabel: null, denominatorLabel: null, needs: entry.needs, endpoint: null,
+          numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
+          needs: entry.needs, endpoint: null,
         });
         continue;
       }
@@ -180,8 +175,26 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
       if (entry.state === "elsewhere") {
         result.elsewhere.push({
           ...base, state: "elsewhere", value: null, numerator: null, denominator: null,
-          numeratorLabel: null, denominatorLabel: null, needs: entry.why,
-          endpoint: entry.endpoint,
+          numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
+          needs: entry.why, endpoint: entry.endpoint,
+        });
+        continue;
+      }
+
+      /**
+       * A figure built from what work costs is refused to a reader who may not
+       * read what work costs, and says which they lack. Not blanked and not
+       * shown: a margin percentage handed to somebody without the permission
+       * is the cost column one division away, and "unavailable" is the
+       * honest word for a figure this reader cannot have.
+       */
+      const lacking = (entry.permissions ?? []).filter((permission) => !can(ctx.actor, permission));
+      if (lacking.length > 0) {
+        result.unavailable.push({
+          ...base, state: "unavailable", value: null, numerator: null, denominator: null,
+          numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
+          needs: `This figure is built from what jobs cost, so reading it takes ${lacking.map(permissionWords).join(" and ")}.`,
+          endpoint: null,
         });
         continue;
       }
@@ -196,10 +209,12 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         ...base,
         state: "computed",
         value,
-        numerator: entry.format === "money" ? numerator.toFixed(4) : String(numerator),
-        denominator: String(denominator),
+        numerator: halfIsMoney(entry, "numerator") ? numerator.toFixed(4) : String(numerator),
+        denominator: halfIsMoney(entry, "denominator") ? denominator.toFixed(4) : String(denominator),
         numeratorLabel: entry.measure.numerator.label,
         denominatorLabel: entry.measure.denominator.label,
+        numeratorMoney: halfIsMoney(entry, "numerator"),
+        denominatorMoney: halfIsMoney(entry, "denominator"),
         needs: null,
         endpoint: null,
       });
@@ -296,6 +311,8 @@ export interface KpiDrill {
   total: string;
   /** True when more records exist than are listed. The total still covers all of them. */
   truncated: boolean;
+  /** Every record's value is dollars, so the list and its total are shown as money. */
+  money: boolean;
 }
 
 /** A thousand, as the report drill lists. Nobody reads more on a screen. */
@@ -313,6 +330,7 @@ const KIND_NEEDS: Record<string, Permission> = {
   visit: "visit:read",
   customer: "customer:read",
   technician_day: "timesheet:read",
+  crew_day: "timesheet:read",
   time: "timesheet:read",
   deficiency: "equipment:read",
   equipment: "equipment:read",
@@ -320,7 +338,7 @@ const KIND_NEEDS: Record<string, Permission> = {
 
 const KIND_WORDS: Record<string, string> = {
   job: "jobs", estimate: "estimates", agreement: "agreements", visit: "visits", customer: "customers",
-  technician_day: "timesheets", time: "timesheets", deficiency: "the equipment register", equipment: "the equipment register",
+  technician_day: "timesheets", crew_day: "timesheets", time: "timesheets", deficiency: "the equipment register", equipment: "the equipment register",
 };
 
 /**
@@ -369,7 +387,18 @@ export function drill(
       );
     }
     const half = entry.measure[input.half];
-    const moneyHalf = entry.format === "money" && input.half === "numerator";
+    /**
+     * A figure built from what work costs lists what each job cost and earned,
+     * so it takes what the figure takes: the same permissions the scorecard
+     * refused it without.
+     */
+    const lacking = (entry.permissions ?? []).filter((permission) => !can(ctx.actor, permission));
+    if (lacking.length > 0) {
+      throw new ConflictError(
+        `The records behind this figure are what each job cost and earned, and seeing them needs ${lacking.map(permissionWords).join(" and ")}.`,
+      );
+    }
+    const moneyHalf = halfIsMoney(entry, input.half);
     if (moneyHalf && !can(ctx.actor, "report.financial:read")) {
       throw new ConflictError(
         "The records behind this figure are revenue per job, which is a financial report. "
@@ -428,6 +457,7 @@ export function drill(
       count,
       total: sum,
       truncated: count > DRILL_LIMIT,
+      money: moneyHalf,
     };
   });
 }
