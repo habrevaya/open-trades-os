@@ -5,6 +5,8 @@ export interface CostingData {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  /** Receipts the company agreed to pay back and per diem for days away, on this job. Absent from older callers. */
+  expenseCost?: string;
   grossMargin: string;
   grossMarginPercent: number | null;
   /** At the company's own burden and overhead rates; equal to the gross margin until any are set. */
@@ -58,6 +60,9 @@ export function Costing({ data }: { data: CostingData }) {
         <Figure label="Materials"><Money value={data.materialCost} /></Figure>
         <Figure label="Labour"><Money value={data.labourCost} /></Figure>
         <Figure label="Card fees"><Money value={data.processingFees} /></Figure>
+        {data.expenseCost !== undefined && Number(data.expenseCost) !== 0 ? (
+          <Figure label="Expenses and per diem"><Money value={data.expenseCost} /></Figure>
+        ) : null}
         <Figure label="Gross margin">
           <span className={negative ? "text-red-600" : undefined}><Money value={data.grossMargin} /></span>
           {data.grossMarginPercent !== null && (

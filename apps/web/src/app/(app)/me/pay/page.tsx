@@ -42,7 +42,8 @@ export default async function MyPayPage() {
       <h1 className="mt-1 text-xl font-semibold">My pay</h1>
       <p className="mt-1 text-sm text-ink-700">
         Gross pay for each pay period once payroll has closed it, line by line as it went to payroll. Tax and
-        anything else taken out is on the statement from whoever runs your payroll.
+        anything else taken out is on the statement from whoever runs your payroll. What you were paid back for
+        something you bought for the company, or for a day away, is paid on top with no tax taken from it.
       </p>
 
       {!own.technician ? (
@@ -81,6 +82,11 @@ export default async function MyPayPage() {
                     ))}
                   </Table>
                   <p className="mt-2 text-right text-sm font-semibold">Gross <Money value={s.statement.gross} /></p>
+                  {Number(s.statement.nonTaxable) !== 0 ? (
+                    <p className="mt-1 text-right text-sm text-ink-700">
+                      Paid back on top, with no tax taken: <Money value={s.statement.nonTaxable} />
+                    </p>
+                  ) : null}
                   {Number(s.statement.carriedForward) !== 0 ? (
                     <p className="mt-1 text-right text-sm text-ink-700">
                       Carried to your next period: <Money value={s.statement.carriedForward} />

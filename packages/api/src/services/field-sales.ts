@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { schema, type Database } from "@opentradesos/db";
 import { can, customerPortal as cp, field, money as m, time } from "@opentradesos/core";
@@ -8,6 +8,7 @@ import * as estimates from "./estimates";
 import * as billing from "./billing";
 import * as tasks from "./tasks";
 import * as tips from "./tips";
+import * as expenses from "./expenses";
 import * as financing from "./financing";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import { excludedItemsWithin, memberPricingWithin } from "./agreements";
@@ -32,6 +33,7 @@ import type { VisitForField } from "../contracts/field";
  *                      signed for, shown to them and signed for
  *   task.claim/close   the office queue, from the phone
  *   tip.record         a cash tip the technician kept
+ *   expense.record     what the technician paid for the company, for the office to decide
  *
  * Each goes through the service the office uses (`estimates.createIn`,
  * `estimates.decide`, `billing.createIn`, `tasks.claim`), so a figure is
@@ -567,6 +569,89 @@ export async function recordCashTip(tx: Database, ctx: ServiceContext, op: field
   return null;
 }
 
+/**
+ * WHAT THE TECHNICIAN PAID FOR THE COMPANY, from the phone.
+ *
+ * Through `expenses.recordWithin`, the same rules the web form follows, as the
+ * phone's own person and never one the payload names. The id is the one the
+ * phone made, so a retried sync records it once. A receipt photograph follows
+ * as an `attachment.attach` naming the expense (`ownsExpense` below).
+ */
+export async function recordExpense(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<Outcome> {
+  if (!can(ctx.actor, "expense:own")) {
+    return "Your account may not record expenses. Ask the office to give you that access, and send it again.";
+  }
+  const technicianId = await deviceTechnician(tx, op.deviceId);
+  if (!technicianId) return "This phone is not registered to a technician, so there is nobody to pay it back to.";
+  const id = uuid(op.subjectId);
+  if (!id) return "That expense has no id.";
+  const amount = typeof op.payload["amount"] === "string" ? op.payload["amount"] : "";
+  const spentOn = typeof op.payload["spentOn"] === "string" ? op.payload["spentOn"] : "";
+  const description = typeof op.payload["description"] === "string" ? op.payload["description"] : "";
+  const jobId = uuid(op.payload["jobId"]);
+  return savepoint(tx, async (sp) => {
+    await expenses.recordWithin(sp, ctx, technicianId, {
+      id, jobId, amount, spentOn, description, recordedAt: op.occurredAt,
+    });
+    return null;
+  });
+}
+
+/** Whether this phone's person recorded the expense, which is the only receipt it may add a photograph to. */
+export async function ownsExpense(tx: Database, op: field.FieldOperation): Promise<boolean> {
+  const technicianId = await deviceTechnician(tx, op.deviceId);
+  const id = uuid(op.subjectId);
+  if (!technicianId || !id) return false;
+  const [row] = await tx.select({ id: schema.expense.id }).from(schema.expense)
+    .where(and(eq(schema.expense.id, id), eq(schema.expense.technicianId, technicianId))).limit(1);
+  return row !== undefined;
+}
+
+/**
+ * The person's own expenses for the phone: what they recorded in the last
+ * sixty days and what the office said, so a refusal reaches them with its
+ * reason on the phone they recorded it from.
+ */
+export async function expensesFor(tx: Database, technicianId: string) {
+  const since = new Date(Date.now() - 60 * 86_400_000);
+  const rows = await tx.select({
+    expense: schema.expense,
+    jobNumber: schema.job.number,
+    receipts: sql<number>`(select count(*)::int from public.attachment a
+      where a.entity_type = 'expense' and a.entity_id = ${schema.expense.id} and a.deleted_at is null)`,
+  }).from(schema.expense)
+    .leftJoin(schema.job, eq(schema.job.id, schema.expense.jobId))
+    .where(and(eq(schema.expense.technicianId, technicianId), gte(schema.expense.recordedAt, since)))
+    .orderBy(desc(schema.expense.recordedAt)).limit(100);
+  return rows.map(({ expense, jobNumber, receipts }) => ({
+    id: expense.id,
+    amount: expense.amount,
+    spentOn: expense.spentOn,
+    description: expense.description,
+    jobNumber: jobNumber ?? null,
+    status: expense.status,
+    decisionReason: expense.decisionReason,
+    receipts,
+  }));
+}
+
+/**
+ * A number that moves when any of the person's expenses does, so the phone's
+ * poll notices an answer. The count of answered ones is in it because the
+ * last touched second alone would not move for an answer given in the same
+ * second as the record. The seconds are taken modulo a million because this is
+ * added to the day's own revision, which is already an epoch in seconds, and the
+ * column that keeps it is a 32 bit integer.
+ */
+export async function expensesRevision(tx: Database, technicianId: string): Promise<number> {
+  const [row] = await tx.execute<{ revision: string }>(sql`
+    select (coalesce(extract(epoch from max(updated_at))::bigint % 1000000, 0) + count(*)
+            + count(*) filter (where status <> 'pending'))::text as revision
+    from public.expense where technician_id = ${technicianId}::uuid
+  `);
+  return Number(row?.revision ?? 0);
+}
+
 /* ------------------------------------------------------------------ tasks */
 
 /**
@@ -777,6 +862,7 @@ export async function abilitiesFor(tx: Database, ctx: ServiceContext) {
     tipping: { enabled: tipping.enabled, presets: tipping.presets },
     financing: lender !== null,
     assistant: assistant.enabled,
+    expenses: can(ctx.actor, "expense:own"),
   };
 }
 

@@ -43309,6 +43309,275 @@
         ]
       }
     },
+    "/v1/expenses": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listExpenses",
+        "summary": "Everybody's expenses, waiting ones first",
+        "description": "For whoever approves them, narrowed to the people their timesheet scope reaches, so a branch manager sees their own branch's. `waiting` is how many are still to answer.\n\nRequires a session holding: expense:approve.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "refused"
+              ]
+            }
+          },
+          {
+            "name": "technicianId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Everybody's expenses, waiting ones first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExpensesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:approve"
+        ]
+      }
+    },
+    "/v1/expenses/{id}/decision": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "decideExpense",
+        "summary": "Approve or refuse an expense",
+        "description": "A refusal needs a reason, which the person reads. An approved one goes to the payroll bureau as a non-taxable reimbursement line in the pay period the approval falls in. The same decision again answers with the first; the other decision is refused, because the payroll file is built from it. Not posted to the ledger.\n\nRequires a session holding: expense:approve.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideExpenseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Approve or refuse an expense",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideExpenseOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:approve"
+        ]
+      }
+    },
     "/v1/export": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -53243,6 +53512,115 @@
         "x-authorization": "session",
         "x-permissions": [
           "adspend:read"
+        ]
+      }
+    },
+    "/v1/jobs/{jobId}/expenses": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getJobExpenses",
+        "summary": "What the company has agreed to pay people for one job",
+        "description": "Approved reimbursements and per diem days, and what they come to, which is part of the job's cost (M15). A cost, so `job.cost:read`.\n\nRequires a session holding: job.cost:read.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the company has agreed to pay people for one job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetJobExpensesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job.cost:read"
         ]
       }
     },
@@ -64830,6 +65208,366 @@
         ]
       }
     },
+    "/v1/me/expenses": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listMyExpenses",
+        "summary": "What you recorded, what the office said, and the days away you were paid for",
+        "description": "The last four months, waiting ones first. `technician` is false for somebody with no place on the board, who has nobody to be paid back.\n\nRequires a session holding: expense:own.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "What you recorded, what the office said, and the days away you were paid for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMyExpensesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:own"
+        ]
+      },
+      "post": {
+        "operationId": "recordExpense",
+        "summary": "Record what you paid for the company",
+        "description": "The amount in dollars and cents, the day, what it was for, the job if there was one and a photograph of the receipt. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.\n\nRequires a session holding: expense:own.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordExpenseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record what you paid for the company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExpenseOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:own"
+        ]
+      }
+    },
+    "/v1/me/expenses/{id}/receipts": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addExpenseReceipt",
+        "summary": "Add a photograph of the receipt to one of your own",
+        "description": "Only while the office has not answered it. The same photograph twice is one receipt.\n\nRequires a session holding: expense:own.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddExpenseReceiptInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a photograph of the receipt to one of your own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddExpenseReceiptOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:own"
+        ]
+      }
+    },
     "/v1/me/onboarding-lines/{id}": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -71004,7 +71742,7 @@
       "post": {
         "operationId": "exportPayPeriod",
         "summary": "Produce the payroll file for a closed period",
-        "description": "CSV, and only CSV: every bureau takes one, no vendor has to approve it, and a self hoster can open it. One row per employee per pay category, because regular, overtime and double time are taxed and reported differently in enough places that collapsing them makes the file useless for what it is for. Reproducible by construction: the clock handed to the statement builder is the instant of the close, so running it twice produces the same bytes and the same checksum.\n\nRequires a session holding: payroll:export.",
+        "description": "CSV, and only CSV: every bureau takes one, no vendor has to approve it, and a self hoster can open it. One row per employee per pay category, because regular, overtime and double time are taxed and reported differently in enough places that collapsing them makes the file useless for what it is for. What a person spent for the company and the office approved is a `reimbursement` row, and a day away at the company's rate is a `per_diem` row: both are paid in full with no tax taken, so they are not in `grossTotal` and are totalled in `reimbursementTotal`. Reproducible by construction: the clock handed to the statement builder is the instant of the close, so running it twice produces the same bytes and the same checksum.\n\nRequires a session holding: payroll:export.",
         "tags": [
           "M17"
         ],
@@ -71447,6 +72185,228 @@
         "x-authorization": "session",
         "x-permissions": [
           "timesheet:read"
+        ]
+      }
+    },
+    "/v1/payroll/pay-extras": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "getPayExtras",
+        "summary": "The company's rate for a day away",
+        "description": "Requires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's rate for a day away",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPayExtrasOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
+        ]
+      },
+      "post": {
+        "operationId": "setPayExtras",
+        "summary": "Set the rate for a day away",
+        "description": "`perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPayExtrasInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set the rate for a day away",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPayExtrasOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
         ]
       }
     },
@@ -73469,6 +74429,404 @@
         "x-authorization": "session",
         "x-permissions": [
           "user:write"
+        ]
+      }
+    },
+    "/v1/per-diem": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listPerDiem",
+        "summary": "Days away that have been recorded",
+        "description": "Requires a session holding: expense:approve.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "technicianId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Days away that have been recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPerDiemOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:approve"
+        ]
+      },
+      "post": {
+        "operationId": "recordPerDiem",
+        "summary": "Record the company's rate for each day somebody was away on a job",
+        "description": "From the first day to the last, both included, at most 31. The rate is the company's current one (`POST /v1/payroll/pay-extras`) and is kept on each day, so a later change does not reprice it. A day that already has one for that person is left as it was and named in `alreadyHad`. A day inside a pay period that has been closed is refused. Paid through payroll as `per_diem`, with no tax taken, and counted in the job's cost.\n\nRequires a session holding: expense:approve.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPerDiemInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record the company's rate for each day somebody was away on a job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordPerDiemOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:approve"
+        ]
+      }
+    },
+    "/v1/per-diem/{id}/removal": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removePerDiem",
+        "summary": "Take a recorded day away back out",
+        "description": "For one recorded against the wrong person or job. Refused once the pay period it falls in has been closed.\n\nRequires a session holding: expense:approve.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemovePerDiemInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a recorded day away back out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovePerDiemOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "expense:approve"
         ]
       }
     },
@@ -121108,6 +122466,49 @@
           "estimateId"
         ]
       },
+      "AddExpenseReceiptInput": {
+        "type": "object",
+        "properties": {
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "contentType": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "bytes": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 29360128
+              }
+            },
+            "required": [
+              "fileName",
+              "bytes"
+            ]
+          }
+        },
+        "required": [
+          "receipt"
+        ]
+      },
+      "AddExpenseReceiptOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
       "AddIncidentFollowUpInput": {
         "type": "object",
         "properties": {
@@ -141125,6 +142526,142 @@
           "decisionNote"
         ]
       },
+      "DecideExpenseInput": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refuse"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "DecideExpenseOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianName": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "spentOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "refused"
+            ]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decidedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decisionReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipts": {
+            "type": "integer"
+          },
+          "paidIn": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "label": {
+                "type": "string"
+              },
+              "closed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "closed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "technicianId",
+          "technicianName",
+          "jobId",
+          "jobNumber",
+          "amount",
+          "spentOn",
+          "description",
+          "status",
+          "recordedAt",
+          "decidedAt",
+          "decidedByName",
+          "decisionReason",
+          "receipts",
+          "paidIn"
+        ]
+      },
       "DecidePurchaseOrderInput": {
         "type": "object",
         "properties": {
@@ -145892,6 +147429,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "reimbursementTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "generatedAt": {
             "type": "string",
             "format": "date-time"
@@ -145908,6 +147449,7 @@
           "checksum",
           "rowCount",
           "grossTotal",
+          "reimbursementTotal",
           "generatedAt",
           "previouslyExported"
         ]
@@ -155348,6 +156890,9 @@
               },
               "assistant": {
                 "type": "boolean"
+              },
+              "expenses": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -155358,8 +156903,64 @@
               "tasks",
               "tipping",
               "financing",
-              "assistant"
+              "assistant",
+              "expenses"
             ]
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "spentOn": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "refused"
+                  ]
+                },
+                "decisionReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receipts": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "amount",
+                "spentOn",
+                "description",
+                "jobNumber",
+                "status",
+                "decisionReason",
+                "receipts"
+              ]
+            }
           }
         },
         "required": [
@@ -155371,7 +156972,8 @@
           "inspectionPrograms",
           "locationSharing",
           "tasks",
-          "abilities"
+          "abilities",
+          "expenses"
         ]
       },
       "GetFinancingReportOutput": {
@@ -157859,6 +159461,211 @@
           "models"
         ]
       },
+      "GetJobExpensesOutput": {
+        "type": "object",
+        "properties": {
+          "reimbursements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "spentOn": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "refused"
+                  ]
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "decidedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "decisionReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receipts": {
+                  "type": "integer"
+                },
+                "paidIn": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "closed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "amount",
+                "spentOn",
+                "description",
+                "status",
+                "recordedAt",
+                "decidedAt",
+                "decidedByName",
+                "decisionReason",
+                "receipts",
+                "paidIn"
+              ]
+            }
+          },
+          "perDiems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "day": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidIn": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "closed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "day",
+                "amount",
+                "note",
+                "paidIn"
+              ]
+            }
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "reimbursements",
+          "perDiems",
+          "total"
+        ]
+      },
       "GetJobMaterialCostOutput": {
         "type": "object",
         "properties": {
@@ -157913,6 +159720,10 @@
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "processingFees": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "expenseCost": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
@@ -158264,6 +160075,7 @@
           "materialCost",
           "labourCost",
           "processingFees",
+          "expenseCost",
           "grossMargin",
           "grossMarginPercent",
           "labourBurden",
@@ -161208,6 +163020,10 @@
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     },
+                    "nonTaxable": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
                     "carriedForward": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -161223,6 +163039,7 @@
                     "classification",
                     "lines",
                     "gross",
+                    "nonTaxable",
                     "carriedForward",
                     "warnings"
                   ]
@@ -162193,6 +164010,21 @@
           "explanation"
         ]
       },
+      "GetPayExtrasOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "perDiemRate"
+        ]
+      },
       "GetPaymentsStatusOutput": {
         "type": "object",
         "properties": {
@@ -162334,6 +164166,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "nonTaxable": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
                 "carriedForward": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -162351,6 +164187,7 @@
                 "classification",
                 "lines",
                 "gross",
+                "nonTaxable",
                 "carriedForward",
                 "warnings"
               ]
@@ -162385,6 +164222,10 @@
           "grossTotal": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "reimbursementTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
@@ -162395,7 +164236,8 @@
           "closedAt",
           "rows",
           "problems",
-          "grossTotal"
+          "grossTotal",
+          "reimbursementTotal"
         ]
       },
       "GetPerformanceOutput": {
@@ -165104,6 +166946,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "expenseCost": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "grossMargin": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -165155,6 +167001,7 @@
           "materialCost",
           "labourCost",
           "processingFees",
+          "expenseCost",
           "grossMargin",
           "costVariance",
           "billedToDate",
@@ -177239,7 +179086,8 @@
                     "invoice.raise",
                     "task.claim",
                     "task.close",
-                    "tip.record"
+                    "tip.record",
+                    "expense.record"
                   ]
                 },
                 "subjectId": {
@@ -181035,6 +182883,143 @@
           "hasMore"
         ]
       },
+      "ListExpensesOutput": {
+        "type": "object",
+        "properties": {
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "spentOn": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "refused"
+                  ]
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "decidedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "decisionReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receipts": {
+                  "type": "integer"
+                },
+                "paidIn": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "closed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "amount",
+                "spentOn",
+                "description",
+                "status",
+                "recordedAt",
+                "decidedAt",
+                "decidedByName",
+                "decisionReason",
+                "receipts",
+                "paidIn"
+              ]
+            }
+          },
+          "waiting": {
+            "type": "integer"
+          },
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "expenses",
+          "waiting",
+          "perDiemRate"
+        ]
+      },
       "ListExpiringCertificationsOutput": {
         "type": "object",
         "properties": {
@@ -184555,6 +186540,210 @@
           "brands"
         ]
       },
+      "ListMyExpensesOutput": {
+        "type": "object",
+        "properties": {
+          "technician": {
+            "type": "boolean"
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "spentOn": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "refused"
+                  ]
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "decidedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "decisionReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receipts": {
+                  "type": "integer"
+                },
+                "paidIn": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "closed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "amount",
+                "spentOn",
+                "description",
+                "status",
+                "recordedAt",
+                "decidedAt",
+                "decidedByName",
+                "decisionReason",
+                "receipts",
+                "paidIn"
+              ]
+            }
+          },
+          "perDiems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "day": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidIn": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "closed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "day",
+                "amount",
+                "note",
+                "paidIn"
+              ]
+            }
+          }
+        },
+        "required": [
+          "technician",
+          "expenses",
+          "perDiems"
+        ]
+      },
       "ListMySafetyMeetingsOutput": {
         "type": "object",
         "properties": {
@@ -185410,6 +187599,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "reimbursementTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
                 "checksum": {
                   "type": "string"
                 },
@@ -185424,6 +187617,7 @@
                 "format",
                 "rowCount",
                 "grossTotal",
+                "reimbursementTotal",
                 "checksum",
                 "generatedAt"
               ]
@@ -185803,6 +187997,88 @@
         },
         "required": [
           "people"
+        ]
+      },
+      "ListPerDiemOutput": {
+        "type": "object",
+        "properties": {
+          "perDiems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": "string"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "day": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidIn": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "closed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "jobId",
+                "jobNumber",
+                "day",
+                "amount",
+                "note",
+                "paidIn"
+              ]
+            }
+          }
+        },
+        "required": [
+          "perDiems"
         ]
       },
       "ListPhoneMenusOutput": {
@@ -202822,6 +205098,181 @@
           "deliveredAt"
         ]
       },
+      "RecordExpenseInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "amount": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "spentOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "contentType": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "bytes": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 29360128
+              }
+            },
+            "required": [
+              "fileName",
+              "bytes"
+            ]
+          }
+        },
+        "required": [
+          "amount",
+          "spentOn",
+          "description"
+        ]
+      },
+      "RecordExpenseOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianName": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "spentOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "refused"
+            ]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decidedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decisionReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipts": {
+            "type": "integer"
+          },
+          "paidIn": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "label": {
+                "type": "string"
+              },
+              "closed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "closed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "technicianId",
+          "technicianName",
+          "jobId",
+          "jobNumber",
+          "amount",
+          "spentOn",
+          "description",
+          "status",
+          "recordedAt",
+          "decidedAt",
+          "decidedByName",
+          "decisionReason",
+          "receipts",
+          "paidIn"
+        ]
+      },
       "RecordInspectionInput": {
         "type": "object",
         "properties": {
@@ -203628,6 +206079,71 @@
           "allocations",
           "unappliedAmount",
           "ledgerTransactionId"
+        ]
+      },
+      "RecordPerDiemInput": {
+        "type": "object",
+        "properties": {
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "technicianId",
+          "from",
+          "to"
+        ]
+      },
+      "RecordPerDiemOutput": {
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          "alreadyHad": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          "rate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "recorded",
+          "alreadyHad",
+          "rate"
         ]
       },
       "RecordProjectLienRecordInput": {
@@ -206852,6 +209368,29 @@
           },
           "removed": {
             "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
+      "RemovePerDiemInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemovePerDiemOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
           }
         },
         "required": [
@@ -217368,6 +219907,33 @@
           "progress"
         ]
       },
+      "SetPayExtrasInput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          }
+        }
+      },
+      "SetPayExtrasOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "perDiemRate"
+        ]
+      },
       "SetPortalSettingsInput": {
         "type": "object",
         "properties": {
@@ -221625,7 +224191,8 @@
                     "invoice.raise",
                     "task.claim",
                     "task.close",
-                    "tip.record"
+                    "tip.record",
+                    "expense.record"
                   ]
                 },
                 "subjectId": {

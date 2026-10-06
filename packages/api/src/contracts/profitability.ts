@@ -101,6 +101,8 @@ export const getJobProfitability = defineRoute({
     materialCost: MoneyString,
     labourCost: MoneyString,
     processingFees: MoneyString,
+    /** What people spent for the job that the company agreed to pay back, and per diem for days away on it (M17). */
+    expenseCost: MoneyString,
     grossMargin: MoneyString,
     /** Null, never zero. A warranty job has cost and no income; 0% says it broke even. */
     grossMarginPercent: z.number().nullable(),

@@ -33,6 +33,7 @@ export * from "./assets";
 export * from "./delivery";
 export * from "./customer-portal";
 export * from "./tips";
+export * from "./expenses";
 export * from "./setup";
 export * from "./proposals";
 export * from "./ads";

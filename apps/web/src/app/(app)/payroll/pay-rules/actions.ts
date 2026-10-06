@@ -4,7 +4,7 @@ import { attempt, field, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { laborSettings } from "@opentradesos/api/services";
+import { laborSettings, payExtras } from "@opentradesos/api/services";
 
 /** Hours typed on the form, as the minutes the policy is declared in, or null when left empty. */
 function minutes(form: FormData, name: string): number | null {
@@ -83,6 +83,12 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           effectiveTo: field(form, "effectiveTo") ?? "",
         });
         return { message: "Retired. It stays on the record for the time already costed at it." };
+
+      case "extras": {
+        /** Left empty means pay none, which is a choice the box has to be able to make. */
+        await payExtras.set(ctx, { perDiemRate: field(form, "perDiemRate") ?? null });
+        return { message: "Saved. A day away is recorded at this rate from now on; days already recorded keep theirs." };
+      }
 
       case "classify":
         await laborSettings.setClassification(ctx, {

@@ -29,12 +29,14 @@ const KEY = {
   prefix: "otos.upload.",
 } as const;
 
-export type UploadKind = "photo" | "signature";
+/** A receipt is a photograph kept with an expense instead of a visit. */
+export type UploadKind = "photo" | "signature" | "receipt";
 export type UploadStatus = "waiting" | "sent" | "failed";
 
 export interface UploadRecord {
   /** The file's own id, which is also the server's `clientId` for it. */
   uploadId: string;
+  /** The visit it was taken at, or for a receipt the expense it is for. */
   visitId: string;
   kind: UploadKind;
   contentType: string;
@@ -302,7 +304,7 @@ export class UploadQueue {
     await this.queue.enqueue({
       kind: record.kind === "signature" ? "signature.capture" : "attachment.attach",
       subjectId: record.visitId,
-      payload,
+      payload: record.kind === "receipt" ? { ...payload, entityType: "expense" } : payload,
       occurredAt: occurredAt ?? new Date(record.createdAt),
     });
   }

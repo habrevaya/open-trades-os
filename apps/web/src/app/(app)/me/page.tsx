@@ -61,6 +61,7 @@ export default async function MyRecordPage() {
       </Facts>
       <p className="mt-3 flex flex-wrap gap-4 text-sm">
         <a href="/me/pay" className="text-blue-600 underline underline-offset-4">My pay</a>
+        {record.technicianId ? <a href="/me/expenses" className="text-blue-600 underline underline-offset-4">Money I spent</a> : null}
         {record.technicianId ? <a href="/me/time-off" className="text-blue-600 underline underline-offset-4">Time off</a> : null}
       </p>
 

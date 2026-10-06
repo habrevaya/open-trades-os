@@ -113,6 +113,8 @@ export * as serviceRoutes from "./routes";
 export * as onCall from "./on-call";
 export * as commissions from "./commissions";
 export * as payroll from "./payroll";
+export * as expenses from "./expenses";
+export * as payExtras from "./pay-extras";
 export * as ai from "./ai";
 export * as agents from "./agents";
 export * as agentIntake from "./agent-intake";

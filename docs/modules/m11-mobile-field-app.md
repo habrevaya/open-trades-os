@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Twenty four operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, and the last seven are selling and closing on site, below): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty five operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, and the last, `expense.record`, is what the technician paid for the company): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -279,6 +279,18 @@ link it needs a signal.
 themselves. It never reaches the company, so nothing is booked; `tip.record`
 puts it on the technician's own pay statement as `cash_tip`, already in their
 hand (M17). Always the phone's own person.
+
+**Money I spent.** What the technician paid out of their own pocket for the
+company: the amount, the day, what it was for, the job from the day's visits if
+there was one and a photograph of the receipt, on the phone ("Money I spent") and on
+`/my-day`. `expense.record` (an append, the twenty fifth kind) carries it with an id the phone made, so a retry records
+it once, and the receipt is an `attachment.attach` whose payload says
+`entityType: "expense"`, kept beside the expense by the same hash checked upload path
+as any photograph and only for the phone's own person's expense. The office decides
+on `/timesheets/expenses` and the answer, with the reason for a refusal in the
+office's own words, comes back in the day's `expenses` (the last sixty days) and
+moves the revision, so the next poll fetches it. Always the phone's own person
+(`expense:own`); an approved one is paid back through payroll (M17).
 
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes

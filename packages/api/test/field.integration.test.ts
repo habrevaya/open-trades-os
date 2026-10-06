@@ -833,7 +833,7 @@ run("every operation does something", () => {
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
     "service_report", "service_report_field", "field_upload", "portal_event", "payment",
-    "inspection", "estimate", "invoice", "task", "cash_tip",
+    "inspection", "estimate", "invoice", "task", "cash_tip", "expense",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -905,6 +905,9 @@ run("every operation does something", () => {
       { kind: "task.claim", subjectId: task!.id, payload: {} },
       { kind: "task.close", subjectId: task!.id, payload: { outcome: "Called them" } },
       { kind: "tip.record", subjectId: visitId, payload: { amount: "10.00" } },
+      { kind: "expense.record", subjectId: uuid(), payload: {
+        amount: "42.50", spentOn: new Date().toISOString().slice(0, 10), description: "Capacitor from the supply house",
+      } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -944,7 +947,7 @@ run("every operation does something", () => {
     const silent = inert.filter((k) => !logOnly.has(k));
 
     /** The selling and closing kinds really land here, so their effect is what is being watched. */
-    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record"]) {
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record", "expense.record"]) {
       expect(landed.get(kind), kind).toBe("applied");
     }
 

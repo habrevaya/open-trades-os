@@ -7,11 +7,14 @@ export interface RegisterData {
     classification: string | null;
     lines: { kind: string; label: string; explanation: string; hours: string | null; rate: string | null; amount: string }[];
     gross: string;
+    /** Reimbursements and per diem, paid beside the gross with no tax taken from them. */
+    nonTaxable: string;
     carriedForward: string;
     warnings: string[];
   }[];
   problems: { technicianId: string; technicianName: string; messages: string[] }[];
   grossTotal: string;
+  reimbursementTotal: string;
 }
 
 /**
@@ -39,7 +42,7 @@ export function Register({ data }: { data: RegisterData }) {
       )}
 
       {data.rows.length === 0 ? (
-        <p className="mt-4 text-sm text-ink-500">Nobody has hours or commission in this period.</p>
+        <p className="mt-4 text-sm text-ink-500">Nobody has hours, commission, tips or money to pay back in this period.</p>
       ) : (
         <div className="mt-4 space-y-4">
           {data.rows.map((row) => (
@@ -51,6 +54,11 @@ export function Register({ data }: { data: RegisterData }) {
                 </h3>
                 <span className="font-mono font-semibold tabular-nums"><Money value={row.gross} /></span>
               </div>
+              {Number(row.nonTaxable) !== 0 && (
+                <p className="mt-1 text-right text-sm text-ink-700">
+                  Paid back on top, no tax taken: <span className="font-mono font-semibold tabular-nums"><Money value={row.nonTaxable} /></span>
+                </p>
+              )}
               <table className="mt-2 w-full text-sm">
                 <tbody className="divide-y divide-steel-200">
                   {row.lines.map((line, i) => (
@@ -82,6 +90,11 @@ export function Register({ data }: { data: RegisterData }) {
           <p className="text-right text-sm">
             Gross for the period: <span className="font-mono font-semibold tabular-nums"><Money value={data.grossTotal} /></span>
           </p>
+          {Number(data.reimbursementTotal) !== 0 && (
+            <p className="text-right text-sm">
+              Paid back and per diem, no tax taken: <span className="font-mono font-semibold tabular-nums"><Money value={data.reimbursementTotal} /></span>
+            </p>
+          )}
         </div>
       )}
     </div>

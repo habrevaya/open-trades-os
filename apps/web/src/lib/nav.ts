@@ -71,6 +71,8 @@ export const NAV: NavGroup[] = [
           { href: "/me", label: "About me" },
           /** Inherits `profile:own` to be SHOWN; the page itself needs `payroll:own`. */
           { href: "/me/pay", label: "My pay" },
+          /** Inherits `profile:own` to be SHOWN; the page itself needs `expense:own`. */
+          { href: "/me/expenses", label: "Money I spent" },
           { href: "/me/time-off", label: "Time off" },
         ],
       },
@@ -333,6 +335,12 @@ export const NAV: NavGroup[] = [
            * hours approves the days off; answering needs `timesheet:approve`.
            */
           { href: "/timesheets/time-off", label: "Time off" },
+          /**
+           * What people paid for the company and the days they were away,
+           * decided by the same people who approve the hours. It inherits
+           * `timesheet:read` to be SHOWN and the page needs `expense:approve`.
+           */
+          { href: "/timesheets/expenses", label: "Expenses" },
         ],
       },
       /**

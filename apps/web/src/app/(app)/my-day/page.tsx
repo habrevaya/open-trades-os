@@ -104,6 +104,8 @@ export default async function MyDayPage({
       priceBook={snapshot.priceBook}
       abilities={snapshot.abilities}
       tasks={snapshot.tasks}
+      expenses={snapshot.expenses}
+      today={todayIn(user.organizationTimezone)}
     />
     </>
   );

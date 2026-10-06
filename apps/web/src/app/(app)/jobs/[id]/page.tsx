@@ -5,7 +5,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking,
+  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -69,6 +69,12 @@ export default async function JobPage({ params, searchParams }: {
   const costing = can(user.actor, "report.financial:read") && can(user.actor, "job.cost:read")
     ? await profitability.statement(ctx, { jobId: id })
     : null;
+
+  /**
+   * What the company has agreed to pay people for this job: receipts it paid
+   * back and the days somebody was away on it. A cost, so `job.cost:read`.
+   */
+  const paidOut = can(user.actor, "job.cost:read") ? await expenses.forJob(ctx, { jobId: id }) : null;
 
   const [parties, authorization, entitlement, customer, sources, branchOptions] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
@@ -343,6 +349,28 @@ export default async function JobPage({ params, searchParams }: {
                             timezone={user.organizationTimezone} />
 
       {costing && <Costing data={costing} />}
+
+      {paidOut && (paidOut.reimbursements.length > 0 || paidOut.perDiems.length > 0) ? (
+        <section aria-labelledby="paid-out" className="mt-6">
+          <h2 id="paid-out" className="text-base font-semibold">Paid back to people</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            Receipts the company agreed to pay back and days somebody was away on this job. They are in its cost.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {paidOut.reimbursements.map((e) => (
+              <li key={e.id}>
+                {e.technicianName}: {e.description} <Money value={e.amount} />
+              </li>
+            ))}
+            {paidOut.perDiems.map((d) => (
+              <li key={d.id}>
+                {d.technicianName}: a day away, {d.day} <Money value={d.amount} />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-sm font-medium">Together <Money value={paidOut.total} /></p>
+        </section>
+      ) : null}
 
       <h2 className="mt-10 text-base font-semibold">Visits</h2>
       {job.visits.length === 0 ? (

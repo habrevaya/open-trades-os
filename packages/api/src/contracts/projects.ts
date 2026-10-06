@@ -297,6 +297,8 @@ export const getProjectProfitability = defineRoute({
     materialCost: MoneyString,
     labourCost: MoneyString,
     processingFees: MoneyString,
+    /** What people spent for the project's jobs that the company agreed to pay back, and per diem for days away on them. */
+    expenseCost: MoneyString,
     grossMargin: MoneyString,
     /** Positive is under budget. Null, never zero, when nothing was budgeted. */
     costVariance: MoneyString.nullable(),

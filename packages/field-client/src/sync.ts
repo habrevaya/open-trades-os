@@ -303,7 +303,7 @@ export class SyncEngine {
  */
 export const NO_ABILITIES: FieldAbilities = {
   writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
-  tipping: { enabled: false, presets: [] }, financing: false, assistant: false,
+  tipping: { enabled: false, presets: [] }, financing: false, assistant: false, expenses: false,
 };
 
 async function readJson<T>(storage: Storage, key: string): Promise<T | null> {

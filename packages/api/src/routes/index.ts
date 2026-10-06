@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
-  me, staffDocuments,
+  me, staffDocuments, expenses, payExtras,
 } from "../services/index";
 
 /**
@@ -1019,6 +1019,20 @@ export const handlers = {
   requestPortalBooking: portalBooking.handlers.requestPortalBooking,
   payTips: payroll.handlers.payTips,
   getMyPayStatements: payroll.handlers.getMyPayStatements,
+
+  // What people paid for the company, a day away, and how tips are shared (M17)
+  recordExpense: expenses.handlers.recordExpense,
+  addExpenseReceipt: expenses.handlers.addExpenseReceipt,
+  listMyExpenses: expenses.handlers.listMyExpenses,
+  listExpenses: expenses.handlers.listExpenses,
+  decideExpense: expenses.handlers.decideExpense,
+  recordPerDiem: expenses.handlers.recordPerDiem,
+  listPerDiem: async (ctx: ServiceContext, input: { technicianId?: string | undefined; jobId?: string | undefined; from?: string | undefined; to?: string | undefined }) =>
+    ({ perDiems: await expenses.listPerDiem(ctx, input) }),
+  removePerDiem: expenses.handlers.removePerDiem,
+  getJobExpenses: expenses.handlers.getJobExpenses,
+  getPayExtras: payExtras.handlers.getPayExtras,
+  setPayExtras: payExtras.handlers.setPayExtras,
 
   // Setup, the team and branches (M02, M01)
   getSetup: setup.handlers.getSetup,

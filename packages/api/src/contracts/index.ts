@@ -33,6 +33,7 @@ import { profitabilityRoutes } from "./profitability";
 import { financeRoutes } from "./finance";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
+import { expenseRoutes } from "./expenses";
 import { payRuleRoutes } from "./pay-rules";
 import { aiRoutes } from "./ai";
 import { agentRoutes } from "./agents";
@@ -135,6 +136,7 @@ export * from "./profitability";
 export * from "./finance";
 export * from "./crews";
 export * from "./payroll";
+export * from "./expenses";
 export * from "./pay-rules";
 export * from "./ai";
 export * from "./agents";
@@ -239,6 +241,7 @@ export const routes = {
   ...financeRoutes,
   ...crewRoutes,
   ...payrollRoutes,
+  ...expenseRoutes,
   ...payRuleRoutes,
   ...aiRoutes,
   ...agentRoutes,

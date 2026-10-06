@@ -896,12 +896,20 @@ async function effect(
        * following behind, rather than appearing to have none until the last
        * upload finishes over a cellular connection in a van.
        */
+      /**
+       * A receipt names its expense, and only the person who recorded the
+       * expense may add a photograph to it. Every other attachment is a visit's.
+       */
+      const forExpense = op.kind === "attachment.attach" && op.payload["entityType"] === "expense";
+      if (forExpense && !(await fieldSales.ownsExpense(tx, op))) {
+        return "That receipt is for an expense that is not yours, or that has not arrived. It was not kept.";
+      }
       await tx.insert(schema.fieldUpload).values({
         organizationId: org,
         deviceId: op.deviceId,
         operationId,
         clientId: String(op.payload["uploadId"] ?? op.clientId),
-        subjectType: op.kind === "signature.capture" ? "signature" : "visit",
+        subjectType: op.kind === "signature.capture" ? "signature" : forExpense ? "expense" : "visit",
         subjectId: op.subjectId || null,
         contentType: String(op.payload["contentType"] ?? "image/jpeg"),
         byteSize: (op.payload["byteSize"] as number) ?? null,
@@ -1106,6 +1114,9 @@ async function effect(
 
     case "tip.record":
       return fieldSales.recordCashTip(tx, ctx, op);
+
+    case "expense.record":
+      return fieldSales.recordExpense(tx, ctx, op);
 
     default:
       /**

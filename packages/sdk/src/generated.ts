@@ -176,6 +176,18 @@ export interface AddEstimateOptionPhotoOutput {
   estimateId: string;
 }
 
+export interface AddExpenseReceiptInput {
+  receipt: {
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  };
+}
+
+export interface AddExpenseReceiptOutput {
+  id: string;
+}
+
 export interface AddIncidentFollowUpInput {
   title: string;
   assigneeUserId?: string;
@@ -4069,6 +4081,33 @@ export interface DecideClaimOutput {
   decisionNote: string | null;
 }
 
+export interface DecideExpenseInput {
+  decision: "approve" | "refuse";
+  reason?: string | null;
+}
+
+export interface DecideExpenseOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  spentOn: string;
+  description: string;
+  status: "pending" | "approved" | "refused";
+  recordedAt: string;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionReason: string | null;
+  receipts: number;
+  paidIn: {
+    id: string;
+    label: string;
+    closed: boolean;
+  } | null;
+}
+
 export interface DecidePurchaseOrderInput {
   decision: "approved" | "rejected";
   note?: string | null;
@@ -5073,6 +5112,7 @@ export interface ExportPayPeriodOutput {
   checksum: string;
   rowCount: number;
   grossTotal: string;
+  reimbursementTotal: string;
   generatedAt: string;
   previouslyExported: boolean;
 }
@@ -6892,7 +6932,18 @@ export interface GetFieldSnapshotOutput {
     };
     financing: boolean;
     assistant: boolean;
+    expenses: boolean;
   };
+  expenses: Array<{
+    id: string;
+    amount: string;
+    spentOn: string;
+    description: string;
+    jobNumber: number | null;
+    status: "pending" | "approved" | "refused";
+    decisionReason: string | null;
+    receipts: number;
+  }>;
 }
 
 export interface GetFinancingReportOutput {
@@ -7279,6 +7330,46 @@ export interface GetJobAttributionOutput {
   }>;
 }
 
+export interface GetJobExpensesOutput {
+  reimbursements: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    spentOn: string;
+    description: string;
+    status: "pending" | "approved" | "refused";
+    recordedAt: string;
+    decidedAt: string | null;
+    decidedByName: string | null;
+    decisionReason: string | null;
+    receipts: number;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  perDiems: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string;
+    jobNumber: number;
+    day: string;
+    amount: string;
+    note: string | null;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  total: string;
+}
+
 export interface GetJobMaterialCostOutput {
   cost: string;
 }
@@ -7355,6 +7446,7 @@ export interface GetJobProfitabilityOutput {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  expenseCost: string;
   grossMargin: string;
   grossMarginPercent: number | null;
   labourBurden: string;
@@ -7992,6 +8084,7 @@ export interface GetMyPayStatementsOutput {
         amount: string;
       }>;
       gross: string;
+      nonTaxable: string;
       carriedForward: string;
       warnings: string[];
     } | null;
@@ -8176,6 +8269,10 @@ export interface GetOnCallNowOutput {
   explanation: string | null;
 }
 
+export interface GetPayExtrasOutput {
+  perDiemRate: string | null;
+}
+
 export interface GetPaymentsStatusOutput {
   connected: boolean;
   provider: string | null;
@@ -8205,6 +8302,7 @@ export interface GetPayrollRegisterOutput {
       amount: string;
     }>;
     gross: string;
+    nonTaxable: string;
     carriedForward: string;
     warnings: string[];
   }>;
@@ -8214,6 +8312,7 @@ export interface GetPayrollRegisterOutput {
     messages: string[];
   }>;
   grossTotal: string;
+  reimbursementTotal: string;
 }
 
 export interface GetPerformanceOutput {
@@ -8713,6 +8812,7 @@ export interface GetProjectProfitabilityOutput {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  expenseCost: string;
   grossMargin: string;
   costVariance: string | null;
   billedToDate: string;
@@ -11036,7 +11136,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "expense.record";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -11758,6 +11858,32 @@ export interface ListEstimatesOutput {
   hasMore: boolean;
 }
 
+export interface ListExpensesOutput {
+  expenses: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    spentOn: string;
+    description: string;
+    status: "pending" | "approved" | "refused";
+    recordedAt: string;
+    decidedAt: string | null;
+    decidedByName: string | null;
+    decisionReason: string | null;
+    receipts: number;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  waiting: number;
+  perDiemRate: string | null;
+}
+
 export interface ListExpiringCertificationsOutput {
   expiring: Array<{
     id: string;
@@ -12418,6 +12544,46 @@ export interface ListMessagingRegistrationsOutput {
   }>;
 }
 
+export interface ListMyExpensesOutput {
+  technician: boolean;
+  expenses: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string | null;
+    jobNumber: number | null;
+    amount: string;
+    spentOn: string;
+    description: string;
+    status: "pending" | "approved" | "refused";
+    recordedAt: string;
+    decidedAt: string | null;
+    decidedByName: string | null;
+    decisionReason: string | null;
+    receipts: number;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+  perDiems: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string;
+    jobNumber: number;
+    day: string;
+    amount: string;
+    note: string | null;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
+  }>;
+}
+
 export interface ListMySafetyMeetingsOutput {
   meetings: Array<{
     meetingId: string;
@@ -12588,6 +12754,7 @@ export interface ListPayrollExportsOutput {
     format: string;
     rowCount: number;
     grossTotal: string;
+    reimbursementTotal: string;
     checksum: string;
     generatedAt: string;
   }>;
@@ -12662,6 +12829,24 @@ export interface ListPeopleRosterOutput {
       sentence: string;
     };
     emergencyContacts: number;
+  }>;
+}
+
+export interface ListPerDiemOutput {
+  perDiems: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string;
+    jobId: string;
+    jobNumber: number;
+    day: string;
+    amount: string;
+    note: string | null;
+    paidIn: {
+      id: string;
+      label: string;
+      closed: boolean;
+    } | null;
   }>;
 }
 
@@ -15990,6 +16175,42 @@ export interface RecordDeliveryOutput {
   deliveredAt: string;
 }
 
+export interface RecordExpenseInput {
+  id?: string;
+  jobId?: string | null;
+  jobNumber?: number;
+  amount: string;
+  spentOn: string;
+  description: string;
+  receipt?: {
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  };
+}
+
+export interface RecordExpenseOutput {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  jobId: string | null;
+  jobNumber: number | null;
+  amount: string;
+  spentOn: string;
+  description: string;
+  status: "pending" | "approved" | "refused";
+  recordedAt: string;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionReason: string | null;
+  receipts: number;
+  paidIn: {
+    id: string;
+    label: string;
+    closed: boolean;
+  } | null;
+}
+
 export interface RecordInspectionInput {
   programId: string;
   propertyId: string;
@@ -16143,6 +16364,21 @@ export interface RecordPaymentOutput {
   }>;
   unappliedAmount: string;
   ledgerTransactionId: string;
+}
+
+export interface RecordPerDiemInput {
+  technicianId: string;
+  jobId?: string;
+  jobNumber?: number;
+  from: string;
+  to: string;
+  note?: string | null;
+}
+
+export interface RecordPerDiemOutput {
+  recorded: string[];
+  alreadyHad: string[];
+  rate: string;
 }
 
 export interface RecordProjectLienRecordInput {
@@ -16804,6 +17040,13 @@ export type RemoveOnboardingTemplateItemInput = Record<string, unknown>;
 export interface RemoveOnboardingTemplateItemOutput {
   id: string;
   removed: boolean;
+}
+
+export type RemovePerDiemInput = Record<string, unknown>;
+
+export interface RemovePerDiemOutput {
+  id: string;
+  removed: true;
 }
 
 export interface RemovePortalCardInput {
@@ -19056,6 +19299,14 @@ export interface SetOnboardingLineOutput {
   };
 }
 
+export interface SetPayExtrasInput {
+  perDiemRate?: string | null;
+}
+
+export interface SetPayExtrasOutput {
+  perDiemRate: string | null;
+}
+
 export interface SetPortalSettingsInput {
   tipping?: {
     enabled: boolean;
@@ -20014,7 +20265,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "expense.record";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -22802,6 +23053,10 @@ export interface AddEstimateOptionPhotoParams {
   id: string;
 }
 
+export interface AddExpenseReceiptParams {
+  id: string;
+}
+
 export interface AddIncidentFollowUpParams {
   id: string;
 }
@@ -23034,6 +23289,10 @@ export interface DecideChangeOrderParams {
 }
 
 export interface DecideClaimParams {
+  id: string;
+}
+
+export interface DecideExpenseParams {
   id: string;
 }
 
@@ -23493,6 +23752,10 @@ export interface GetJobAttributionInput {
   models?: Array<"first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based">;
 }
 
+export interface GetJobExpensesInput {
+  jobId: string;
+}
+
 export interface GetJobMaterialCostInput {
   jobId: string;
 }
@@ -23585,6 +23848,8 @@ export interface GetOnCallNowInput {
   at?: string;
   businessUnitId?: string | null;
 }
+
+export type GetPayExtrasInput = Record<string, never>;
 
 export type GetPaymentsStatusInput = Record<string, never>;
 
@@ -24214,6 +24479,12 @@ export interface ListEstimatesInput {
   fields?: string[];
 }
 
+export interface ListExpensesInput {
+  status?: "pending" | "approved" | "refused";
+  technicianId?: string;
+  jobId?: string;
+}
+
 export interface ListExpiringCertificationsInput {
   within?: number;
 }
@@ -24371,6 +24642,8 @@ export interface ListMessageTemplatesInput {
 
 export type ListMessagingRegistrationsInput = Record<string, never>;
 
+export type ListMyExpensesInput = Record<string, never>;
+
 export type ListMySafetyMeetingsInput = Record<string, never>;
 
 export type ListNetworkMembersInput = Record<string, never>;
@@ -24430,6 +24703,13 @@ export interface ListPeopleInput {
 }
 
 export type ListPeopleRosterInput = Record<string, never>;
+
+export interface ListPerDiemInput {
+  technicianId?: string;
+  jobId?: string;
+  from?: string;
+  to?: string;
+}
 
 export type ListPhoneMenusInput = Record<string, never>;
 
@@ -25070,6 +25350,10 @@ export interface RemoveMyEmergencyContactParams {
 }
 
 export interface RemoveOnboardingTemplateItemParams {
+  id: string;
+}
+
+export interface RemovePerDiemParams {
   id: string;
 }
 
@@ -25850,6 +26134,7 @@ export interface OperationTypes {
   addCustomerContact: { input: AddCustomerContactParams & AddCustomerContactInput; output: AddCustomerContactOutput };
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
+  addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
@@ -25985,6 +26270,7 @@ export interface OperationTypes {
   deactivateCommissionPlan: { input: DeactivateCommissionPlanInput; output: DeactivateCommissionPlanOutput };
   decideChangeOrder: { input: DecideChangeOrderParams & DecideChangeOrderInput; output: DecideChangeOrderOutput };
   decideClaim: { input: DecideClaimParams & DecideClaimInput; output: DecideClaimOutput };
+  decideExpense: { input: DecideExpenseParams & DecideExpenseInput; output: DecideExpenseOutput };
   decidePurchaseOrder: { input: DecidePurchaseOrderParams & DecidePurchaseOrderInput; output: DecidePurchaseOrderOutput };
   decideRecording: { input: DecideRecordingParams & DecideRecordingInput; output: DecideRecordingOutput };
   declareCommissionPlan: { input: DeclareCommissionPlanInput; output: DeclareCommissionPlanOutput };
@@ -26118,6 +26404,7 @@ export interface OperationTypes {
   getInvoiceFinancing: { input: GetInvoiceFinancingInput; output: GetInvoiceFinancingOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
+  getJobExpenses: { input: GetJobExpensesInput; output: GetJobExpensesOutput };
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
@@ -26142,6 +26429,7 @@ export interface OperationTypes {
   getNetworkMembership: { input: GetNetworkMembershipInput; output: GetNetworkMembershipOutput };
   getNetworkRollup: { input: GetNetworkRollupInput; output: GetNetworkRollupOutput };
   getOnCallNow: { input: GetOnCallNowInput; output: GetOnCallNowOutput };
+  getPayExtras: { input: GetPayExtrasInput; output: GetPayExtrasOutput };
   getPaymentsStatus: { input: GetPaymentsStatusInput; output: GetPaymentsStatusOutput };
   getPayrollRegister: { input: GetPayrollRegisterInput; output: GetPayrollRegisterOutput };
   getPerformance: { input: GetPerformanceInput; output: GetPerformanceOutput };
@@ -26297,6 +26585,7 @@ export interface OperationTypes {
   listEstimateDeliveries: { input: ListEstimateDeliveriesInput; output: ListEstimateDeliveriesOutput };
   listEstimateDrafts: { input: ListEstimateDraftsInput; output: ListEstimateDraftsOutput };
   listEstimates: { input: ListEstimatesInput; output: ListEstimatesOutput };
+  listExpenses: { input: ListExpensesInput; output: ListExpensesOutput };
   listExpiringCertifications: { input: ListExpiringCertificationsInput; output: ListExpiringCertificationsOutput };
   listExternalWorkOrders: { input: ListExternalWorkOrdersInput; output: ListExternalWorkOrdersOutput };
   listExternalWorkSources: { input: ListExternalWorkSourcesInput; output: ListExternalWorkSourcesOutput };
@@ -26330,6 +26619,7 @@ export interface OperationTypes {
   listMarketingPlatforms: { input: ListMarketingPlatformsInput; output: ListMarketingPlatformsOutput };
   listMessageTemplates: { input: ListMessageTemplatesInput; output: ListMessageTemplatesOutput };
   listMessagingRegistrations: { input: ListMessagingRegistrationsInput; output: ListMessagingRegistrationsOutput };
+  listMyExpenses: { input: ListMyExpensesInput; output: ListMyExpensesOutput };
   listMySafetyMeetings: { input: ListMySafetyMeetingsInput; output: ListMySafetyMeetingsOutput };
   listNetworkMembers: { input: ListNetworkMembersInput; output: ListNetworkMembersOutput };
   listObligations: { input: ListObligationsInput; output: ListObligationsOutput };
@@ -26344,6 +26634,7 @@ export interface OperationTypes {
   listPendingUploads: { input: ListPendingUploadsInput; output: ListPendingUploadsOutput };
   listPeople: { input: ListPeopleInput; output: ListPeopleOutput };
   listPeopleRoster: { input: ListPeopleRosterInput; output: ListPeopleRosterOutput };
+  listPerDiem: { input: ListPerDiemInput; output: ListPerDiemOutput };
   listPhoneMenus: { input: ListPhoneMenusInput; output: ListPhoneMenusOutput };
   listPlatformCampaigns: { input: ListPlatformCampaignsInput; output: ListPlatformCampaignsOutput };
   listPortalCards: { input: ListPortalCardsInput; output: ListPortalCardsOutput };
@@ -26503,11 +26794,13 @@ export interface OperationTypes {
   recordCertification: { input: RecordCertificationInput; output: RecordCertificationOutput };
   recordClaimPayment: { input: RecordClaimPaymentParams & RecordClaimPaymentInput; output: RecordClaimPaymentOutput };
   recordDelivery: { input: RecordDeliveryInput; output: RecordDeliveryOutput };
+  recordExpense: { input: RecordExpenseInput; output: RecordExpenseOutput };
   recordInspection: { input: RecordInspectionInput; output: RecordInspectionOutput };
   recordLateLandedCost: { input: RecordLateLandedCostParams & RecordLateLandedCostInput; output: RecordLateLandedCostOutput };
   recordMessagingBrand: { input: RecordMessagingBrandInput; output: RecordMessagingBrandOutput };
   recordMessagingCampaign: { input: RecordMessagingCampaignInput; output: RecordMessagingCampaignOutput };
   recordPayment: { input: RecordPaymentInput; output: RecordPaymentOutput };
+  recordPerDiem: { input: RecordPerDiemInput; output: RecordPerDiemOutput };
   recordProjectLienRecord: { input: RecordProjectLienRecordParams & RecordProjectLienRecordInput; output: RecordProjectLienRecordOutput };
   recordPublicTouch: { input: RecordPublicTouchInput; output: RecordPublicTouchOutput };
   recordRecurringCompletion: { input: RecordRecurringCompletionParams & RecordRecurringCompletionInput; output: RecordRecurringCompletionOutput };
@@ -26543,6 +26836,7 @@ export interface OperationTypes {
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
+  removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
   removePurchaseApprovalRule: { input: RemovePurchaseApprovalRuleParams & RemovePurchaseApprovalRuleInput; output: RemovePurchaseApprovalRuleOutput };
@@ -26669,6 +26963,7 @@ export interface OperationTypes {
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
+  setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
   setPriceBookItemActive: { input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput; output: SetPriceBookItemActiveOutput };
   setProjectPhaseDates: { input: SetProjectPhaseDatesParams & SetProjectPhaseDatesInput; output: SetProjectPhaseDatesOutput };
@@ -26828,6 +27123,7 @@ export const OPERATIONS = {
   addCustomerContact: { method: "POST", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -26963,6 +27259,7 @@ export const OPERATIONS = {
   deactivateCommissionPlan: { method: "POST", path: "/v1/commissions/plans/deactivate", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   decideChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:approve"] },
   decideClaim: { method: "POST", path: "/v1/claims/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  decideExpense: { method: "POST", path: "/v1/expenses/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   decidePurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/approvals", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:approve"] },
   decideRecording: { method: "POST", path: "/v1/calls/{id}/recording-decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   declareCommissionPlan: { method: "POST", path: "/v1/commissions/plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
@@ -27096,6 +27393,7 @@ export const OPERATIONS = {
   getInvoiceFinancing: { method: "GET", path: "/v1/invoices/{invoiceId}/financing", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -27120,6 +27418,7 @@ export const OPERATIONS = {
   getNetworkMembership: { method: "GET", path: "/v1/network", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNetworkRollup: { method: "GET", path: "/v1/network/rollup", pathParams: [], queryParams: ["aggregate","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getOnCallNow: { method: "GET", path: "/v1/on-call", pathParams: [], queryParams: ["at","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getPayExtras: { method: "GET", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getPaymentsStatus: { method: "GET", path: "/v1/payments/connection", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getPayrollRegister: { method: "GET", path: "/v1/payroll/register", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   getPerformance: { method: "GET", path: "/v1/marketing/performance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -27275,6 +27574,7 @@ export const OPERATIONS = {
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
+  listExpenses: { method: "GET", path: "/v1/expenses", pathParams: [], queryParams: ["status","technicianId","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listExternalWorkOrders: { method: "GET", path: "/v1/external-work-orders", pathParams: [], queryParams: ["state","sourceSystem","pendingPush","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listExternalWorkSources: { method: "GET", path: "/v1/external-work-sources", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
@@ -27308,6 +27608,7 @@ export const OPERATIONS = {
   listMarketingPlatforms: { method: "GET", path: "/v1/marketing/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMessageTemplates: { method: "GET", path: "/v1/message-templates", pathParams: [], queryParams: ["channel"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listMessagingRegistrations: { method: "GET", path: "/v1/messaging/registrations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listMyExpenses: { method: "GET", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   listMySafetyMeetings: { method: "GET", path: "/v1/safety/my-meetings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listNetworkMembers: { method: "GET", path: "/v1/network/members", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listObligations: { method: "GET", path: "/v1/obligations", pathParams: [], queryParams: ["overdueOnly","kind","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -27322,6 +27623,7 @@ export const OPERATIONS = {
   listPendingUploads: { method: "GET", path: "/v1/field/uploads", pathParams: [], queryParams: ["deviceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPeopleRoster: { method: "GET", path: "/v1/roster", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listPerDiem: { method: "GET", path: "/v1/per-diem", pathParams: [], queryParams: ["technicianId","jobId","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listPortalCards: { method: "GET", path: "/v1/portal/cards", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -27481,11 +27783,13 @@ export const OPERATIONS = {
   recordCertification: { method: "POST", path: "/v1/certifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   recordClaimPayment: { method: "POST", path: "/v1/claims/{id}/payments", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect","invoice:read"] },
   recordDelivery: { method: "POST", path: "/v1/deliveries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  recordExpense: { method: "POST", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   recordInspection: { method: "POST", path: "/v1/inspections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   recordLateLandedCost: { method: "POST", path: "/v1/purchase-order-receipts/{id}/late-charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordMessagingBrand: { method: "POST", path: "/v1/messaging/brands", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordMessagingCampaign: { method: "POST", path: "/v1/messaging/campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordPayment: { method: "POST", path: "/v1/payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
+  recordPerDiem: { method: "POST", path: "/v1/per-diem", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   recordProjectLienRecord: { method: "POST", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordPublicTouch: { method: "POST", path: "/v1/public/touches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   recordRecurringCompletion: { method: "POST", path: "/v1/recurring-schedules/{id}/completed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -27521,6 +27825,7 @@ export const OPERATIONS = {
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   removePurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -27647,6 +27952,7 @@ export const OPERATIONS = {
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPriceBookItemActive: { method: "POST", path: "/v1/pricebook/items/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setProjectPhaseDates: { method: "POST", path: "/v1/project-phases/{id}/dates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -27888,6 +28194,15 @@ export abstract class GeneratedOperations {
    */
   addEstimateOptionPhoto(input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput, options?: CallOptions): Promise<AddEstimateOptionPhotoOutput> {
     return this.call("addEstimateOptionPhoto", input, options);
+  }
+
+  /**
+   * Add a photograph of the receipt to one of your own.
+   *
+   * POST /v1/me/expenses/{id}/receipts. Needs expense:own.
+   */
+  addExpenseReceipt(input: AddExpenseReceiptParams & AddExpenseReceiptInput, options?: CallOptions): Promise<AddExpenseReceiptOutput> {
+    return this.call("addExpenseReceipt", input, options);
   }
 
   /**
@@ -29106,6 +29421,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Approve or refuse an expense.
+   *
+   * POST /v1/expenses/{id}/decision. Needs expense:approve.
+   */
+  decideExpense(input: DecideExpenseParams & DecideExpenseInput, options?: CallOptions): Promise<DecideExpenseOutput> {
+    return this.call("decideExpense", input, options);
+  }
+
+  /**
    * Approve or reject the step that is waiting.
    *
    * POST /v1/purchase-orders/{id}/approvals. Needs po:approve.
@@ -30303,6 +30627,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What the company has agreed to pay people for one job.
+   *
+   * GET /v1/jobs/{jobId}/expenses. Needs job.cost:read.
+   */
+  getJobExpenses(input: GetJobExpensesInput, options?: CallOptions): Promise<GetJobExpensesOutput> {
+    return this.call("getJobExpenses", input, options);
+  }
+
+  /**
    * What a job consumed, at cost.
    *
    * GET /v1/jobs/{jobId}/material-cost. Needs inventory:read.
@@ -30516,6 +30849,15 @@ export abstract class GeneratedOperations {
    */
   getOnCallNow(input: GetOnCallNowInput = {} as GetOnCallNowInput, options?: CallOptions): Promise<GetOnCallNowOutput> {
     return this.call("getOnCallNow", input, options);
+  }
+
+  /**
+   * The company's rate for a day away.
+   *
+   * GET /v1/payroll/pay-extras. Needs timesheet:read.
+   */
+  getPayExtras(input: GetPayExtrasInput = {} as GetPayExtrasInput, options?: CallOptions): Promise<GetPayExtrasOutput> {
+    return this.call("getPayExtras", input, options);
   }
 
   /**
@@ -31914,6 +32256,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Everybody's expenses, waiting ones first.
+   *
+   * GET /v1/expenses. Needs expense:approve.
+   */
+  listExpenses(input: ListExpensesInput = {} as ListExpensesInput, options?: CallOptions): Promise<ListExpensesOutput> {
+    return this.call("listExpenses", input, options);
+  }
+
+  /**
    * What is about to run out, and what already has.
    *
    * GET /v1/certifications/expiring. Needs compliance:read.
@@ -32211,6 +32562,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What you recorded, what the office said, and the days away you were paid for.
+   *
+   * GET /v1/me/expenses. Needs expense:own.
+   */
+  listMyExpenses(input: ListMyExpensesInput = {} as ListMyExpensesInput, options?: CallOptions): Promise<ListMyExpensesOutput> {
+    return this.call("listMyExpenses", input, options);
+  }
+
+  /**
    * The talks I am on, waiting for my signature first.
    *
    * GET /v1/safety/my-meetings. Needs field:sync.
@@ -32334,6 +32694,15 @@ export abstract class GeneratedOperations {
    */
   listPeopleRoster(input: ListPeopleRosterInput = {} as ListPeopleRosterInput, options?: CallOptions): Promise<ListPeopleRosterOutput> {
     return this.call("listPeopleRoster", input, options);
+  }
+
+  /**
+   * Days away that have been recorded.
+   *
+   * GET /v1/per-diem. Needs expense:approve.
+   */
+  listPerDiem(input: ListPerDiemInput = {} as ListPerDiemInput, options?: CallOptions): Promise<ListPerDiemOutput> {
+    return this.call("listPerDiem", input, options);
   }
 
   /**
@@ -33768,6 +34137,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record what you paid for the company.
+   *
+   * POST /v1/me/expenses. Needs expense:own.
+   */
+  recordExpense(input: RecordExpenseInput, options?: CallOptions): Promise<RecordExpenseOutput> {
+    return this.call("recordExpense", input, options);
+  }
+
+  /**
    * File what was found.
    *
    * POST /v1/inspections. Needs compliance:write.
@@ -33810,6 +34188,15 @@ export abstract class GeneratedOperations {
    */
   recordPayment(input: RecordPaymentInput, options?: CallOptions): Promise<RecordPaymentOutput> {
     return this.call("recordPayment", input, options);
+  }
+
+  /**
+   * Record the company's rate for each day somebody was away on a job.
+   *
+   * POST /v1/per-diem. Needs expense:approve.
+   */
+  recordPerDiem(input: RecordPerDiemInput, options?: CallOptions): Promise<RecordPerDiemOutput> {
+    return this.call("recordPerDiem", input, options);
   }
 
   /**
@@ -34125,6 +34512,15 @@ export abstract class GeneratedOperations {
    */
   removeOnboardingTemplateItem(input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput, options?: CallOptions): Promise<RemoveOnboardingTemplateItemOutput> {
     return this.call("removeOnboardingTemplateItem", input, options);
+  }
+
+  /**
+   * Take a recorded day away back out.
+   *
+   * POST /v1/per-diem/{id}/removal. Needs expense:approve.
+   */
+  removePerDiem(input: RemovePerDiemParams & RemovePerDiemInput, options?: CallOptions): Promise<RemovePerDiemOutput> {
+    return this.call("removePerDiem", input, options);
   }
 
   /**
@@ -35259,6 +35655,15 @@ export abstract class GeneratedOperations {
    */
   setOnboardingLine(input: SetOnboardingLineParams & SetOnboardingLineInput, options?: CallOptions): Promise<SetOnboardingLineOutput> {
     return this.call("setOnboardingLine", input, options);
+  }
+
+  /**
+   * Set the rate for a day away.
+   *
+   * POST /v1/payroll/pay-extras. Needs payroll:configure.
+   */
+  setPayExtras(input: SetPayExtrasInput = {} as SetPayExtrasInput, options?: CallOptions): Promise<SetPayExtrasOutput> {
+    return this.call("setPayExtras", input, options);
   }
 
   /**
