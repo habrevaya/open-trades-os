@@ -1647,6 +1647,35 @@ returns table (organization_id uuid)
 revoke all on function app.estimate_expiry_organizations(int, date) from public;
 grant execute on function app.estimate_expiry_organizations(int, date) to background;
 
+-- ---- Companies with automatic payments, or card charges to follow up ------
+-- A customer who agreed can have each bill charged to their saved card as it
+-- is issued, and a charge the worker made may need following up: a declined
+-- one tried once more the next day, one the processor took and has since
+-- settled or failed, one a worker died in the middle of. The worker has no
+-- tenant until it picks one, so it asks here which companies have any of
+-- that, and nothing else: a list of ids, as the passes above.
+create or replace function app.autopay_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select a.organization_id from public.payment_agreement a
+       where a.withdrawn_at is null and a.autopay_at is not null
+      union
+      select c.organization_id from public.card_on_file_charge c
+       where c.status in ('charging', 'submitted')
+          or (c.status = 'failed' and c.retry_at is not null)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.autopay_organizations(int) from public;
+grant execute on function app.autopay_organizations(int) to background;
+
 -- ---- Companies whose contract clocks need a pass -------------------------
 -- The commercial module keeps SLA, invoicing and claim clocks on jobs, and
 -- the worker reconciles them and raises a task for any about to breach. The

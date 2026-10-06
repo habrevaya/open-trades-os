@@ -179,7 +179,12 @@ function Bars({ plan, drill, title, described }: {
   );
 }
 
-function Series({ plan, drill, title, described }: {
+/**
+ * A dated series as a line or columns, on its own: what a report draws, and
+ * what anything else with one number over time can draw by handing it a plan
+ * from core's `chartFor` (a customer's readings on their account page).
+ */
+export function Series({ plan, drill, title, described }: {
   plan: Plan; drill: ((row: Row) => string) | undefined; title: string; described: string;
 }) {
   const layout = reporting.seriesLayout(plan, WIDTH, HEIGHT);

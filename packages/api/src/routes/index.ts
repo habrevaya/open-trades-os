@@ -21,7 +21,7 @@ import {
   laborSettings,
   voice, websiteTracking, referrals,
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
-  portalAccess, portalBlocks, portalBooking,
+  portalAccess, portalBlocks, portalBooking, cardOnFile, portalLayout,
   setup, team, branches, tradePacks,
   phoneMenus, transcription, callQueues, softphone, voiceAgent,
   ads, marketplaceLeads, leadEmails, directMail,
@@ -998,6 +998,9 @@ export const handlers = {
     input: { token: string; cardId: string; invoiceId: string; tip?: string | undefined },
     meta?: RequestMeta,
   ) => savedCards.pay(db, input, meta),
+  // Cards the company may charge, paying automatically, and the portal's layout (M13, M05)
+  ...cardOnFile.handlers,
+  ...portalLayout.handlers,
   getPortalSettings: portalSettings.handlers.getPortalSettings,
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),

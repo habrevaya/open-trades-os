@@ -142,6 +142,8 @@ export const AccountExtras = z.object({
   })),
   readings: z.array(z.object({
     key: z.string(), label: z.string(), unit: z.string().nullable(),
+    /** The unit the readings were taken on, by its name; null for readings of the whole home. */
+    equipment: z.string().nullable(),
     points: z.array(z.object({ at: z.string().datetime(), value: z.string(), outOfRange: z.boolean() })),
   })),
   checklist: z.object({
@@ -282,17 +284,34 @@ export const PortalCard = z.object({
   savedAt: z.string().datetime(),
 });
 
+/** A customer's agreement to let the company charge a saved card, as they see it. */
+export const PortalCardAgreement = z.object({
+  id: Uuid,
+  cardId: Uuid,
+  wording: z.string(),
+  agreedAt: z.string().datetime(),
+  agreedByContact: z.string().nullable(),
+  autopay: z.boolean(),
+  autopayAt: z.string().datetime().nullable(),
+  autopayWording: z.string().nullable(),
+});
+
 export const listPortalCards = defineRoute({
   method: "get",
   path: "/v1/portal/cards",
   summary: "The cards and bank accounts the customer has saved",
-  description: "From a sign in only. The brand or bank, the last four digits and a card's expiry, which is all that is kept: the card or account itself is held by the processor.",
+  description: "From a sign in only. The brand or bank, the last four digits and a card's expiry, which is all that is kept: the card or account itself is held by the processor. Each says whether the customer lets the company charge it without pressing Pay and pay their bills automatically with it, and the words they would agree to if not.",
   module: "M13",
   permissions: [],
   authorization: "grant",
   input: z.object({ token: Token }),
   output: z.object({
-    cards: z.array(PortalCard),
+    cards: z.array(PortalCard.extend({
+      /** Whether the customer lets the company charge it without pressing Pay, and pay automatically with it. */
+      agreement: PortalCardAgreement.nullable(),
+      /** The words they would agree to for this card, exactly as they are checked when they do. */
+      wording: z.object({ agreement: z.string(), autopay: z.string() }),
+    })),
     canSave: z.boolean(),
     /** Whether a bank account may be saved too: the company has to have turned bank payments on. */
     canSaveBank: z.boolean(),

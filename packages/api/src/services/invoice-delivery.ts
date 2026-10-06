@@ -8,6 +8,7 @@ import {
 import { invoiceFileWithin } from "./documents";
 import * as email from "./email";
 import * as payments from "./payments";
+import { pendingBankPayments } from "./payments";
 import * as tips from "./tips";
 import {
   consume, inGrant, mintGrant, peek, requireScope, type ResolvedGrant,
@@ -1134,6 +1135,12 @@ export interface PortalInvoice {
   tips: PortalInvoiceTip[];
   /** Whether the pay button should appear at all. */
   payable: boolean;
+  /**
+   * A bank payment for this invoice that the bank has not confirmed. The
+   * page says the payment is on its way rather than asking for it again,
+   * and the invoice cannot be paid a second way until the bank answers.
+   */
+  paymentOnItsWay: { amount: string; startedAt: string } | null;
   /** False when the company has connected no processor. Nothing to click. */
   onlinePaymentAvailable: boolean;
   /** What the pay control offers as a tip, when the company takes them. */
@@ -1247,8 +1254,10 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
      * A positive balance on a void or written off invoice is not money the
      * customer owes, and a pay button there takes it anyway.
      */
+    const [onItsWay] = await pendingBankPayments(tx, { invoiceIds: [invoiceId] });
     const payable = (invoice.status === "open" || invoice.status === "partially_paid")
-      && m.isPositive(m.money(invoice.balance, invoice.currency));
+      && m.isPositive(m.money(invoice.balance, invoice.currency))
+      && !onItsWay;
 
     return {
       organizationName: org?.name ?? "",
@@ -1268,6 +1277,7 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
       payments,
       tips: tipRows.map((t) => ({ receivedAt: t.receivedAt.toISOString(), amount: t.amount })),
       payable,
+      paymentOnItsWay: onItsWay ? { amount: onItsWay.amount, startedAt: onItsWay.startedAt.toISOString() } : null,
       onlinePaymentAvailable: payable && await processorConnected(tx),
       tipping: payable
         ? await tips.offerFor(tx, grant.organizationId, invoiceId, m.money(invoice.balance, invoice.currency))

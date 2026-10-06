@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
+import { assertCan, customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, inTenant, timezoneOf,
   ConflictError, NotFoundError, type ServiceContext,
@@ -66,6 +66,8 @@ const usd = (value: string) => m.money(value, "USD");
 /** Our own reference on the processor's object, so a human can trace one back. */
 const METADATA_ATTEMPT = "otos_attempt";
 const METADATA_ORG = "otos_organization";
+/** A charge on file's own id, carried instead of the attempt's when it is the processor's key. */
+const METADATA_CHARGE = "otos_charge";
 
 /* --------------------------------------------------------- the connection */
 
@@ -244,6 +246,35 @@ export interface IntentInput {
    * the mandate a bank debit carries. Only the portal passes it.
    */
   acceptance?: { ip?: string | undefined; userAgent?: string | undefined } | undefined;
+  /**
+   * Nobody is on the page: the saved card is charged under the customer's
+   * agreement (`payment_agreement`), by the office or by the worker paying
+   * a bill automatically. Checked here, in the transaction that asks the
+   * processor, whoever the caller is: the agreement has to be live, the
+   * customer's, and for this very card, and the caller has to hold
+   * `payment:charge_saved`. A caller that forgot to check is still refused.
+   */
+  offSession?: { agreementId: string } | undefined;
+  /**
+   * The key the processor deduplicates on, when the caller has one that
+   * outlives this transaction (a charge on file, written down before it is
+   * tried). Absent, the attempt's own id is used. A worker that dies after
+   * asking and before hearing back asks again with the same key and gets
+   * the same charge, rather than a second one.
+   */
+  processorKey?: string | undefined;
+}
+
+/**
+ * The processor said no. Its code is kept, because what happens next depends
+ * on it: a bank that wants the customer to confirm a charge themselves is a
+ * link sent to them, and a decline for a low balance may be worth one more
+ * try tomorrow. Still a conflict to every caller that only reads the words.
+ */
+export class ChargeDeclinedError extends ConflictError {
+  constructor(message: string, readonly code: string, readonly retryable: boolean) {
+    super(message);
+  }
 }
 
 /** What the attempt remembers about a tip, for the moment the money arrives. */
@@ -412,6 +443,33 @@ export async function intent(
     const bank = saved?.kind === "bank_account";
 
     /**
+     * NO CHARGE WITH NOBODY THERE WITHOUT THE CUSTOMER'S AGREEMENT, asked
+     * here as well as by every caller, so that no path into the processor
+     * can skip it: the agreement is live, it is this customer's, and it is
+     * for this card. Locked, so a customer withdrawing it in the same
+     * instant either lands first and this is refused, or waits for it.
+     */
+    if (input.offSession) {
+      assertCan(ctx.actor, "payment:charge_saved");
+      if (!saved) throw new ConflictError("Only a saved card or bank account can be charged without the customer.");
+      if (input.tip !== undefined) throw new ConflictError("A tip is the customer's to add, on the page.");
+      const [agreement] = await tx.select({ id: schema.paymentAgreement.id })
+        .from(schema.paymentAgreement)
+        .where(and(
+          eq(schema.paymentAgreement.id, input.offSession.agreementId),
+          eq(schema.paymentAgreement.customerId, input.customerId),
+          eq(schema.paymentAgreement.savedPaymentMethodId, saved.id),
+          isNull(schema.paymentAgreement.withdrawnAt),
+        )).limit(1).for("update");
+      if (!agreement) {
+        throw new ConflictError(
+          "This customer has not agreed to let you charge that card, or has withdrawn it. "
+          + "Send them the invoice to pay, or ask them to agree from their account.",
+        );
+      }
+    }
+
+    /**
      * NOT TWICE WHILE A BANK PAYMENT IS ON ITS WAY. A bank debit takes days
      * to arrive, and the invoice stays open until it does: a customer who
      * looks again on Wednesday and pays the same bill by card has paid it
@@ -455,6 +513,7 @@ export async function intent(
         ...(saved ? { savedCardId: saved.id } : {}),
         /** Remembered so settlement books it as a bank payment and a failure is told to the office. */
         ...(bank ? { method: "ach" } : {}),
+        ...(input.offSession ? { offSession: true, agreementId: input.offSession.agreementId } : {}),
       },
     }).returning();
 
@@ -462,24 +521,31 @@ export async function intent(
     const outcome = await provider.charge({
       amountMinor: minor,
       currency: "usd",
-      idempotencyKey: attempt!.id,
+      idempotencyKey: input.processorKey ?? attempt!.id,
       ...(input.description ? { description: input.description } : {}),
       ...(input.receiptEmail ?? customer.email
         ? { receiptEmail: input.receiptEmail ?? customer.email! }
         : {}),
-      metadata: {
-        [METADATA_ATTEMPT]: attempt!.id,
-        [METADATA_ORG]: ctx.actor.organizationId,
-      },
+      /**
+       * With a key of the caller's own, the attempt's id stays off the
+       * processor's record: asking again with the same key has to send the
+       * same request or the processor refuses it as a different one, and a
+       * second attempt row has a different id. Settlement then finds the
+       * attempt by the processor's intent id, which is the same both times.
+       */
+      metadata: input.processorKey
+        ? { [METADATA_CHARGE]: input.processorKey, [METADATA_ORG]: ctx.actor.organizationId }
+        : { [METADATA_ATTEMPT]: attempt!.id, [METADATA_ORG]: ctx.actor.organizationId },
       ...(saved ? { customerRef: saved.customerRef, paymentMethodRef: saved.paymentMethodRef } : {}),
-      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance ? { acceptance: input.acceptance } : {}) } : {}),
+      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance && !input.offSession ? { acceptance: input.acceptance } : {}) } : {}),
+      ...(input.offSession ? { offSession: true } : {}),
     });
 
     if (!outcome.ok) {
       await tx.update(schema.integrationEvent)
         .set({ status: "failed", error: `${outcome.code}: ${outcome.message}`, updatedAt: new Date() })
         .where(eq(schema.integrationEvent.id, attempt!.id));
-      throw new ConflictError(outcome.message);
+      throw new ChargeDeclinedError(outcome.message, outcome.code, outcome.retryable);
     }
 
     /**
@@ -505,6 +571,7 @@ export async function intent(
       attemptId: attempt!.id, intentId: outcome.intent.intentId, amount,
       ...(tipPlan ? { tip: tipPlan.tip } : {}),
       ...(saved ? { savedCardId: saved.id } : {}),
+      ...(input.offSession ? { offSession: true, agreementId: input.offSession.agreementId } : {}),
     });
 
     return {
@@ -1296,6 +1363,21 @@ export async function pendingBankPayments(
     };
   });
 }
+
+/**
+ * Whether a bank payment is on its way for the invoice in the outer query,
+ * as a `where` condition on `"invoice"`. For whatever chases money (the
+ * collections agent's reminders, a workflow on overdue invoices): an invoice
+ * the customer has paid by bank and the bank has not yet confirmed is not
+ * overdue money to chase. The table is named in full rather than
+ * interpolated, so the fragment means the same wherever it is placed.
+ */
+export const bankPaymentOnItsWay = sql`exists (
+  select 1 from public.integration_event ev
+   where ev.organization_id = "invoice"."organization_id"
+     and ev.direction = 'outbound' and ev.event_type = 'payment.intent' and ev.status = 'in_flight'
+     and exists (select 1 from jsonb_array_elements(ev.request_payload->'allocations') a
+                  where a->>'invoiceId' = "invoice"."id"::text))`;
 
 /** A bank payment as the office and the customer see it: on its way, or failed recently and why. */
 export interface BankPaymentView {

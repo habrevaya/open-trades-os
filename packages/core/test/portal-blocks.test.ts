@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   composeBlocks, readingKeys, attributeLabel, ALWAYS_SHOWN, occupiedMinutes, windowCapacity,
-  readPortalSettings,
+  readPortalSettings, layoutRows, arrangeLayout, PORTAL_BLOCK_KINDS,
 } from "../src/customer-portal/index.js";
 
 /**
@@ -46,6 +46,18 @@ describe("the blocks on a customer's account", () => {
     expect(blocks.find((b) => b.kind === "documents")!.config).toEqual({});
   });
 
+  it("leaves out a block the office hid, even one every account shows, but never the bills", () => {
+    const blocks = composeBlocks([
+      { kind: "plan_status", visible: false },
+      { kind: "invoices", title: "What you owe", visible: false },
+      { kind: "photo_gallery" },
+      // A second pack naming a block the first one hid does not bring it back.
+      { kind: "plan_status", title: "Your membership" },
+    ]);
+    expect(blocks.map((b) => b.kind)).toEqual(["invoices", "photo_gallery", "next_visit", "visit_timeline", "equipment_register"]);
+    expect(blocks[0]!.title).toBe("What you owe");
+  });
+
   it("asks a trend for at most six named readings, once each", () => {
     expect(readingKeys({ keys: ["a", "b", "a", "", 4, "c", "d", "e", "f", "g"] })).toEqual(["a", "b", "c", "d", "e", "f"]);
     expect(readingKeys({})).toEqual([]);
@@ -59,6 +71,56 @@ describe("the blocks on a customer's account", () => {
     expect(readPortalSettings(undefined).bankAccounts).toBe(false);
     expect(readPortalSettings({ bankAccounts: "yes" }).bankAccounts).toBe(false);
     expect(readPortalSettings({ bankAccounts: true }).bankAccounts).toBe(true);
+  });
+});
+
+describe("the office arranging the account page", () => {
+  const seeded = [
+    { kind: "service_report", title: "Your treatment" },
+    { kind: "readings_trend", config: { keys: ["ph"] } },
+  ];
+
+  it("starts from the page as the customer sees it, then every block it could add", () => {
+    const rows = layoutRows(seeded);
+    expect(rows.slice(0, 7).map((r) => [r.kind, r.visible])).toEqual([
+      ["service_report", true], ["readings_trend", true], ["next_visit", true], ["visit_timeline", true],
+      ["invoices", true], ["plan_status", true], ["equipment_register", true],
+    ]);
+    expect(rows).toHaveLength(PORTAL_BLOCK_KINDS.length);
+    expect(rows.slice(7).every((r) => !r.visible)).toBe(true);
+    expect(rows[0]).toMatchObject({ title: "Your treatment", customTitle: "Your treatment" });
+    expect(rows.find((r) => r.kind === "invoices")!.hideable).toBe(false);
+  });
+
+  it("saves the whole page in the order given, keeps a block's settings, and stores the usual heading as none", () => {
+    const current = layoutRows(seeded);
+    const requested = [...current].reverse().map((r) => ({
+      kind: r.kind,
+      title: r.kind === "next_visit" ? "  Your next visit " : r.title,
+      visible: r.kind === "plan_status" ? false : r.visible,
+    }));
+    const arranged = arrangeLayout(requested, current);
+    if (!arranged.ok) throw new Error(arranged.reason);
+    expect(arranged.blocks.map((b) => b.kind)).toEqual(requested.map((r) => r.kind));
+    expect(arranged.blocks.find((b) => b.kind === "next_visit")!.title).toBe("Your next visit");
+    expect(arranged.blocks.find((b) => b.kind === "visit_timeline")!.title).toBeNull();
+    expect(arranged.blocks.find((b) => b.kind === "readings_trend")!.config).toEqual({ keys: ["ph"] });
+    // What it saves draws what the office arranged.
+    const drawn = composeBlocks(arranged.blocks);
+    expect(drawn.map((b) => b.kind)).not.toContain("plan_status");
+    expect(drawn[0]!.kind).toBe(requested.find((r) => r.visible)!.kind);
+  });
+
+  it("refuses hiding the bills, a block twice, one left out, and a heading too long to read", () => {
+    const current = layoutRows(seeded);
+    const all = current.map((r) => ({ kind: r.kind, title: r.title, visible: r.visible }));
+    const hideBills = all.map((r) => (r.kind === "invoices" ? { ...r, visible: false } : r));
+    expect(arrangeLayout(hideBills, current)).toMatchObject({ ok: false, reason: expect.stringContaining("cannot be hidden") });
+    expect(arrangeLayout([...all, all[0]!], current)).toMatchObject({ ok: false, reason: expect.stringContaining("twice") });
+    expect(arrangeLayout(all.slice(1), current)).toMatchObject({ ok: false, reason: expect.stringContaining("Say whether to show") });
+    const long = all.map((r, i) => (i === 0 ? { ...r, title: "x".repeat(61) } : r));
+    expect(arrangeLayout(long, current)).toMatchObject({ ok: false, reason: expect.stringContaining("60 characters") });
+    expect(arrangeLayout([...all, { kind: "weather", visible: true }], current)).toMatchObject({ ok: false });
   });
 });
 

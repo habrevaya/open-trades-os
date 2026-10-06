@@ -125,6 +125,14 @@ export const PERMISSIONS = {
   "invoice:credit": "Issue, apply and void a credit note",
   "payment:read": "View payments",
   "payment:collect": "Take a payment",
+  /**
+   * Charging a card or bank account the customer saved, from the office,
+   * with nobody on the page. Separate from `payment:collect` because a
+   * technician takes payments all day from the person in front of them, and
+   * reaching into a customer's saved card without them is a different act.
+   * Even with it, only a card whose customer agreed in their own account.
+   */
+  "payment:charge_saved": "Charge a customer's saved card or bank account, when they have agreed to it",
   "payment:refund": "Issue a refund",
   "deposit:read": "View deposits held",
   "deposit:collect": "Request and take a deposit",

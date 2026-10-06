@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/lib/db";
-import { portalAccount, portalSignIn, savedCards, visitChanges } from "@opentradesos/api/services";
+import { cardOnFile, portalAccount, portalSignIn, savedCards, visitChanges } from "@opentradesos/api/services";
 import { refusalOf } from "@/lib/actions";
 import { clearPortalToken, portalToken, requestMeta, requirePortalSession } from "@/lib/portal-session";
 import { startPaymentFor, type StartPayment } from "../../../start-payment";
@@ -74,6 +74,46 @@ export async function removeCard(slug: string, cardId: string): Promise<{ ok: bo
   const session = await requirePortalSession(slug);
   try {
     await savedCards.remove(getDb(), { token: session.token, cardId }, await requestMeta());
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
+/**
+ * Letting the company charge a saved card, paying bills automatically with
+ * it, and stopping either. The words go back to the service with the yes,
+ * and it stores them only if they are the words it builds for that card.
+ */
+export async function agreeToCharges(slug: string, cardId: string, wording: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.agree(getDb(), { token: session.token, cardId, wording }, await requestMeta());
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
+export async function setAutopay(
+  slug: string, cardId: string, on: boolean, wording?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.setAutopay(getDb(), { token: session.token, cardId, on, ...(wording ? { wording } : {}) });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
+export async function withdrawCharges(slug: string, cardId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.withdraw(getDb(), { token: session.token, cardId });
   } catch (error) {
     return { ok: false, message: refusalOf(error) ?? fault };
   }

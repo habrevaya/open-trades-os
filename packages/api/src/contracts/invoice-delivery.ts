@@ -244,8 +244,10 @@ export const viewPortalInvoice = defineRoute({
     })),
     /** Tips added for the technicians, which are not money on the invoice. */
     tips: z.array(z.object({ receivedAt: z.string().datetime(), amount: MoneyString })),
-    /** Whether there is anything left to pay. */
+    /** Whether there is anything left to pay. False while a bank payment for it is on its way. */
     payable: z.boolean(),
+    /** A bank payment the customer made that the bank has not confirmed yet. */
+    paymentOnItsWay: z.object({ amount: MoneyString, startedAt: z.string().datetime() }).nullable(),
     /** False when the company has connected no processor. Nothing to click. */
     onlinePaymentAvailable: z.boolean(),
     /** What a tip would be, when the company takes them and somebody is recorded on the job. */

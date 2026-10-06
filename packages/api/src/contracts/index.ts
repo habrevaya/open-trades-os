@@ -77,6 +77,8 @@ import { contactRoutes } from "./contacts";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
 import { customerPortalRoutes } from "./customer-portal";
+import { cardOnFileRoutes } from "./card-on-file";
+import { portalLayoutRoutes } from "./portal-layout";
 import { portalAccessRoutes } from "./portal-access";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
@@ -167,6 +169,8 @@ export * from "./equipment";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
 export * from "./customer-portal";
+export * from "./card-on-file";
+export * from "./portal-layout";
 export * from "./portal-access";
 export * from "./setup";
 export * from "./branches";
@@ -279,6 +283,8 @@ export const routes = {
   ...priceBookBulkRoutes,
   ...taskRuleRoutes,
   ...customerPortalRoutes,
+  ...cardOnFileRoutes,
+  ...portalLayoutRoutes,
   ...portalAccessRoutes,
   ...setupRoutes,
   ...branchRoutes,

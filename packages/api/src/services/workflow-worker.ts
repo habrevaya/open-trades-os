@@ -22,6 +22,8 @@ import { pushPass } from "./push";
 import { purgePositions } from "./location";
 import { purgeUnusedClients } from "./oauth";
 import { collectionsPass } from "./rental-billing";
+import { autopayPass } from "./card-on-file";
+import type { PaymentDeps } from "./payments";
 import { startBackups } from "./backups";
 import { sweepPass } from "./file-storage";
 import type { PushProvider } from "../push/provider";
@@ -287,6 +289,13 @@ export interface PassOptions {
    */
   oauthClients?: false;
   /**
+   * Whether this pass also charges the bills of customers who pay
+   * automatically, and follows up charges to saved cards. On by default, at
+   * most once a minute; `false` turns it off, and an object passes the
+   * processor, which is how a test keeps it off the network.
+   */
+  autopay?: false | { deps?: PaymentDeps };
+  /**
    * Scheduled copies to each company's bucket. Started beside the pass rather
    * than inside it, because writing out a large company takes minutes and a
    * text waiting behind it must not. `false` in tests that are about something
@@ -425,6 +434,26 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] collections:", (error as Error).message);
+    }
+    /**
+     * Bills charged to the saved card of a customer who pays automatically,
+     * the one next day try of a declined one, and charges the processor has
+     * answered since. Its own try, and each company's failure is kept to
+     * that company: an invoice is charged once whatever the worker does,
+     * because the charge is keyed on it under a unique index.
+     */
+    if (options.autopay !== false) {
+      try {
+        for (const result of await autopayPass(options.db, {
+          ...(stop ? { shouldStop: stop } : {}),
+          ...(options.autopay?.deps ? { deps: options.autopay.deps } : {}),
+        })) {
+          if (result.error) console.error(`[worker] automatic payments ${result.organizationId}: ${result.error}`);
+          if (result.failed > 0) delivered.add(result.organizationId);
+        }
+      } catch (error) {
+        console.error("[worker] automatic payments:", (error as Error).message);
+      }
     }
     /**
      * Reports and statements on a clock. Its own try, so a broken workflow
