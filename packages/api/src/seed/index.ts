@@ -6,6 +6,7 @@ import { createInvoice, recordPayment } from "../contracts/billing";
 import * as billing from "../services/billing";
 import type { ServiceContext } from "../services/context";
 import { setupDemo } from "../services/demo";
+import { DEFAULT_NOTICES } from "../services/agreement-notices";
 
 /**
  * THE DEMO COMPANY
@@ -379,6 +380,17 @@ async function organization(sql: postgres.Sql): Promise<void> {
     insert into public.location (id, organization_id, name, address_line1, city, state, postal_code, timezone, is_warehouse)
     values (${id("loc")}, ${ORG}, 'Shop', '2400 Cullen Ave', 'Austin', 'TX', '78757', 'America/Chicago', true)
   `;
+  /**
+   * The renewal notice's words, as every new company gets them
+   * (`createOrganization`), so the demo opens on templates to edit rather
+   * than on the built in wording.
+   */
+  for (const notice of DEFAULT_NOTICES) {
+    await sql`
+      insert into public.message_template (organization_id, code, name, channel, purpose, subject, body, variables)
+      values (${ORG}, ${notice.code}, ${notice.name}, ${notice.channel}, 'transactional',
+              ${notice.subject ?? null}, ${notice.body}, ${sql.json(notice.variables ?? [])})`;
+  }
 }
 
 async function people(sql: postgres.Sql): Promise<Map<string, string>> {

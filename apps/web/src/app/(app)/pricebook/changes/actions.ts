@@ -30,6 +30,7 @@ export async function applyChange(_previous: FormState, form: FormData): Promise
       categoryId: field(form, "categoryId"),
       q: field(form, "q"),
       itemIds,
+      effectiveOn: field(form, "effectiveOn"),
     });
     const done = await repricing.handlers.applyPriceChange(await ctx(), input);
     return {

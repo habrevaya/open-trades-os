@@ -471,12 +471,14 @@ export interface StatementSchedule {
   dayOfMonth: number;
   time: string;
   minimumBalance: string;
+  /** Text a customer whose main contact prefers texts, rather than emailing everybody. */
+  textWhenPreferred: boolean;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   lastError: string | null;
 }
 
-const STATEMENT_DEFAULTS = { dayOfMonth: 1, time: "08:00", minimumBalance: "0" };
+const STATEMENT_DEFAULTS = { dayOfMonth: 1, time: "08:00", minimumBalance: "0", textWhenPreferred: false };
 
 /** The company's monthly statement setting. Off until somebody turns it on. */
 export function statementSchedule(ctx: ServiceContext): Promise<StatementSchedule> {
@@ -489,6 +491,7 @@ export function statementSchedule(ctx: ServiceContext): Promise<StatementSchedul
       dayOfMonth: row.dayOfMonth ?? 1,
       time: row.timeOfDay,
       minimumBalance: row.minimumBalance ?? "0",
+      textWhenPreferred: row.textWhenPreferred,
       nextRunAt: row.nextRunAt,
       lastRunAt: row.lastRunAt,
       lastError: row.lastError,
@@ -508,6 +511,8 @@ export function setStatementSchedule(ctx: ServiceContext, input: {
   dayOfMonth?: number | undefined;
   time?: string | undefined;
   minimumBalance?: string | undefined;
+  /** Left off, the setting stays as it was: off for a run set up before texting existed. */
+  textWhenPreferred?: boolean | undefined;
 }): Promise<StatementSchedule> {
   return guardedWrite(ctx, "invoice:send", async (tx) => {
     const cadence = reporting.checkCadence({
@@ -530,6 +535,7 @@ export function setStatementSchedule(ctx: ServiceContext, input: {
       dayOfMonth: cadence.cadence.dayOfMonth ?? 1,
       timeOfDay: cadence.cadence.time,
       minimumBalance: minimum,
+      textWhenPreferred: input.textWhenPreferred ?? before?.textWhenPreferred ?? STATEMENT_DEFAULTS.textWhenPreferred,
       pausedAt: input.enabled ? null : before?.pausedAt ?? new Date(),
       nextRunAt: next,
       ownerUserId: ctx.actor.userId,
@@ -558,6 +564,7 @@ export function setStatementSchedule(ctx: ServiceContext, input: {
       dayOfMonth: after!.dayOfMonth ?? 1,
       time: after!.timeOfDay,
       minimumBalance: after!.minimumBalance ?? "0",
+      textWhenPreferred: after!.textWhenPreferred,
       nextRunAt: after!.nextRunAt,
       lastRunAt: after!.lastRunAt,
       lastError: after!.lastError,
@@ -632,6 +639,7 @@ export async function deliverOne(
     if (row.kind === "statements") {
       const result = await deliverStatements(tx, {
         organizationId, scheduleId, at: due, minimumBalance: row.minimumBalance,
+        textWhenPreferred: row.textWhenPreferred,
       });
       await tx.update(schema.deliverySchedule).set({
         lastError: result.refused > 0
@@ -741,5 +749,6 @@ export const handlers = {
   getStatementSchedule: (ctx: ServiceContext) => statementSchedule(ctx),
   setStatementSchedule: (ctx: ServiceContext, input: {
     enabled: boolean; dayOfMonth?: number | undefined; time?: string | undefined; minimumBalance?: string | undefined;
+    textWhenPreferred?: boolean | undefined;
   }) => setStatementSchedule(ctx, input),
 } as const;

@@ -1,12 +1,13 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
+import { assertCan, customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, inTenant, timezoneOf,
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
 import { readerFor } from "../secrets/store";
+import * as creditNotes from "./credit-notes";
 import * as deposits from "./deposits";
 import { assertPeriodOpen } from "./history";
 import * as tips from "./tips";
@@ -66,6 +67,8 @@ const usd = (value: string) => m.money(value, "USD");
 /** Our own reference on the processor's object, so a human can trace one back. */
 const METADATA_ATTEMPT = "otos_attempt";
 const METADATA_ORG = "otos_organization";
+/** A charge on file's own id, carried instead of the attempt's when it is the processor's key. */
+const METADATA_CHARGE = "otos_charge";
 
 /* --------------------------------------------------------- the connection */
 
@@ -226,6 +229,35 @@ export interface IntentInput {
    * the mandate a bank debit carries. Only the portal passes it.
    */
   acceptance?: { ip?: string | undefined; userAgent?: string | undefined } | undefined;
+  /**
+   * Nobody is on the page: the saved card is charged under the customer's
+   * agreement (`payment_agreement`), by the office or by the worker paying
+   * a bill automatically. Checked here, in the transaction that asks the
+   * processor, whoever the caller is: the agreement has to be live, the
+   * customer's, and for this very card, and the caller has to hold
+   * `payment:charge_saved`. A caller that forgot to check is still refused.
+   */
+  offSession?: { agreementId: string } | undefined;
+  /**
+   * The key the processor deduplicates on, when the caller has one that
+   * outlives this transaction (a charge on file, written down before it is
+   * tried). Absent, the attempt's own id is used. A worker that dies after
+   * asking and before hearing back asks again with the same key and gets
+   * the same charge, rather than a second one.
+   */
+  processorKey?: string | undefined;
+}
+
+/**
+ * The processor said no. Its code is kept, because what happens next depends
+ * on it: a bank that wants the customer to confirm a charge themselves is a
+ * link sent to them, and a decline for a low balance may be worth one more
+ * try tomorrow. Still a conflict to every caller that only reads the words.
+ */
+export class ChargeDeclinedError extends ConflictError {
+  constructor(message: string, readonly code: string, readonly retryable: boolean) {
+    super(message);
+  }
 }
 
 /** What the attempt remembers about a tip, for the moment the money arrives. */
@@ -394,6 +426,33 @@ export async function intent(
     const bank = saved?.kind === "bank_account";
 
     /**
+     * NO CHARGE WITH NOBODY THERE WITHOUT THE CUSTOMER'S AGREEMENT, asked
+     * here as well as by every caller, so that no path into the processor
+     * can skip it: the agreement is live, it is this customer's, and it is
+     * for this card. Locked, so a customer withdrawing it in the same
+     * instant either lands first and this is refused, or waits for it.
+     */
+    if (input.offSession) {
+      assertCan(ctx.actor, "payment:charge_saved");
+      if (!saved) throw new ConflictError("Only a saved card or bank account can be charged without the customer.");
+      if (input.tip !== undefined) throw new ConflictError("A tip is the customer's to add, on the page.");
+      const [agreement] = await tx.select({ id: schema.paymentAgreement.id })
+        .from(schema.paymentAgreement)
+        .where(and(
+          eq(schema.paymentAgreement.id, input.offSession.agreementId),
+          eq(schema.paymentAgreement.customerId, input.customerId),
+          eq(schema.paymentAgreement.savedPaymentMethodId, saved.id),
+          isNull(schema.paymentAgreement.withdrawnAt),
+        )).limit(1).for("update");
+      if (!agreement) {
+        throw new ConflictError(
+          "This customer has not agreed to let you charge that card, or has withdrawn it. "
+          + "Send them the invoice to pay, or ask them to agree from their account.",
+        );
+      }
+    }
+
+    /**
      * NOT TWICE WHILE A BANK PAYMENT IS ON ITS WAY. A bank debit takes days
      * to arrive, and the invoice stays open until it does: a customer who
      * looks again on Wednesday and pays the same bill by card has paid it
@@ -437,6 +496,7 @@ export async function intent(
         ...(saved ? { savedCardId: saved.id } : {}),
         /** Remembered so settlement books it as a bank payment and a failure is told to the office. */
         ...(bank ? { method: "ach" } : {}),
+        ...(input.offSession ? { offSession: true, agreementId: input.offSession.agreementId } : {}),
       },
     }).returning();
 
@@ -444,24 +504,31 @@ export async function intent(
     const outcome = await provider.charge({
       amountMinor: minor,
       currency: "usd",
-      idempotencyKey: attempt!.id,
+      idempotencyKey: input.processorKey ?? attempt!.id,
       ...(input.description ? { description: input.description } : {}),
       ...(input.receiptEmail ?? customer.email
         ? { receiptEmail: input.receiptEmail ?? customer.email! }
         : {}),
-      metadata: {
-        [METADATA_ATTEMPT]: attempt!.id,
-        [METADATA_ORG]: ctx.actor.organizationId,
-      },
+      /**
+       * With a key of the caller's own, the attempt's id stays off the
+       * processor's record: asking again with the same key has to send the
+       * same request or the processor refuses it as a different one, and a
+       * second attempt row has a different id. Settlement then finds the
+       * attempt by the processor's intent id, which is the same both times.
+       */
+      metadata: input.processorKey
+        ? { [METADATA_CHARGE]: input.processorKey, [METADATA_ORG]: ctx.actor.organizationId }
+        : { [METADATA_ATTEMPT]: attempt!.id, [METADATA_ORG]: ctx.actor.organizationId },
       ...(saved ? { customerRef: saved.customerRef, paymentMethodRef: saved.paymentMethodRef } : {}),
-      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance ? { acceptance: input.acceptance } : {}) } : {}),
+      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance && !input.offSession ? { acceptance: input.acceptance } : {}) } : {}),
+      ...(input.offSession ? { offSession: true } : {}),
     });
 
     if (!outcome.ok) {
       await tx.update(schema.integrationEvent)
         .set({ status: "failed", error: `${outcome.code}: ${outcome.message}`, updatedAt: new Date() })
         .where(eq(schema.integrationEvent.id, attempt!.id));
-      throw new ConflictError(outcome.message);
+      throw new ChargeDeclinedError(outcome.message, outcome.code, outcome.retryable);
     }
 
     /**
@@ -487,6 +554,7 @@ export async function intent(
       attemptId: attempt!.id, intentId: outcome.intent.intentId, amount,
       ...(tipPlan ? { tip: tipPlan.tip } : {}),
       ...(saved ? { savedCardId: saved.id } : {}),
+      ...(input.offSession ? { offSession: true, agreementId: input.offSession.agreementId } : {}),
     });
 
     return {
@@ -988,6 +1056,46 @@ async function refundFromProcessor(
     posted.push({ refundId, amount: m.toString(take), refundedAt: refundedAt.toISOString() });
   };
 
+  /**
+   * A REFUND THAT PAID OUT A CREDIT NOTE IS NOT A REFUND OF THIS PAYMENT.
+   *
+   * It went back through this payment's card because that is where a card
+   * refund has to go, and it gives back money the company owed on a credit
+   * note, not money this payment paid: the invoices stay paid. So it is
+   * posted as the payout it is (`creditNotes.settleCardPayout`) and recorded
+   * as posted under its refund id like any other, which is what keeps the
+   * same dollars from being booked again as an ordinary refund by a later
+   * event about the same charge.
+   */
+  const recordPosted = async (refundId: string, amount: m.Money) => {
+    await tx.insert(schema.integrationEvent).values({
+      organizationId: ctx.actor.organizationId,
+      direction: "inbound",
+      provider,
+      eventType: REFUND_POSTED,
+      idempotencyKey: refundId,
+      status: "succeeded",
+      entityType: "payment",
+      entityId: current.id,
+      requestPayload: { amount: m.toString(amount), eventId: event.eventId },
+      completedAt: new Date(),
+    });
+  };
+  const settlePayout = async (payout: creditNotes.Payout, at: Date | null | undefined) => {
+    const when = await openDateFor(tx, ctx.actor.organizationId, at ?? new Date());
+    current = await creditNotes.settleCardPayout(tx, ctx, payout, current, when);
+    posted.push({ refundId: payout.processorRefundId, amount: payout.amount, refundedAt: when.toISOString() });
+    await recordPosted(payout.processorRefundId!, usd(payout.amount));
+  };
+
+  /** A payout's refund the processor says failed: its credit goes back on the account. */
+  for (const refund of (event.refunds ?? []).filter((r) => r.status === "failed" || r.status === "canceled")) {
+    const payout = await creditNotes.payoutForRefund(tx, ctx.actor.organizationId, refund.refundId);
+    if (payout && payout.paymentId === current.id) {
+      await creditNotes.failCardPayout(tx, ctx, payout, `The card processor reported the refund ${refund.status}.`);
+    }
+  }
+
   const named = (event.refunds ?? []).filter((r) => r.status === null || r.status === "succeeded");
 
   if (named.length > 0) {
@@ -1000,6 +1108,12 @@ async function refundFromProcessor(
           eq(schema.integrationEvent.eventType, REFUND_POSTED),
         )).limit(1);
       if (seen.length > 0) continue;
+
+      const payout = await creditNotes.payoutForRefund(tx, ctx.actor.organizationId, refund.refundId);
+      if (payout && payout.paymentId === current.id && payout.status === "pending") {
+        await settlePayout(payout, refund.createdAt ?? event.occurredAt);
+        continue;
+      }
 
       const amount = usd(fromMinor(refund.amountMinor));
       /**
@@ -1041,8 +1155,18 @@ async function refundFromProcessor(
      * The processor reports the CUMULATIVE amount refunded, not this
      * refund's amount. Booking it whole would double count the moment a
      * second partial refund arrives, so only the increase is posted.
+     *
+     * Credit payouts waiting on this payment are what the increase is first,
+     * oldest first, each only when the increase covers all of it: they were
+     * asked for from here, so a rise in what the processor has refunded is
+     * them before it is anything somebody did in the processor's dashboard.
      */
-    const delta = m.subtract(usd(fromMinor(event.refundedMinor)), usd(current.refundedAmount));
+    let delta = m.subtract(usd(fromMinor(event.refundedMinor)), usd(current.refundedAmount));
+    for (const payout of await creditNotes.pendingPayoutsOn(tx, current.id)) {
+      if (!payout.processorRefundId || m.compare(usd(payout.amount), delta) > 0) continue;
+      await settlePayout(payout, event.occurredAt);
+      delta = m.subtract(delta, usd(payout.amount));
+    }
     if (m.isPositive(delta)) await book(delta, event.occurredAt, null);
   }
 
@@ -1223,6 +1347,21 @@ export async function pendingBankPayments(
   });
 }
 
+/**
+ * Whether a bank payment is on its way for the invoice in the outer query,
+ * as a `where` condition on `"invoice"`. For whatever chases money (the
+ * collections agent's reminders, a workflow on overdue invoices): an invoice
+ * the customer has paid by bank and the bank has not yet confirmed is not
+ * overdue money to chase. The table is named in full rather than
+ * interpolated, so the fragment means the same wherever it is placed.
+ */
+export const bankPaymentOnItsWay = sql`exists (
+  select 1 from public.integration_event ev
+   where ev.organization_id = "invoice"."organization_id"
+     and ev.direction = 'outbound' and ev.event_type = 'payment.intent' and ev.status = 'in_flight'
+     and exists (select 1 from jsonb_array_elements(ev.request_payload->'allocations') a
+                  where a->>'invoiceId' = "invoice"."id"::text))`;
+
 /** A bank payment as the office and the customer see it: on its way, or failed recently and why. */
 export interface BankPaymentView {
   id: string;
@@ -1310,7 +1449,12 @@ export async function refund(
       );
     }
 
-    const alreadyRefunded = usd(payment.refundedAmount);
+    /**
+     * Less credit payouts still on their way back through this card: the
+     * processor counts them already, and would refuse the difference.
+     */
+    const waiting = await creditNotes.pendingPayoutsOn(tx, payment.id);
+    const alreadyRefunded = m.add(usd(payment.refundedAmount), m.sum(waiting.map((p) => usd(p.amount)), "USD"));
     const remaining = m.subtract(usd(payment.amount), alreadyRefunded);
     if (!m.isPositive(remaining)) {
       throw new ConflictError("That payment has already been refunded in full.");

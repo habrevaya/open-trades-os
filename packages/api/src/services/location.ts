@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { geo, location as loc, time } from "@opentradesos/core";
 import {
@@ -24,7 +25,8 @@ import { portalBase } from "../lib/portal-base";
  *      judged against the server's own record of the clock and the visits,
  *      and one outside working time is dropped, never stored.
  *   3. Showing them: the latest position of each technician on the dispatch
- *      map, to people who dispatch (`visit:dispatch`) and nobody else. A CSR
+ *      map, and the path they took today as a line behind it, to people
+ *      who dispatch (`visit:dispatch`) and nobody else. A CSR
  *      or a technician reads the board and not where their colleagues are.
  *   4. The customer's tracking link: one pin, only while the technician is on
  *      the way to THEIR visit after telling them so, only fixes taken for that
@@ -220,11 +222,36 @@ export async function ingest(
     }),
   };
 
+  /**
+   * Kept no closer together than the company's bound (`loc.minGapSeconds`),
+   * against what is already stored for this person and what this batch
+   * keeps, so a phone sending every second on a motorway cannot grow the
+   * store past a known size per day.
+   */
+  const gap = loc.minGapSeconds(settings.intervalSeconds);
+  const latestAt = new Date(Math.max(...usable.map((u) => u.at.getTime())));
+  const near = await tx.select({ at: schema.technicianPosition.recordedAt })
+    .from(schema.technicianPosition)
+    .where(and(
+      eq(schema.technicianPosition.technicianId, device.technicianId),
+      gte(schema.technicianPosition.recordedAt, new Date(earliest.getTime() - gap * 1000)),
+      lte(schema.technicianPosition.recordedAt, new Date(latestAt.getTime() + gap * 1000)),
+    ));
+  const kept = near.map((n) => n.at);
+
   const covered: { fix: IncomingFix; at: Date; reason: loc.SharingReason; visitId: string | null }[] = [];
-  for (const { fix, at } of usable) {
+  for (const { fix, at } of [...usable].sort((a, b) => a.at.getTime() - b.at.getTime())) {
     const why = loc.coveringReason(at, facts);
-    if (why) covered.push({ fix, at, ...why });
-    else drop("off_the_clock");
+    if (!why) {
+      drop("off_the_clock");
+      continue;
+    }
+    if (loc.tooSoon(at, kept, gap)) {
+      drop("too_soon");
+      continue;
+    }
+    kept.push(at);
+    covered.push({ fix, at, ...why });
   }
   if (covered.length > 0) {
     /** A batch resent after a dropped answer is the same fixes, kept once. */
@@ -264,6 +291,12 @@ export interface LivePosition {
   visitId: string | null;
   freshness: loc.Freshness;
   lastSeen: string;
+  /**
+   * The path they took today, oldest first, as a line for the map: every
+   * position kept since the start of the company's day, a parked stretch
+   * as one point, thinned evenly past `loc.MAX_TRAIL_POINTS`.
+   */
+  trail: { lat: number; lng: number; at: string }[];
 }
 
 /**
@@ -297,11 +330,33 @@ export async function latestWithin(tx: Database, organizationId: string): Promis
        and p.recorded_at >= ${start.toISOString()}::timestamptz
        and t.active and t.share_location
      order by p.technician_id, p.recorded_at desc`);
+  /**
+   * TODAY'S PATH, from the positions already kept. Today only, like the
+   * pin: yesterday's drive is inside the retention for the record, and is
+   * not where anybody is going. Only the columns a line needs.
+   */
+  const today = await tx.select({
+    technicianId: schema.technicianPosition.technicianId,
+    lat: schema.technicianPosition.latitude,
+    lng: schema.technicianPosition.longitude,
+    at: schema.technicianPosition.recordedAt,
+  }).from(schema.technicianPosition)
+    .where(and(
+      eq(schema.technicianPosition.organizationId, organizationId),
+      gte(schema.technicianPosition.recordedAt, start),
+    ))
+    .orderBy(asc(schema.technicianPosition.recordedAt));
+  const pathOf = new Map<string, loc.TrailPoint[]>();
+  for (const p of today) {
+    pathOf.set(p.technicianId, [...(pathOf.get(p.technicianId) ?? []), { lat: Number(p.lat), lng: Number(p.lng), at: p.at }]);
+  }
+
   return {
     enabled: true,
     positions: rows.map((r) => {
       const at = new Date(r.recorded_at);
       return {
+        trail: loc.trailOf(pathOf.get(r.technician_id) ?? []).map((p) => ({ lat: p.lat, lng: p.lng, at: p.at.toISOString() })),
         technicianId: r.technician_id,
         displayName: r.display_name,
         color: r.color,
@@ -532,10 +587,10 @@ export async function trackingPhoto(db: Database, token: string): Promise<{ byte
     const picked = pickVisit(visits);
     const fileId = visits.find((v) => v.id === picked?.id)?.photoFileId ?? null;
     if (!fileId) return null;
-    const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+    const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
       .from(schema.storedFile).where(eq(schema.storedFile.id, fileId)).limit(1);
     if (!file || !file.contentType.startsWith("image/")) return null;
-    return { bytes: file.bytes, contentType: file.contentType };
+    return { bytes: await bytesOf(file), contentType: file.contentType };
   });
 }
 

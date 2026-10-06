@@ -1,4 +1,5 @@
 import { and, asc, eq, desc, sql, isNull, inArray, or } from "drizzle-orm";
+import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, branding as brand, customerPortal as cp, SYSTEM_USER_ID } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
@@ -643,11 +644,11 @@ export async function jobPhotoFor(
     const shown = await photosOf(tx, grant.organizationId, jobId);
     const photo = shown.find((p) => p.id === attachmentId);
     if (!photo) return null;
-    const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+    const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
       .from(schema.storedFile)
       .where(and(eq(schema.storedFile.storageKey, photo.storageKey), isNull(schema.storedFile.deletedAt)))
       .limit(1);
-    return file ?? null;
+    return file ? { bytes: await bytesOf(file), contentType: file.contentType } : null;
   });
 }
 

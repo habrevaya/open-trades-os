@@ -102,7 +102,33 @@ describe("the plan form", () => {
       includedVisitsPerTerm: 2, visitAnchorMonths: [4, 10], discountRate: "0.15",
       priorityDispatch: false, waivesDiagnosticFee: true, waivesAfterHoursRate: false,
       benefits: ["Two tune ups", "No overtime"], autoRenews: true, renewalNoticeDays: 30,
+      discountExclusions: { categoryIds: [], itemIds: [] },
     });
+  });
+
+  it("reads what the discount leaves out and the plan's own share of each window", () => {
+    const form = new FormData();
+    form.set("name", "Gold");
+    form.set("price", "300");
+    form.append("excludedCategoryIds", "cat-equipment");
+    form.append("excludedItemIds", "item-permit");
+    form.set("memberHoldPercent", "30");
+    expect(planFromForm(form)).toMatchObject({
+      discountExclusions: { categoryIds: ["cat-equipment"], itemIds: ["item-permit"] },
+      memberHoldPercent: 30,
+    });
+    /** Blank on an edit puts the plan back on the company's figure. */
+    expect(planFromForm(new FormData(), { editing: true })).toMatchObject({ memberHoldPercent: null });
+  });
+
+  it("offers the price book's categories and items to leave out, ticking the ones already left out", () => {
+    const html = renderToStaticMarkup(<PlanFields
+      plan={{ name: "Club", discountExclusions: { categoryIds: ["c1"], itemIds: [] } }}
+      book={{ categories: [{ id: "c1", name: "Equipment", depth: 0 }, { id: "c2", name: "Labour", depth: 0 }], items: [] }}
+    />);
+    expect(html).toContain("Not discounted");
+    expect(html).toMatch(/checked="" value="c1"/);
+    expect(html).not.toMatch(/checked="" value="c2"/);
   });
 
   it("clears a code, a description and a visit day when an edit leaves them empty", () => {

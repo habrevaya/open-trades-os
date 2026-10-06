@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { creditNotes } from "@opentradesos/api/services";
-import { createCreditNote, applyCreditNote } from "@opentradesos/api/contracts";
+import { creditNotes, creditPayouts } from "@opentradesos/api/services";
+import { createCreditNote, applyCreditNote, payOutCreditNote } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -81,6 +81,29 @@ export async function actOnCreditNote(_previous: FormState, form: FormData): Pro
         });
         await creditNotes.apply(c, input);
         return;
+      }
+      case "payout": {
+        /**
+         * Keyed by the form, so a double press or a retry after a dropped
+         * answer is the same payout rather than a second refund to the card.
+         */
+        const input = parsed(payOutCreditNote.input, {
+          id,
+          method: field(form, "method"),
+          amount: field(form, "amount"),
+          paymentId: field(form, "method") === "card" ? field(form, "paymentId") : undefined,
+          reference: field(form, "reference"),
+          paidOn: field(form, "method") === "card" ? undefined : field(form, "paidOn"),
+          note: field(form, "note"),
+        });
+        const key = field(form, "formKey");
+        const after = await creditPayouts.payOut({ ...c, ...(key ? { idempotencyKey: `payout:${key}` } : {}) }, input);
+        const last = after.payouts.at(-1);
+        return {
+          message: last?.status === "pending"
+            ? "Asked the card processor to refund it. It shows as paid back once the processor says the money moved."
+            : "Recorded as paid back.",
+        };
       }
       default:
         throw new Error(`Unknown credit note operation ${String(op)}`);

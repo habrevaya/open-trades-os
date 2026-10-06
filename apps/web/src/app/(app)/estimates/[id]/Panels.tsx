@@ -97,7 +97,8 @@ export function EstimateActions({
   contact?: { email: string | null; phone: string | null };
 }) {
   const hidden = { estimateId: estimate.id, customerId: estimate.customerId };
-  const open = ["draft", "sent", "viewed"].includes(estimate.status);
+  // Expired is still open to a yes, a no, a deposit and a resend: a date is a nudge, not a cliff.
+  const open = ["draft", "sent", "viewed", "expired"].includes(estimate.status);
 
   return (
     <div className="mt-8 space-y-4">

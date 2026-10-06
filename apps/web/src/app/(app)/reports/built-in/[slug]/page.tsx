@@ -21,7 +21,7 @@ export default async function BuiltInReportPage({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string; split?: string; arrange?: string }>;
 }) {
   const user = await requireSetupUser();
   const { slug } = await params;
@@ -47,7 +47,7 @@ export default async function BuiltInReportPage({
     ...(range.to ? { to: range.to } : {}),
     ...(range.branch ? { branchId: range.branch } : {}),
   };
-  const view = { chart: range.chart, measure: range.measure };
+  const view = { chart: range.chart, measure: range.measure, split: range.split, arrange: range.arrange };
   const branchOptions = await branches.options(ctx);
 
   return (

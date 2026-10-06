@@ -112,10 +112,46 @@ describe("the checks a run can ask again", () => {
     expect(isCheck("caller_not_reached")).toBe(true);
     expect(isCheck("__proto__")).toBe(false);
     expect(isCheck("drop table")).toBe(false);
-    expect(Object.keys(CHECKS)).toEqual(["estimate_undecided", "caller_not_reached"]);
+    expect(Object.keys(CHECKS)).toEqual([
+      "estimate_undecided", "caller_not_reached", "invoice_unpaid", "visit_still_booked", "job_not_done",
+    ]);
   });
 
   it("refuses a template nobody wrote", () => {
     expect(buildTemplate("nope", {}).ok).toBe(false);
+  });
+});
+
+describe("ringing before a warranty runs out", () => {
+  it("waits on the warranty sweep rather than an event, and raises one call about the unit", () => {
+    const built = buildTemplate("warranty_call", { days: 45 });
+    if (!built.ok) throw new Error(built.reason);
+    expect(built.definition.triggerKind).toBe("dwell");
+    expect(built.definition.triggerEvents).toEqual([]);
+    expect(built.definition.dwell).toEqual({ shape: "warranty_lapsing", afterDays: 45 });
+    const steps = flattenPlan(built.definition.steps);
+    expect(steps.map((s) => s.kind)).toEqual(["create_task"]);
+    expect(String(steps[0]!.config!["title"])).toContain("{{ until }}");
+  });
+
+  it("is off for new companies, like every recommended automation but the estimate follow up", () => {
+    expect(TEMPLATES.find((t) => t.key === "warranty_call")!.onForNewCompanies).not.toBe(true);
+    expect(buildTemplate("warranty_call", {}).ok && buildTemplate("warranty_call", {})).toMatchObject({
+      definition: { dwell: { afterDays: 30 } },
+    });
+    expect(buildTemplate("warranty_call", { days: 0 })).toEqual({
+      ok: false, reason: "Days before the warranty ends cannot be less than 1.",
+    });
+  });
+});
+
+describe("the questions a run can ask again", () => {
+  it("knows the invoice, visit and job questions as well as the first two", () => {
+    for (const key of ["estimate_undecided", "caller_not_reached", "invoice_unpaid", "visit_still_booked", "job_not_done"]) {
+      expect(isCheck(key)).toBe(true);
+    }
+    expect(CHECKS.invoice_unpaid.entity).toBe("invoice");
+    expect(isCheck("__proto__")).toBe(false);
+    expect(isCheck("toString")).toBe(false);
   });
 });

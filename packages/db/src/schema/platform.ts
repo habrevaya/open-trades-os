@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, customType } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, customType, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -125,6 +125,11 @@ export const webhookReplayStatus = pgEnum("webhook_replay_status", [
   "done",
   /** The receiver kept refusing and the replay stopped trying. See `last_error`. */
   "failed",
+  /**
+   * Somebody stopped it before it finished. What had already gone stays
+   * gone, and `position` says how far it got.
+   */
+  "cancelled",
 ]);
 
 export const webhookReplay = pgTable("webhook_replay", {
@@ -145,6 +150,8 @@ export const webhookReplay = pgTable("webhook_replay", {
   lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
   lastError: text("last_error"),
   requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Who stopped it, when somebody did. */
+  cancelledByUserId: uuid("cancelled_by_user_id").references(() => user.id, { onDelete: "set null" }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -280,10 +287,13 @@ export const brandAsset = pgTable("brand_asset", {
  * hosts.
  *
  * It is NOT a claim that Postgres is where a large deployment should keep
- * its files. `services/files.ts` reads and writes through one pair of
- * functions so a deployment that wants an object store can be given one; as
- * of this table, that other implementation does not exist, and this comment
- * says so rather than describing a plan as a capability.
+ * its files. A deployment can keep them in an S3 compatible bucket instead
+ * (`FILE_STORAGE=s3`, see `packages/api/src/storage`), and then `bytes` is
+ * null and `object_key` says where they went. Both kinds of row are read the
+ * same way, through `files.bytesOf`, which is what lets the move from one to
+ * the other happen a row at a time while the product is in use: each row
+ * says where its own bytes are, and a row moves only once the copy has been
+ * read back and its hash checked.
  *
  * CONTENT ADDRESSED. The key is derived from the SHA-256 of the bytes, so
  * the same photograph attached to a job, a report and an invoice is one row
@@ -303,15 +313,39 @@ export const storedFile = pgTable("stored_file", {
   contentType: text("content_type").notNull(),
   sha256: text("sha256").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
+  /** The file itself, when it is kept here. Null when it is in object storage. */
   bytes: customType<{ data: Buffer; driverData: Buffer }>({
     dataType: () => "bytea",
-  })("bytes").notNull(),
+  })("bytes"),
+  /**
+   * `postgres` or `object`. Said on the row rather than inferred from which
+   * column is filled, so a reader never has to guess and the check below can
+   * hold the two columns to it.
+   */
+  storedIn: text("stored_in").notNull().default("postgres"),
+  /**
+   * The object's key in the deployment's bucket, prefix and all. Kept rather
+   * than derived, because a deployment that changes its prefix must still find
+   * every file it already wrote. Also kept on a deleted row until the worker
+   * has deleted the object, which is how a removal survives a crash between
+   * the two.
+   */
+  objectKey: text("object_key"),
   references: integer("references").notNull().default(0),
   uploadedByUserId: uuid("uploaded_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   keyIdx: uniqueIndex("stored_file_key_idx").on(t.organizationId, t.storageKey),
   hashIdx: index("stored_file_hash_idx").on(t.organizationId, t.sha256),
+  /** Object stored rows the worker still has to delete from the bucket. */
+  objectSweepIdx: index("stored_file_object_sweep_idx").on(t.storedIn, t.deletedAt),
+  /**
+   * The bytes are in exactly one place. A row in Postgres has its bytes; a
+   * row in object storage has a key and no bytes, so nothing can read a stale
+   * copy left behind by a move.
+   */
+  whereCheck: check("stored_file_where", sql`(${t.storedIn} = 'postgres' and ${t.bytes} is not null and ${t.objectKey} is null)
+    or (${t.storedIn} = 'object' and ${t.bytes} is null and ${t.objectKey} is not null)`),
 }));
 
 export const attachment = pgTable("attachment", {

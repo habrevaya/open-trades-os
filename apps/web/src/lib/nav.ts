@@ -289,6 +289,8 @@ export const NAV: NavGroup[] = [
            * and changing a step needs `settings:write`.
            */
           { href: "/purchasing/approvals", label: "Approval steps" },
+          /** Units sent back to a vendor by number, and the credit each one owes. */
+          { href: "/purchasing/returns", label: "Returns to vendors" },
         ],
       },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
@@ -319,6 +321,8 @@ export const NAV: NavGroup[] = [
         children: [
           { href: "/books", label: "Journal entries" },
           { href: "/books/budget", label: "Budget" },
+          /** Tax collected by rate, read from the ledger, for filing. Needs `report.financial:read`. */
+          { href: "/books/sales-tax", label: "Sales tax collected" },
         ],
       },
       {
@@ -421,6 +425,9 @@ export const NAV: NavGroup[] = [
            * sees their own incident reports and the form to make one.
            */
           { href: "/compliance/safety", label: "Toolbox talks" },
+          /** The company's own talk topics, and talks raised from them on a schedule for a crew or a person. */
+          { href: "/compliance/safety/topics", label: "Talk topics" },
+          { href: "/compliance/safety/schedules", label: "Talks on a schedule" },
           { href: "/compliance/incidents", label: "Incidents" },
           /**
            * The retention rules, what a purge would remove, and holds. It needs
@@ -500,12 +507,21 @@ export const NAV: NavGroup[] = [
           { href: "/settings/records", label: "Kinds of record" },
           { href: "/settings/service-area", label: "Service area" },
           /**
+           * The days the company closes or keeps short hours, and what it charges
+           * for work booked outside its hours or on one of them. Under Settings
+           * rather than under Online booking, because the phones, the reviews
+           * clock and recurring tasks read it too.
+           */
+          { href: "/settings/holidays", label: "Holidays and rates" },
+          /**
            * Labour burden and overhead rates, with their dates, which turn the
            * direct margin on job costing into the fully loaded one beside it.
            * Inherits `settings:read` to be shown; the page reads with
            * `job.cost:read` and changes with `finance:configure`.
            */
           { href: "/settings/costing", label: "Costing" },
+          /** The sales tax rates the company charges, and its usual one. */
+          { href: "/settings/tax", label: "Sales tax" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
            * The agents that run on the model connected above: on or off, who
@@ -570,6 +586,12 @@ export const NAV: NavGroup[] = [
            * withholding.
            */
           { href: "/settings/export", label: "Take a copy" },
+          /**
+           * The same copy on a clock, into the owner's own bucket. Beside Take
+           * a copy and narrower than its corridor for the same reason: shown
+           * under `settings:read`, read under `data:export`.
+           */
+          { href: "/settings/backups", label: "Backups" },
           /**
            * A practice copy of the settings to try things in, and copying
            * chosen settings back. Shown under `settings:read`; making one

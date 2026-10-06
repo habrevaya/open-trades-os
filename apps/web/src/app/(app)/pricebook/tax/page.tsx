@@ -21,8 +21,8 @@ export default async function PriceBookTaxPage() {
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Sales tax" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        Whether each item is taxed, and what kind of thing it is. The rate itself is set on the invoice or
-        estimate it is charged on, because rates belong to where the work is done.
+        Whether each item is taxed, and what kind of thing it is. The rates you charge are on{" "}
+        <a href="/settings/tax" className="underline underline-offset-4">Settings, Sales tax</a>.
       </p>
       <div className="mt-6"><TaxSection ctx={{ actor: user.actor, db: getDb() }} /></div>
     </div>

@@ -20,6 +20,8 @@ interface BookingDraft {
   problemSummary: string; urgency: "emergency" | "soon" | "routine";
   serviceName: string | null; windows: { date: string; arrivalWindowId: string; label: string }[];
   missing: string[]; droppedWindows: number;
+  /** The number or email it came from is a member's, so the windows held for members were offered. Absent on older drafts. */
+  member?: boolean;
   source: { kind: string; from: string | null };
 }
 
@@ -61,6 +63,12 @@ export function IntakeDraft({
       </dl>
       {draft.missing.length > 0 ? (
         <p className="mt-2 text-sm text-amber-700">Still to ask: {draft.missing.join(" ")}</p>
+      ) : null}
+      {draft.member ? (
+        <p className="mt-1 text-xs text-ink-500">
+          This came from a member&apos;s number or email, so the times offered include those held for members.
+          Nothing was said to them about it.
+        </p>
       ) : null}
       {draft.droppedWindows > 0 ? (
         <p className="mt-1 text-xs text-ink-500">

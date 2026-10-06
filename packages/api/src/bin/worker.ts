@@ -16,6 +16,7 @@ import { createClient } from "@opentradesos/db";
 import { runWorker } from "../services/workflow-worker";
 import { backgroundHooks } from "../services/worker-hooks";
 import { secretStore } from "../secrets/store";
+import { settle } from "../services/backups";
 
 // `||`, not `??`: an env file with `WORKER_DATABASE_URL=` and nothing after it sets
 // an empty string, and that should mean "unset" rather than "connect to nothing".
@@ -70,6 +71,8 @@ await runWorker({
     }
   },
 });
+/** A copy being written to a bucket is finished rather than abandoned half uploaded. */
+await settle();
 /**
  * The pool keeps the event loop alive, so without this the process stops
  * doing work, says so, and then hangs until the orchestrator sends SIGKILL.

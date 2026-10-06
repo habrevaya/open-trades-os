@@ -460,7 +460,7 @@ async function perform(
     case "branch":
       return branchStep(step.config ?? {}, event, following);
     case "email_report":
-      return emailReport(tx, ctx, step.config ?? {}, runId, { ...position, now });
+      return emailReport(tx, ctx, step.config ?? {}, runId, { ...position, now }, event);
     case "stop_unless":
       return stopUnless(tx, step.config ?? {}, event, following);
     case "send_estimate":

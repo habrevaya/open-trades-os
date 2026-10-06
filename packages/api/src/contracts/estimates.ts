@@ -25,6 +25,10 @@ export const EstimateLine = z.object({
   taxable: z.boolean(),
   /** The rate AS APPLIED, frozen on the line and carried onto the invoice. */
   taxRate: RateString,
+  /** Which of the company's sales tax rates it charges, when it is one of them. */
+  taxRateId: Uuid.nullable().optional(),
+  /** Where the rate came from, as on an invoice line. */
+  taxSource: z.string().nullable().optional(),
   taxAmount: MoneyString,
   lineTotal: MoneyString,
   /** Priced and shown, outside the total until the customer ticks it. */
@@ -157,7 +161,16 @@ export const createEstimate = defineRoute({
       signerName: z.string().max(200).optional(),
       reason: z.string().max(1000).optional(),
     }).optional(),
-    taxRate: RateString.default("0"),
+    /**
+     * The sales tax rate on the taxable lines, as a fraction: 0.0825. Left
+     * off (with `taxRateId` too), it is the company's rate for this customer
+     * and address on the day it is written (`/v1/tax-rates`), or nothing for
+     * a customer exempt on a certificate in force. A typed rate that matches
+     * one of the company's is recorded as that rate.
+     */
+    taxRate: RateString.optional(),
+    /** One of the company's rates instead, by id; null for no tax. Wins over `taxRate`. */
+    taxRateId: Uuid.nullable().optional(),
     options: z.array(z.object({
       name: z.string().min(1).max(100),
       description: z.string().max(2000).optional(),

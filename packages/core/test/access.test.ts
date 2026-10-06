@@ -48,6 +48,10 @@ describe("technicians never see money they should not", () => {
     expect(can(tech, "payment:collect")).toBe(true);
   });
 
+  it("cannot charge a customer's saved card, which is the office's to do and only with the customer's agreement", () => {
+    expect(can(tech, "payment:charge_saved")).toBe(false);
+  });
+
   it("is scoped to their own records", () => {
     expect(effectiveScope(tech, "job")).toBe("own");
     expect(effectiveScope(tech, "customer")).toBe("own");

@@ -51,6 +51,14 @@ export default async function SetupPage({ searchParams }: { searchParams: Promis
         taking a booking are marked. Most companies are booking work before they finish this list.
       </p>
 
+      {can(user.actor, "data:import") && !finished ? (
+        <p className="mt-3 max-w-prose text-sm text-ink-700">
+          Moving a company here from another OpenTradesOS, or bringing one back from a backup?{" "}
+          <a href="/setup/restore" className="font-medium text-blue-600 underline underline-offset-4">Restore a copy</a>{" "}
+          instead of setting up from scratch.
+        </p>
+      ) : null}
+
       {pack ? (
         <p role="status" className="mt-4 rounded border border-green-700 bg-green-tint px-3 py-2 text-sm text-green-700">
           The {pack.name} pack is loaded: a starting price book, job types and checklists.

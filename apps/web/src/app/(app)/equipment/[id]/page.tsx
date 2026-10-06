@@ -3,15 +3,16 @@ import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customFields, equipment, inTenant, NotFoundError } from "@opentradesos/api/services";
+import { customFields, equipment, inTenant, properties as propertyService, stockUnits, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
-import { ActionForm } from "@/components/ActionForm";
+import { ActionForm, TextField, Select } from "@/components/ActionForm";
 import { Empty, Table, Th, Td } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import { JOB_STATUS, JOB_TONE, label, tone, enumText } from "@/lib/labels";
 import { followUp } from "../../customers/warranties/actions";
+import { editUnit, moveUnit } from "./actions";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
 
@@ -37,9 +38,15 @@ const reading = (r: { valueNumeric: string | null; valueText: string | null; val
  * named it; its photographs are the ones taken of it rather than of the
  * visit. Warranty is worked out from the dates today, parts and labour apart.
  */
-export default async function EquipmentPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EquipmentPage({
+  params, searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ to?: string }>;
+}) {
   const user = await requireSetupUser();
   const { id } = await params;
+  const { to: findAddress } = await searchParams;
   const ctx = { actor: user.actor, db: getDb() };
   const tz = user.organizationTimezone;
 
@@ -49,6 +56,12 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
     throw error;
   });
   const history = await equipment.history(ctx, { id });
+  /**
+   * Where it came from, when it came off our shelf: the serial issued to a
+   * job as this unit, with the order and vendor it arrived on and every move
+   * before the job. Only for whoever may read inventory.
+   */
+  const fromStock = can(user.actor, "inventory:read") ? await stockUnits.traceForEquipment(ctx, { equipmentId: id }) : [];
 
   /** A follow up already in the queue, so a second press is not offered. */
   const followed = can(user.actor, "task:read")
@@ -58,6 +71,31 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
         sql`${schema.task.status} in ('open', 'in_progress')`,
       )).limit(1))).length > 0
     : false;
+
+  /**
+   * WHERE IT COULD GO. The customer's other addresses first, because a landlord
+   * moving a water heater between two rentals is the usual move, and then
+   * whatever the typed search finds in the whole book. Only for somebody who may
+   * read addresses; the move itself is checked by the service whatever this
+   * shows.
+   */
+  const canEdit = can(user.actor, "equipment:write") && !unit.retired;
+  const addressOf = (p: { addressLine1: string; city: string; state: string; postalCode: string }) =>
+    `${p.addressLine1}, ${p.city}, ${p.state} ${p.postalCode}`;
+  const destinations = new Map<string, string>();
+  if (canEdit && can(user.actor, "property:read")) {
+    if (unit.customer) {
+      for (const p of (await propertyService.list(ctx, { limit: 50, customerId: unit.customer.id.toString() })).data) {
+        destinations.set(p.id, addressOf(p));
+      }
+    }
+    if (findAddress?.trim()) {
+      for (const p of (await propertyService.list(ctx, { limit: 20, q: findAddress.trim() })).data) {
+        destinations.set(p.id, addressOf(p));
+      }
+    }
+    destinations.delete(unit.propertyId);
+  }
 
   const name = [unit.tag, unit.manufacturer, unit.model].filter(Boolean).join(" ") || unit.category;
   const days = unit.warranty.daysUntilSoonest;
@@ -108,6 +146,86 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
         ))}
       </Facts>
 
+
+      {canEdit ? (
+        <section aria-label="Change this unit" className="mt-8 space-y-3">
+          <details className="rounded-md border border-steel-200 bg-canvas p-4">
+            <summary className="cursor-pointer text-sm font-medium">Correct its details</summary>
+            <ActionForm action={editUnit} submit="Save details" tone="quiet" hidden={{ id: unit.id }}
+                        className="mt-3 grid gap-3 sm:grid-cols-2">
+              <TextField label="What it is" name="category" required maxLength={60} defaultValue={unit.category} />
+              <TextField label="Tag" name="tag" maxLength={60} defaultValue={unit.tag ?? ""} />
+              <TextField label="Make" name="manufacturer" maxLength={120} defaultValue={unit.manufacturer ?? ""} />
+              <TextField label="Model" name="model" maxLength={120} defaultValue={unit.model ?? ""} />
+              <TextField label="Serial number" name="serialNumber" maxLength={120} defaultValue={unit.serialNumber ?? ""} />
+              <TextField label="Where in the building" name="location" maxLength={200} defaultValue={unit.location ?? ""} />
+              <TextField label="Installed on" name="installedOn" type="date" defaultValue={unit.installedOn ?? ""} />
+              <TextField label="Parts cover ends" name="warrantyPartsExpiresOn" type="date"
+                         defaultValue={unit.warranty.partsExpiresOn ?? ""} />
+              <TextField label="Labour cover ends" name="warrantyLaborExpiresOn" type="date"
+                         defaultValue={unit.warranty.labourExpiresOn ?? ""} />
+              <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                <input type="checkbox" name="installedByUs" defaultChecked={unit.installedByUs} />
+                We installed it
+              </label>
+              <p className="text-xs text-ink-500 sm:col-span-2">
+                A box left empty takes that detail off. To put it at another address, use &ldquo;Move it
+                to another address&rdquo; below, so the old work still says where it happened.
+              </p>
+            </ActionForm>
+          </details>
+
+          <details className="rounded-md border border-steel-200 bg-canvas p-4" open={Boolean(findAddress)}>
+            <summary className="cursor-pointer text-sm font-medium">Move it to another address</summary>
+            <p className="mt-2 max-w-prose text-sm text-ink-700">
+              The unit keeps its history. Anything nested inside it goes with it, and the move is
+              written down under &ldquo;Where it has been&rdquo;.
+            </p>
+            <form method="get" className="mt-3 flex flex-wrap items-end gap-2" aria-label="Find an address">
+              <TextField label="Find an address" name="to" defaultValue={findAddress ?? ""}
+                         placeholder="Street, city or postal code" className="block min-w-64" />
+              <button type="submit"
+                      className="inline-flex h-10 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                Search
+              </button>
+            </form>
+            {destinations.size === 0 ? (
+              <p className="mt-3 text-sm text-ink-500">
+                {findAddress
+                  ? "No other address matches that."
+                  : unit.customer
+                    ? "This customer has no other address. Search for one above."
+                    : "Search for the address it is going to."}
+              </p>
+            ) : (
+              <ActionForm action={moveUnit} submit="Move it" tone="quiet" hidden={{ id: unit.id }}
+                          className="mt-3 space-y-3">
+                <fieldset>
+                  <legend className="text-sm font-medium text-ink-700">Where it is going</legend>
+                  <div className="mt-1 space-y-1">
+                    {[...destinations].map(([propertyId, label]) => (
+                      <label key={propertyId} className="flex items-center gap-2 text-sm">
+                        <input type="radio" name="toPropertyId" value={propertyId} required />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Select label="Why" name="reason" options={[
+                    { value: "relocated", label: "Moved to another address" },
+                    { value: "swapped_under_warranty", label: "Swapped under warranty" },
+                    { value: "returned", label: "Returned" },
+                  ]} />
+                  <TextField label="Moved on" name="movedOn" type="date" />
+                </div>
+                <TextField label="Note, if any" name="notes" maxLength={2000} />
+              </ActionForm>
+            )}
+          </details>
+        </section>
+      ) : null}
+
       <section aria-label="Warranty" className="mt-8">
         <h2 className="text-base font-semibold">Warranty</h2>
         <p className="mt-2 text-sm text-ink-700">
@@ -129,6 +247,37 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
           ) : null
         )}
       </section>
+
+      {fromStock.length > 0 ? (
+        <section aria-label="From our stock" className="mt-8">
+          <h2 className="text-base font-semibold">From our stock</h2>
+          {fromStock.map((trace) => (
+            <div key={trace.unit.id} className="mt-2">
+              <p className="text-sm">
+                Serial <a href={`/inventory/serials/${trace.unit.id}`} className="font-mono underline underline-offset-4">{trace.unit.number}</a>
+                {" "}of {trace.unit.itemName}
+              </p>
+              <Table label={`Trace of ${trace.unit.number}`} head={<><Th>When</Th><Th>What</Th><Th>Where</Th><Th>For</Th></>}>
+                {trace.steps.map((step, i) => (
+                  <tr key={i}>
+                    <Td className="tabular-nums">{formatIn(step.at, tz)}</Td>
+                    <Td>{step.label}</Td>
+                    <Td className="text-ink-700">{step.locationName}</Td>
+                    <Td>
+                      {step.purchaseOrderId ? (
+                        <a href={`/purchasing/${step.purchaseOrderId}`} className="hover:underline">
+                          Order {step.purchaseOrderNumber}{step.vendorName ? ` from ${step.vendorName}` : ""}
+                        </a>
+                      ) : null}
+                      {step.jobId ? <a href={`/jobs/${step.jobId}`} className="hover:underline">Job {step.jobNumber}</a> : null}
+                    </Td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <section aria-label="Service history" className="mt-8">
         <h2 className="text-base font-semibold">Service history</h2>

@@ -127,6 +127,8 @@ const OFFICE_MANAGER: Permission[] = [
   "booking:configure",
   "portal:revoke",
   "invoice:void", "invoice:credit",
+  /** A saved card charged from the invoice, only where the customer agreed to it. */
+  "payment:charge_saved",
   "vendor:read", "vendor:write", "po:read", "po:write",
   "inventory:read", "inventory:adjust",
   "timesheet:read",
@@ -264,7 +266,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "membership:read",
       "invoice:read", "invoice:write", "invoice:send", "invoice:void", "invoice:writeoff",
       "invoice:credit",
-      "payment:read", "payment:collect", "payment:refund",
+      "payment:read", "payment:collect", "payment:refund", "payment:charge_saved",
       "deposit:read", "deposit:refund",
       "ledger:read", "ledger:post", "accounting:sync", "accounting:close",
       "report.financial:read", "report:read", "report:build",

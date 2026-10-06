@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { pdf, PermissionError, type Actor } from "@opentradesos/core";
 import * as billing from "../src/services/billing";
 import * as estimates from "../src/services/estimates";
@@ -183,5 +183,73 @@ run("a statement as a PDF", () => {
     const customer = read(await documents.statementPdfForToken(db(), { token }));
     expect(customer.problems).toEqual([]);
     expect(customer.text).toContain("$188.00");
+  });
+});
+
+run("the company's logo and a name in any alphabet", () => {
+  /** A two by one PNG with transparency, built here: solid teal and half see through white. */
+  function logoPng(): Buffer {
+    const crcTable = Array.from({ length: 256 }, (_, n) => {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      return c >>> 0;
+    });
+    const crc = (bytes: number[]) => {
+      let c = 0xffffffff;
+      for (const b of bytes) c = crcTable[(c ^ b) & 255]! ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    };
+    const u32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+    const chunk = (type: string, body: number[]) => {
+      const typed = [...type].map((c) => c.charCodeAt(0));
+      return [...u32(body.length), ...typed, ...body, ...u32(crc([...typed, ...body]))];
+    };
+    const idat = [...deflateSync(Uint8Array.from([0, 15, 118, 110, 255, 255, 255, 255, 128]))];
+    return Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ...chunk("IHDR", [...u32(2), ...u32(1), 8, 6, 0, 0, 0]),
+      ...chunk("IDAT", idat),
+      ...chunk("IEND", []),
+    ]);
+  }
+
+  it("prints the logo on the invoice and the customer's name as it is spelled", async () => {
+    const png = logoPng();
+    await raw`insert into public.brand_asset (organization_id, kind, content_type, bytes, size_bytes)
+              values (${ORG}, 'logo', 'image/png', ${png}, ${png.length})
+              on conflict (organization_id, kind) do update set bytes = excluded.bytes`;
+    const [named] = await raw<{ id: string }[]>`
+      insert into public.customer (organization_id, name, email) values (${ORG}, 'Nguyễn Thị Đức', 'duc@docs.test') returning id`;
+    const invoice = await billing.create(owner(), {
+      customerId: named!.id, issuedOn: today(),
+      lines: [{ name: "Đèn chiếu sáng", quantity: "1", unitPrice: "75.00", discountAmount: "0", taxable: false }],
+    });
+    const file = read(await documents.invoicePdf(owner(), { id: invoice.id as string }));
+    expect(file.problems).toEqual([]);
+    expect(file.text).toContain("Nguyễn Thị Đức");
+    expect(file.text).toContain("Đèn chiếu sáng");
+    expect(file.images).toEqual([{ width: 2, height: 1, colorSpace: "DeviceRGB", masked: true }]);
+    expect(file.fonts.every((name) => /\+NotoSans-(Regular|Bold)$/.test(name))).toBe(true);
+  });
+
+  it("attaches the invoice as a PDF to the invoice email", async () => {
+    await raw`insert into public.integration_connection (organization_id, capability, provider, status, settings)
+              values (${ORG}, 'email', 'fake', 'connected', ${raw.json({ fromAddress: "office@docs.test" })})
+              on conflict do nothing`;
+    const invoiceDelivery = await import("../src/services/invoice-delivery");
+    const sent = await invoiceDelivery.send(owner(), { invoiceId: issuedId });
+    expect(sent.state).not.toBe("refused");
+    const files = await raw<{ file_name: string; content_type: string; content: Buffer }[]>`
+      select a.file_name, a.content_type, a.content from public.message_attachment a
+      join public.message m on m.id = a.message_id
+      where m.id = ${sent.messageId}`;
+    expect(files).toHaveLength(1);
+    expect(files[0]!.content_type).toBe("application/pdf");
+    const attached = pdf.inspectPdf(new Uint8Array(files[0]!.content), (b) => new Uint8Array(inflateSync(b)));
+    expect(attached.problems).toEqual([]);
+    expect(attached.text).toContain("Dana Ruiz");
+    expect(attached.text).toContain("$288.00");
+    const [message] = await raw<{ body: string }[]>`select body from public.message where id = ${sent.messageId}`;
+    expect(message!.body).toContain("attached as a PDF");
   });
 });

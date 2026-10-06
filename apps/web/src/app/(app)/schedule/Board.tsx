@@ -408,7 +408,8 @@ export function Board({
             />
           ))}
           {board.crews.map((c) => (
-            <CrewColumn key={c.id} crew={c} time={time} />
+            <CrewColumn key={c.id} crew={c} time={time} draggable={canDispatch}
+                        onDragStart={(id) => setDragging({ id, from: `crew:${c.id}` })} />
           ))}
           {board.technicians.length === 0 && (
             <p className="p-6 text-ink-500">
@@ -551,11 +552,15 @@ function DayStrip({ board, time, timezone }: { board: BoardData; time: TimeForma
 }
 
 /**
- * A crew's day, beside the people's. Its cards are not dragged onto a person:
- * crew work goes to a crew on its own screen, with its equipment and its lead
- * checked, and putting one person on it from here would be a different thing.
+ * A crew's day, beside the people's. A card can be dragged onto a person,
+ * which hands the visit to them: it leaves the crew's lane, goes on their
+ * day with their skills and time off checked like any drop, and the crew's
+ * members are told it is no longer theirs. Sending work TO a crew is on the
+ * crews screen, where the crew's equipment and lead are checked.
  */
-function CrewColumn({ crew, time }: { crew: CrewLane; time: TimeFormatter }) {
+function CrewColumn({ crew, time, draggable, onDragStart }: {
+  crew: CrewLane; time: TimeFormatter; draggable: boolean; onDragStart: (visitId: string) => void;
+}) {
   return (
     <section aria-label={`Crew ${crew.name}`} className="flex w-72 shrink-0 flex-col rounded-md border border-steel-200 bg-canvas">
       <header className="border-b border-steel-200 px-3 py-2.5">
@@ -571,7 +576,9 @@ function CrewColumn({ crew, time }: { crew: CrewLane; time: TimeFormatter }) {
       </header>
       <ol className="flex-1 space-y-2 overflow-y-auto p-2">
         {crew.visits.map((v) => (
-          <li key={v.id}><VisitCard visit={v} draggable={false} time={time} onDragStart={() => {}} canLock={false} /></li>
+          <li key={v.id}>
+            <VisitCard visit={v} draggable={draggable} time={time} onDragStart={() => onDragStart(v.id)} canLock={false} />
+          </li>
         ))}
       </ol>
     </section>

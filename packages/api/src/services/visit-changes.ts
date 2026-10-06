@@ -6,7 +6,7 @@ import {
   type RequestMeta, type ServiceContext,
 } from "./context";
 import { announce, sideOf } from "./visit-notices";
-import { consume, inGrant, peek, type ResolvedGrant } from "./portal";
+import { consume, inGrant, mintGrant, peek, type ResolvedGrant } from "./portal";
 import { memberTest, openSlots, windowStart, type OpenSlot } from "./booking";
 import { refusingDuplicate } from "./duplicates";
 import { sendTransactional } from "./comms-send";
@@ -64,6 +64,16 @@ export interface ChangeOptions {
   pending: { id: string; kind: "reschedule" | "cancel"; requestedStart: string | null; requestedEnd: string | null; createdAt: string } | null;
   /** The last decision on this visit, so the page can say what happened. */
   decided: { kind: "reschedule" | "cancel"; status: string; response: string | null; decidedAt: string | null } | null;
+  /**
+   * A different time the office offered instead of the one asked for,
+   * waiting for the customer to take it or turn it down. Nothing has moved.
+   */
+  proposal: {
+    id: string; requestedStart: string | null; requestedEnd: string | null;
+    proposedStart: string; proposedEnd: string | null; response: string | null;
+    /** Whether it can still be taken: the visit has not started and the time has not passed. */
+    open: boolean;
+  } | null;
   canChange: boolean;
   /** Why the visit cannot be changed from here, when it cannot. */
   changeBlockedBy: string | null;
@@ -169,10 +179,11 @@ export async function options(
       .where(eq(schema.visitChangeRequest.visitId, visit.id))
       .orderBy(desc(schema.visitChangeRequest.createdAt));
     const pending = requests.find((r) => r.status === "pending") ?? null;
-    const decided = requests.find((r) => r.status === "approved" || r.status === "declined") ?? null;
+    const offer = requests.find((r) => r.status === "proposed") ?? null;
+    const decided = requests.find((r) => ["approved", "declined", "accepted", "turned_down"].includes(r.status)) ?? null;
 
     const changeable = isChangeable(visit, now);
-    const rules = changeable && !pending
+    const rules = changeable && !pending && !offer
       ? await rulesFor(tx, grant.organizationId, job, postalCode)
       : { service: null, blockedBy: null };
 
@@ -211,16 +222,29 @@ export async function options(
       decided: decided
         ? {
           kind: decided.kind, status: decided.status, response: decided.response,
-          decidedAt: decided.decidedAt?.toISOString() ?? null,
+          decidedAt: (decided.answeredAt ?? decided.decidedAt)?.toISOString() ?? null,
         }
         : null,
-      canChange: changeable && !pending,
+      proposal: offer && offer.proposedStart
+        ? {
+          id: offer.id,
+          requestedStart: offer.requestedStart?.toISOString() ?? null,
+          requestedEnd: offer.requestedEnd?.toISOString() ?? null,
+          proposedStart: offer.proposedStart.toISOString(),
+          proposedEnd: offer.proposedEnd?.toISOString() ?? null,
+          response: offer.response,
+          open: changeable && offer.proposedStart > now,
+        }
+        : null,
+      canChange: changeable && !pending && !offer,
       changeBlockedBy: !changeable
         ? "This visit is already under way or done, so it cannot be changed from here. Reply to the message that brought you here."
         : pending
           ? "You have already asked about this visit. The office will reply to you."
-          : null,
-      rescheduleBlockedBy: changeable && !pending
+          : offer
+            ? "The office has offered you another time. Say yes or no to it first."
+            : null,
+      rescheduleBlockedBy: changeable && !pending && !offer
         ? (rules.blockedBy ?? (slots.length === 0 ? "There are no open times in the next few weeks to move it to. Reply to the message that brought you here and the office will find one." : null))
         : null,
       timezone,
@@ -404,11 +428,18 @@ function shape(row: typeof schema.visitChangeRequest.$inferSelect) {
     response: row.response,
     notified: row.notified,
     decidedAt: row.decidedAt?.toISOString() ?? null,
+    proposedDate: row.proposedDate,
+    proposedStart: row.proposedStart?.toISOString() ?? null,
+    proposedEnd: row.proposedEnd?.toISOString() ?? null,
+    answeredAt: row.answeredAt?.toISOString() ?? null,
+    answer: row.answer,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
 /* ------------------------------------------------------------- the office */
+
+export type ChangeStatus = "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
 
 export interface ChangeRequestView extends ReturnType<typeof shape> {
   customerId: string;
@@ -448,7 +479,7 @@ async function viewsWhere(tx: Database, where: ReturnType<typeof and>): Promise<
 /** Requests waiting for an answer, oldest visit first is not the order: newest asked first. */
 export async function list(
   ctx: ServiceContext,
-  input: { status?: "pending" | "approved" | "declined" | "superseded" | undefined; jobId?: string | undefined; ids?: string[] | undefined } = {},
+  input: { status?: ChangeStatus | undefined; jobId?: string | undefined; ids?: string[] | undefined } = {},
 ) {
   return guardedRead(ctx, "visit:read", (tx) => viewsWhere(tx, and(
     input.status ? eq(schema.visitChangeRequest.status, input.status) : undefined,
@@ -512,7 +543,13 @@ async function pendingFor(tx: Database, id: string) {
 /** Refuses an answer to a request that already has one, in words. */
 function assertPending(row: { request: typeof schema.visitChangeRequest.$inferSelect }) {
   if (row.request.status !== "pending") {
-    throw new ConflictError(`That request was already ${row.request.status === "superseded" ? "overtaken by a change to the visit" : row.request.status}.`);
+    const said: Record<string, string> = {
+      superseded: "overtaken by a change to the visit",
+      proposed: "answered with another time, and the customer has not replied yet",
+      accepted: "answered with another time, which the customer took",
+      turned_down: "answered with another time, which the customer turned down",
+    };
+    throw new ConflictError(`That request was already ${said[row.request.status] ?? row.request.status}.`);
   }
 }
 
@@ -676,7 +713,7 @@ export async function officeMoved(tx: Database, ctx: ServiceContext, input: {
   const overtaken = await tx.update(schema.visitChangeRequest).set({
     status: "superseded", decidedAt: now, updatedAt: now,
     decidedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
-  }).where(and(eq(schema.visitChangeRequest.visitId, input.visitId), eq(schema.visitChangeRequest.status, "pending")))
+  }).where(and(eq(schema.visitChangeRequest.visitId, input.visitId), inArray(schema.visitChangeRequest.status, ["pending", "proposed"])))
     .returning({ id: schema.visitChangeRequest.id, taskId: schema.visitChangeRequest.taskId });
   for (const request of overtaken) await closeTask(tx, ctx, request.taskId, "Overtaken: the office moved the visit");
 
@@ -740,6 +777,211 @@ export async function decline(ctx: ServiceContext, input: { id: string; response
   });
 }
 
+/* ------------------------------------------- a different time, offered */
+
+/**
+ * The times the office may offer instead of the one the customer asked for.
+ *
+ * The same windows online booking would offer for that work, from the same
+ * function, with this request's own hold and the visit itself left out of
+ * the count: the office offers what the company sells, not a time it would
+ * refuse a stranger.
+ */
+export async function proposalTimes(
+  ctx: ServiceContext, input: { id: string; from?: string | undefined; days?: number | undefined },
+): Promise<OpenSlot[]> {
+  return guardedRead(ctx, "visit:read", async (tx) => {
+    const { request: req, visit } = await pendingFor(tx, input.id);
+    if (req.kind !== "reschedule" || req.status !== "pending") return [];
+    const { service, job, timezone } = await offerContext(tx, ctx.actor.organizationId, visit.jobId, req);
+    if (!service) return [];
+    return openSlots(tx, {
+      organizationId: ctx.actor.organizationId, timezone, service,
+      from: input.from ?? time.dateIn(new Date(), timezone),
+      days: Math.min(input.days ?? 21, 60),
+      exceptRequestId: req.id, exceptVisitId: visit.id,
+      member: await memberTest(tx, ctx.actor.organizationId, job.customerId, job.propertyId),
+    });
+  });
+}
+
+async function offerContext(
+  tx: Database, organizationId: string, jobId: string, req: typeof schema.visitChangeRequest.$inferSelect,
+) {
+  const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, jobId)).limit(1);
+  if (!job) throw new NotFoundError("Job");
+  const timezone = await timezoneOf(tx, organizationId);
+  const [service] = req.bookableServiceId
+    ? await tx.select().from(schema.bookableService).where(eq(schema.bookableService.id, req.bookableServiceId)).limit(1)
+    : [];
+  return { job, timezone, service: service ?? null };
+}
+
+/**
+ * OFFER A DIFFERENT TIME, AND WAIT FOR THE CUSTOMER.
+ *
+ * "We are full that Thursday, could we do Friday morning?" used to be a
+ * decline with those words in it, and the customer had to ask all over
+ * again and hope Friday was still free. Now the office picks the time, the
+ * customer is sent it with a link to say yes or no, and NOTHING MOVES until
+ * they say yes: the visit stays on its day, with whoever has it.
+ *
+ * The time is held while they decide, counted against its window like a
+ * time a customer asked for, so it is not sold to somebody else meanwhile.
+ * When they say yes the visit moves to it without the window being checked
+ * again: the company made the offer, and a customer told "that is gone
+ * now" after accepting it is a promise broken by the company.
+ *
+ * The request's task is closed, because the office has answered; a new one
+ * is raised when the customer replies.
+ */
+export async function propose(ctx: ServiceContext, input: {
+  id: string; date: string; arrivalWindowId: string; response?: string | undefined;
+}) {
+  return guardedWrite(ctx, "visit:reschedule", async (tx) => {
+    const found = await pendingFor(tx, input.id);
+    const { request: req, visit } = found;
+    /** A replay of the same offer is the offer already made. */
+    if (req.status === "proposed" && req.proposedDate === input.date && req.proposedArrivalWindowId === input.arrivalWindowId) {
+      return shape(req);
+    }
+    assertPending(found);
+    if (req.kind !== "reschedule") {
+      throw new ConflictError("A different time can be offered only when the customer asked to move the visit. Decline the cancellation and say what you can do instead.");
+    }
+    const now = new Date();
+    if (!isChangeable(visit, now)) {
+      throw new ConflictError(`This visit is ${visit.status.replace(/_/g, " ")} now, so it cannot be moved from a request. Decline it and tell the customer why.`);
+    }
+    const { service, job, timezone } = await offerContext(tx, ctx.actor.organizationId, visit.jobId, req);
+    if (!service) throw new ConflictError("This kind of work is not booked online, so there are no times to offer. Decline it and suggest a time in words.");
+    const slot = (await openSlots(tx, {
+      organizationId: ctx.actor.organizationId, timezone, service,
+      from: input.date, days: 1, exceptRequestId: req.id, exceptVisitId: visit.id,
+      member: await memberTest(tx, ctx.actor.organizationId, job.customerId, job.propertyId),
+    })).find((s) => s.date === input.date && s.arrivalWindowId === input.arrivalWindowId);
+    if (!slot) throw new ConflictError("That time is not open. Choose another from the list.");
+
+    const proposedStart = windowStart(slot.date, slot.startsAt, timezone);
+    const proposedEnd = windowStart(slot.date, slot.endsAt, timezone);
+    const response = input.response?.trim() || null;
+
+    /** A link to this visit's change page, good until a day after the time offered. */
+    const days = Math.max(Math.ceil((proposedStart.getTime() - now.getTime()) / 864e5) + 1, 1);
+    const link = await mintGrant(tx, {
+      organizationId: ctx.actor.organizationId, customerId: req.customerId, scope: "job", subjectId: job.id,
+      expiresInDays: Math.min(days, 90),
+    });
+    const asked = req.requestedStart ? sentenceWindow(req.requestedStart, req.requestedEnd, timezone) : "the time you asked for";
+    const offered = sentenceWindow(proposedStart, proposedEnd, timezone);
+    const notified = await tell(tx, ctx, {
+      customerId: req.customerId,
+      subject: "Another time for your visit",
+      body: `We cannot do ${asked}${response ? `. ${response}` : "."} Could we come ${offered} instead? `
+        + `Your visit stays where it is until you say yes. Say yes or no here: ${link.url}/change?visit=${visit.id}`,
+    });
+
+    const [after] = await tx.update(schema.visitChangeRequest).set({
+      status: "proposed",
+      proposedDate: slot.date,
+      proposedArrivalWindowId: slot.arrivalWindowId,
+      proposedStart,
+      proposedEnd,
+      response,
+      notified,
+      decidedAt: now,
+      decidedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+      updatedAt: now,
+    }).where(and(eq(schema.visitChangeRequest.id, req.id), eq(schema.visitChangeRequest.status, "pending")))
+      .returning();
+    if (!after) throw new ConflictError("Somebody else has just answered this request.");
+
+    await closeTask(tx, ctx, req.taskId, `Offered ${offered} instead`);
+    await audit(tx, ctx, "visit_change.proposed", "visit_change_request", req.id, req, after);
+    return shape(after);
+  });
+}
+
+/**
+ * The customer's answer to the office's offer, from their link.
+ *
+ * Yes moves the visit to the offered time exactly as agreeing to their own
+ * request would: off whoever had it, back on the board for the new day,
+ * its technicians told. No leaves the visit where it was. Either way the
+ * office queue gets a task, because somebody has something to do: put the
+ * moved visit on a person's day, or talk to the customer about another
+ * time.
+ */
+export async function answer(
+  db: Database,
+  input: { token: string; visitId?: string | undefined; accept: boolean; answer?: string | undefined },
+  meta?: RequestMeta,
+) {
+  const grant = await consume(db, input.token, meta?.ip);
+  return inGrant(db, grant, async (tx, portalCtx) => {
+    const { visit, job } = await visitFor(tx, grant, input.visitId);
+    const [offer] = await tx.select().from(schema.visitChangeRequest)
+      .where(and(eq(schema.visitChangeRequest.visitId, visit.id), inArray(schema.visitChangeRequest.status, ["proposed", "accepted", "turned_down"])))
+      .orderBy(desc(schema.visitChangeRequest.updatedAt)).limit(1);
+    if (!offer) throw new ConflictError("There is no other time waiting for your answer on this visit.");
+    /** A second tap with the same answer is the answer already given. */
+    if (offer.status === (input.accept ? "accepted" : "turned_down")) return shape(offer);
+    if (offer.status !== "proposed" || !offer.proposedStart) {
+      throw new ConflictError("You have already answered about this visit. Reply to the message that brought you here to change it.");
+    }
+    const now = new Date();
+    const timezone = await timezoneOf(tx, grant.organizationId);
+    const words = input.answer?.trim() || null;
+    const offered = sentenceWindow(offer.proposedStart, offer.proposedEnd, timezone);
+    const [customer] = await tx.select({ name: schema.customer.name })
+      .from(schema.customer).where(eq(schema.customer.id, job.customerId)).limit(1);
+    const who = customer?.name ?? "A customer";
+    const ctx: ServiceContext = { actor: portalSystem(grant.organizationId), db: tx };
+
+    if (input.accept) {
+      if (!isChangeable(visit, now) || offer.proposedStart <= now) {
+        throw new ConflictError("That time can no longer be used. Reply to the message that brought you here and the office will find another.");
+      }
+      const before = await sideOf(tx, visit.id);
+      await tx.delete(schema.visitAssignment).where(eq(schema.visitAssignment.visitId, visit.id));
+      await tx.update(schema.visit).set({
+        windowStart: offer.proposedStart, windowEnd: offer.proposedEnd, status: "unassigned", routeOrder: null, updatedAt: now,
+      }).where(eq(schema.visit.id, visit.id));
+      if (before) await announce(tx, ctx, visit.id, before);
+      await tx.insert(schema.portalEvent).values({
+        organizationId: grant.organizationId, customerId: job.customerId, jobId: job.id,
+        kind: "rescheduled", headline: "Visit moved, as agreed", detail: offered,
+      });
+    }
+
+    const [after] = await tx.update(schema.visitChangeRequest).set({
+      status: input.accept ? "accepted" : "turned_down", answeredAt: now, answer: words, updatedAt: now,
+    }).where(and(eq(schema.visitChangeRequest.id, offer.id), eq(schema.visitChangeRequest.status, "proposed")))
+      .returning();
+    if (!after) throw new ConflictError("You have already answered about this visit.");
+
+    const [task] = await tx.insert(schema.task).values({
+      organizationId: grant.organizationId,
+      title: input.accept
+        ? `${who} took ${offered}: put somebody on the visit`
+        : `${who} said no to ${offered}`,
+      body: input.accept
+        ? `The visit has moved to that time and is on the board with nobody on it.${words ? ` They said: ${words}` : ""}`
+        : `Their visit stays where it was. Talk to them about another time.${words ? ` In their words: ${words}` : ""}`,
+      priority: input.accept ? "normal" : "high",
+      entityType: "visit",
+      entityId: visit.id,
+      queue: "office",
+      dueAt: input.accept ? offer.proposedStart : visit.windowStart,
+    }).returning({ id: schema.task.id });
+    await tx.update(schema.visitChangeRequest).set({ taskId: task!.id }).where(eq(schema.visitChangeRequest.id, offer.id));
+
+    await audit(tx, portalCtx, input.accept ? "visit_change.offer_accepted" : "visit_change.offer_turned_down",
+      "visit_change_request", offer.id, { status: offer.status }, { status: after.status, answer: words, ip: meta?.ip ?? null });
+    return shape(after);
+  });
+}
+
 export const handlers = {
   getPortalVisitChange: (db: Database, input: { token: string; visitId?: string | undefined; from?: string | undefined; days?: number | undefined }) =>
     options(db, input),
@@ -752,9 +994,19 @@ export const handlers = {
     meta?: RequestMeta,
   ) => request(db, input, meta),
   listVisitChangeRequests: async (ctx: ServiceContext, input: {
-    status?: "pending" | "approved" | "declined" | "superseded" | undefined; jobId?: string | undefined;
+    status?: ChangeStatus | undefined; jobId?: string | undefined;
   }) => ({ requests: await list(ctx, input) }),
   approveVisitChangeRequest: (ctx: ServiceContext, input: { id: string }) => approve(ctx, input),
   declineVisitChangeRequest: (ctx: ServiceContext, input: { id: string; response?: string | undefined }) =>
     decline(ctx, input),
+  listVisitChangeTimes: async (ctx: ServiceContext, input: { id: string; from?: string | undefined; days?: number | undefined }) =>
+    ({ slots: await proposalTimes(ctx, input) }),
+  proposeVisitChangeTime: (ctx: ServiceContext, input: {
+    id: string; date: string; arrivalWindowId: string; response?: string | undefined;
+  }) => propose(ctx, input),
+  answerPortalVisitChangeProposal: (
+    db: Database,
+    input: { token: string; visitId?: string | undefined; accept: boolean; answer?: string | undefined },
+    meta?: RequestMeta,
+  ) => answer(db, input, meta),
 } as const;

@@ -18,6 +18,7 @@ const data = (over: Partial<CostingData> = {}): CostingData => ({
     { id: "l2", name: "Warranty part", quantity: "1", unitCost: null, extendedCost: null, billed: false, nonBillableReason: "warranty" },
   ],
   labour: [{ technicianId: "t1", technicianName: "Sam Ortiz", hours: "6", cost: "450.0000", unpricedHours: "0" }],
+  journalLines: [],
   ...over,
 });
 
@@ -46,5 +47,24 @@ describe("the job's cost and margin", () => {
   it("marks a loss", () => {
     const html = renderToStaticMarkup(<Costing data={data({ grossMargin: "-80.0000", grossMarginPercent: -6.7 })} />);
     expect(html).toMatch(/text-red-600[^>]*>.*-?\$?80/);
+  });
+
+  it("says nothing about journals when none names the job", () => {
+    expect(renderToStaticMarkup(<Costing data={data()} />)).not.toContain("by journal");
+  });
+
+  it("lists the journal lines on the job and says which are counted and which are not", () => {
+    const html = renderToStaticMarkup(<Costing data={data({
+      journalLines: [
+        { transactionId: "t1", journalNumber: 14, accountCode: "5000", direction: "debit", amount: "300.0000", memo: "Duct work", countedIn: "material" },
+        { transactionId: "t2", journalNumber: 15, accountCode: "5200", direction: "debit", amount: "800.0000", memo: "Payroll", countedIn: null },
+      ],
+    })} />);
+    expect(html).toContain("Booked to this job by journal");
+    expect(html).toContain("Journal 14");
+    expect(html).toContain("counted in materials");
+    expect(html).toContain("Journal 15");
+    expect(html).toContain("not counted here");
+    expect(html).toContain("Labour is counted from the hours on the clock");
   });
 });

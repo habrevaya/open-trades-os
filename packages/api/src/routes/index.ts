@@ -11,26 +11,26 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, contacts, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, contacts, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore,
   dispatchMap, dispatchDays, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
-  agreements, visitChanges, vendorCatalogue, proposals,
+  agreements, agreementNotices, visitChanges, vendorCatalogue, proposals,
   acquisition, marketingReport, phoneNumbers,
   customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
   laborSettings,
   voice, websiteTracking, referrals,
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
-  portalAccess, portalBlocks, portalBooking,
+  portalAccess, portalBlocks, portalBooking, cardOnFile, portalLayout,
   setup, team, branches, tradePacks,
   phoneMenus, transcription, callQueues, softphone, voiceAgent,
   ads, marketplaceLeads, leadEmails, directMail,
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention,
-  financing, costing, budgets, journals,
-  stockUnits, purchaseApprovals, purchaseOrderEmail, rentalBilling, peopleRecords,
+  safety, retention, holidays, afterHours, safetyTalks,
+  financing, costing, budgets, journals, taxRates,
+  stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
   me, staffDocuments,
 } from "../services/index";
@@ -178,6 +178,8 @@ export const handlers = {
 
   // Commercial contracts. Whose price governs, when it is not ours.
   listContracts: contractService.handlers.listContracts,
+  previewContractEscalation: contractEscalation.handlers.previewContractEscalation,
+  applyContractEscalation: contractEscalation.handlers.applyContractEscalation,
   createContract: contractService.handlers.createContract,
   addContractSite: contractService.handlers.addContractSite,
   createRateCard: contractService.handlers.createRateCard,
@@ -330,6 +332,7 @@ export const handlers = {
   listPurchaseOrders: inventory.handlers.listPurchaseOrders,
   createPurchaseOrder: inventory.handlers.createPurchaseOrder,
   getPurchaseOrder: inventory.handlers.getPurchaseOrder,
+  editPurchaseOrder: inventory.handlers.editPurchaseOrder,
   listVendorItems: vendorCatalogue.handlers.listVendorItems,
   setVendorItem: vendorCatalogue.handlers.setVendorItem,
   removeVendorItem: vendorCatalogue.handlers.removeVendorItem,
@@ -411,6 +414,7 @@ export const handlers = {
   listWebhookDeliveries: webhooks.handlers.listWebhookDeliveries,
   listWebhookEventDeliveries: webhooks.handlers.listWebhookEventDeliveries,
   replayWebhookDeliveries: webhooks.handlers.replayWebhookDeliveries,
+  cancelWebhookReplay: webhooks.handlers.cancelWebhookReplay,
   listWebhookReplays: webhooks.handlers.listWebhookReplays,
 
   getPaymentsStatus: payments.handlers.getPaymentsStatus,
@@ -475,6 +479,8 @@ export const handlers = {
   /** Consumer financing (M13), the costing rates and the budget (M15), manual journals (M14). */
   ...financing.handlers,
   ...costing.handlers,
+  /** The company's sales tax rates, and tax collected by rate (M13). */
+  ...taxRates.handlers,
   ...budgets.handlers,
   ...journals.handlers,
 
@@ -665,6 +671,7 @@ export const handlers = {
 
   getCustomerStatement: statements.handlers.getCustomerStatement,
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
+  textCustomerStatement: statementDelivery.handlers.textCustomerStatement,
   listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
   sendReportScheduleNow: deliverySchedules.handlers.sendReportScheduleNow,
   getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
@@ -676,6 +683,8 @@ export const handlers = {
   deleteCreditNote: creditNotes.handlers.deleteCreditNote,
   getCreditNote: creditNotes.handlers.getCreditNote,
   listCreditNotes: creditNotes.handlers.listCreditNotes,
+  payOutCreditNote: creditPayouts.handlers.payOutCreditNote,
+  refundableCardPayments: creditPayouts.handlers.refundableCardPayments,
   listInspectionPrograms: inspections.handlers.listInspectionPrograms,
   recordInspection: inspections.handlers.recordInspection,
   listDeficiencies: inspections.handlers.listDeficiencies,
@@ -700,6 +709,8 @@ export const handlers = {
   renewAgreement: agreements.handlers.renewAgreement,
   listAgreementRenewals: agreements.handlers.listAgreementRenewals,
   getMemberPricing: agreements.handlers.getMemberPricing,
+  getAgreementRenewalNotices: agreementNotices.handlers.getAgreementRenewalNotices,
+  updateAgreementRenewalNotices: agreementNotices.handlers.updateAgreementRenewalNotices,
   listAgreementPlans: agreements.handlers.listAgreementPlans,
   getAgreementPlan: agreements.handlers.getAgreementPlan,
   updateAgreementPlan: agreements.handlers.updateAgreementPlan,
@@ -719,6 +730,9 @@ export const handlers = {
   listVisitChangeRequests: visitChanges.handlers.listVisitChangeRequests,
   approveVisitChangeRequest: visitChanges.handlers.approveVisitChangeRequest,
   declineVisitChangeRequest: visitChanges.handlers.declineVisitChangeRequest,
+  answerPortalVisitChangeProposal: visitChanges.handlers.answerPortalVisitChangeProposal,
+  listVisitChangeTimes: visitChanges.handlers.listVisitChangeTimes,
+  proposeVisitChangeTime: visitChanges.handlers.proposeVisitChangeTime,
   installWorkflowTemplate: workflows.handlers.installWorkflowTemplate,
 
   listTasks: tasks.handlers.listTasks,
@@ -768,6 +782,7 @@ export const handlers = {
   addIncidentPhoto: safety.handlers.addIncidentPhoto,
 
   listRetentionPolicies: retention.handlers.listRetentionPolicies,
+  createRetentionPolicy: retention.handlers.createRetentionPolicy,
   updateRetentionPolicy: retention.handlers.updateRetentionPolicy,
   previewRetentionPurge: retention.handlers.previewRetentionPurge,
   listRetentionHolds: retention.handlers.listRetentionHolds,
@@ -775,6 +790,12 @@ export const handlers = {
   releaseRetentionHold: retention.handlers.releaseRetentionHold,
   runRetentionPurge: retention.handlers.runRetentionPurge,
   listRetentionPurgeRuns: retention.handlers.listRetentionPurgeRuns,
+  // The company's holidays, read by everything that reads its hours (M02)
+  ...holidays.handlers,
+  // Which item is charged after hours and on a holiday, offered on the invoice (M02, M13)
+  ...afterHours.handlers,
+  // Toolbox talk topics, talks on a schedule and who has not signed (M23)
+  ...safetyTalks.handlers,
   listScheduledRevisions: priceBook.revisionHandlers.listScheduledRevisions,
   publishRevision: priceBook.revisionHandlers.publishRevision,
   discardRevision: priceBook.revisionHandlers.discardRevision,
@@ -826,6 +847,15 @@ export const handlers = {
   // Export (M30): the portability the comparison pages promise
   getExportManifest: dataExport.handlers.getExportManifest,
   getExportPage: dataExport.handlers.getExportPage,
+  getExportFile: dataExport.handlers.getExportFile,
+  getBackupDestination: backups.handlers.getBackupDestination,
+  putBackupDestination: backups.handlers.putBackupDestination,
+  deleteBackupDestination: backups.handlers.deleteBackupDestination,
+  listBackups: backups.handlers.listBackups,
+  startBackup: backups.handlers.startBackup,
+  listRestorableCopies: backups.handlers.listRestorableCopies,
+  restoreCopy: backups.handlers.restoreCopy,
+  listRestores: restore.handlers.listRestores,
 
   // External work orders (M31): the last table nothing touched
   receiveExternalWorkOrder: externalWork.handlers.receiveExternalWorkOrder,
@@ -891,6 +921,8 @@ export const handlers = {
   mergeCustomerTags: customerTags.handlers.mergeCustomerTags,
   listCustomerDuplicatePairs: customerDuplicates.handlers.listCustomerDuplicatePairs,
   dismissCustomerDuplicate: customerDuplicates.handlers.dismissCustomerDuplicate,
+  listSetAsideCustomerDuplicates: customerDuplicates.handlers.listSetAsideCustomerDuplicates,
+  restoreCustomerDuplicate: customerDuplicates.handlers.restoreCustomerDuplicate,
 
   // A customer's people (M03), under the rules the customer's page holds them to
   listCustomerContacts: contacts.handlers.listCustomerContacts,
@@ -978,6 +1010,9 @@ export const handlers = {
     input: { token: string; cardId: string; invoiceId: string; tip?: string | undefined },
     meta?: RequestMeta,
   ) => savedCards.pay(db, input, meta),
+  // Cards the company may charge, paying automatically, and the portal's layout (M13, M05)
+  ...cardOnFile.handlers,
+  ...portalLayout.handlers,
   getPortalSettings: portalSettings.handlers.getPortalSettings,
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
@@ -1058,6 +1093,9 @@ export const handlers = {
   // Approval steps and emailing an order to its vendor (M16)
   ...purchaseApprovals.handlers,
   ...purchaseOrderEmail.handlers,
+  // Units back off a job and to the vendor, and freight billed after a delivery (M16)
+  ...stockReturns.handlers,
+  ...landedCost.handlers,
   // Collections, charges on a haul, invoicing a hire and scale tickets (M22)
   ...rentalBilling.handlers,
   // Onboarding, emergency contacts, employment, skills, continuing education, a job's own skills (M24)

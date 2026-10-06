@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as apps from "../src/services/apps";
@@ -193,5 +193,159 @@ run("deciding", () => {
     const collected = await apps.claim(db(), { id: request.id, claimSecret: request.claimSecret }, meta);
     await apps.revoke(owner(), { id: request.id });
     expect(await apps.resolveToken(db(), collected.token!)).toBeNull();
+  });
+});
+
+/**
+ * PART OF WHAT WAS ASKED, A RETRY THAT FINDS THE FIRST REQUEST, AND SOMEBODY TOLD
+ *
+ * The refusals first. An approval can only narrow what the app asked for,
+ * never add to it, and only within what the approver holds; a retry is only
+ * the first request when it carries the same secret and asks the same thing.
+ */
+run("approving part of a request", () => {
+  beforeEach(async () => {
+    await raw`delete from public.public_rate_limit where key like 'app-%'`;
+    await raw`update public.connected_app set request_expires_at = now() - interval '1 minute'
+      where organization_id = ${ORG} and status = 'pending'`;
+  });
+
+  it("refuses a permission the app did not ask for, and an approval with nothing ticked", async () => {
+    const request = await ask({ permissions: ["customer:read", "job:read"] });
+    await expect(apps.approve(owner(), { id: request.id, permissions: ["customer:read", "invoice:read"] }))
+      .rejects.toThrow(/did not ask for invoice:read/);
+    await expect(apps.approve(owner(), { id: request.id, permissions: [] }))
+      .rejects.toThrow(/Nothing is ticked/);
+    const [row] = await raw<{ status: string; permissions: string[] }[]>`
+      select status, permissions from public.connected_app where id = ${request.id}`;
+    expect(row).toMatchObject({ status: "pending", permissions: ["customer:read", "job:read"] });
+  });
+
+  it("refuses part of a request that still holds something the approver does not hold", async () => {
+    const request = await ask({ permissions: ["customer:read", "payroll:read"] });
+    const admin = as(OWNER, ["admin"]);
+    await expect(apps.approve(admin, { id: request.id, permissions: ["payroll:read"] }))
+      .rejects.toBeInstanceOf(AppEscalationError);
+    // The part they do hold is approvable, and the screen says so.
+    const review = await apps.review(admin, { id: request.id });
+    expect(review.approvable).toBe(true);
+    await apps.approve(admin, { id: request.id, permissions: ["customer:read"] });
+  });
+
+  it("gives a token for the part given only, and tells the app and the screen what was left out", async () => {
+    const request = await ask({ permissions: ["customer:read", "job:read", "invoice:read"], scopes: { customer: "all", job: "all", invoice: "all" } });
+    const decided = await apps.handlers.approveAppRequest(owner(), { id: request.id, permissions: ["job:read", "customer:read"] });
+    expect(decided).toMatchObject({ status: "active", permissions: ["customer:read", "job:read"], withheld: ["invoice:read"] });
+
+    const collected = await apps.claim(db(), { id: request.id, claimSecret: request.claimSecret }, meta);
+    expect(collected).toMatchObject({ status: "approved", permissions: ["customer:read", "job:read"], withheld: ["invoice:read"] });
+    expect(collected.message).toMatch(/in part/);
+    const who = await authenticate(
+      new Request("http://x", { headers: { authorization: `Bearer ${collected.token}` } }),
+      { db: db(), session: async () => null },
+    );
+    expect([...(who!.ctx.actor.grants ?? [])].sort()).toEqual(["customer:read", "job:read"]);
+
+    const review = await apps.review(owner(), { id: request.id });
+    expect(review.leftOut.map((l) => l.permission)).toEqual(["invoice:read"]);
+    expect(review.asks.find((a) => a.permission === "invoice:read")!.granted).toBe(false);
+    expect(review.asks.find((a) => a.permission === "job:read")!.granted).toBe(true);
+    const [line] = await raw<{ after: { withheld: string[] } }[]>`select after from public.audit_log
+      where organization_id = ${ORG} and action = 'app.approved' and entity_id = ${request.id}`;
+    expect(line!.after.withheld).toEqual(["invoice:read"]);
+  });
+
+  it("approves the whole list when nothing narrower is given, and leaves nothing out", async () => {
+    const request = await ask();
+    const decided = await apps.handlers.approveAppRequest(owner(), { id: request.id });
+    expect(decided.withheld).toEqual([]);
+    expect((await apps.review(owner(), { id: request.id })).leftOut).toEqual([]);
+  });
+});
+
+run("asking again after a lost answer", () => {
+  const SECRET = "partner-chosen-secret-0123456789abcdefghijklmnop";
+  beforeEach(async () => {
+    await raw`delete from public.public_rate_limit where key like 'app-%'`;
+    await raw`update public.connected_app set request_expires_at = now() - interval '1 minute'
+      where organization_id = ${ORG} and status = 'pending'`;
+  });
+  const waiting = async () => (await raw<{ n: number }[]>`select count(*)::int as n from public.connected_app
+    where organization_id = ${ORG} and status = 'pending' and request_expires_at > now()`)[0]!.n;
+
+  it("refuses a chosen secret too short to be safe", async () => {
+    await expect(ask({ claimSecret: "short" })).rejects.toThrow(/32 to 200/);
+    await expect(ask({ claimSecret: `${"a".repeat(40)} with spaces` })).rejects.toThrow(/32 to 200/);
+  });
+
+  it("refuses the same secret on a request asking for something else", async () => {
+    const secret = `${SECRET}-different`;
+    await ask({ claimSecret: secret });
+    await expect(ask({ claimSecret: secret, permissions: ["customer:read", "job:read", "invoice:read"] }))
+      .rejects.toThrow(/asking for something else/);
+    await expect(ask({ claimSecret: secret, name: "Somebody else" })).rejects.toThrow(/asking for something else/);
+    expect(await waiting()).toBe(1);
+  });
+
+  it("answers a retry with the first request rather than leaving a second waiting", async () => {
+    const first = await ask({ claimSecret: SECRET });
+    expect(first.repeated).toBe(false);
+    const again = await ask({ claimSecret: SECRET, permissions: ["job:read", "customer:read"] });
+    expect(again).toMatchObject({ id: first.id, repeated: true, status: "pending", claimSecret: SECRET });
+    expect(await waiting()).toBe(1);
+
+    // Once answered, a retry says how it was answered, and the secret still collects.
+    await apps.approve(owner(), { id: first.id });
+    expect(await ask({ claimSecret: SECRET })).toMatchObject({ id: first.id, status: "active", repeated: true });
+    const collected = await apps.claim(db(), { id: first.id, claimSecret: SECRET }, meta);
+    expect(collected.token).toMatch(/^ots_/);
+  });
+
+  it("makes a fresh request every time when the app chose no secret", async () => {
+    const one = await ask();
+    const two = await ask();
+    expect(one.id).not.toBe(two.id);
+    expect(await waiting()).toBe(2);
+  });
+});
+
+run("telling the people who can approve", () => {
+  const FROM = "apps@consent-co.test";
+  beforeEach(async () => {
+    await raw`delete from public.public_rate_limit where key like 'app-%'`;
+    await raw`update public.connected_app set request_expires_at = now() - interval '1 minute'
+      where organization_id = ${ORG} and status = 'pending'`;
+    await raw`delete from public.message where organization_id = ${ORG}`;
+    await raw`delete from public.integration_connection where organization_id = ${ORG}`;
+  });
+  const notices = () => raw<{ to_address: string; subject: string; body: string; purpose: string }[]>`
+    select to_address, subject, body, purpose from public.message
+    where organization_id = ${ORG} and channel = 'email' order by to_address`;
+
+  it("emails each member who can approve, and nobody who cannot, with the page and not the secret", async () => {
+    await raw`insert into public.integration_connection (organization_id, capability, provider, status, settings)
+      values (${ORG}, 'email', 'fake', 'connected', ${raw.json({ fromAddress: FROM })})`;
+    const request = await ask();
+    const sent = await notices();
+    expect(sent.map((m) => m.to_address)).toEqual(["consent-co@test.local"]);
+    expect(sent[0]!.subject).toBe("Neighbrium is asking to connect");
+    expect(sent[0]!.body).toContain(`/settings/apps/requests/${request.id}`);
+    expect(sent[0]!.body).not.toContain(request.claimSecret);
+    expect(sent[0]!.purpose).toBe("transactional");
+  });
+
+  it("sends nothing and still takes the request when no email provider is connected", async () => {
+    const request = await ask();
+    expect(request.status).toBe("pending");
+    expect(await notices()).toEqual([]);
+  });
+
+  it("does not email again for a retry answered with the first request", async () => {
+    await raw`insert into public.integration_connection (organization_id, capability, provider, status, settings)
+      values (${ORG}, 'email', 'fake', 'connected', ${raw.json({ fromAddress: FROM })})`;
+    const secret = "notice-retry-secret-0123456789abcdefghijklmnop";
+    await ask({ claimSecret: secret });
+    await ask({ claimSecret: secret });
+    expect(await notices()).toHaveLength(1);
   });
 });

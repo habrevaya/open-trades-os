@@ -368,11 +368,14 @@ export const getMemberHold = defineRoute({
   path: "/v1/booking/member-hold",
   summary: "The share of each window online booking holds for members",
   description:
-    "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held.",
+    "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held. The share here is the company's figure; a plan can hold its own share instead (`memberHoldPercent` on the plan), and `plans` lists each with its own, null meaning the company's. A window keeps back the largest share any of them holds, and a member is let into as much as their own plan holds.",
   module: "M08",
   permissions: ["booking:read"],
   input: z.object({}),
-  output: MemberHold.extend({ plansWithPriority: z.number().int() }),
+  output: MemberHold.extend({
+    plansWithPriority: z.number().int(),
+    plans: z.array(z.object({ id: Uuid, name: z.string(), holdPercent: z.number().int().nullable() })),
+  }),
 });
 
 export const setMemberHold = defineRoute({
@@ -384,7 +387,10 @@ export const setMemberHold = defineRoute({
   module: "M08",
   permissions: ["booking:configure"],
   input: MemberHold,
-  output: MemberHold.extend({ plansWithPriority: z.number().int() }),
+  output: MemberHold.extend({
+    plansWithPriority: z.number().int(),
+    plans: z.array(z.object({ id: Uuid, name: z.string(), holdPercent: z.number().int().nullable() })),
+  }),
 });
 
 export const bookingRoutes = {

@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { skillStanding } from "./people";
 import { workSkills } from "./qualification";
+import { announce, sideOf } from "./visit-notices";
 
 /**
  * CREWS: THE SECOND CAPACITY MODEL
@@ -432,6 +433,43 @@ export async function crewsFor(
   });
 }
 
+/**
+ * Which crews may take which jobs on which days, for a planner asking many
+ * at once (the multi day rebalance): the same verdict a drag onto a crew
+ * gets, as the sentence it would refuse with, or null when the crew may.
+ * Inside the caller's transaction; its guard authorizes the read. The
+ * register is read once per job and day, not per crew.
+ */
+export async function crewRefusals(
+  tx: Database, organizationId: string,
+  input: { crewIds: string[]; asks: { jobId: string; date: string }[] },
+): Promise<(crewId: string, jobId: string, date: string) => string | null> {
+  const answers = new Map<string, string | null>();
+  if (input.crewIds.length === 0 || input.asks.length === 0) return () => null;
+  const zone = await timezoneOf(tx, organizationId);
+  const crews = await tx.select().from(schema.crew)
+    .where(and(eq(schema.crew.organizationId, organizationId), inArray(schema.crew.id, input.crewIds)));
+  const jobs = new Map<string, JobFacts>();
+  const seen = new Set<string>();
+  for (const ask of input.asks) {
+    const key = `${ask.jobId}|${ask.date}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!jobs.has(ask.jobId)) jobs.set(ask.jobId, await loadJob(tx, organizationId, ask.jobId));
+    const job = jobs.get(ask.jobId)!;
+    const register = await registerFor(tx, organizationId, job.requiredAssetIds, ask.date);
+    for (const crew of crews) {
+      const answer = await verdict(tx, organizationId, crew, job, ask.date, zone, register);
+      answers.set(`${crew.id}|${key}`, answer.canTake ? null : answer.blockers.map((b) => b.explanation).join(" "));
+    }
+  }
+  return (crewId, jobId, date) => {
+    const key = `${crewId}|${jobId}|${date}`;
+    /** A question nobody asked is not a clearance. */
+    return answers.has(key) ? answers.get(key)! : "Not checked for that day.";
+  };
+}
+
 interface JobFacts {
   id: string;
   businessUnitId: string | null;
@@ -824,6 +862,19 @@ export async function assign(
       ? "dispatched" as const
       : visit.status;
 
+    /** Who was on it before, so the members added and anybody taken off each hear about it. */
+    const before = (await sideOf(tx, visit.id))!;
+
+    /**
+     * EXACTLY ONE OF A CREW OR PEOPLE. Sending a visit to a crew takes it
+     * off whoever had it on their own day, which is what the schema says of
+     * `visit.crew_id` and what the board draws: a card in the crew's lane
+     * that is also in somebody's column is two vans at one house.
+     */
+    const handedOver = await tx.delete(schema.visitAssignment)
+      .where(eq(schema.visitAssignment.visitId, visit.id))
+      .returning({ technicianId: schema.visitAssignment.technicianId });
+
     await tx.update(schema.visit).set({
       crewId: crew.id,
       status,
@@ -832,7 +883,9 @@ export async function assign(
     }).where(eq(schema.visit.id, visit.id));
 
     await audit(tx, ctx, "visit.crew_assigned", "visit", visit.id,
-      { crewId: visit.crewId, status: visit.status }, { crewId: crew.id, status });
+      { crewId: visit.crewId, status: visit.status, technicianIds: handedOver.map((h) => h.technicianId) },
+      { crewId: crew.id, status });
+    await announce(tx, ctx, visit.id, before);
 
     return { id: visit.id, crewId: crew.id, status, on };
   });

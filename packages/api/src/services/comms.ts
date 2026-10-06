@@ -509,7 +509,7 @@ export async function picture(ctx: ServiceContext, input: { conversationId: stri
     const [file] = await tx.select().from(schema.storedFile)
       .where(and(eq(schema.storedFile.storageKey, input.storageKey), isNull(schema.storedFile.deletedAt))).limit(1);
     if (!file) throw new NotFoundError("Picture");
-    return { bytes: file.bytes, contentType: file.contentType, sizeBytes: file.sizeBytes };
+    return { bytes: await files.bytesOf(file), contentType: file.contentType, sizeBytes: file.sizeBytes };
   });
 }
 

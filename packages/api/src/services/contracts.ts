@@ -158,6 +158,7 @@ export async function updateContract(
     for (const key of [
       "name", "contractNumber", "startsOn", "endsOn", "autoRenews", "defaultNotToExceed", "purchaseOrderNumber",
       "coveredScope", "notToExceedAction", "invoiceWithinDays", "claimWithinDays", "invoiceFormat", "active",
+      "escalationRate",
     ] as const) {
       if (input[key] !== undefined) (set as Record<string, unknown>)[key] = input[key];
     }

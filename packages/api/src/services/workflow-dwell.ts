@@ -88,13 +88,24 @@ export const SHAPES: DwellShape[] = [
     question: "Who has owed us money for a while?",
     entityType: "invoice",
     eventName: "invoice.dwelling",
+    /**
+     * Not while a bank payment for it is on its way: the customer has paid,
+     * and the bank says in a few days whether the money came. Chased then if
+     * it did not, since the invoice is still open.
+     */
     sql: `select i.id, i.customer_id, i.number, i.due_on::timestamptz as since
           from public.invoice i
           where i.status in ('open', 'partially_paid')
             and i.balance > 0
             and i.due_on is not null
             and i.due_on::timestamptz < $cutoff
-            and i.deleted_at is null`,
+            and i.deleted_at is null
+            and not exists (
+              select 1 from public.integration_event ev
+               where ev.organization_id = i.organization_id
+                 and ev.direction = 'outbound' and ev.event_type = 'payment.intent' and ev.status = 'in_flight'
+                 and exists (select 1 from jsonb_array_elements(ev.request_payload->'allocations') a
+                              where a->>'invoiceId' = i.id::text))`,
   },
   {
     key: "task_unclaimed",

@@ -91,7 +91,11 @@ deduplicating on it is never made to process an event twice; `x-otos-replay` nam
 the replay. The range is fixed when it is asked for, at most five thousand events,
 and the endpoint's own position does not move. A replay that keeps failing backs off
 and gives up on its own count, and never switches the live stream off. Asking again
-for a replay that is still waiting returns it rather than queuing a second. The
+for a replay that is still waiting returns it rather than queuing a second. A
+replay still waiting can be stopped: nothing more of it is sent, what already went
+stays sent, and the record keeps how far it got. The worker reads the replay again
+before every event, so a stop that lands while one is under way takes effect at
+the next event. The
 worker visits a company owing a replay or a retry even on a pass where it produced
 no event.
 
@@ -119,9 +123,22 @@ two ever sign.
 **Asking grants nothing.** A third party can ask to be installed without holding any
 credential, and what it asks for is written as a `pending` app that resolves no token
 and can be issued none. Somebody at the company reads the request in the catalogue's
-own words and approves exactly that list, through the same authority check as an
-install by hand, or refuses it. Only then can the app collect its credential, once,
-with a claim secret it was given when it asked and that only it holds.
+own words and approves all of that list or part of it, through the same authority
+check as an install by hand, or refuses it. Part of it, never more: a permission the
+app did not ask for cannot be added. Only then can the app collect its credential,
+once, with a claim secret that only it holds, and the token carries what was given
+and nothing that was left out.
+
+**A retry finds the first request.** An app may choose its own claim secret when it
+asks, and a request sent again with the same secret is answered with the first one,
+as it stands, rather than leaving a second waiting. The secret is the proof that
+the retry is the same app; the same secret on a request asking for something else
+is refused.
+
+**Somebody is told.** When a request arrives, everybody in the company who could
+approve it (holding `integration:write`) is emailed the app's name and the page to
+decide on, through the company's own email provider. With no provider connected
+nothing is sent and the request still waits on the Applications screen.
 
 **The SDK is generated, never written.** The contracts produce the OpenAPI document,
 and the document produces the TypeScript client, in the same command; a test fails
@@ -169,10 +186,11 @@ first, filtered by `status` (delivered, refused, unreachable) or by `eventId`.
 `GET /v1/webhooks/deliveries?eventId=` is every attempt to deliver one event, to every
 endpoint. `POST /v1/webhooks/endpoints/{id}/replays` sends one `deliveryId`, one
 `eventId`, or everything from `fromSequence` (to `throughSequence`) again, and
-`GET /v1/webhooks/endpoints/{id}/replays` says how far each replay has got.
+`GET /v1/webhooks/endpoints/{id}/replays` says how far each replay has got, and
+`POST /v1/webhooks/endpoints/{id}/replays/{replayId}/cancel` stops one still waiting.
 Settings > Webhooks (`/settings/webhooks`) registers endpoints, switches them on and
 off, and shows the history with a filter by what happened and a send again button on
-every attempt.
+every attempt, and a **Stop it** button on every replay still waiting.
 
 ### Rotate a signing secret
 
@@ -193,23 +211,33 @@ takes no permission because the token is the identity.
 An app with no credential posts what it wants to `POST /v1/public/app-requests`,
 naming the company by its public slug: its name, who makes it, a description in its
 own words, the permissions it needs and the record scope on each resource, and
-optionally an https `redirectUri` and a `state`. The answer carries `decisionUrl`,
-the page to send somebody at the company to, and `claimSecret`, shown once.
+optionally an https `redirectUri`, a `state` and its own `claimSecret` (32 to 200
+random letters, digits, `-` or `_`). The answer carries `decisionUrl`, the page to
+send somebody at the company to, and `claimSecret`, shown once when the server made
+it. Sent again with the same `claimSecret`, the answer is the first request with
+`repeated: true` and its status now; the same secret asking for something else is
+refused. The people who can approve are emailed the page when the company has an
+email provider connected.
 
 The page is `/settings/apps/requests/{id}`, and the Applications screen lists every
 request waiting. It shows each permission in plain words, marks the ones that expose
 money and the ones the person looking does not hold, and offers **Approve** and
-**Refuse** (with a reason the app is told). Nobody can approve what they do not hold
-themselves, and a request cannot be edited before it is answered. After the decision
+**Refuse** (with a reason the app is told). Approve has a box for every permission
+asked for, ticked when the person holds it; unticking one leaves it out, and one
+they do not hold cannot be ticked, because nobody can give what they do not hold.
+Once approved, the page marks what was left out. A request's list cannot be edited
+before it is answered. After the decision
 the person is offered a link back to the app's `redirectUri` with `request`, `status`
 and `state` added.
 
 The app then calls `POST /v1/public/app-requests/{id}/claim` with its claim secret:
 `pending` until somebody decides, `refused` or `expired` for no, and `approved` with
-the token, once. A second collection answers `claimed` and hands nothing over. A
+the token, once, beside `permissions` (what the token may do) and `withheld` (what
+was asked for and left out). A second collection answers `claimed` and hands nothing over. A
 request nobody answers expires after seven days, a company holds at most twenty
 waiting, and both routes are counted per network address. The operator side is on
-the API too: `GET /v1/apps/{id}/request`, `POST /v1/apps/{id}/approve` and
+the API too: `GET /v1/apps/{id}/request` (with `leftOut` once approved),
+`POST /v1/apps/{id}/approve` (with `permissions` for part of the list) and
 `POST /v1/apps/{id}/refuse`.
 
 ### Use the TypeScript SDK
@@ -255,12 +283,13 @@ particular.
 | `GET /v1/webhooks/deliveries` | `integration:read` |
 | `POST /v1/webhooks/endpoints/{id}/replays` | `integration:write` |
 | `GET /v1/webhooks/endpoints/{id}/replays` | `integration:read` |
+| `POST /v1/webhooks/endpoints/{id}/replays/{replayId}/cancel` | `integration:write` |
 | `POST /v1/webhooks/endpoints/{id}/secret` | `integration:write` |
 | `GET /v1/apps/me` | nothing: the token is the identity |
 | `POST /v1/public/app-requests` | nothing: counted per address, at most twenty waiting per company |
 | `POST /v1/public/app-requests/{id}/claim` | nothing: the claim secret is the proof |
 | `GET /v1/apps/{id}/request` | `settings:read` |
-| `POST /v1/apps/{id}/approve` | `integration:write`, and holding everything it asks for |
+| `POST /v1/apps/{id}/approve` | `integration:write`, and holding everything it is given |
 | `POST /v1/apps/{id}/refuse` | `integration:write` |
 | `POST /v1/public/touches` | nothing: counted per company, address and visitor |
 | `GET /v1/public/dni` | nothing: counted per company and address |
@@ -287,15 +316,17 @@ exception in `docs/project/licensing-and-hosting.md` is settled. There is no cli
 in any other language; the OpenAPI document is what a generator for one is pointed
 at.
 
-An approval is all or nothing: the person deciding cannot approve part of what an app
-asked for, and an app asking for something they do not hold has to ask again for
-less, or be approved by somebody who holds it. A request's claim secret cannot be
-handed out again, so a retried request leaves a second request waiting rather than
-returning the first. A request does not notify anybody by email or text; the app
-sends the person to the page, and the Applications screen lists what is waiting.
+An approval can leave permissions out but cannot narrow the record reach the app
+asked for: a reach wider than the approver's own blocks the approval, and the app
+has to ask again for less. A retry finds the first request only when the app chose
+its own claim secret; one the server made is shown once and cannot be handed out
+again, so a retry without one leaves a second request waiting. The notice of a
+request is an email, only to people who can approve and only when an email provider
+is connected; there is no text, and nothing inside the app beyond the Applications
+screen.
 
 Delivery history is kept for thirty days and a thousand attempts per endpoint and
 not longer; an older answer is gone. A replay cannot reach further back than the
-event log does, covers only the events the endpoint subscribes to now, and cannot be
-cancelled once queued. A receiver that compares the whole signature header against
+event log does, and covers only the events the endpoint subscribes to now. A stopped
+replay cannot be started again where it stopped: asking again queues a new one. A receiver that compares the whole signature header against
 one value refuses deliveries for the length of a rotation's overlap.

@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory as inventoryService, stockUnits, ConflictError } from "@opentradesos/api/services";
+import { inventory as inventoryService, stockUnits, stockReturns, ConflictError } from "@opentradesos/api/services";
 import {
   issueStock, receiveStock, transferStock, setStockTracking, writeOffStockUnits, setTruckMinimum, restockTruck,
+  numberStockUnits, returnStockFromJob,
 } from "@opentradesos/api/contracts";
 import { inventory as inv } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
@@ -101,9 +102,16 @@ export async function useOnJobAction(_previous: FormState, form: FormData): Prom
 export async function setTrackingAction(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     const mode = field(form, "mode");
-    await stockUnits.setTracking(await ctx(), parsed(setStockTracking.input, {
+    const result = await stockUnits.setTracking(await ctx(), parsed(setStockTracking.input, {
       itemId: field(form, "itemId"), mode: mode === "serial" || mode === "lot" ? mode : null,
     }));
+    /** Units already on hand stay without numbers until somebody reads their labels: say where. */
+    return result.unnumbered.length === 0
+      ? { message: "Saved." }
+      : {
+        message: `Saved. ${result.unnumbered.map((u) => `${u.quantity} at ${u.locationName}`).join(", ")} `
+          + "still need their numbers before they can be moved. Give them below.",
+      };
   });
   if (state?.done) refresh();
   return state;
@@ -151,6 +159,51 @@ export async function restockAction(_previous: FormState, form: FormData): Promi
       ...(units ? { units } : {}),
     }));
     return { message: `Moved ${result.moved} onto the truck.` };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+/**
+ * Numbers for units already on the shelf: every label read at one place.
+ * A lot can say how many with "LOT-4471 x 10" on its line.
+ */
+export async function numberUnitsAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const units = String(form.get("units") ?? "").split(/\n|,|;/).map((line) => line.trim()).filter((line) => line !== "")
+      .map((line) => {
+        const [number, quantity] = line.split(/\s+x\s+/i).map((part) => part.trim());
+        return { number: number ?? "", ...(quantity ? { quantity } : {}) };
+      });
+    const result = await stockUnits.numberUnits(await ctx(), parsed(numberStockUnits.input, {
+      itemId: field(form, "itemId"), locationId: field(form, "locationId"), units,
+    }));
+    return {
+      message: [
+        result.numbered.length > 0 ? `Numbered ${result.numbered.join(", ")}.` : "No new numbers.",
+        result.alreadyHere.length > 0 ? `Already on file here: ${result.alreadyHere.join(", ")}.` : "",
+        result.stillUnnumbered !== "0" ? `${result.stillUnnumbered} here still ${result.stillUnnumbered === "1" ? "has" : "have"} no number.` : "",
+      ].filter(Boolean).join(" "),
+    };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+/** A serialised unit back off a job, by its number, onto the shelf or truck chosen. */
+export async function returnFromJobAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const result = await stockReturns.returnFromJob(await ctx(), parsed(returnStockFromJob.input, {
+      itemId: field(form, "itemId"),
+      locationId: field(form, "locationId"),
+      numbers: inv.parseSerialList(String(form.get("units") ?? "")),
+      note: field(form, "note") ?? null,
+    }));
+    const said = result.returned.map((r) => `${r.number}${r.jobNumber ? ` off job ${r.jobNumber}` : ""}`).join(", ");
+    const kept = result.equipmentStillOnRecord.length > 0
+      ? ` The customer's equipment record is still on their register: retire it there if the unit came out.`
+      : "";
+    return { message: `Back in stock: ${said}.${kept}` };
   });
   if (state?.done) refresh();
   return state;

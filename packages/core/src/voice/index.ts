@@ -1,6 +1,6 @@
 import {
   WEEKDAYS, hoursAt, route, checkRoutingTable, mayRecord,
-  type BusinessHours, type OpenWindow, type Weekday, type RoutingTable, type RoutingResult,
+  type BusinessHours, type Holiday, type OpenWindow, type Weekday, type RoutingTable, type RoutingResult,
   type HoursVerdict, type CallParty, type JurisdictionPolicy, type RecordingDecision, type RoutingDestination,
 } from "../telephony/index.js";
 import { menuHoursTable, type PhoneMenu } from "./menus.js";
@@ -219,8 +219,14 @@ const minutesOf = (clock: string): number | null => {
  * company that never filled in its hours is not closed all week, and routing
  * by an empty schedule would send every call to voicemail. A number set to
  * route by hours with no hours declared is simply not routed by them.
+ *
+ * `holidays` are the company's own list (core's `holidays.forPhones`), so a
+ * call on Christmas Day goes where an after hours call goes. A list with no
+ * weekly hours beside it still answers null, for the same reason.
  */
-export function businessHoursFrom(rows: readonly HoursRow[], timeZone: string): BusinessHours | null {
+export function businessHoursFrom(
+  rows: readonly HoursRow[], timeZone: string, holidays: readonly Holiday[] = [],
+): BusinessHours | null {
   const weekly = Object.fromEntries(WEEKDAYS.map((day) => [day, [] as OpenWindow[]])) as
     Record<Weekday, OpenWindow[]>;
   let any = false;
@@ -233,7 +239,7 @@ export function businessHoursFrom(rows: readonly HoursRow[], timeZone: string): 
     weekly[day].push({ openMinute: open, closeMinute: close });
     any = true;
   }
-  return any ? { timeZone, weekly, holidays: [] } : null;
+  return any ? { timeZone, weekly, holidays } : null;
 }
 
 /* ----------------------------------------------------------------- routing */

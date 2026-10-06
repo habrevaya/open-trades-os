@@ -29,6 +29,10 @@ import { ExpoPushProvider, type PushProvider, type PushTicket } from "../push/pr
  *      became of what it took. "The app is no longer on this phone" clears
  *      the phone's token, so it is not asked about on every change after.
  *
+ *   4. THE OFFICE. A change none of a technician's phones was ever told
+ *      about, once every try has ended, goes in the office queue as a task
+ *      on the visit, so somebody rings them. See `tellTheOffice`.
+ *
  * Stale is skipped, not sent. A change read more than twelve hours after it
  * was made (the worker was down, or this is the first pass on a log with a
  * history) is not news, and a phone buzzing at breakfast about last
@@ -73,6 +77,8 @@ export interface PushPassResult {
   skipped: number;
   /** Phones whose token was cleared because the app is gone from them. */
   forgotten: number;
+  /** Tasks raised for the office about a technician no phone of theirs told. */
+  tasks: number;
 }
 
 /**
@@ -107,11 +113,12 @@ export async function pushPass(
 export async function pushFor(db: Database, organizationId: string, deps: PushDeps): Promise<PushPassResult> {
   const now = deps.now ?? (() => new Date());
   const ctx: ServiceContext = { actor: pushActor(organizationId), db };
-  const result: PushPassResult = { organizationId, queued: 0, sent: 0, failed: 0, skipped: 0, forgotten: 0 };
+  const result: PushPassResult = { organizationId, queued: 0, sent: 0, failed: 0, skipped: 0, forgotten: 0, tasks: 0 };
 
   result.queued = await readEvents(ctx, now());
   await send(ctx, deps.provider, now(), result);
   await askReceipts(ctx, deps.provider, now(), result);
+  result.tasks = await tellTheOffice(ctx, now());
   return result;
 }
 
@@ -293,7 +300,7 @@ async function send(ctx: ServiceContext, provider: PushProvider, now: Date, resu
      */
     const gone = rows.filter((r) => !r.token || r.revokedAt);
     const stale = rows.filter((r) => r.token && !r.revokedAt && r.createdAt < staleBefore);
-    await markSkipped(tx, gone.map((r) => r.id), "The phone was signed out or taken away before it could be told.");
+    await markSkipped(tx, gone.map((r) => r.id), "The phone was signed out or taken away before it could be told.", now);
     await markSkipped(tx, stale.map((r) => r.id), `Not sent within ${STALE_HOURS} hours, so it was no longer news.`);
     result.skipped += gone.length + stale.length;
 
@@ -339,10 +346,15 @@ async function send(ctx: ServiceContext, provider: PushProvider, now: Date, resu
   });
 }
 
-async function markSkipped(tx: Database, ids: string[], reason: string): Promise<void> {
+/**
+ * Skipped, with why. `settled` marks a skip the office does not need to
+ * hear about: a phone signed out or taken away was a choice somebody made,
+ * and their other phone, if they have one, was asked separately.
+ */
+async function markSkipped(tx: Database, ids: string[], reason: string, settled?: Date): Promise<void> {
   if (ids.length === 0) return;
   await tx.update(schema.pushDelivery)
-    .set({ status: "skipped", error: reason, updatedAt: new Date() })
+    .set({ status: "skipped", error: reason, updatedAt: new Date(), ...(settled ? { officeToldAt: settled } : {}) })
     .where(inArray(schema.pushDelivery.id, ids));
 }
 
@@ -391,6 +403,106 @@ async function askReceipts(ctx: ServiceContext, provider: PushProvider, now: Dat
       await tx.update(schema.pushDelivery).set({ receiptCheckedAt: now, updatedAt: now })
         .where(eq(schema.pushDelivery.id, row.id));
     }
+  });
+}
+
+/* ------------------------------------------------------------ the office */
+
+/**
+ * A TECHNICIAN NO PHONE TOLD, PUT IN FRONT OF THE OFFICE
+ *
+ * A notice that fails is tried again until it has had its five tries or
+ * twelve hours have passed, and then it ends as failed or skipped, with
+ * the reason on the row. Before this, that was where it stopped: nobody
+ * read the row, so "Job cancelled, do not go" could miss a phone and the
+ * technician drove to the house anyway.
+ *
+ * A TASK, NOT A FIELD CONFLICT. The conflicts list is for something a
+ * phone SENT that the office has to reconcile; this is something the
+ * office sent that never arrived, and what fixes it is a phone call. The
+ * office queue is where that kind of job already lives (a failed bank
+ * payment, a backup that did not land), on the visit, high, due when the
+ * work starts.
+ *
+ * ONE PER CHANGE PER PERSON, only once every one of their phones has
+ * finished with it. Any phone of theirs that got it means they were told,
+ * and nothing is raised; a phone still waiting for a try means it is too
+ * early to say. A phone signed out or taken away on purpose is settled
+ * when it is skipped and raises nothing on its own.
+ */
+async function tellTheOffice(ctx: ServiceContext, now: Date): Promise<number> {
+  return inTenant(ctx, async (tx) => {
+    const ended = await tx.select({
+      eventId: schema.pushDelivery.eventId,
+      technicianId: schema.pushDelivery.technicianId,
+    }).from(schema.pushDelivery)
+      .where(and(
+        inArray(schema.pushDelivery.status, ["failed", "skipped"]),
+        isNull(schema.pushDelivery.officeToldAt),
+      ))
+      .groupBy(schema.pushDelivery.eventId, schema.pushDelivery.technicianId)
+      .limit(200);
+    let raised = 0;
+
+    for (const group of ended) {
+      const rows = await tx.select({
+        id: schema.pushDelivery.id,
+        status: schema.pushDelivery.status,
+        error: schema.pushDelivery.error,
+        officeToldAt: schema.pushDelivery.officeToldAt,
+        visitId: schema.pushDelivery.visitId,
+        title: schema.pushDelivery.title,
+        body: schema.pushDelivery.body,
+      }).from(schema.pushDelivery)
+        .where(and(
+          eq(schema.pushDelivery.eventId, group.eventId),
+          eq(schema.pushDelivery.technicianId, group.technicianId),
+        ));
+      if (rows.some((r) => r.status === "queued" || r.status === "sending")) continue;
+
+      const reached = rows.some((r) => r.status === "sent");
+      /** Only a row that ended on its own; a skip the phone's owner chose is already settled. */
+      const missed = rows.filter((r) => r.status === "failed" || (r.status === "skipped" && r.officeToldAt === null));
+
+      /**
+       * The ended rows are marked first, so a second worker on the same pass
+       * finds nothing left to raise. A sent row is left unmarked: if its
+       * receipt later says it never arrived, it ends as failed and this
+       * group is looked at again with nothing that reached them.
+       */
+      const claimed = await tx.update(schema.pushDelivery)
+        .set({ officeToldAt: now, updatedAt: now })
+        .where(and(
+          inArray(schema.pushDelivery.id, rows.filter((r) => r.status !== "sent").map((r) => r.id)),
+          isNull(schema.pushDelivery.officeToldAt),
+        ))
+        .returning({ id: schema.pushDelivery.id });
+      if (claimed.length === 0 || reached || missed.length === 0) continue;
+
+      const [person] = await tx.select({ name: schema.technician.displayName })
+        .from(schema.technician).where(eq(schema.technician.id, group.technicianId)).limit(1);
+      const [event] = await tx.select({ payload: schema.domainEvent.payload })
+        .from(schema.domainEvent).where(eq(schema.domainEvent.id, group.eventId)).limit(1);
+      const starts = dateOf(event?.payload["windowStart"]);
+      const first = missed[0]!;
+      const name = person?.name ?? "A technician";
+
+      await tx.insert(schema.task).values({
+        organizationId: ctx.actor.organizationId,
+        title: `${name}'s phone was not told: ${first.title}`,
+        body: `${first.body} The notice could not be sent (${(first.error ?? "no reason was given").replace(/\.$/, "")}). Call ${name} to tell them.`,
+        priority: "high",
+        entityType: first.visitId ? "visit" : null,
+        entityId: first.visitId,
+        queue: "office",
+        dueAt: starts && starts > now ? starts : null,
+      });
+      await audit(tx, ctx, "push.missed", "technician", group.technicianId, null, {
+        eventId: group.eventId, visitId: first.visitId, deliveries: missed.map((r) => r.id),
+      });
+      raised += 1;
+    }
+    return raised;
   });
 }
 

@@ -11,7 +11,7 @@ import { QualificationRefusedError } from "../src/services/qualification";
 import { runPass } from "../src/services/workflow-worker";
 import type { GeocodingProvider, GeocodeRequest } from "../src/maps/provider";
 import type { ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, holdWholePassLock, WHOLE_PASS_WAIT_MS } from "./helpers";
 
 /**
  * WHERE THINGS ARE, AND WHO GOES WHERE
@@ -134,6 +134,13 @@ async function connectTestGeocoder(): Promise<void> {
             values (${ORG}, 'maps', 'test-geocoder', 'connected')
             on conflict (organization_id, capability, provider) do update set status = 'connected'`;
 }
+
+/** This file runs the worker's pass over every company: see `holdWholePassLock`. */
+let releaseWholePass: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (url) releaseWholePass = await holdWholePassLock(url);
+}, WHOLE_PASS_WAIT_MS);
+afterAll(async () => { await releaseWholePass?.(); });
 
 beforeAll(async () => {
   if (!url) return;

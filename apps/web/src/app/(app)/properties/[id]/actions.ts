@@ -4,7 +4,7 @@ import { attempt, refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment, geocoding, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { equipment, geocoding, properties, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -95,6 +95,22 @@ export async function placePropertyPin(_previous: unknown, form: FormData) {
 export async function clearPropertyPin(_previous: unknown, form: FormData) {
   const id = String(form.get("id") ?? "");
   const result = await attempt(form, async () => geocoding.clearPin(await ctx(), { entity: "property", id }));
+  revalidatePath(`/properties/${id}`);
+  return result;
+}
+
+/**
+ * The sales tax rate charged on work at this address, which wins over the
+ * customer's because the rate follows where the work is done. Empty for the
+ * customer's, or the company's usual one.
+ */
+export async function setPropertyTaxRate(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const rate = text(form, "taxRateId");
+  const result = await attempt(form, async () => {
+    await properties.update(await ctx(), { id, taxRateId: rate });
+    return { message: "Saved. Invoices already raised keep what they charged." };
+  });
   revalidatePath(`/properties/${id}`);
   return result;
 }

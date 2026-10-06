@@ -1,7 +1,7 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
-import { time } from "@opentradesos/core";
+import { assertCan, time } from "@opentradesos/core";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
@@ -15,10 +15,11 @@ import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
 import { assertPlaceable } from "./branches";
 import { emit } from "./events";
-import { announce, NEW_VISIT } from "./visit-notices";
+import { announce, NEW_VISIT, sideOf } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
 import { gate as qualificationGate, workSkills } from "./qualification";
+import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
@@ -329,6 +330,49 @@ async function assertQualified(
   });
 }
 
+/**
+ * THE OFFICE BOOKING INTO TIME HELD FOR MEMBERS, said and then allowed.
+ *
+ * Online booking keeps a share of each arrival window from anybody who is not
+ * a member (`booking.heldAgainst` says the rule). The office booking by hand
+ * is told the same thing and refused until the person booking says "book
+ * anyway", because a dispatcher who knows the member has gone elsewhere, or
+ * that this caller is the member's tenant, is allowed to decide; the choice
+ * is then on the audit log with their name, which is what makes it a decision
+ * rather than a leak.
+ *
+ * Not for history from another system, a visit with no time, a cancelled one,
+ * or a job made from a booking request, which was held to the share when the
+ * request was made and is only being given its visit.
+ */
+async function checkMemberHold(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    jobId: string | null; customerId: string; propertyId: string | null; jobTypeId: string | null;
+    windowStart: Date; durationMinutes: number; bookAnyway: boolean;
+  },
+): Promise<{ date: string; windowName: string } | null> {
+  if (input.jobId) {
+    const [request] = await tx.select({ id: schema.bookingRequest.id }).from(schema.bookingRequest)
+      .where(eq(schema.bookingRequest.jobId, input.jobId)).limit(1);
+    if (request) return null;
+  }
+  const held = await heldAgainst(tx, {
+    organizationId: ctx.actor.organizationId,
+    timezone: await timezoneOf(tx, ctx.actor.organizationId),
+    customerId: input.customerId, propertyId: input.propertyId, jobTypeId: input.jobTypeId,
+    durationMinutes: input.durationMinutes, windowStart: input.windowStart,
+    ...(input.jobId ? { exceptJobId: input.jobId } : {}),
+  });
+  if (held && !input.bookAnyway) {
+    throw new ConflictError(
+      `The ${held.windowName} window on ${held.date} is held for members, and this customer is not a member there that day. `
+      + "Choose another time, or tick Book anyway to give them a member's place.",
+    );
+  }
+  return held;
+}
+
 export async function create(ctx: ServiceContext, input: CreateInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -363,6 +407,13 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
       );
     }
+    const heldOnCreate = input.visit && input.visit.externalRef === undefined && input.externalRef === undefined
+      ? await checkMemberHold(tx, ctx, {
+        jobId: null, customerId: input.customerId, propertyId: input.propertyId ?? null,
+        jobTypeId: input.jobTypeId ?? null, windowStart: new Date(input.visit.windowStart),
+        durationMinutes: input.visit.estimatedDurationMinutes, bookAnyway: input.visit.bookAnyway === true,
+      })
+      : null;
     const number = await claimNumber(tx, ctx, "job", input.number);
 
     /**
@@ -463,6 +514,12 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         estimatedDurationMinutes: input.visit.estimatedDurationMinutes,
         ...provenance(input.visit.externalRef),
       }).returning({ id: schema.visit.id });
+
+      if (heldOnCreate) {
+        await audit(tx, ctx, "visit.booked_into_member_hold", "visit", visit!.id, null, {
+          jobId: job!.id, customerId: input.customerId, date: heldOnCreate.date, window: heldOnCreate.windowName,
+        });
+      }
 
       if (input.visit.technicianIds.length > 0) {
         await tx.insert(schema.visitAssignment).values(
@@ -612,6 +669,20 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       throw new ConflictError(
         `A job cannot move from "${before.status}" to "${input.status}".`,
       );
+    }
+
+    /**
+     * Calling off the visits is a schedule decision as well as a job one,
+     * so it needs the permission that cancels a visit anywhere else, and it
+     * only goes with the move to cancelled.
+     */
+    if (input.cancelVisits) {
+      if (input.status !== "cancelled") {
+        throw new UnprocessableError("cancelVisits goes with the move to cancelled", [{
+          path: "cancelVisits", message: 'Send it with status "cancelled".',
+        }]);
+      }
+      assertCan(ctx.actor, "visit:reschedule");
     }
 
     /**
@@ -768,8 +839,73 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       }
     }
 
+    if (input.cancelVisits && input.status === "cancelled") {
+      await cancelVisitsStillToCome(tx, ctx, input.id);
+    }
+
     return clean(ctx, "job", after!);
   });
+}
+
+/** Not started: nobody is on the way and nothing has been done. */
+const NOT_STARTED = ["unassigned", "scheduled", "dispatched"] as const;
+
+/**
+ * THE JOB IS OFF, SO ITS VISITS STILL TO COME ARE TOO.
+ *
+ * Cancelling a job used to leave its visits on the board, so a technician
+ * still drove to work nobody wanted and their phone was never told. Offered
+ * rather than automatic, because the office sometimes cancels a job to
+ * rebook the work on a new one and moves the visit across by hand.
+ *
+ * Only visits not started, whose window has not ended (or that have no
+ * time yet). A visit somebody is on the way to or working is left as it is:
+ * the person in the van is the one to talk to, and a status changed under
+ * them reads as a conflict on their phone. A visit whose window passed
+ * without anybody marking it is a gap in the record, not future work, and
+ * is left for the office to settle.
+ *
+ * Each one is cancelled the way a visit is cancelled on a customer's
+ * request: off the route order, its technicians told through the visit's
+ * notices ("Do not go"), and any request of the customer's still waiting
+ * on it closed with that said, so nobody approves a move of a visit that is
+ * no longer happening.
+ */
+async function cancelVisitsStillToCome(tx: Database, ctx: ServiceContext, jobId: string): Promise<string[]> {
+  const now = new Date();
+  const visits = await tx.select({ id: schema.visit.id }).from(schema.visit)
+    .where(and(
+      eq(schema.visit.jobId, jobId),
+      inArray(schema.visit.status, [...NOT_STARTED]),
+      sql`(coalesce(${schema.visit.windowEnd}, ${schema.visit.windowStart}) is null
+        or coalesce(${schema.visit.windowEnd}, ${schema.visit.windowStart}) > ${now.toISOString()}::timestamptz)`,
+    ));
+  const cancelled: string[] = [];
+  for (const visit of visits) {
+    const before = await sideOf(tx, visit.id);
+    await tx.update(schema.visit).set({ status: "cancelled", routeOrder: null, updatedAt: now })
+      .where(eq(schema.visit.id, visit.id));
+    if (before) await announce(tx, ctx, visit.id, before);
+
+    const overtaken = await tx.update(schema.visitChangeRequest).set({
+      status: "superseded", decidedAt: now, updatedAt: now, decidedByUserId: ctx.actor.userId,
+    }).where(and(
+      eq(schema.visitChangeRequest.visitId, visit.id),
+      inArray(schema.visitChangeRequest.status, ["pending", "proposed"]),
+    )).returning({ taskId: schema.visitChangeRequest.taskId });
+    for (const request of overtaken) {
+      if (!request.taskId) continue;
+      await tx.update(schema.task).set({
+        status: "done", outcome: "Overtaken: the office cancelled the job", completedAt: now,
+        completedByUserId: ctx.actor.userId, updatedAt: now,
+      }).where(and(eq(schema.task.id, request.taskId), isNull(schema.task.completedAt)));
+    }
+    cancelled.push(visit.id);
+  }
+  if (cancelled.length > 0) {
+    await audit(tx, ctx, "job.visits_cancelled", "job", jobId, null, { visitIds: cancelled });
+  }
+  return cancelled;
 }
 
 export async function addVisit(ctx: ServiceContext, input: z.infer<typeof scheduleVisit.input>) {
@@ -837,6 +973,13 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
         new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills,
       );
     }
+    const held = input.windowStart && input.status !== "cancelled" && input.externalRef === undefined
+      ? await checkMemberHold(tx, ctx, {
+        jobId: job.id, customerId: job.customerId, propertyId: job.propertyId, jobTypeId: job.jobTypeId,
+        windowStart: new Date(input.windowStart), durationMinutes: input.estimatedDurationMinutes,
+        bookAnyway: input.bookAnyway === true,
+      })
+      : null;
 
     const rows = await tx.execute<{ next: number }>(sql`
       select coalesce(max(sequence), 0) + 1 as next from public.visit where job_id = ${input.id}
@@ -869,6 +1012,12 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
           visitId: visit!.id, technicianId, isLead: i === 0,
         })),
       );
+    }
+
+    if (held) {
+      await audit(tx, ctx, "visit.booked_into_member_hold", "visit", visit!.id, null, {
+        jobId: job.id, customerId: job.customerId, date: held.date, window: held.windowName,
+      });
     }
 
     /** On their day from now, unless it is history brought in from another system. */

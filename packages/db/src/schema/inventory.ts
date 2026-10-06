@@ -1,8 +1,8 @@
-import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, boolean, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, boolean, date, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user, location, memberRole, role } from "./tenancy";
-import { priceBookItem } from "./pricebook";
+import { priceBookItem, priceBookCategory } from "./pricebook";
 import { job } from "./work";
 import { equipment } from "./crm";
 
@@ -40,6 +40,18 @@ export const movementKind = pgEnum("stock_movement_kind", [
   "scrap",
   "commit",
   "release",
+  /**
+   * Units already on the shelf given their serial or lot numbers. Moves no
+   * stock and no money: the item's level is unchanged, and the numbered
+   * units now have a level of their own.
+   */
+  "numbered",
+  /**
+   * Freight or duty billed after a delivery was received, added to what the
+   * parts on it cost. Moves no stock. Placed on what is still on a shelf, or
+   * on the use or the loss that already took those parts away.
+   */
+  "revaluation",
 ]);
 
 export const purchaseOrderStatus = pgEnum("purchase_order_status", [
@@ -105,6 +117,23 @@ export const vendorItem = pgTable("vendor_item", {
   cost: money("cost"),
   /** When the cost was last stated, by a person or a catalogue, so a stale one can be seen as stale. */
   costUpdatedAt: timestamp("cost_updated_at", { withTimezone: true }),
+  /**
+   * HOW MANY OF OUR UNITS ARE IN ONE OF THEIRS.
+   *
+   * A supply house sells wire nuts by the box of 25 and the price book counts
+   * each, so `cost` above is THEIR price for one box and this is 25. One when
+   * they sell what we count. An order to them is in whole boxes.
+   */
+  packQuantity: quantity("pack_quantity").notNull().default("1"),
+  /** What they call their unit, as their catalogue prints it: "box", "case", "roll". Null for each. */
+  purchaseUnit: text("purchase_unit"),
+  /**
+   * Their price for one pack when ordering at least so many packs, lowest
+   * minimum first: `[{ "minimum": "10", "cost": "98.0000" }]`. Replaced whole
+   * whenever the catalogue or a person states them, because a supplier's
+   * break table is one fact, not a list of separate ones.
+   */
+  priceBreaks: jsonb("price_breaks").$type<{ minimum: string; cost: string }[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -186,6 +215,28 @@ export const stockMovement = pgTable("stock_movement", {
   landedCost: money("landed_cost"),
   /** The delivery this arrived on, when it was received against an order. */
   receiptId: uuid("receipt_id").references(() => purchaseOrderReceipt.id, { onDelete: "restrict" }),
+  /**
+   * WHAT A REVALUATION OR A RETURN IS ABOUT.
+   *
+   * On a revaluation: the receipt whose parts are still on this shelf, or the
+   * use or loss that already took them, so the costing can put the late
+   * freight on exactly those. On a return off a job: the use it undoes, so
+   * the unit comes back at the cost it left at. Not a foreign key, because
+   * the movements it names are rows of this same append only table and are
+   * never deleted.
+   */
+  revaluesMovementId: uuid("revalues_movement_id"),
+  /**
+   * The part of `total_cost` that is freight billed AFTER the delivery was
+   * received. Unlike freight on the receipt itself, this part is in the
+   * ledger's inventory account while the parts are on a shelf, so the
+   * costing carries it apart and every use relieves its share.
+   */
+  lateCost: money("late_cost"),
+  /** The late freight or duty bill a revaluation came from. */
+  landedCostBillId: uuid("landed_cost_bill_id").references(() => landedCostBill.id, { onDelete: "restrict" }),
+  /** The return to a vendor a `return_to_vendor` movement belongs to. */
+  vendorReturnId: uuid("vendor_return_id").references(() => vendorReturn.id, { onDelete: "restrict" }),
   /**
    * A total order within the organization, assigned by the database.
    *
@@ -302,6 +353,16 @@ export const purchaseOrderLine = pgTable("purchase_order_line", {
    * Null when the item has no number recorded for this vendor.
    */
   vendorPartNumber: text("vendor_part_number"),
+  /**
+   * The vendor's pack AS IT WAS when the order was written, copied for the
+   * reason the part number is. `quantity_ordered` and `unit_price` stay in
+   * OUR units, which is what receiving and stock count; these say what the
+   * vendor reads: so many boxes of 25 at so much a box.
+   */
+  packQuantity: quantity("pack_quantity").notNull().default("1"),
+  purchaseUnit: text("purchase_unit"),
+  /** Their price for one pack, when the line was priced by the pack. Null when priced by our unit. */
+  packPrice: money("pack_price"),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
 }, (t) => ({
@@ -446,6 +507,16 @@ export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
   minimumTotal: money("minimum_total").notNull(),
   approverRole: memberRole("approver_role"),
   approverRoleId: uuid("approver_role_id").references(() => role.id, { onDelete: "restrict" }),
+  /**
+   * WHICH ORDERS THE STEP IS FOR, beyond their size. Null is every order.
+   * A vendor: orders to them. A category: orders with a line from that
+   * shelf of the price book. A location: orders delivering anywhere there.
+   * The amount is always the whole order's total, never the share in the
+   * category, because asking for more approval is the safe mistake.
+   */
+  vendorId: uuid("vendor_id").references(() => vendor.id, { onDelete: "restrict" }),
+  categoryId: uuid("category_id").references(() => priceBookCategory.id, { onDelete: "restrict" }),
+  locationId: uuid("location_id").references(() => location.id, { onDelete: "restrict" }),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
@@ -475,9 +546,36 @@ export const purchaseOrderApproval = pgTable("purchase_order_approval", {
   decision: approvalDecision("decision").notNull(),
   decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
   note: text("note"),
+  /**
+   * Set when an edit took the order above the total this decision approved.
+   * The decision stays as the record that it was made; the order asks again.
+   */
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
-  stepIdx: uniqueIndex("purchase_order_approval_step_idx").on(t.purchaseOrderId, t.step),
+  stepIdx: uniqueIndex("purchase_order_approval_step_idx").on(t.purchaseOrderId, t.step)
+    .where(sql`${t.supersededAt} is null`),
+}));
+
+/**
+ * EVERY TIME AN APPROVER WAS TOLD AN ORDER WAITS FOR THEM, whether the email
+ * went or not. Without it nobody can say whether the owner was asked, and an
+ * order sits in drafts while the buyer assumes it is being looked at.
+ */
+export const purchaseOrderApprovalNotice = pgTable("purchase_order_approval_notice", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "cascade" }),
+  step: integer("step").notNull(),
+  userId: uuid("user_id").references(() => user.id, { onDelete: "set null" }),
+  destination: text("destination").notNull(),
+  /** `queued` or `refused`. Queued is not delivered. */
+  state: text("state").notNull(),
+  explanation: text("explanation"),
+  messageId: uuid("message_id"),
+  ...timestamps,
+}, (t) => ({
+  orderIdx: index("purchase_order_approval_notice_order_idx").on(t.purchaseOrderId, t.createdAt),
 }));
 
 /* ===================================================================== */
@@ -539,4 +637,84 @@ export const truckStockMinimum = pgTable("truck_stock_minimum", {
   itemLocationIdx: uniqueIndex("truck_stock_minimum_item_location_idx")
     .on(t.organizationId, t.itemId, t.locationId)
     .where(sql`${t.deletedAt} is null`),
+}));
+
+/* ===================================================================== */
+/* Freight and duty billed after the delivery                             */
+/* ===================================================================== */
+
+/**
+ * A FREIGHT OR DUTY BILL THAT ARRIVED AFTER THE DELIVERY IT WAS FOR.
+ *
+ * The carrier's invoice comes a week after the truck, by which time some of
+ * what it carried is on a van and some is in a customer's basement. The bill
+ * is spread over that delivery's lines exactly as freight on the receipt
+ * would have been, and then each line's share follows its parts: onto the
+ * shelf where they still are, onto the job that used them, or onto the loss
+ * that took them. The ledger posting it made is named here.
+ */
+export const landedCostBill = pgTable("landed_cost_bill", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "restrict" }),
+  receiptId: uuid("receipt_id").notNull().references(() => purchaseOrderReceipt.id, { onDelete: "restrict" }),
+  basis: landedCostBasis("basis").notNull(),
+  total: money("total").notNull(),
+  /** The carrier's or broker's own number for the bill. */
+  reference: text("reference"),
+  /** What was put on parts still on a shelf, on jobs, and on stock already gone. */
+  onShelf: money("on_shelf").notNull(),
+  onJobs: money("on_jobs").notNull(),
+  onGone: money("on_gone").notNull(),
+  ledgerTransactionId: uuid("ledger_transaction_id"),
+  recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  receiptIdx: index("landed_cost_bill_receipt_idx").on(t.receiptId, t.createdAt),
+}));
+
+export const landedCostBillCharge = pgTable("landed_cost_bill_charge", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  billId: uuid("bill_id").notNull().references(() => landedCostBill.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  amount: money("amount").notNull(),
+  ...timestamps,
+}, (t) => ({
+  billIdx: index("landed_cost_bill_charge_bill_idx").on(t.billId),
+}));
+
+/* ===================================================================== */
+/* Returning units to a vendor                                            */
+/* ===================================================================== */
+
+export const vendorReturnStatus = pgEnum("vendor_return_status", ["awaiting_credit", "credited"]);
+
+/**
+ * UNITS SENT BACK TO A VENDOR, AND THE CREDIT THEY OWE FOR THEM.
+ *
+ * The stock leaves on `return_to_vendor` movements that name this row. The
+ * credit is a promise until the vendor's credit memo arrives, which is why
+ * it is two numbers: what we expect and what they gave. A return that sits
+ * at "awaiting credit" for a month is money a vendor is holding.
+ */
+export const vendorReturn = pgTable("vendor_return", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  number: integer("number").notNull(),
+  vendorId: uuid("vendor_id").notNull().references(() => vendor.id, { onDelete: "restrict" }),
+  status: vendorReturnStatus("status").notNull().default("awaiting_credit"),
+  reason: text("reason").notNull(),
+  /** The vendor's return authorisation number, when they gave one. */
+  reference: text("reference"),
+  creditExpected: money("credit_expected").notNull(),
+  creditReceived: money("credit_received"),
+  creditReceivedAt: timestamp("credit_received_at", { withTimezone: true }),
+  /** The vendor's credit memo number. */
+  creditReference: text("credit_reference"),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  numberIdx: uniqueIndex("vendor_return_number_idx").on(t.organizationId, t.number),
+  vendorIdx: index("vendor_return_vendor_idx").on(t.organizationId, t.vendorId, t.status),
 }));

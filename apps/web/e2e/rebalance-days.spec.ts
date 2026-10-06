@@ -37,7 +37,13 @@ async function api<T>(page: Page, method: "get" | "post" | "put" | "patch", path
 
 test("Rebalancing several days moves a visit to a day its customer agreed to, and only that one", async ({ owner }) => {
   test.setTimeout(180_000);
-  const DAY = plus(companyToday(), 12);
+  /**
+   * A Tuesday and the Wednesday after it, at least twelve days out: the
+   * rebalance never moves work onto a day the company is closed, so two days
+   * that land on a weekend would leave the flexible visit nowhere to go.
+   */
+  let DAY = plus(companyToday(), 12);
+  while (new Date(`${DAY}T12:00:00Z`).getUTCDay() !== 2) DAY = plus(DAY, 1);
   const NEXT = plus(DAY, 1);
 
   const { locations } = await api<{ locations: { id: string; name: string }[] }>(owner, "get", "/v1/locations");

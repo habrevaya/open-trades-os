@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { ledger, money as m } from "@opentradesos/core";
-import { guardedRead, type ServiceContext } from "./context";
+import { guardedRead, timezoneOf, type ServiceContext } from "./context";
 import { assertPeriodOpen } from "./history";
+import { branchesOf } from "./ledger-branch";
 
 /**
  * Writing a posting.
@@ -29,9 +30,15 @@ export async function writePosting(
   await assertPeriodOpen(tx, ctx.actor.organizationId, posting.occurredAt);
 
   const transactionId = randomUUID();
+  /**
+   * The branch of each entry, worked out here for the same reason the period
+   * is checked here: this is the one door, and a branch decided in each
+   * service that posts is a branch missing from whichever one forgot.
+   */
+  const branches = await branchesOf(tx, posting);
 
   await tx.insert(schema.ledgerEntry).values(
-    posting.entries.map((entry) => ({
+    posting.entries.map((entry, index) => ({
       organizationId: ctx.actor.organizationId,
       transactionId,
       occurredAt: posting.occurredAt,
@@ -43,8 +50,10 @@ export async function writePosting(
       sourceId: posting.sourceId,
       ...(entry.customerId ? { customerId: entry.customerId } : {}),
       ...(entry.jobId ? { jobId: entry.jobId } : {}),
+      ...(branches[index] ? { businessUnitId: branches[index]! } : {}),
       ...(entry.memo ? { memo: entry.memo } : {}),
       ...(entry.reversesEntryId ? { reversesEntryId: entry.reversesEntryId } : {}),
+      ...(entry.metadata ? { metadata: entry.metadata } : {}),
     })),
   );
 
@@ -99,7 +108,9 @@ export interface TrialBalance {
    * refuses an unbalanced posting, so these should always match; printing
    * them is how a reader confirms that for themselves rather than taking the
    * schema's word for it. If they ever differ, every other number on the
-   * report is suspect and the report says so instead of hiding it.
+   * report is suspect and the report says so instead of hiding it. That is
+   * the whole company's claim: a report narrowed to a branch need not
+   * balance by itself (see `trialBalance`).
    */
   totalDebits: string;
   totalCredits: string;
@@ -107,6 +118,23 @@ export interface TrialBalance {
   /** The window, echoed, because a trial balance with no dates is unreadable. */
   from: string | null;
   to: string | null;
+  /**
+   * What the branch dimension covers in this window, so a branch's figures are
+   * never read as the whole of its books or the company's as all of it
+   * branched.
+   */
+  branch: {
+    /** What the report was narrowed to: a branch's id, "none", or null for the company. */
+    filter: string | null;
+    /** Every entry in the window, whatever it was narrowed to. */
+    entries: number;
+    /** How many of them carry no branch. */
+    withoutBranch: number;
+    /** What the debits among them add up to, which is the size of what no branch holds. */
+    withoutBranchDebits: string;
+    /** The first day, in the company's calendar, any entry carries a branch. Everything before it has none. */
+    firstBranchedOn: string | null;
+  };
 }
 
 /**
@@ -116,41 +144,50 @@ export interface TrialBalance {
  * report that reads the whole ledger and a company closing its fifth year has
  * a lot of it.
  *
- * NO BUSINESS UNIT FILTER, AND THAT IS DELIBERATE RATHER THAN AN OMISSION.
+ * NARROWED TO A BRANCH, AND HONEST ABOUT WHAT THAT HOLDS.
  *
- * `ledger_entry.business_unit_id` exists for exactly this, and the first
- * version of this function took it. A guard test caught what that meant:
- * `writePosting` has never written the column, on any path, so the filter
- * matched nothing on every ledger in every company. A report that comes back
- * empty is at least obviously wrong.
+ * The filter was withheld for as long as nothing wrote
+ * `ledger_entry.business_unit_id`, because a filter that matched nothing is at
+ * least obviously wrong and a filter that matched a branch's revenue and none
+ * of its payments is not. Every posting now carries the branch it can be traced
+ * to (`ledger-branch.ts` says how), so the filter is the branch's invoices,
+ * their payments, write offs, credit notes and deposits, the cost posted on its
+ * jobs, and the journal lines that name it.
  *
- * The reason it is not simply wired up here is worse than the reason it was
- * missing. Filling it on the invoice path alone is easy, because an invoice
- * carries its own unit, and it would produce a filtered trial balance holding
- * a branch's revenue and none of its payments, write-offs or deposits. That
- * number is plausible, it is wrong, and nobody checking it against a bank
- * statement would find the cause. Making it true needs the unit carried
- * through every one of the paths that post, which is its own piece of work.
+ * What it still cannot hold is said in the answer rather than left to be found:
+ * `branch` counts the entries in the window that carry no branch and what they
+ * add up to, and the day the first branch was written. Everything before that
+ * day has none, because nothing old is migrated (the table cannot be updated,
+ * and a branch guessed into a ledger is a guess for good), and so do the
+ * postings that belong to the company (payroll, the release of deferred
+ * revenue) or to two branches at once (a payment spread over both).
  *
- * So the filter comes back when the column has a writer, and until then the
- * report covers the whole company and says so.
+ * A BRANCH'S TOTALS NEED NOT BALANCE BY THEMSELVES, and `balanced` is only the
+ * whole company's claim. A journal can give each of its lines a branch of its
+ * own (rent for two shops on one bill), so one branch holds one side of it.
  */
 export async function trialBalance(
   ctx: ServiceContext,
-  input: { from?: string | undefined; to?: string | undefined } = {},
+  input: {
+    from?: string | undefined;
+    to?: string | undefined;
+    /** A branch, or "none" for the postings that carry none. Left out is the whole company. */
+    businessUnitId?: string | undefined;
+  } = {},
 ): Promise<TrialBalance> {
   return guardedRead(ctx, "ledger:read", async (tx) => {
+    const inWindow = and(
+      eq(schema.ledgerEntry.organizationId, ctx.actor.organizationId),
+      input.from ? gte(schema.ledgerEntry.occurredAt, new Date(input.from)) : undefined,
+      input.to ? lte(schema.ledgerEntry.occurredAt, new Date(input.to)) : undefined,
+    );
     const rows = await tx.select({
       accountCode: schema.ledgerEntry.accountCode,
       currency: schema.ledgerEntry.currency,
       direction: schema.ledgerEntry.direction,
       total: sql<string>`sum(${schema.ledgerEntry.amount})::text`,
     }).from(schema.ledgerEntry)
-      .where(and(
-        eq(schema.ledgerEntry.organizationId, ctx.actor.organizationId),
-        input.from ? gte(schema.ledgerEntry.occurredAt, new Date(input.from)) : undefined,
-        input.to ? lte(schema.ledgerEntry.occurredAt, new Date(input.to)) : undefined,
-      ))
+      .where(and(inWindow, branchFilter(input.businessUnitId)))
       .groupBy(
         schema.ledgerEntry.accountCode,
         schema.ledgerEntry.currency,
@@ -205,6 +242,21 @@ export async function trialBalance(
       }
     }
 
+    const tz = await timezoneOf(tx, ctx.actor.organizationId);
+    const [coverage] = await tx.select({
+      entries: sql<string>`count(*)::text`,
+      without: sql<string>`count(*) filter (where ${schema.ledgerEntry.businessUnitId} is null)::text`,
+      withoutDebits: sql<string>`coalesce(sum(${schema.ledgerEntry.amount}) filter (
+        where ${schema.ledgerEntry.businessUnitId} is null and ${schema.ledgerEntry.direction} = 'debit'
+      ), 0)::numeric(14,4)::text`,
+    }).from(schema.ledgerEntry).where(inWindow);
+    const [first] = await tx.select({
+      day: sql<string | null>`to_char(min(${schema.ledgerEntry.occurredAt}) at time zone ${tz}, 'YYYY-MM-DD')`,
+    }).from(schema.ledgerEntry).where(and(
+      eq(schema.ledgerEntry.organizationId, ctx.actor.organizationId),
+      isNotNull(schema.ledgerEntry.businessUnitId),
+    ));
+
     return {
       rows: out,
       totalDebits: m.toString(totalDebits),
@@ -212,8 +264,26 @@ export async function trialBalance(
       balanced: m.toString(totalDebits) === m.toString(totalCredits),
       from: input.from ?? null,
       to: input.to ?? null,
+      branch: {
+        filter: input.businessUnitId ?? null,
+        entries: Number(coverage?.entries ?? 0),
+        withoutBranch: Number(coverage?.without ?? 0),
+        withoutBranchDebits: coverage?.withoutDebits ?? "0.0000",
+        firstBranchedOn: first?.day ?? null,
+      },
     };
   });
+}
+
+/**
+ * The branch condition both ledger reports share: one branch, or "none" for the
+ * entries that carry no branch, or nothing at all.
+ */
+function branchFilter(businessUnitId: string | undefined) {
+  if (businessUnitId === undefined) return undefined;
+  return businessUnitId === "none"
+    ? isNull(schema.ledgerEntry.businessUnitId)
+    : eq(schema.ledgerEntry.businessUnitId, businessUnitId);
 }
 
 export interface JournalEntry {
@@ -230,6 +300,8 @@ export interface JournalEntry {
     memo: string | null;
     jobId: string | null;
     customerId: string | null;
+    /** The branch the entry belongs to, or null when it has none: see the trial balance. */
+    businessUnitId: string | null;
     /** The entry this one reverses, when it is a reversal. */
     reversesEntryId: string | null;
   }[];
@@ -259,6 +331,8 @@ export async function journal(
     jobId?: string | undefined;
     customerId?: string | undefined;
     accountCode?: string | undefined;
+    /** A branch, or "none" for the entries that carry none. */
+    businessUnitId?: string | undefined;
     limit?: number | undefined;
   } = {},
 ): Promise<{ transactions: JournalEntry[] }> {
@@ -285,6 +359,7 @@ export async function journal(
         input.jobId ? eq(schema.ledgerEntry.jobId, input.jobId) : undefined,
         input.customerId ? eq(schema.ledgerEntry.customerId, input.customerId) : undefined,
         input.accountCode ? eq(schema.ledgerEntry.accountCode, input.accountCode) : undefined,
+        branchFilter(input.businessUnitId),
       ))
       .orderBy(desc(schema.ledgerEntry.occurredAt))
       .limit(limit);
@@ -333,6 +408,7 @@ export async function journal(
           memo: line.memo,
           jobId: line.jobId,
           customerId: line.customerId,
+          businessUnitId: line.businessUnitId,
           reversesEntryId: line.reversesEntryId,
         })),
         totalDebits: m.toString(debits),
@@ -346,11 +422,11 @@ export async function journal(
 
 export const handlers = {
   getTrialBalance: (ctx: ServiceContext, input: {
-    from?: string | undefined; to?: string | undefined;
+    from?: string | undefined; to?: string | undefined; businessUnitId?: string | undefined;
   }): Promise<TrialBalance> => trialBalance(ctx, input),
   listJournal: (ctx: ServiceContext, input: {
     from?: string | undefined; to?: string | undefined;
     jobId?: string | undefined; customerId?: string | undefined;
-    accountCode?: string | undefined; limit?: number | undefined;
+    accountCode?: string | undefined; businessUnitId?: string | undefined; limit?: number | undefined;
   }): Promise<{ transactions: JournalEntry[] }> => journal(ctx, input),
 } as const;

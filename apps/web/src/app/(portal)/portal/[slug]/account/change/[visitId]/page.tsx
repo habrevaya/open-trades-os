@@ -4,7 +4,7 @@ import { visitChanges } from "@opentradesos/api/services";
 import { requirePortalSession } from "@/lib/portal-session";
 import { PortalBrand } from "../../../../../PortalBrand";
 import { VisitChange } from "../../../../../VisitChange";
-import { requestSessionVisitChange } from "../../actions";
+import { answerSessionVisitChangeProposal, requestSessionVisitChange } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,7 @@ export default async function SignedInChangeVisitPage({
     <PortalBrand token={session.token} logoHref={`${base}/logo`}>
       <VisitChange
         send={requestSessionVisitChange.bind(null, slug)}
+        answer={answerSessionVisitChangeProposal.bind(null, slug)}
         options={options}
         visitId={visitId}
         path={`${base}/account/change/${visitId}`}

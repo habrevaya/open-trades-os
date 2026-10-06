@@ -39,7 +39,7 @@ export interface SetupStep {
 
 export const SETUP_STEP_KEYS = [
   "company", "trade", "service-area", "hours", "team",
-  "pricebook", "tax", "payments", "communications", "integrations",
+  "pricebook", "tax", "rates", "payments", "communications", "integrations",
 ] as const;
 export type SetupStepKey = (typeof SETUP_STEP_KEYS)[number];
 
@@ -82,10 +82,12 @@ export const SETUP_STEPS: readonly SetupStep[] = [
     key: "hours",
     title: "Hours and availability",
     /**
-     * Holidays and after hours rates have no screen anywhere and are not
-     * promised. The on call rota is its own screen under the schedule.
+     * The holiday list is drawn here as well as under Settings, because it
+     * is the other half of "when are you open". After hours and holiday
+     * rates are their own step, after the price book they are chosen from.
+     * The on call rota is its own screen under the schedule.
      */
-    summary: "Which days you are open and the arrival windows you let people pick.",
+    summary: "Which days you are open, the days you close for holidays, and the arrival windows you let people pick.",
     essential: true,
     hasLeadTime: false,
     permission: "booking:configure",
@@ -110,13 +112,27 @@ export const SETUP_STEPS: readonly SetupStep[] = [
     key: "tax",
     title: "Sales tax",
     /**
-     * NAMES WHAT EXISTS. There are no tax jurisdictions and no rate table: a
-     * rate is carried on the line it was charged on, and taxability is a
-     * property of a price book item. Determining a rate is on the list of
-     * things this project has decided not to build (BUILD.md).
+     * NAMES WHAT EXISTS. The company's own rates (a name, a percentage from a
+     * day, the usual one) and which price book items are taxable. No tax
+     * jurisdictions: looking a rate up from an address is on the list of
+     * things this project has decided not to build (BUILD.md). Marking the
+     * step done needs the price book; the rates need company settings.
      */
-    summary: "Which of your items are taxable and under which class. Rates are set on the document.",
+    summary: "The sales tax rates you charge, your usual one, and which of your items are taxable.",
     essential: true,
+    hasLeadTime: false,
+    permission: "pricebook:write",
+  },
+  {
+    key: "rates",
+    title: "After hours and holiday rates",
+    /**
+     * After the price book, because both rates are items in it, marked as
+     * the after hours rate a membership plan can waive. The invoice offers
+     * the item for work booked outside the hours; nothing adds it by itself.
+     */
+    summary: "Which item you charge for work booked outside your hours, and which on a holiday. The invoice offers it; it is never added on its own.",
+    essential: false,
     hasLeadTime: false,
     permission: "pricebook:write",
   },

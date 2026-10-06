@@ -330,6 +330,12 @@ export const JournalEntry = z.object({
     direction: z.enum(["debit", "credit"]),
     amount: MoneyString,
     memo: z.string().nullable(),
+    businessUnitId: Uuid.nullable(),
+    branchName: z.string().nullable(),
+    jobId: Uuid.nullable(),
+    jobNumber: z.string().nullable(),
+    customerId: Uuid.nullable(),
+    customerName: z.string().nullable(),
   })),
 });
 
@@ -358,7 +364,7 @@ export const createJournalEntry = defineRoute({
   path: "/v1/ledger/journal-entries",
   summary: "Post a manual journal entry",
   description:
-    "Lines with an account code and a debit or a credit. Refused, with every problem named against its line, when it does not balance, when a line touches an account the product keeps in step with documents (receivable, customer deposits, tips and commission payable, deferred revenue), when the date is in the future, or when it falls in a closed period. Audited, and sent to the accounting system on the next sync once its accounts are mapped.",
+    "Lines with an account code and a debit or a credit, and optionally a branch (businessUnitId), a job and a customer each line is about. Each must be this company's own: a branch that is retired, a job or customer that has been removed, or another company's, refuses the entry and names the line. A line that names a job and no branch takes the job's branch. A job's costs and revenue include the journal lines on it (M15). Refused, with every problem named against its line, when it does not balance, when a line touches an account the product keeps in step with documents (receivable, customer deposits, tips and commission payable, deferred revenue), when the date is in the future, or when it falls in a closed period. Audited, and sent to the accounting system on the next sync once its accounts are mapped; the branch, job and customer are not sent, which carries each line's account and amount only.",
   module: "M14",
   permissions: ["ledger:post"],
   idempotent: true,
@@ -370,6 +376,9 @@ export const createJournalEntry = defineRoute({
       debit: z.string().max(20).optional(),
       credit: z.string().max(20).optional(),
       memo: z.string().max(500).optional(),
+      businessUnitId: Uuid.optional(),
+      jobId: Uuid.optional(),
+      customerId: Uuid.optional(),
     })).min(2).max(100),
   }),
   output: JournalEntry,

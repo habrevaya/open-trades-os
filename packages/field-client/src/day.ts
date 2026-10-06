@@ -1,7 +1,7 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
 import type {
-  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTask, FieldVisit, MemberTerms, ReportField,
+  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTalk, FieldTask, FieldVisit, MemberTerms, ReportField, VisitTax,
 } from "./wire";
 import { addAmounts, estimateFromPayload } from "./sales";
 
@@ -171,6 +171,13 @@ export interface DayTask extends FieldTask {
   waiting: boolean;
 }
 
+/** A toolbox talk on this person's sheet, with a signature drawn on this phone laid over. */
+export interface DayTalk extends FieldTalk {
+  /** Signed on this phone and not sent yet, or sent and not yet in a fetched day. */
+  signedHere: boolean;
+  waiting: boolean;
+}
+
 export interface DayInspection {
   id: string;
   programName: string;
@@ -179,10 +186,15 @@ export interface DayInspection {
   waiting: boolean;
 }
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "estimates" | "billable" | "invoices"> {
+/** What an older server's day means for tax: none on recorded work, as it charged. */
+const NO_TAX: VisitTax = { rate: "0", percent: "0", label: null, source: "none", note: "No rate applies." };
+
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices"> {
   checklist: DayChecklistItem[];
   /** The plan the customer is a member on here, which prices what the phone shows. */
   member: MemberTerms | null;
+  /** The visit's sales tax, as the server will charge it. None from a server too old to say. */
+  tax: VisitTax;
   estimates: DayEstimate[];
   billable: DayBillable[];
   invoices: DayInvoice[];
@@ -212,6 +224,8 @@ export interface DayView {
   clock: { open: boolean; since: string | null; waiting: boolean };
   /** The office queue: this person's tasks and the ones nobody has taken. */
   tasks: DayTask[];
+  /** Toolbox talks on this person's sheet. */
+  talks: DayTalk[];
 }
 
 /**
@@ -247,6 +261,7 @@ export function projectDay(input: {
       parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
       amountDue: visit.amountDue ?? null,
       member: visit.member ?? null,
+      tax: visit.tax ?? NO_TAX,
       estimates: (visit.estimates ?? []).map((e) => ({ ...e, waiting: false })),
       billable: (visit.billable ?? []).map((b) => ({ ...b, waiting: false })),
       invoices: (visit.invoices ?? []).map((i) => ({ ...i, waiting: false })),
@@ -266,6 +281,7 @@ export function projectDay(input: {
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
   const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
+  const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -299,6 +315,13 @@ export function projectDay(input: {
       task.waiting = waiting;
       continue;
     }
+    if (op.kind === "safety.sign") {
+      const talk = talks.find((t) => t.meetingId === op.subjectId);
+      if (!talk) continue;
+      talk.signedHere = true;
+      talk.waiting = waiting;
+      continue;
+    }
 
     const visitId = visitOf(op);
     const visit = visitId ? visits.get(visitId) : undefined;
@@ -329,6 +352,7 @@ export function projectDay(input: {
     visits: [...visits.values()].sort(byRoute),
     clock,
     tasks,
+    talks,
   };
 }
 
@@ -344,8 +368,8 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
-  /** A task is the office's, not a visit's. */
-  if (op.kind === "task.claim" || op.kind === "task.close") return undefined;
+  /** A task is the office's, not a visit's, and a toolbox talk is nobody's visit. */
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign") return undefined;
   return op.subjectId;
 }
 
@@ -408,7 +432,8 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
           name: typeof p["name"] === "string" ? p["name"] : "Part",
           quantity: typeof p["quantity"] === "string" ? p["quantity"] : "1",
           unitPrice: typeof p["unitPrice"] === "string" ? p["unitPrice"] : "0",
-          taxable: p["taxable"] !== false,
+          /** As the server records it: as said, or a part taxed and labour not. */
+          taxable: typeof p["taxable"] === "boolean" ? p["taxable"] : p["kind"] !== "labor",
           itemKind: typeof p["itemKind"] === "string" ? p["itemKind"] : null,
           feeRole: typeof p["feeRole"] === "string" ? p["feeRole"] : null,
           waiting,

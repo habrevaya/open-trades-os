@@ -813,13 +813,16 @@ grant execute on function app.oauth_client(text) to authenticated;
 
 -- Whether a confidential client presented its own secret. The caller hashes
 -- what was sent, so the secret itself is never a parameter here or in a log.
--- A public client has no secret and never matches.
+-- A public client has no secret and never matches. The secret before the last
+-- rotation matches too, until its overlap ends and not a second after.
 create or replace function app.oauth_client_secret_matches(p_client_id text, p_secret_hash text)
   returns boolean
   language sql stable security definer set search_path = public, pg_temp
   as $$
     select coalesce((
-      select c.secret_hash is not null and c.secret_hash = p_secret_hash
+      select (c.secret_hash is not null and c.secret_hash = p_secret_hash)
+          or (c.previous_secret_hash is not null and c.previous_secret_hash = p_secret_hash
+              and c.previous_secret_expires_at > now())
       from public.oauth_client c
       where c.client_id = p_client_id
       limit 1
@@ -828,6 +831,52 @@ create or replace function app.oauth_client_secret_matches(p_client_id text, p_s
 
 revoke all on function app.oauth_client_secret_matches(text, text) from public;
 grant execute on function app.oauth_client_secret_matches(text, text) to authenticated;
+
+-- A confidential client rotating its own secret. Only the CURRENT secret
+-- may do it, never the one in its overlap: a leaked old secret that could
+-- rotate would let whoever holds it keep a working secret forever. One
+-- statement, so two rotations racing cannot both win: the second finds the
+-- current hash changed and rotates nothing. A rotation during an overlap
+-- retires the oldest, so at most two secrets ever work. Answers whether it
+-- rotated and, when it did, until when the old one still works.
+create or replace function app.oauth_rotate_client_secret(
+  p_client_id text, p_current_hash text, p_new_hash text, p_overlap_seconds int
+) returns table (rotated boolean, previous_expires_at timestamptz)
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with done as (
+      update public.oauth_client c
+         set previous_secret_hash = case when p_overlap_seconds > 0 then c.secret_hash end,
+             previous_secret_expires_at = case when p_overlap_seconds > 0
+               then now() + make_interval(secs => least(greatest(p_overlap_seconds, 0), 86400)) end,
+             secret_hash = p_new_hash,
+             secret_rotated_at = now()
+       where c.client_id = p_client_id
+         and c.secret_hash is not null
+         and c.secret_hash = p_current_hash
+         and p_new_hash is not null
+      returning c.previous_secret_expires_at
+    )
+    select exists (select 1 from done), (select previous_secret_expires_at from done limit 1)
+  $$;
+
+revoke all on function app.oauth_rotate_client_secret(text, text, text, int) from public;
+grant execute on function app.oauth_rotate_client_secret(text, text, text, int) to authenticated;
+
+-- Which companies have connected a client, so a rotation can be written in
+-- each one's own audit log. Ids only, read by the server, never answered to
+-- the client: a registration says nothing about who approved it.
+create or replace function app.oauth_client_connections(p_client_id text)
+  returns table (organization_id uuid, app_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id, a.id
+    from public.connected_app a
+    where a.oauth_client_id = p_client_id
+  $$;
+
+revoke all on function app.oauth_client_connections(text) from public;
+grant execute on function app.oauth_client_connections(text) to authenticated;
 
 -- REGISTRATIONS NOBODY EVER USED.
 -- A client registers before anybody at any company has been asked, and many
@@ -1569,30 +1618,47 @@ grant execute on function app.due_deliveries(int) to background;
 -- The same shape as the three above and for the same reason: ids only, not
 -- callable by the role the request path uses. A company is returned when it
 -- has an active agreement whose end is inside the plan's notice window, with
--- a day to spare either side for timezones. Whether anything is actually due
--- is decided per agreement, in the company's own calendar, by the service.
+-- a day to spare either side for timezones, or a term that has ended and not
+-- yet released its breakage (what its visits never taken still hold
+-- deferred). Whether anything is actually due is decided per agreement, in
+-- the company's own calendar, by the service.
 -- =========================================================================
 
 create or replace function app.agreement_renewal_organizations(p_limit int default 100)
 returns table (organization_id uuid)
   language sql stable security definer set search_path = public, pg_temp
   as $$
-    select a.organization_id
-    from public.agreement a
-    join public.agreement_plan p on p.id = a.plan_id
-    where a.status = 'active'
-      and a.ends_on is not null
-      and (
-        a.ends_on <= current_date + 1
-        or (a.renewal_notice_sent_at is null
-            and a.ends_on <= current_date + p.renewal_notice_days + 1)
-      )
-      and not exists (
-        select 1 from public.organization o
-         where o.id = a.organization_id and o.suspended_at is not null
-      )
-    group by a.organization_id
-    order by min(a.ends_on)
+    select x.organization_id
+    from (
+      select a.organization_id, a.ends_on
+      from public.agreement a
+      join public.agreement_plan p on p.id = a.plan_id
+      where a.status = 'active'
+        and a.ends_on is not null
+        and (
+          a.ends_on <= current_date + 1
+          or (a.renewal_notice_sent_at is null
+              and a.ends_on <= current_date + p.renewal_notice_days + 1)
+        )
+      union all
+      -- A term that has ended and has not yet given up what it holds deferred.
+      select t.organization_id, t.ends_on
+      from public.agreement_term t
+      where t.breakage_released_on is null and t.ends_on <= current_date + 1
+      union all
+      -- A lapsed agreement sold before terms were recorded, whose current term has no row yet.
+      select a.organization_id, a.ends_on
+      from public.agreement a
+      where a.status = 'lapsed' and a.ends_on is not null
+        and not exists (select 1 from public.agreement_term t
+                         where t.agreement_id = a.id and t.term = a.renewal_count + 1)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    group by x.organization_id
+    order by min(x.ends_on)
     limit p_limit
   $$;
 
@@ -1705,6 +1771,87 @@ returns table (organization_id uuid)
 
 revoke all on function app.task_rule_organizations(int) from public;
 grant execute on function app.task_rule_organizations(int) to background;
+
+-- ---- Companies with toolbox talks to raise ---------------------------------
+-- The talk pass raises a scheduled toolbox talk on its day, across every
+-- tenant, as the task pass raises a recurring task. This answers only WHICH
+-- companies have an active talk schedule; which talk is due is decided per
+-- company, in its own timezone, by the service. A suspended company is left
+-- alone.
+create or replace function app.safety_talk_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id from public.safety_talk_schedule s
+    where s.active
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    group by s.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.safety_talk_organizations(int) from public;
+grant execute on function app.safety_talk_organizations(int) to background;
+
+-- ---- Companies holding an estimate that may have passed its date --------
+-- The worker marks an open estimate expired once its date has passed in the
+-- company's own calendar. It has no tenant until it picks one, so it asks here
+-- which companies hold a sent or viewed estimate with a date that is not in
+-- the future anywhere on earth, and nothing else. The date is compared loosely
+-- on purpose (a company is at most a day ahead of UTC): the service does the
+-- exact comparison in each company's timezone. `p_on` is the UTC date the pass
+-- is for, the database's own when not given. A suspended company is left
+-- alone, like every other pass.
+create or replace function app.estimate_expiry_organizations(p_limit int default 200, p_on date default null)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct e.organization_id from public.estimate e
+       where e.status in ('sent', 'viewed')
+         and e.expires_on is not null
+         and e.expires_on <= coalesce(p_on, (now() at time zone 'utc')::date)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.estimate_expiry_organizations(int, date) from public;
+grant execute on function app.estimate_expiry_organizations(int, date) to background;
+
+-- ---- Companies with automatic payments, or card charges to follow up ------
+-- A customer who agreed can have each bill charged to their saved card as it
+-- is issued, and a charge the worker made may need following up: a declined
+-- one tried once more the next day, one the processor took and has since
+-- settled or failed, one a worker died in the middle of. The worker has no
+-- tenant until it picks one, so it asks here which companies have any of
+-- that, and nothing else: a list of ids, as the passes above.
+create or replace function app.autopay_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select a.organization_id from public.payment_agreement a
+       where a.withdrawn_at is null and a.autopay_at is not null
+      union
+      select c.organization_id from public.card_on_file_charge c
+       where c.status in ('charging', 'submitted')
+          or (c.status = 'failed' and c.retry_at is not null)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.autopay_organizations(int) from public;
+grant execute on function app.autopay_organizations(int) to background;
 
 -- ---- Companies whose contract clocks need a pass -------------------------
 -- The commercial module keeps SLA, invoicing and claim clocks on jobs, and
@@ -2980,6 +3127,8 @@ returns table (organization_id uuid)
         from public.push_delivery d
        where d.status in ('queued', 'sending')
           or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
+          -- A notice that ended without reaching anybody, not yet put to the office.
+          or (d.status in ('failed', 'skipped') and d.office_told_at is null)
        group by d.organization_id
     ) x
     where not exists (
@@ -3135,3 +3284,169 @@ returns table (organization_id uuid, purchase_order_id uuid)
 
 revoke all on function app.purchase_order_link(text) from public;
 grant execute on function app.purchase_order_link(text) to authenticated;
+
+-- ---- Loading a copy into an empty company --------------------------------
+-- A restore names the people who worked in the company by their address, and
+-- a person sits above the tenant, so "is there already an account for this
+-- address" cannot be answered from inside one. This answers it for each
+-- person in the copy and makes an account, with no password, for an address
+-- nobody has yet: the same thing an invitation does.
+--
+-- An address that already has an account is linked to the restored company
+-- only when it is the caller's own, or when that account works for a company
+-- the caller runs as an active owner, which is the case of restoring a copy
+-- beside the company it was taken from. Any other account is answered
+-- `elsewhere` and left alone: a file is not allowed to add somebody's existing
+-- account to a company, for the reason an invitation is not.
+--
+-- Only an active owner of the current company may ask, so a restore cannot be
+-- the way somebody without that standing mints accounts.
+create or replace function app.restore_people(p_people jsonb)
+  returns table (old_user_id uuid, email text, user_id uuid, outcome text)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+    v_actor_email text;
+    v_person jsonb;
+    v_old uuid;
+    v_email text;
+    v_name text;
+    v_user uuid;
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active and m.role = 'owner'
+    ) then
+      raise exception 'only an active owner of a company may restore people into it'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    select lower(u.email) into v_actor_email from public."user" u where u.id = v_actor;
+
+    for v_person in select * from jsonb_array_elements(coalesce(p_people, '[]'::jsonb)) loop
+      v_old := (v_person->>'userId')::uuid;
+      v_email := lower(trim(coalesce(v_person->>'email', '')));
+      v_name := nullif(trim(coalesce(v_person->>'name', '')), '');
+
+      if v_email = '' then
+        return query select v_old, v_email, null::uuid, 'no_address'::text;
+        continue;
+      end if;
+
+      if v_email = v_actor_email then
+        return query select v_old, v_email, v_actor, 'you'::text;
+        continue;
+      end if;
+
+      select u.id into v_user from public."user" u where u.email = v_email;
+
+      if v_user is null then
+        insert into public."user" (id, email, name)
+        values (
+          case when v_old is not null and not exists (select 1 from public."user" x where x.id = v_old)
+               then v_old else gen_random_uuid() end,
+          v_email, v_name)
+        returning id into v_user;
+        return query select v_old, v_email, v_user, 'new'::text;
+        continue;
+      end if;
+
+      if exists (
+        select 1 from public.membership mine
+          join public.membership theirs on theirs.organization_id = mine.organization_id
+         where mine.user_id = v_actor and mine.role = 'owner' and mine.active
+           and theirs.user_id = v_user
+      ) then
+        return query select v_old, v_email, v_user, 'linked'::text;
+      else
+        return query select v_old, v_email, null::uuid, 'elsewhere'::text;
+      end if;
+    end loop;
+  end;
+  $$;
+
+revoke all on function app.restore_people(jsonb) from public;
+grant execute on function app.restore_people(jsonb) to authenticated;
+
+-- Whether the company a copy was taken from is on this deployment. When it
+-- is, every id in the copy is already taken by the original, so the restore
+-- gives every record a new one; when it is not, the ids are kept, which is
+-- what lets links, integrations and anything else that remembered an id keep
+-- working after a move. A yes or no about an id the caller already holds in
+-- their file, asked only by an active member of a company.
+create or replace function app.restore_source_present(p_organization_id uuid)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select exists (
+      select 1 from public.membership m
+       where m.organization_id = (select app.current_organization_id())
+         and m.user_id = (select app.current_user_id()) and m.active
+    ) and exists (
+      select 1 from public.organization o where o.id = p_organization_id
+    )
+  $$;
+
+revoke all on function app.restore_source_present(uuid) from public;
+grant execute on function app.restore_source_present(uuid) to authenticated;
+
+-- ---- Copies due on a clock -------------------------------------------------
+-- The same shape as the delivery schedules: which companies have a copy due,
+-- across every tenant, as ids and nothing else. A suspended company takes no
+-- copies; its destination waits.
+create or replace function app.due_backups(p_limit int default 20)
+returns table (organization_id uuid, destination_id uuid, next_run_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select d.organization_id, d.id, d.next_run_at
+    from public.backup_destination d
+    where d.next_run_at is not null
+      and d.next_run_at <= now()
+      and not exists (
+        select 1 from public.organization o
+         where o.id = d.organization_id and o.suspended_at is not null
+      )
+    order by d.next_run_at
+    limit p_limit
+  $$;
+
+revoke all on function app.due_backups(int) from public;
+grant execute on function app.due_backups(int) to background;
+
+-- ---- Where each company's files are ----------------------------------------
+-- The companies with files in Postgres (`postgres`), files in the bucket
+-- (`object`), or deleted files whose object the worker has still to delete
+-- (`sweep`). For the command that moves files between the two and for the
+-- worker's sweep, both of which work a company at a time inside its tenant.
+create or replace function app.file_store_organizations(p_kind text, p_limit int default 100)
+returns table (organization_id uuid, files bigint)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select f.organization_id, count(*)::bigint
+    from public.stored_file f
+    where case p_kind
+      when 'postgres' then f.stored_in = 'postgres' and f.deleted_at is null
+      when 'object' then f.stored_in = 'object' and f.deleted_at is null
+      when 'sweep' then f.stored_in = 'object' and f.deleted_at is not null
+      else false
+    end
+    group by f.organization_id
+    order by f.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.file_store_organizations(text, int) from public;
+grant execute on function app.file_store_organizations(text, int) to background;
+
+-- ---- One open request per visit ---------------------------------------------
+-- A customer's request to move or cancel a visit is open while the office has
+-- not answered it (`pending`) and while an offer of a different time waits on
+-- the customer (`proposed`). Built here rather than in the migration that
+-- added `proposed`, because Postgres will not use an enum value inside the
+-- transaction that created it and the generated migrations run in one. The
+-- schema (`visit_change_request.pendingIdx`) declares the same index.
+create unique index if not exists visit_change_request_pending_idx
+  on public.visit_change_request using btree (visit_id)
+  where status in ('pending', 'proposed');

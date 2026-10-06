@@ -54,4 +54,51 @@ describe("a manual journal", () => {
       ["credit", "6500", "e1"], ["debit", "1000", "e2"],
     ]);
   });
+
+  it("carries a branch, a job and a customer from a line onto its entry", () => {
+    const branch = "11111111-1111-4111-8111-111111111111";
+    const job = "22222222-2222-4222-8222-222222222222";
+    const customer = "33333333-3333-4333-8333-333333333333";
+    const checked = ledger.checkJournal([
+      { accountCode: "5000", debit: "300", businessUnitId: branch, jobId: job, customerId: customer },
+      { accountCode: "1000", credit: "300" },
+    ]);
+    expect(checked.ok).toBe(true);
+    if (!checked.ok) return;
+    expect(checked.entries[0]).toMatchObject({ businessUnitId: branch, jobId: job, customerId: customer });
+    // A line that names nothing carries nothing, which is what "no branch" means.
+    expect(checked.entries[1]).not.toHaveProperty("businessUnitId");
+    expect(checked.entries[1]).not.toHaveProperty("jobId");
+    expect(checked.entries[1]).not.toHaveProperty("customerId");
+  });
+
+  it("refuses an id that is not an id, against its own line, with the others still checked", () => {
+    const checked = ledger.checkJournal([
+      { accountCode: "5000", debit: "300", jobId: "1042" },
+      { accountCode: "6500", debit: "5", businessUnitId: "nope", customerId: "also nope" },
+      { accountCode: "1000", credit: "305" },
+    ]);
+    expect(checked.ok).toBe(false);
+    if (checked.ok) return;
+    expect(checked.problems.map((p) => [p.line, p.message])).toEqual([
+      [1, "The job on this line is not one of yours."],
+      [2, "The branch on this line is not one of yours."],
+      [2, "The customer on this line is not one of yours."],
+    ]);
+  });
+
+  it("puts the same branch, job and customer on the line that takes one back, so the two net to nothing there", () => {
+    const branch = "11111111-1111-4111-8111-111111111111";
+    const job = "22222222-2222-4222-8222-222222222222";
+    const posting = ledger.reverseJournal({
+      journalId: "j3", occurredAt: new Date(), memo: "Reverses journal 2",
+      original: [
+        { id: "e1", direction: "debit", accountCode: "5000", amount: m.money("300"), businessUnitId: branch, jobId: job, customerId: null },
+        { id: "e2", direction: "credit", accountCode: "1000", amount: m.money("300"), businessUnitId: null, jobId: null, customerId: null },
+      ],
+    });
+    expect(posting.entries[0]).toMatchObject({ direction: "credit", accountCode: "5000", businessUnitId: branch, jobId: job });
+    expect(posting.entries[0]).not.toHaveProperty("customerId");
+    expect(posting.entries[1]).not.toHaveProperty("businessUnitId");
+  });
 });

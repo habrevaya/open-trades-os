@@ -217,3 +217,31 @@ describe("the ceiling", () => {
     expect(rates.ceilingVerdict({ amount: usd("500"), alreadyBilled: usd("0"), ceiling: usd("500"), action: "hold", source: "x" }).state).toBe("within");
   });
 });
+
+describe("a contract's annual escalation", () => {
+  const usd = (v: string) => m.money(v, "USD");
+  it("finds the next anniversary after the last one applied", () => {
+    expect(rates.nextAnniversary("2025-03-15", null)).toBe("2026-03-15");
+    expect(rates.nextAnniversary("2025-03-15", "2026-03-15")).toBe("2027-03-15");
+    expect(rates.contractYear("2025-03-15", "2027-03-15")).toBe(3);
+  });
+
+  it("keeps a leap day contract's anniversary in years without one", () => {
+    expect(rates.nextAnniversary("2024-02-29", null)).toBe("2025-02-28");
+    expect(rates.nextAnniversary("2024-02-29", "2027-02-28")).toBe("2028-02-29");
+  });
+
+  it("rises a price by the rate to the cent, half up, rounding once", () => {
+    expect(m.toString(rates.escalate(usd("142.50"), "0.03"))).toBe("146.7800");
+    expect(m.toString(rates.escalate(usd("95.00"), "0.035"))).toBe("98.3300");
+    expect(m.toString(rates.escalate(usd("0.01"), "0.03"))).toBe("0.0100");
+    expect(m.toString(rates.escalate(usd("142.4999"), "0.030000"))).toBe("146.7700");
+  });
+
+  it("refuses a rate that is nothing, or a percentage written as a whole number", () => {
+    expect(rates.escalationRateProblem(null)).toMatch(/no annual escalation/);
+    expect(rates.escalationRateProblem("0")).toMatch(/raises nothing/);
+    expect(rates.escalationRateProblem("3")).toMatch(/Write 0.03/);
+    expect(rates.escalationRateProblem("0.03")).toBeNull();
+  });
+});

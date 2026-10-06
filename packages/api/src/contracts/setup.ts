@@ -125,7 +125,7 @@ export const listItemTax = defineRoute({
   method: "get",
   path: "/v1/item-tax",
   summary: "Which items are taxed, and under which class",
-  description: "Every live price book item, with its shelf, whether it is taxable and its tax class, as of now. No rates: a rate is set on the document it is charged on.",
+  description: "Every live price book item, with its shelf, whether it is taxable and its tax class, as of now, and what each shelf says about tax for an item added to it. The rates themselves are the company's (`/v1/tax-rates`), charged on the lines these say are taxable.",
   module: "M02",
   permissions: ["pricebook:read"],
   input: z.object({}),
@@ -135,6 +135,9 @@ export const listItemTax = defineRoute({
       code: z.string(),
       name: z.string(),
       category: z.string().nullable(),
+      categoryId: Uuid.nullable(),
+      /** What the shelf says for an item added to it without saying: null for nothing yet. */
+      categoryTaxable: z.boolean().nullable(),
       taxable: z.boolean(),
       taxClass: z.string().nullable(),
     })),
@@ -146,7 +149,7 @@ export const setItemTax = defineRoute({
   path: "/v1/item-tax",
   summary: "Set whether items are taxed, many at once",
   description:
-    "A new version of each item that changes, exactly as a price change is, so an invoice that charged tax on an item last month still says it did. Items already as asked are left alone. An exempt item cannot be taxable.",
+    "A new version of each item that changes, exactly as a price change is, so an invoice that charged tax on an item last month still says it did. Items already as asked are left alone. An exempt item cannot be taxable. With `categoryId`, the shelf says the same for every item added to it later.",
   module: "M02",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -155,6 +158,8 @@ export const setItemTax = defineRoute({
     itemIds: z.array(Uuid).min(1).max(1000),
     taxable: z.boolean(),
     taxClass: TaxClass.nullable(),
+    /** The shelf these are, to remember the answer for items added to it later. */
+    categoryId: Uuid.optional(),
   }),
   output: z.object({ changed: z.number().int() }),
 });

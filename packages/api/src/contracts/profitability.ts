@@ -54,6 +54,21 @@ export const ProfitabilityLedgerRow = z.object({
   sourceType: z.string(),
   sourceId: Uuid,
   memo: z.string().nullable(),
+  /** The journal's number, when the row is a line of a manual journal. */
+  journalNumber: z.number().int().nullable(),
+});
+
+/** A line of a manual journal that names the job: counted in revenue, materials or card fees, or listed and not counted. */
+export const JournalLineOnJob = z.object({
+  transactionId: Uuid,
+  occurredAt: z.string().datetime(),
+  journalId: Uuid,
+  journalNumber: z.number().int(),
+  accountCode: z.string(),
+  direction: z.string(),
+  amount: MoneyString,
+  memo: z.string().nullable(),
+  countedIn: z.enum(["revenue", "material", "fees"]).nullable(),
 });
 
 export const CostedJobLine = z.object({
@@ -83,7 +98,7 @@ export const getJobProfitability = defineRoute({
   path: "/v1/profitability/jobs/{id}",
   summary: "What one job earned, and the rows behind every number",
   description:
-    "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.",
+    "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the exceptions are cost of goods sold posted to the job in the ledger, which is added to material cost (`costEntries`): freight billed after a delivery on parts the job used, and any cost an accountant journalled to the job (M14). A manual journal line on a job is read once, from the ledger, and `journalLines` lists every one, including those the margin does not count. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.",
   module: "M15",
   permissions: ["report.financial:read", "job.cost:read"],
   input: z.object({ id: Uuid }),
@@ -128,12 +143,21 @@ export const getJobProfitability = defineRoute({
 
     caveats: ProfitabilityCaveats,
     revenueEntries: z.array(ProfitabilityLedgerRow),
+    /** Cost of goods sold posted to the job (late freight on parts it used), added to `materialCost` beside the lines. */
+    costEntries: z.array(ProfitabilityLedgerRow),
     /**
      * Fee postings at their FULL amount, as the ledger holds them. The job's
      * share is in `processingFees`: a pro rated figure listed as a ledger row
      * would be a number that is not in the ledger.
      */
     feeEntries: z.array(ProfitabilityLedgerRow),
+    /**
+     * Every line of a manual journal that names this job. A line on revenue (4000, 4100, 4900),
+     * cost of goods sold (5000) or card fees (6100) is already in those figures and in the rows
+     * above; any other is booked to the job and not counted (labour, because the hours are counted
+     * from the timeclock), and `countedIn` is null.
+     */
+    journalLines: z.array(JournalLineOnJob),
     lines: z.array(CostedJobLine),
     labour: z.array(JobLabourRow),
   }),

@@ -46,6 +46,8 @@ export default async function StatementsPage() {
           {monthly.enabled
             ? `On. Every customer owing more than ${DOLLARS.format(Number(monthly.minimumBalance))} is sent their statement for the month before on the ${monthly.dayOfMonth}${suffix(monthly.dayOfMonth)} at ${monthly.time}.`
             : "Off. Nobody is sent a statement unless somebody sends it."}
+          {monthly.enabled && monthly.textWhenPreferred
+            ? " By text to customers whose main contact prefers texts, by email to everybody else." : ""}
           {monthly.enabled && monthly.nextRunAt ? ` Next: ${formatIn(monthly.nextRunAt, zone)}.` : ""}
         </p>
         {monthly.lastError ? <p className="mt-1 text-sm text-red-600">{monthly.lastError}</p> : null}
@@ -54,6 +56,10 @@ export default async function StatementsPage() {
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="enabled" defaultChecked={monthly.enabled} />
               Send every customer with a balance their statement each month
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="textWhenPreferred" defaultChecked={monthly.textWhenPreferred} />
+              Text it to customers whose main contact prefers texts, and email everybody else
             </label>
             <div className="grid gap-3 sm:grid-cols-3">
               <TextField label="Day of the month (1 to 28)" name="dayOfMonth" type="number" min={1} max={28}
@@ -64,7 +70,8 @@ export default async function StatementsPage() {
             </div>
             <p className="text-xs text-ink-500">
               Owed is counted on open invoices by whoever pays them, so a property manager paying for a tenant
-              is the one sent it. Each customer is sent at most one a month.
+              is the one sent it. Each customer is sent at most one a month. A text that cannot go (they asked
+              not to be texted, or there is no mobile number) is emailed instead, and the list below says so.
             </p>
           </ActionForm>
         ) : null}
@@ -73,7 +80,7 @@ export default async function StatementsPage() {
       <h2 className="mt-8 text-sm font-medium text-ink-700">Sent</h2>
       {sent.length === 0 ? (
         <Empty title="No statements sent yet">
-          Open a customer, then Statement, then Email statement.
+          Open a customer, then Statement, then Email statement or Text statement.
         </Empty>
       ) : (
         <Table
@@ -87,12 +94,16 @@ export default async function StatementsPage() {
                 {formatDay(row.periodFrom, zone)} to {formatDay(row.periodTo, zone)}
                 {row.period ? <span className="block text-xs text-ink-500">Monthly run</span> : null}
               </Td>
-              <Td>{row.destination ?? <span className="text-ink-500">No address</span>}</Td>
+              <Td>
+                {row.destination ?? <span className="text-ink-500">No address</span>}
+                <span className="block text-xs text-ink-500">{row.channel === "sms" ? "By text" : "By email"}</span>
+              </Td>
               <Td className="text-right"><Money value={row.closingBalance} /></Td>
               <Td>
                 {row.error
                   ? <span className="text-red-600">Not sent. {row.error}</span>
                   : enumText(row.messageStatus ?? "queued")}
+                {row.note ? <span className="block text-xs text-ink-500">{row.note}</span> : null}
               </Td>
               <Td>{formatIn(row.createdAt, zone)}</Td>
             </tr>

@@ -5,6 +5,7 @@ import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
 import { job, jobType } from "./work";
 import { priceBookItemVersion } from "./pricebook";
+import { taxRate } from "./tax";
 
 /**
  * MONEY
@@ -261,6 +262,10 @@ export const estimateLine = pgTable("estimate_line", {
   /** The rate AS APPLIED, carried onto the invoice on conversion. */
   taxRate: rate("tax_rate").notNull().default("0"),
   taxAmount: money("tax_amount").notNull().default("0"),
+  /** The company's rate it charged, when it was one of them. See `invoice_line.tax_rate_id`. */
+  taxRateId: uuid("tax_rate_id").references(() => taxRate.id),
+  /** Where the rate came from. See `invoice_line.tax_source`. */
+  taxSource: text("tax_source"),
   lineTotal: money("line_total").notNull().default("0"),
   /**
    * Optional lines are priced and shown but excluded from the option total
@@ -482,6 +487,26 @@ export const invoiceLine = pgTable("invoice_line", {
   /** The rate AS APPLIED. Never recomputed on read. */
   taxRate: rate("tax_rate").notNull().default("0"),
   taxAmount: money("tax_amount").notNull().default("0"),
+  /**
+   * WHICH OF THE COMPANY'S RATES THIS LINE CHARGED, when it was one of them.
+   * `tax_rate` above is still the figure; this is the name a filing report
+   * groups by, so "Travis County" is one row however many invoices charged
+   * it. Null for a line nobody taxed, a rate typed by hand that matches none
+   * of the company's, and history. No cascade: a rate is retired, never
+   * removed, because lines name it.
+   */
+  taxRateId: uuid("tax_rate_id").references(() => taxRate.id),
+  /**
+   * Where the line's rate came from, written when the line is priced:
+   * `address`, `customer` or `default` (the company's table, `core/tax`),
+   * `exempt` (the customer's certificate), `none` (no rate applies), `off`
+   * (the company charges no sales tax), `chosen` (a person picked it),
+   * `estimate` (carried from the option signed for), `given` (history).
+   * Null on a line that is not taxable, and on lines written before it was
+   * recorded. Issuing a draft checks the first six against the rate in force
+   * on the day it is issued.
+   */
+  taxSource: text("tax_source"),
   lineTotal: money("line_total").notNull().default("0"),
   /** Commercial and builder clients require cost coding at the line. */
   costCode: text("cost_code"),
@@ -586,6 +611,13 @@ export const creditNote = pgTable("credit_note", {
   total: money("total").notNull().default("0"),
   /** How much of it has been put against an invoice. */
   amountApplied: money("amount_applied").notNull().default("0"),
+  /**
+   * How much of it has been given back as money, or is on its way back to a
+   * card: see `credit_note_payout`. Counted from the moment a card refund is
+   * asked for, so the same credit cannot be used on an invoice while the
+   * money is in flight.
+   */
+  amountPaidOut: money("amount_paid_out").notNull().default("0"),
   /** What is left to apply. Credit sitting on the account, which is a liability. */
   balance: money("balance").notNull().default("0"),
   issuedByUserId: uuid("issued_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -647,6 +679,57 @@ export const creditNoteApplication = pgTable("credit_note_application", {
   invoiceIdx: index("credit_note_application_invoice_idx").on(t.invoiceId),
 }));
 
+/**
+ * CREDIT PAID OUT AS MONEY.
+ *
+ * The third thing that can happen to credit a customer holds, beside using it
+ * on an invoice and leaving it on the account: giving it back. Back to the
+ * card they paid with, as a refund through the card processor against one of
+ * their earlier card payments, or by cash or cheque handed over and recorded.
+ *
+ * A ROW OF ITS OWN, NOT A NEGATIVE APPLICATION. An application settles an
+ * invoice and moves no cash; a payout moves cash and settles nothing. Its
+ * posting takes the credit out of customer deposits against cash
+ * (`ledger.postCreditNotePayout`), which is neither a refund of a payment
+ * (that puts the receivable back) nor a void (that puts the revenue back).
+ *
+ * A card payout is `pending` from the moment the processor is asked until it
+ * reports the refund, and only then is it posted, exactly as a card refund
+ * is: a refund that was asked for has not moved money. Cash and cheques are
+ * `paid` when recorded, because the person recording it handed it over.
+ */
+export const creditNotePayout = pgTable("credit_note_payout", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  creditNoteId: uuid("credit_note_id").notNull().references(() => creditNote.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id),
+  /** `card` back through the processor; `cash`, `check` or `other` handed over by hand. */
+  method: text("method").notNull(),
+  /** `pending` while a card refund is on its way, `paid` once it has moved, `failed` if it never will. */
+  status: text("status").notNull().default("pending"),
+  currency: currency(),
+  amount: money("amount").notNull(),
+  /** The earlier card payment the refund goes back through. Null for cash and cheques. */
+  paymentId: uuid("payment_id"),
+  processor: text("processor"),
+  /** The processor's id for the refund, which is what its webhook names. */
+  processorRefundId: text("processor_refund_id"),
+  /** A cheque number or a note of how the cash went. */
+  reference: text("reference"),
+  /** The company's day it was paid, once it was. */
+  paidOn: date("paid_on"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  note: text("note"),
+  /** Why a card refund did not go, in the processor's words. */
+  failureReason: text("failure_reason"),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  noteIdx: index("credit_note_payout_note_idx").on(t.creditNoteId),
+  refundIdx: index("credit_note_payout_refund_idx").on(t.organizationId, t.processorRefundId),
+  paymentIdx: index("credit_note_payout_payment_idx").on(t.paymentId),
+}));
+
 export const paymentMethod = pgEnum("payment_method", [
   "card", "card_present", "ach", "cash", "check", "financing", "credit", "other",
 ]);
@@ -667,6 +750,14 @@ export const payment = pgTable("payment", {
   tipAmount: money("tip_amount").notNull().default("0"),
   surchargeAmount: money("surcharge_amount").notNull().default("0"),
   refundedAmount: money("refunded_amount").notNull().default("0"),
+  /**
+   * Of `refundedAmount`, what went back to the card to pay out a credit note
+   * rather than to give back money this payment paid. It reopens nothing:
+   * the invoices it paid stay paid and the money it held stays held, so it
+   * is left out of what the payment still holds (`billing.unappliedOf`).
+   * `refundedAmount` keeps it, because that is what the processor reports.
+   */
+  paidOutAmount: money("paid_out_amount").notNull().default("0"),
   processor: text("processor").notNull().default("stripe"),
   processorPaymentId: text("processor_payment_id"),
   /** Written BEFORE the processor call. Replay safety for retries and webhooks. */
@@ -718,6 +809,16 @@ export const ledgerEntry = pgTable("ledger_entry", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   /** Groups the balanced pair. Debits and credits in a transaction must sum to zero. */
   transactionId: uuid("transaction_id").notNull(),
+  /**
+   * THE BRANCH THE ENTRY BELONGS TO, written by `writePosting` for every
+   * posting made from here on: a journal line's own, else the branch of the
+   * invoice or job the posting came from (see `services/ledger-branch.ts`).
+   * NULL is not "every branch". It is a posting made before branches were
+   * carried (nothing old is migrated, and this table cannot be updated), or
+   * one that cannot be traced to a single branch: payroll, the release of
+   * deferred revenue, a payment spread over invoices in two branches. The
+   * ledger reports say how much of what they show is that.
+   */
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   direction: ledgerDirection("direction").notNull(),
@@ -739,6 +840,8 @@ export const ledgerEntry = pgTable("ledger_entry", {
   orgTimeIdx: index("ledger_entry_org_time_idx").on(t.organizationId, t.occurredAt),
   accountIdx: index("ledger_entry_account_idx").on(t.organizationId, t.accountCode, t.occurredAt),
   jobIdx: index("ledger_entry_job_idx").on(t.jobId),
+  /** A branch's trial balance and journal: one company's entries in one branch, in time order. */
+  unitIdx: index("ledger_entry_unit_idx").on(t.organizationId, t.businessUnitId, t.occurredAt),
   sourceIdx: index("ledger_entry_source_idx").on(t.sourceType, t.sourceId),
   /** A customer's statement reads their receivable and what is held for them, in order. */
   customerIdx: index("ledger_entry_customer_idx").on(t.organizationId, t.customerId, t.occurredAt),

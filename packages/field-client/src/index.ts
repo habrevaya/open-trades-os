@@ -16,3 +16,4 @@ export * from "./positions";
 export * from "./sales";
 export * from "./sale";
 export * from "./equipment";
+export * from "./talks";

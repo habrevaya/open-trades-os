@@ -83,6 +83,15 @@ export interface ChargeRequest {
    * mandate that authorises taking money from somebody's bank.
    */
   acceptance?: { ip?: string | undefined; userAgent?: string | undefined } | undefined;
+  /**
+   * Nobody is on the page: the office, or the worker paying a bill
+   * automatically, is charging a card the customer agreed may be charged
+   * (`payment_agreement`). The processor is told so, because it decides
+   * differently about a charge the cardholder is not there to confirm, and
+   * a bank that wants them to confirm it answers `authentication_required`
+   * rather than waiting for a browser that will never come.
+   */
+  offSession?: boolean | undefined;
 }
 
 export interface ChargeIntent {

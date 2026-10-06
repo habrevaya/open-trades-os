@@ -1,4 +1,5 @@
-import { type Money, add, subtract, zero, toString, isZero, isNegative, allocate, multiply, round, sum, compare, money } from "../money/index.js";
+import { type Money, add, subtract, zero, toString, isZero, isNegative, isPositive, allocate, multiply, round, sum, compare, money } from "../money/index.js";
+import { shareTax, asMetadata, type RateTotal } from "../tax/index.js";
 
 /**
  * POSTING TO THE LEDGER
@@ -22,8 +23,29 @@ import { type Money, add, subtract, zero, toString, isZero, isNegative, allocate
  */
 export const ACCOUNTS = {
   AR: "1200",                 // Accounts receivable
+  /**
+   * Retainage a customer is holding back on an application for payment:
+   * earned and billed, owed when the job is done. An asset, and not the
+   * receivable, because the customer does not owe it yet.
+   */
+  RETAINAGE_RECEIVABLE: "1210",
   CASH: "1000",               // Undeposited funds
+  /**
+   * Stock. In this product it holds ONE thing: freight and duty billed after
+   * a delivery was received, on the parts still on a shelf. Receiving and
+   * using stock do not post here (job costing reads material from the job's
+   * lines, and stock value is the costing replay's), so this is not a
+   * perpetual inventory and does not pretend to be. Each use relieves the
+   * late freight it took, so the balance is always the late freight still on
+   * a shelf, which the stock screens can prove.
+   */
   INVENTORY: "1300",
+  /**
+   * Owed to a supplier. Only a late freight or duty bill posts here: it is the
+   * one supplier bill this product records, because it has to be spread onto
+   * stock and jobs. Paying it is the accountant's, in their own books.
+   */
+  ACCOUNTS_PAYABLE: "2000",
   CUSTOMER_DEPOSITS: "2300",  // Money held against work not yet done. A LIABILITY.
   DEFERRED_REVENUE: "2400",   // Unearned agreement revenue. A LIABILITY.
   TAX_PAYABLE: "2200",        // Sales tax collected, owed to a jurisdiction
@@ -117,11 +139,26 @@ export interface LedgerEntry {
   jobId?: string | undefined;
   customerId?: string | undefined;
   /**
+   * The branch this entry belongs to, when somebody said so. Only a manual
+   * journal line names one. Every other posting is left to the one door that
+   * writes them (`writePosting`), which works the branch out from the invoice
+   * or the job the posting came from, so a posting builder here never has to
+   * know which branch a document is in.
+   */
+  businessUnitId?: string | undefined;
+  /**
    * The entry this one takes back, when it is a reversal. Only a manual
    * journal's reversal sets it today; the column has existed since the first
    * migration so that a correction can point at what it corrects.
    */
   reversesEntryId?: string | undefined;
+  /**
+   * Facts about the entry a report reads back: on sales tax payable, which
+   * of the company's rates it was and the sales it was charged on
+   * (`tax.asMetadata`), so tax collected by rate is read from the ledger
+   * like every other financial figure.
+   */
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export interface Posting {
@@ -231,6 +268,13 @@ export interface ComputedLine {
  * expects and what the customer's own arithmetic will produce. Per-line
  * rounding drifts by a cent on roughly a third of multi-line invoices, and
  * every one of those is a phone call.
+ *
+ * The rounded tax is then shared back onto the lines (`tax.shareTax`), so
+ * each line shows its tax to the cent and the lines add up to the tax on
+ * the document exactly: a filing report summed from lines, and the ledger's
+ * one entry per rate, agree with the total the customer was sent. A
+ * document with a stated tax on any line is history, and keeps each line's
+ * stated figure as it was charged.
  */
 export function computeInvoice(lines: InvoiceLineInput[]): { lines: ComputedLine[]; totals: InvoiceTotals } {
   const currency = lines[0]?.unitPrice.currency ?? "USD";
@@ -255,8 +299,12 @@ export function computeInvoice(lines: InvoiceLineInput[]): { lines: ComputedLine
   const taxTotal = round(sum(computed.map((l) => l.taxAmount), currency), 2);
   const total = round(add(subtract(subtotal, discountTotal), taxTotal), 2);
 
+  const stated = lines.some((line) => line.taxAmount !== undefined);
+  const shared = stated ? null : shareTax(computed.map((l) => l.taxAmount), taxTotal);
   return {
-    lines: computed.map((l) => ({ ...l, taxAmount: round(l.taxAmount, 2), lineTotal: round(l.lineTotal, 2) })),
+    lines: computed.map((l, i) => ({
+      ...l, taxAmount: shared ? shared[i]! : round(l.taxAmount, 2), lineTotal: round(l.lineTotal, 2),
+    })),
     totals: { subtotal, discountTotal, taxTotal, total },
   };
 }
@@ -334,6 +382,8 @@ export function postInvoice(input: {
   customerId?: string | undefined;
   jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The tax by rate (`tax.byRate`), posted one entry per rate. Omitted, the tax is one entry. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -347,9 +397,33 @@ export function postInvoice(input: {
       dr(ACCOUNTS.AR, totals.total, "Invoice issued", tag),
       dr(ACCOUNTS.DISCOUNTS, totals.discountTotal, "Discount given", tag),
       cr(revenueAccount, totals.subtotal, "Revenue earned", tag),
-      cr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax collected", tag),
+      ...taxEntries("credit", totals.taxTotal, input.taxByRate, "Sales tax collected", tag),
     ]),
   });
+}
+
+/**
+ * SALES TAX PAYABLE, ONE ENTRY PER RATE.
+ *
+ * A document that charged two rates owes each to whoever collects it, and a
+ * filing return asks for each separately. One entry for the whole tax would
+ * leave "how much of this was Travis County" to be reconstructed from
+ * invoice lines, which is the cache the ledger exists not to trust. So each
+ * rate is its own entry, carrying the rate and the sales it was charged on
+ * in its metadata, and the entries add up to the document's tax: refused
+ * here, before the database, if they do not.
+ */
+function taxEntries(
+  direction: Direction, total: Money, byRate: readonly RateTotal[] | undefined, memo: string,
+  tag: Partial<LedgerEntry>,
+): LedgerEntry[] {
+  const side = direction === "credit" ? cr : dr;
+  if (!byRate || byRate.length === 0) return [side(ACCOUNTS.TAX_PAYABLE, total, memo, tag)];
+  const stated = sum(byRate.map((r) => r.tax), total.currency);
+  if (compare(stated, total) !== 0) {
+    throw new UnbalancedPostingError(subtract(total, stated));
+  }
+  return byRate.map((row) => side(ACCOUNTS.TAX_PAYABLE, row.tax, memo, { ...tag, metadata: asMetadata(row) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -626,6 +700,8 @@ export function postVoid(input: {
   customerId?: string | undefined;
   jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The invoice's tax by rate, reversed one entry per rate as it was posted. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -640,7 +716,7 @@ export function postVoid(input: {
       cr(ACCOUNTS.AR, totals.total, "Invoice voided", tag),
       cr(ACCOUNTS.DISCOUNTS, totals.discountTotal, "Discount reversed", tag),
       dr(revenueAccount, totals.subtotal, "Revenue reversed", tag),
-      dr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax reversed", tag),
+      ...taxEntries("debit", totals.taxTotal, input.taxByRate, "Sales tax reversed", tag),
     ]),
   });
 }
@@ -682,6 +758,8 @@ export function postCreditNote(input: {
   jobId?: string | undefined;
   invoiceId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The credited tax by rate, taken off one entry per rate. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -693,7 +771,7 @@ export function postCreditNote(input: {
     occurredAt: input.occurredAt,
     entries: compact([
       dr(revenueAccount, totals.subtotal, "Revenue credited back", tag),
-      dr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax credited back", tag),
+      ...taxEntries("debit", totals.taxTotal, input.taxByRate, "Sales tax credited back", tag),
       /**
        * The other side sits in customer deposits, which is where unapplied money
        * owed to a customer already lives in this chart. It is a liability and it
@@ -750,6 +828,8 @@ export function postCreditNoteVoid(input: {
    */
   jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
+  /** The credited tax by rate, restored one entry per rate. */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
@@ -762,8 +842,86 @@ export function postCreditNoteVoid(input: {
     entries: compact([
       dr(ACCOUNTS.CUSTOMER_DEPOSITS, totals.total, "Credit withdrawn", tag),
       cr(revenueAccount, totals.subtotal, "Revenue restored", tag),
-      cr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax restored", tag),
+      ...taxEntries("credit", totals.taxTotal, input.taxByRate, "Sales tax restored", tag),
     ]),
+  });
+}
+
+/**
+ * PAYING A CREDIT OUT AS MONEY.
+ *
+ * The credit note's issue left what the company owes the customer in customer
+ * deposits, and this is the company handing it over: back to the card they
+ * paid with, or as cash or a cheque. The liability goes and the cash goes with
+ * it. Nothing else moves: the revenue and tax came off when the credit note
+ * was issued, and no invoice is settled or reopened.
+ *
+ * NOT `postRefund`. A refund of a payment puts the receivable back up, because
+ * it gives back money that paid an invoice, and the customer owes that invoice
+ * again. Paying out a credit gives back money the company already owed, so the
+ * receivable is not touched, even when the money goes back through the very
+ * card payment that paid the invoice the credit was raised against.
+ */
+export function postCreditNotePayout(input: {
+  payoutId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  if (!isPositive(input.amount)) {
+    throw new RangeError(`postCreditNotePayout takes the amount paid out, and was given ${toString(input.amount)}.`);
+  }
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "credit_note_payout",
+    sourceId: input.payoutId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Credit paid out to the customer", tag),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out", tag),
+    ]),
+  });
+}
+
+/**
+ * RETAINAGE HELD OR RELEASED ON AN APPLICATION FOR PAYMENT.
+ *
+ * The invoice an application becomes carries what is due now, net of the
+ * retainage held this period, and `postInvoice` books that as revenue. The
+ * work was done in full, so the share held back is revenue too, owed later:
+ * `change` positive debits the retainage receivable and credits revenue for
+ * it. When retainage is released, the release is a line on that period's
+ * invoice and `postInvoice` books it as revenue again, so `change` negative
+ * takes it off the retainage receivable and back off revenue: the customer
+ * now owes it on the invoice, and it was earned once, when it was billed.
+ *
+ * `reversal` marks the posting that takes an application's retainage back
+ * when its invoice is voided, so the register says why it moved.
+ */
+export function postRetainage(input: {
+  applicationId: string;
+  occurredAt: Date;
+  /** Held now less what is already on the books: positive held, negative released. */
+  change: Money;
+  customerId?: string | undefined;
+  reversal?: boolean | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  const held = !isNegative(input.change);
+  const amount = held ? input.change : subtract(zero(input.change.currency), input.change);
+  return assertBalanced({
+    sourceType: input.reversal ? "retainage_reversal" : "retainage",
+    sourceId: input.applicationId,
+    occurredAt: input.occurredAt,
+    entries: compact(held
+      ? [
+        dr(ACCOUNTS.RETAINAGE_RECEIVABLE, amount, input.reversal ? "Released retainage put back" : "Retainage held by the customer", tag),
+        cr(ACCOUNTS.REVENUE, amount, input.reversal ? "Revenue restored" : "Revenue earned on retainage held", tag),
+      ]
+      : [
+        dr(ACCOUNTS.REVENUE, amount, input.reversal ? "Revenue on voided retainage reversed" : "Retainage released, earned when billed", tag),
+        cr(ACCOUNTS.RETAINAGE_RECEIVABLE, amount, input.reversal ? "Retainage voided" : "Retainage released onto the invoice", tag),
+      ]),
   });
 }
 
@@ -782,6 +940,86 @@ export function postWriteOff(input: {
     entries: compact([
       dr(ACCOUNTS.WRITE_OFF, input.amount, "Balance written off", tag),
       cr(ACCOUNTS.AR, input.amount, "Receivable removed", tag),
+    ]),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stock: freight billed after the delivery
+// ---------------------------------------------------------------------------
+
+/**
+ * A FREIGHT OR DUTY BILL THAT ARRIVED AFTER THE DELIVERY.
+ *
+ * Owed to the carrier in full, and spread by `inventory.planLateLandedCost`:
+ * the share on parts still on a shelf is stock, the share on parts already
+ * used is each job's cost of goods sold (tagged with the job, so job costing
+ * reads it), and the share on parts already scrapped, short or sent back is a
+ * cost with no job. The amounts come in already allocated to the cent and
+ * must add up to the bill, which `assertBalanced` proves.
+ */
+export function postLateLandedCost(input: {
+  billId: string;
+  occurredAt: Date;
+  total: Money;
+  onShelf: Money;
+  byJob: readonly { jobId: string; amount: Money }[];
+  onGone: Money;
+}): Posting {
+  return assertBalanced({
+    sourceType: "landed_cost_bill",
+    sourceId: input.billId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.INVENTORY, input.onShelf, "Late freight on stock still on hand"),
+      ...input.byJob.map((job) => dr(ACCOUNTS.COGS, job.amount, "Late freight on parts used on this job", { jobId: job.jobId })),
+      dr(ACCOUNTS.COGS, input.onGone, "Late freight on stock no longer on hand"),
+      cr(ACCOUNTS.ACCOUNTS_PAYABLE, input.total, "Freight or duty bill owed"),
+    ]),
+  });
+}
+
+/**
+ * Parts carrying late freight leave a shelf: used on a job, scrapped, short
+ * on a count or sent back to the vendor. The late freight they carried leaves
+ * stock for cost of goods sold, on the job when there is one.
+ */
+export function postLateCostRelief(input: {
+  movementId: string;
+  occurredAt: Date;
+  amount: Money;
+  jobId?: string | null | undefined;
+}): Posting {
+  const tag = input.jobId ? { jobId: input.jobId } : undefined;
+  return assertBalanced({
+    sourceType: "stock_movement",
+    sourceId: input.movementId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.COGS, input.amount, input.jobId ? "Late freight on parts used on this job" : "Late freight on stock that left", tag),
+      cr(ACCOUNTS.INVENTORY, input.amount, "Late freight leaving stock"),
+    ]),
+  });
+}
+
+/**
+ * A unit back off a job, the reverse of what its use posted: the late
+ * freight it carried goes back into stock and off the job's cost.
+ */
+export function postLateCostReturn(input: {
+  movementId: string;
+  occurredAt: Date;
+  amount: Money;
+  jobId: string;
+}): Posting {
+  const tag = { jobId: input.jobId };
+  return assertBalanced({
+    sourceType: "stock_movement",
+    sourceId: input.movementId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.INVENTORY, input.amount, "Late freight back into stock"),
+      cr(ACCOUNTS.COGS, input.amount, "Late freight off the job: the part came back", tag),
     ]),
   });
 }
@@ -869,6 +1107,36 @@ export function postDeferredRelease(input: {
       input.toRevenue
         ? cr(ACCOUNTS.REVENUE_AGREEMENT, input.amount, "Recognised on cancellation", tag)
         : cr(ACCOUNTS.AR, input.amount, "Credited back to the customer", tag),
+    ]),
+  });
+}
+
+/**
+ * BREAKAGE: what a term owed and the member never took, earned when the term
+ * ends.
+ *
+ * A member pays for a year of cover that includes visits. A visit not taken
+ * by the end of the year is still paid for, and the company has been ready
+ * to deliver it all year, so on the day the term ends its slice is earned.
+ * Not before: a visit skipped in March can be put back in June, and revenue
+ * recognised in March for it would need reversing against a closed month.
+ * Liability down, agreement revenue up, the same accounts delivering a visit
+ * moves, sourced to the term so a second pass finds it already done.
+ */
+export function postAgreementBreakage(input: {
+  agreementTermId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "agreement_breakage",
+    sourceId: input.agreementTermId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.DEFERRED_REVENUE, input.amount, "Term ended with visits not taken", tag),
+      cr(ACCOUNTS.REVENUE_AGREEMENT, input.amount, "Agreement revenue earned at the end of the term", tag),
     ]),
   });
 }
@@ -1039,6 +1307,7 @@ export function postTipPayout(input: {
  */
 export const CONTROL_ACCOUNTS: Readonly<Record<string, string>> = {
   [ACCOUNTS.AR]: "Accounts receivable follows the invoices. Correct it with a credit note, a write off or a payment.",
+  [ACCOUNTS.RETAINAGE_RECEIVABLE]: "Retainage receivable follows the applications for payment. It moves when retainage is held on one and when it is released.",
   [ACCOUNTS.CUSTOMER_DEPOSITS]: "Customer deposits follows the deposits and unapplied payments held. Apply, refund or forfeit the deposit instead.",
   [ACCOUNTS.TIPS_PAYABLE]: "Tips payable follows the tips owed to technicians. It is cleared through payroll.",
   [ACCOUNTS.COMMISSION_PAYABLE]: "Commission payable follows the commission records. Adjust those instead.",
@@ -1051,6 +1320,17 @@ export interface JournalLineInput {
   debit?: string | undefined;
   credit?: string | undefined;
   memo?: string | undefined;
+  /**
+   * WHAT THE LINE IS ABOUT, each optional and each the company's own (the
+   * service checks that; here they are only checked to be ids). A branch for
+   * rent that is one shop's, a job for a supplier bill that is one job's, a
+   * customer for a cost that is one customer's. A line that names a job and
+   * no branch takes the job's branch when it is written, like every other
+   * posting does.
+   */
+  businessUnitId?: string | undefined;
+  jobId?: string | undefined;
+  customerId?: string | undefined;
 }
 
 export type JournalCheck =
@@ -1058,6 +1338,7 @@ export type JournalCheck =
   | { ok: false; problems: { line: number | null; message: string }[] };
 
 const JOURNAL_ACCOUNT = /^[1-9]\d{2,9}$/;
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Whether a set of lines is a journal that may be posted, with every problem
@@ -1103,11 +1384,25 @@ export function checkJournal(lines: readonly JournalLineInput[], currency = "USD
       return;
     }
     const memo = line.memo?.trim();
+    const about: Partial<Pick<LedgerEntry, "businessUnitId" | "jobId" | "customerId">> = {};
+    let named = true;
+    for (const [field, label] of [["businessUnitId", "branch"], ["jobId", "job"], ["customerId", "customer"]] as const) {
+      const value = line[field]?.trim();
+      if (!value) continue;
+      if (!ID.test(value)) {
+        problems.push({ line: n, message: `The ${label} on this line is not one of yours.` });
+        named = false;
+        continue;
+      }
+      about[field] = value.toLowerCase();
+    }
+    if (!named) return;
     entries.push({
       direction: debit !== "" ? "debit" : "credit",
       accountCode: code,
       amount,
       ...(memo ? { memo } : {}),
+      ...about,
     });
   });
 
@@ -1149,7 +1444,11 @@ export function postJournal(input: { journalId: string; occurredAt: Date; entrie
 export function reverseJournal(input: {
   journalId: string;
   occurredAt: Date;
-  original: readonly { id: string; direction: Direction; accountCode: string; amount: Money; memo?: string | null }[];
+  original: readonly {
+    id: string; direction: Direction; accountCode: string; amount: Money; memo?: string | null;
+    /** What the line was about, carried onto the line that takes it back so the two net to nothing on the same branch, job and customer. */
+    businessUnitId?: string | null; jobId?: string | null; customerId?: string | null;
+  }[];
   memo: string;
 }): Posting {
   return assertBalanced({
@@ -1162,6 +1461,9 @@ export function reverseJournal(input: {
       amount: entry.amount,
       memo: input.memo,
       reversesEntryId: entry.id,
+      ...(entry.businessUnitId ? { businessUnitId: entry.businessUnitId } : {}),
+      ...(entry.jobId ? { jobId: entry.jobId } : {}),
+      ...(entry.customerId ? { customerId: entry.customerId } : {}),
     })),
   });
 }

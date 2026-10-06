@@ -95,7 +95,7 @@ export const listCustomerDuplicatePairs = defineRoute({
   path: "/v1/customer-duplicates",
   summary: "Likely duplicates across every customer",
   description:
-    "The per record matcher run over every pair at once: the same phone number, the same email address, or a name close enough by trigram that a person should look, strongest reason first. No score, for the reason the per record read gives. Pairs somebody marked as two people are left out. Needs `customer:merge`, because it reads across the whole book and exists to be acted on.",
+    "The per record matcher run over every pair at once: the same phone number, the same email address, or a name close enough by trigram that a person should look, strongest reason first. No score, for the reason the per record read gives. Pairs somebody marked as two people are left out. `total` is every pair still to look at, on whichever page it is asked, so a client can say how long the list is without reading to the end. Needs `customer:merge`, because it reads across the whole book and exists to be acted on.",
   module: "M03",
   permissions: ["customer:merge"],
   input: PageRequest,
@@ -103,7 +103,7 @@ export const listCustomerDuplicatePairs = defineRoute({
     a: Side,
     b: Side,
     because: z.enum(["Same phone number", "Same email address", "Similar name"]),
-  })),
+  })).extend({ total: z.number().int() }),
 });
 
 export const dismissCustomerDuplicate = defineRoute({
@@ -123,7 +123,40 @@ export const dismissCustomerDuplicate = defineRoute({
   output: z.object({ customerAId: Uuid, customerBId: Uuid, dismissed: z.literal(true) }),
 });
 
+export const listSetAsideCustomerDuplicates = defineRoute({
+  method: "get",
+  path: "/v1/customer-duplicates/set-aside",
+  summary: "Pairs marked as two people",
+  description:
+    "Every pair somebody said was not the same person, newest first, with the reason they gave and when. A pair whose customer was merged since is still listed with the name it had, so a mark can always be found and taken off. Needs `customer:merge`.",
+  module: "M03",
+  permissions: ["customer:merge"],
+  input: PageRequest,
+  output: pageOf(z.object({
+    a: z.object({ id: Uuid, name: z.string() }),
+    b: z.object({ id: Uuid, name: z.string() }),
+    reason: z.string().nullable(),
+    markedAt: z.string(),
+  })),
+});
+
+export const restoreCustomerDuplicate = defineRoute({
+  method: "post",
+  path: "/v1/customer-duplicates/restore",
+  summary: "Put a pair back in the duplicate list",
+  description:
+    "Takes off the mark that said two records are two people, so the pair appears in the sweep and on either customer's own page again if they still look alike. Said from either side. A pair that is not marked is not an error: the answer has `wasMarked: false`, so sending it twice is safe. The customers do not have to be live, because a mark outlives a merge.",
+  module: "M03",
+  permissions: ["customer:merge"],
+  idempotent: true,
+  input: z.object({ customerId: Uuid, otherId: Uuid }),
+  output: z.object({
+    customerAId: Uuid, customerBId: Uuid, dismissed: z.literal(false), wasMarked: z.boolean(),
+  }),
+});
+
 export const customerTagRoutes = {
   listCustomerTags, setCustomerTags, renameCustomerTag, mergeCustomerTags,
   listCustomerDuplicatePairs, dismissCustomerDuplicate,
+  listSetAsideCustomerDuplicates, restoreCustomerDuplicate,
 } as const;

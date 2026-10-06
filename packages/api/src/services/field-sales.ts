@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { schema, type Database } from "@opentradesos/db";
-import { can, customerPortal as cp, field, money as m, time } from "@opentradesos/core";
+import { can, customerPortal as cp, field, money as m, tax, time } from "@opentradesos/core";
 import type { z } from "zod";
 import { audit, guardedRead, timezoneOf, type ServiceContext } from "./context";
 import * as estimates from "./estimates";
@@ -10,8 +10,9 @@ import * as tasks from "./tasks";
 import * as tips from "./tips";
 import * as financing from "./financing";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
-import { memberPricingWithin } from "./agreements";
+import { excludedItemsWithin, memberPricingWithin } from "./agreements";
 import { settingWithin as agentSettingWithin } from "./agents";
+import * as taxRates from "./tax";
 import { createEstimate } from "../contracts/estimates";
 import { createInvoice } from "../contracts/billing";
 import type { VisitForField } from "../contracts/field";
@@ -183,7 +184,12 @@ export async function writeEstimate(tx: Database, ctx: ServiceContext, op: field
     propertyId: visit.propertyId,
     jobId: visit.jobId,
     ...(text(op.payload["title"], 200) ? { title: text(op.payload["title"], 200) } : {}),
-    taxRate: typeof op.payload["taxRate"] === "string" ? op.payload["taxRate"] : "0",
+    /**
+     * The percentage on the phone's estimate builder, which starts at the
+     * visit's own rate (`salesFor` sends it with the day). A phone that sent
+     * none leaves it to the server to work out the same way.
+     */
+    ...(typeof op.payload["taxRate"] === "string" ? { taxRate: op.payload["taxRate"] } : {}),
     options: shaped,
   });
   if (!parsed.success) return "Some of that estimate could not be read. Build it again.";
@@ -597,7 +603,7 @@ export async function taskOperation(tx: Database, ctx: ServiceContext, op: field
 
 /* --------------------------------------------------------------- the day */
 
-type Sales = Pick<z.infer<typeof VisitForField>, "member" | "estimates" | "billable" | "invoices">;
+type Sales = Pick<z.infer<typeof VisitForField>, "member" | "estimates" | "billable" | "invoices" | "tax">;
 
 /**
  * What the phone needs on each visit to sell and close: the member's plan,
@@ -617,6 +623,30 @@ export async function salesFor(
   const jobIds = [...new Set(visits.map((v) => v.jobId))];
   const customerIds = [...new Set(visits.map((v) => v.customerId))];
 
+  /**
+   * THE VISIT'S SALES TAX, worked out by the server the way it will be when
+   * the invoice lands: the company's rate for this customer at this address
+   * today, or nothing for one exempt on a certificate in force. The phone
+   * taxes an invoice for recorded work with it and starts its estimate
+   * builder at it, so the figure the customer signs is the server's.
+   */
+  const table = await taxRates.tableWithin(tx, ctx.actor.organizationId);
+  const taxes = new Map<string, Sales["tax"]>();
+  for (const v of visits) {
+    const key = `${v.customerId}:${v.propertyId}`;
+    if (taxes.has(key)) continue;
+    const r = await taxRates.saleRateWithin(tx, ctx.actor.organizationId, {
+      customerId: v.customerId, propertyId: v.propertyId, on: day,
+    }, table);
+    taxes.set(key, {
+      rate: r.rate,
+      percent: tax.rateToPercent(r.rate),
+      label: r.name ? tax.describe(r.name, r.rate) : null,
+      source: r.source,
+      note: r.note,
+    });
+  }
+
   const members = new Map<string, Sales["member"]>();
   for (const v of visits) {
     const key = `${v.customerId}:${v.propertyId}`;
@@ -625,6 +655,8 @@ export async function salesFor(
     members.set(key, found ? {
       planName: found.planName, rate: found.rate,
       waivesDiagnosticFee: found.waivesDiagnosticFee, waivesAfterHoursRate: found.waivesAfterHoursRate,
+      /** Flattened here, because the phone carries the price book without its categories. */
+      excludedItemIds: await excludedItemsWithin(tx, found.exclusions),
     } : null);
   }
 
@@ -640,7 +672,8 @@ export async function salesFor(
       and(
         inArray(schema.estimate.customerId, customerIds),
         isNull(schema.estimate.jobId),
-        inArray(schema.estimate.status, ["draft", "sent", "viewed", "approved"]),
+        // Expired is still the customer's to say yes to at the door: the phone treats it as decidable.
+        inArray(schema.estimate.status, ["draft", "sent", "viewed", "expired", "approved"]),
       ),
     ))
     .orderBy(desc(schema.estimate.createdAt)).limit(200) : [];
@@ -655,6 +688,7 @@ export async function salesFor(
     line: schema.jobLine,
     kind: schema.priceBookItem.kind,
     feeRole: schema.priceBookItem.feeRole,
+    itemId: schema.priceBookItem.id,
   }).from(schema.jobLine)
     .leftJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.jobLine.priceBookItemVersionId))
     .leftJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -677,6 +711,7 @@ export async function salesFor(
       || (e.jobId === null && e.customerId === v.customerId && e.propertyId === v.propertyId));
     out.set(v.visitId, {
       member: members.get(`${v.customerId}:${v.propertyId}`) ?? null,
+      tax: taxes.get(`${v.customerId}:${v.propertyId}`)!,
       estimates: mine.map((e) => ({
         id: e.id,
         number: e.number,
@@ -715,6 +750,7 @@ export async function salesFor(
         taxable: b.line.taxable,
         itemKind: b.kind ?? null,
         feeRole: b.feeRole ?? null,
+        itemId: b.itemId ?? null,
       })),
       invoices: invoiceRows.filter((i) => i.jobId === v.jobId).map((i) => ({
         id: i.id, number: i.number, status: i.status, total: i.total, balance: i.balance,

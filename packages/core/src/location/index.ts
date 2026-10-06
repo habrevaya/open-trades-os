@@ -242,6 +242,71 @@ export function lastSeen(recordedAt: Date, now: Date): string {
   return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
 }
 
+/* ------------------------------------------------- the path taken today */
+
+/**
+ * HOW MUCH IS KEPT, BOUNDED.
+ *
+ * A phone sends what it takes, and a phone set to every fifteen seconds
+ * on a motorway takes a lot. The server keeps no two positions of one
+ * person closer together than half the company's interval (and never
+ * closer than five seconds), so a day is at most a known number of rows
+ * per person, and the whole store is that times the retention: three days
+ * by default, thirty at most, deleted by the worker after.
+ */
+export function minGapSeconds(intervalSeconds: number): number {
+  return Math.max(Math.floor(intervalSeconds / 2), 5);
+}
+
+/** Most positions one person can have kept in a day, for the docs and the tests. */
+export function maxPerDay(intervalSeconds: number): number {
+  return Math.ceil(86_400 / minGapSeconds(intervalSeconds));
+}
+
+/**
+ * Whether a fix lands too soon after (or before) one already kept for the
+ * same person. The same instant is not "too soon": it is the same fix sent
+ * again, which the store recognises and counts as already had.
+ */
+export function tooSoon(at: Date, kept: readonly Date[], gapSeconds: number): boolean {
+  const t = at.getTime();
+  return kept.some((k) => k.getTime() !== t && Math.abs(k.getTime() - t) < gapSeconds * 1000);
+}
+
+export interface TrailPoint {
+  lat: number;
+  lng: number;
+  at: Date;
+}
+
+/** Points on one person's line on the map, at most. Enough for a day's driving at street scale. */
+export const MAX_TRAIL_POINTS = 400;
+/** Closer than this to the last point kept is the same place: a van parked at a job. */
+const TRAIL_MIN_METERS = 15;
+
+/**
+ * The path somebody took today, as a line to draw.
+ *
+ * In time order. A run of positions in one place (parked at a job for two
+ * hours) is one point, with the last of the run kept so the line ends where
+ * they are. Longer than `max` and it is thinned evenly, keeping the first
+ * and the last, so a long day is drawn whole rather than cut off at noon.
+ */
+export function trailOf(points: readonly TrailPoint[], max = MAX_TRAIL_POINTS): TrailPoint[] {
+  const sorted = [...points].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const moved: TrailPoint[] = [];
+  for (const point of sorted) {
+    const last = moved[moved.length - 1];
+    if (last && distanceKm({ lat: last.lat, lng: last.lng }, { lat: point.lat, lng: point.lng }) * 1000 < TRAIL_MIN_METERS) continue;
+    moved.push(point);
+  }
+  const final = sorted[sorted.length - 1];
+  if (final && moved[moved.length - 1] !== final) moved.push(final);
+  if (moved.length <= max || max < 2) return moved;
+  const step = (moved.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => moved[Math.round(i * step)]!);
+}
+
 /* ------------------------------------------------------------ the ETA */
 
 export type EtaBasis = "road" | "estimate" | "technician";

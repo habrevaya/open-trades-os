@@ -1,11 +1,12 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
+import { HoldPanel } from "@/components/HoldPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling,
+  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -25,19 +26,38 @@ import { ActionForm, TextArea } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
+import { rateFromPercent } from "@/lib/estimate-form";
 import { addVisit } from "../actions";
-import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus, shareJobPhoto } from "./actions";
+import { approveVisitChange, completeVisitFromOffice, declineVisitChange, proposeVisitChange, setJobStatus, shareJobPhoto } from "./actions";
 import { shareVisitNotes } from "./notes-actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
-import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
+import { CompleteVisit, CancelJob, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
 import { EstimateDrafts } from "./EstimateDrafts";
 
 export const dynamic = "force-dynamic";
 
-export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function JobPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ taxRate?: string; lineRate?: string | string[] }>;
+}) {
   const user = await requireSetupUser();
   const { id } = await params;
+  /**
+   * The sales tax on the job's taxable lines, typed as a percentage on the
+   * billing preview and carried in the address so the preview and the bill
+   * button use the same rate. Something that is not a percentage under a
+   * hundred is shown back and taxes nothing, rather than failing the page.
+   */
+  const typedTax = ((await searchParams).taxRate ?? "").replace(/[%\s]/g, "");
+  const taxRate = /^\d{1,2}(\.\d{1,4})?$/.test(typedTax) ? rateFromPercent(typedTax) : undefined;
+  /**
+   * A line's own rate, chosen on the preview and carried in the address the
+   * same way: `line:<id>=<rate id>` or `=none`. Anything not shaped like one
+   * is dropped rather than failing the page.
+   */
+  const askedRates = [(await searchParams).lineRate ?? []].flat()
+    .filter((pair) => /^[a-z]+(:[0-9a-f-]{36})?=([0-9a-f-]{36}|none)$/.test(pair));
 
   const ctx = { actor: user.actor, db: getDb() };
 
@@ -81,7 +101,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const contractOptions = allContracts.filter((c) => involved.has(c.customerId))
     .map((c) => ({ id: c.id, label: `${c.name}, ${c.customerName}` }));
   const clocks = await jobBilling.clocks(ctx, { jobId: id });
-  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id }) : null;
+  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id, taxRate, lineRates: askedRates }) : null;
 
   /** The evidence behind the source, for whoever reads the marketing figures. */
   const attribution = can(user.actor, "adspend:read")
@@ -124,14 +144,29 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const writes = can(user.actor, "job:write");
   const schedules = can(user.actor, "visit:write") && job.status !== "cancelled" && job.status !== "paid";
   const technicians = await technicianChoices(ctx, user.organizationTimezone);
+  const memberHold = schedules && await booking.memberHoldInForce(ctx);
   const nameOf = new Map(technicians.map((t) => [t.id, t.displayName]));
   const completes = can(user.actor, "job:complete");
   const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
+  /** What cancelling the job would call off with it, and what it would leave. The service's own rule. */
+  const now = Date.now();
+  const visitsToCome = job.visits.filter((v) => ["unassigned", "scheduled", "dispatched"].includes(v.status)
+    && (() => { const until = v.windowEnd ?? v.windowStart; return until === null || new Date(until).getTime() > now; })()).length;
+  const visitsUnderWay = job.visits.filter((v) => v.status === "en_route" || v.status === "working").length;
   const used = (await jobs.lines(ctx, { id })).data;
   /** A customer asking from their link to move or cancel one of these visits. */
   const changeRequests = can(user.actor, "visit:read")
     ? await visitChanges.list(ctx, { status: "pending", jobId: id })
     : [];
+  /** Another time the office offered, waiting for the customer's yes or no. Nothing has moved. */
+  const offersWaiting = can(user.actor, "visit:read")
+    ? await visitChanges.list(ctx, { status: "proposed", jobId: id })
+    : [];
+  /** The times that could be offered instead, for each request to move, for somebody who may answer. */
+  const offerable = new Map(can(user.actor, "visit:reschedule")
+    ? await Promise.all(changeRequests.filter((r) => r.kind === "reschedule")
+      .map(async (r) => [r.id, await visitChanges.proposalTimes(ctx, { id: r.id })] as const))
+    : []);
   const invoices = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 50, jobId: id })).data
     : [];
@@ -385,6 +420,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         </Table>
       )}
 
+      {offersWaiting.map((offer) => (
+        <p key={offer.id} role="note" className="mt-4 rounded-md border border-steel-200 p-3 text-sm text-ink-700">
+          {offer.customerName} was offered{" "}
+          {offer.proposedStart ? formatIn(offer.proposedStart, user.organizationTimezone) : "another time"} instead of the
+          time they asked for. Waiting for them to say yes or no; the visit stays where it is until they do.
+        </p>
+      ))}
+
       {changeRequests.length > 0 && (
         <div className="mt-4 space-y-3">
           {changeRequests.map((request) => (
@@ -399,6 +442,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
               approve={approveVisitChange}
               decline={declineVisitChange}
               canDecide={can(user.actor, "visit:reschedule")}
+              propose={proposeVisitChange}
+              times={offerable.get(request.id) ?? []}
             />
           ))}
         </div>
@@ -410,13 +455,18 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       ))}
 
       {writes && <JobLifecycle action={setJobStatus} jobId={id} status={job.status} openVisits={openVisits.length} />}
+      {writes && (
+        <CancelJob action={setJobStatus} jobId={id} status={job.status}
+                   toCome={visitsToCome} underWay={visitsUnderWay}
+                   mayCancelVisits={can(user.actor, "visit:reschedule")} />
+      )}
 
       {schedules && (
         <details className="mt-4 rounded-md border border-steel-200 p-4">
           <summary className="cursor-pointer text-sm font-medium">Add a visit</summary>
           <ActionForm action={addVisit} submit="Add visit" hidden={{ jobId: id }} className="mt-3 space-y-4">
             <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
-                         legend="Next visit" />
+                         legend="Next visit" memberHold={memberHold} />
           </ActionForm>
         </details>
       )}
@@ -425,7 +475,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
       <EstimateDrafts ctx={ctx} jobId={id} />
       {plan && (plan.lines.length > 0 || plan.existing.length === 0) && job.status !== "cancelled" && (
-        <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} />
+        <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} typedTax={typedTax} lineRates={askedRates}
+                         taxRate={taxRate ?? null} />
       )}
 
       {(invoices.length > 0 || canInvoice) && (
@@ -523,6 +574,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
               ))}
             </ul>
           )}
+          {photos.some((photo) => photo.kind === "photo") ? (
+            <HoldPanel ctx={ctx} entityType="photo" entityId={id} path={`/jobs/${id}`}
+                       label="this job's photographs" timezone={user.organizationTimezone} />
+          ) : null}
         </>
       )}
 

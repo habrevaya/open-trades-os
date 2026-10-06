@@ -26,7 +26,7 @@ export function EstimateScreen({ visitId, nav }: { visitId: string; nav: Navigat
   const visit = field.view?.day.visits.find((v) => v.id === visitId);
   const book = field.view?.priceBook ?? [];
   const newId = () => Crypto.randomUUID();
-  const [builder, setBuilder] = useState<Builder>(() => newBuilder(newId, visit?.summary ?? ""));
+  const [builder, setBuilder] = useState<Builder>(() => newBuilder(newId, visit?.summary ?? "", visit?.tax.percent ?? ""));
   const [query, setQuery] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [typedPrice, setTypedPrice] = useState("");
@@ -170,6 +170,7 @@ export function EstimateScreen({ visitId, nav }: { visitId: string; nav: Navigat
           <TextInput value={builder.taxPercent} onChangeText={(taxPercent) => setBuilder({ ...builder, taxPercent })}
                      keyboardType="decimal-pad" placeholder="Percent, or leave empty" placeholderTextColor={color.inkFaint}
                      style={styles.input} accessibilityLabel="Sales tax percent" />
+          <Text style={type.soft}>{visit.tax.note}</Text>
         </Section>
 
         {problem ? <Notice tone="red">{problem}</Notice> : null}

@@ -16,6 +16,12 @@ export const FeeRole = z.enum(["diagnostic", "after_hours"]);
  * CURRENT version. Documents reference `versionId`, never `id`, so raising a
  * price never rewrites what an old invoice said.
  */
+/** One item inside a kit, by the item, never a version: the kit uses whatever that item is today. */
+export const KitComponent = z.object({
+  itemId: Uuid,
+  quantity: z.number().positive().max(10000),
+});
+
 export const PriceBookItem = z.object({
   id: Uuid,
   versionId: Uuid,
@@ -32,6 +38,8 @@ export const PriceBookItem = z.object({
   taxClass: z.string().nullable(),
   laborMinutes: z.number().int().nullable(),
   warrantyMonths: z.number().int().nullable(),
+  /** A kit's parts: other items included in it, each with how many. Empty for an item that is not a kit. */
+  components: z.array(KitComponent),
   active: z.boolean(),
   /** Redacted unless the caller holds pricebook.cost:read. */
   cost: MoneyString.nullable().optional(),
@@ -72,7 +80,12 @@ export const createPriceBookItem = defineRoute({
     categoryId: Uuid.optional(),
     price: MoneyString,
     cost: MoneyString.optional(),
-    taxable: z.boolean().default(true),
+    /**
+     * Whether a sales tax rate is charged on it. Left off, it is what its
+     * shelf says (`categoryTaxable` on `/v1/item-tax`), and on a shelf that
+     * says nothing, taxed unless it is labour.
+     */
+    taxable: z.boolean().optional(),
     taxClass: z.string().max(50).optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).optional(),
@@ -92,7 +105,7 @@ export const revisePriceBookItem = defineRoute({
   method: "post",
   path: "/v1/pricebook/items/{id}/revise",
   summary: "Revise a price book item",
-  description: "Creates a new version. Existing documents keep the version they were priced against.",
+  description: "Creates a new version, from now or from `effectiveFrom`: the name, description, price, cost, labour minutes, tax, warranty and a kit's parts, each carried forward when left off. Existing documents keep the version they were priced against.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -106,6 +119,13 @@ export const revisePriceBookItem = defineRoute({
     taxClass: z.string().max(50).nullable().optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).nullable().optional(),
+    /**
+     * The kit's parts, replacing the whole list, written into the new version
+     * like any other field. An empty list makes it an item that is not a kit.
+     * Left off, they carry forward. Each item once, never the kit itself or a
+     * kit that contains it.
+     */
+    components: z.array(KitComponent).max(100).optional(),
     effectiveFrom: z.string().datetime().optional(),
   }),
   output: PriceBookItem,

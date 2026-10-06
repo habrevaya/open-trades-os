@@ -26,6 +26,11 @@ export const WageScale = z.object({
   externalReference: z.string().nullable(),
   baseRate: z.string(),
   fringeRate: z.string().nullable(),
+  /** The scale's own overtime multiplier, as its agreement states it. Recorded, not used by the pay calculation. */
+  overtimeMultiplier: z.string().nullable(),
+  /** The scale's own double time multiplier. Recorded, not used by the pay calculation. */
+  doubleTimeMultiplier: z.string().nullable(),
+  /** How many apprentices to journeymen the agreement allows, in its own words ("1:3"). Recorded only. */
   apprenticeRatio: z.string().nullable(),
   effectiveFrom: z.string().nullable(),
   effectiveTo: z.string().nullable(),
@@ -61,6 +66,7 @@ export const loadWageScale = defineRoute({
     jurisdiction: z.string().max(200).nullable().optional(),
     externalReference: z.string().max(200).nullable().optional(),
     fringeRate: MoneyString.nullable().optional(),
+    /** At least 1. Recorded with the scale: payroll still works overtime out from the company's overtime policy. */
     overtimeMultiplier: RateString.nullable().optional(),
     doubleTimeMultiplier: RateString.nullable().optional(),
     apprenticeRatio: z.string().max(50).nullable().optional(),

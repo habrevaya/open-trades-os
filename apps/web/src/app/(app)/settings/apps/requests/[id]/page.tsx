@@ -16,9 +16,10 @@ export const dynamic = "force-dynamic";
  * The page an app sends somebody at the company to. It says who the app says
  * it is, where it came from, and every permission it asks for in the words
  * the catalogue already uses, with the ones that expose money marked and the
- * ones the person looking does not hold named. The answer is yes to exactly
- * that list or no: there is no editing it here, because approving a list the
- * app never asked for, under its name, would be a grant nobody requested.
+ * ones the person looking does not hold named. The answer is yes to all of
+ * it, yes to part of it, or no. Nothing can be added, because approving
+ * something the app never asked for, under its name, would be a grant nobody
+ * requested. Once approved, what was left out stays listed here.
  *
  * Whether the person may approve it is decided by the service, through the
  * same function as installing by hand, and the page only reads the answer.
@@ -77,7 +78,8 @@ export default async function AppRequestPage({ params }: { params: Promise<{ id:
             </span>
             <span className="flex gap-1.5">
               {ask.sensitive ? <Chip tone="warning">Shows money</Chip> : null}
-              {ask.held ? null : <Chip tone="danger">You do not hold this</Chip>}
+              {ask.granted === false ? <Chip tone="neutral">Left out</Chip> : null}
+              {ask.granted === null && !ask.held ? <Chip tone="danger">You do not hold this</Chip> : null}
             </span>
           </li>
         ))}
@@ -107,7 +109,10 @@ export default async function AppRequestPage({ params }: { params: Promise<{ id:
         <div className="mt-6 rounded-md border border-steel-200 bg-canvas p-4">
           <p role="status" className="text-sm font-medium">
             {app.status === "active"
-              ? `Approved. ${app.name} collects its credential itself, once, with the secret it was given when it asked.`
+              ? review.leftOut.length > 0
+                ? `Approved in part. ${app.name} collects its credential itself, once, and is told what was left out: `
+                  + `${review.leftOut.map((l) => l.label.toLowerCase()).join(", ")}.`
+                : `Approved. ${app.name} collects its credential itself, once, with the secret it was given when it asked.`
               : `Refused. ${app.name} holds nothing and is told no when it asks.`}
           </p>
           {review.returnTo ? (
@@ -120,7 +125,8 @@ export default async function AppRequestPage({ params }: { params: Promise<{ id:
         </div>
       ) : null}
       {app.status === "pending" && !app.request?.expired && can(user.actor, "integration:write") ? (
-        <Decide id={app.id} name={app.name} approvable={review.approvable} />
+        <Decide id={app.id} name={app.name} approvable={review.approvable}
+                asks={review.asks.map(({ permission, label, held }) => ({ permission, label, held }))} />
       ) : null}
     </div>
   );

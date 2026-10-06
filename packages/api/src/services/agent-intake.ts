@@ -9,7 +9,7 @@ import { conversationScopeFilter, customerScopeFilter } from "./scope";
 import * as booking from "./booking";
 import * as jobs from "./jobs";
 import * as base from "./agents";
-import { companyOf, servicesAndWindows } from "./agent-facts";
+import { companyOf, memberByContact, servicesAndWindows } from "./agent-facts";
 import type { AiDeps } from "./ai";
 
 /**
@@ -190,11 +190,17 @@ export async function run(
     const gathered = await gather(tx, ctx, input);
     const company = await companyOf(tx, organizationId, now);
     const candidates = await candidatesFor(tx, ctx, gathered);
-    const { services, windows } = await servicesAndWindows(tx, organizationId, company.timezone, company.today);
-    return { existing: null, gathered, company, candidates, services, windows } as const;
+    /**
+     * A member reaching us from the number or email on their record is
+     * offered the windows held for members, as their own account would be.
+     * The draft says nothing about it to anybody but the office.
+     */
+    const member = await memberByContact(tx, organizationId, gathered);
+    const { services, windows } = await servicesAndWindows(tx, organizationId, company.timezone, company.today, { member });
+    return { existing: null, gathered, company, candidates, services, windows, member } as const;
   });
   if (prepared.existing) return { draft: base.shape(prepared.existing), reason: null };
-  const { gathered, company, candidates, services, windows } = prepared;
+  const { gathered, company, candidates, services, windows, member } = prepared;
 
   const prompt = a.intakePrompt({
     company, tone: acting.settings.tone, source: gathered.source, candidates,
@@ -257,6 +263,8 @@ export async function run(
     missing,
     /** Said, rather than silently dropped, so the office knows the agent reached for something that was not there. */
     droppedWindows: dropped,
+    /** The number or email it came from belongs to a member, so the windows held for members were offered. */
+    member: (member?.(company.today) ?? null) !== null,
     source: { kind: gathered.source.kind, from: gathered.source.from },
   };
   const summary = `${draft.customerName ?? draft.contactName}: ${draft.problemSummary.slice(0, 160)} (${draft.urgency})`;
@@ -341,6 +349,10 @@ async function apply(
   if (!window) throw new ConflictError("That window no longer exists. Choose another.");
 
   const email = draft.email && /.+@.+\..+/.test(draft.email) ? draft.email : undefined;
+  /** The customer the office is booking, or the number and email it came from: a member may take a held window. */
+  const member = await guardedRead(ctx, "booking:decide", (tx) => memberByContact(tx, ctx.actor.organizationId, {
+    phone: draft.phone, email: draft.email, customerId: choice?.customerId ?? draft.customerId,
+  }));
   const request = await booking.createRequest(ctx.db, {
     organizationSlug: org.slug,
     bookableServiceId: draft.bookableServiceId,
@@ -357,7 +369,7 @@ async function apply(
     notes: draft.problemSummary,
     intakeAnswers: {},
     utm: {},
-  }, { idempotencyKey: `ai-intake:${row.id}` });
+  }, { idempotencyKey: `ai-intake:${row.id}` }, { member });
 
   const customerId = choice?.customerId ?? draft.customerId ?? undefined;
   const confirmed = await booking.confirm(ctx, {

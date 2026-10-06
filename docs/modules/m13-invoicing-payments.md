@@ -111,6 +111,39 @@ charge it. A charge with one is confirmed on the spot because the customer is
 on the page pressing Pay, and is settled, like every card payment, only by the
 signed webhook.
 
+**A saved card is charged without the customer only with their recorded
+agreement.** Signed in to their own account (never from a link, which can be
+forwarded), the customer reads the words for that card and agrees to let the
+company charge it for their bills. The words they read, when, how, from which
+sign in, as which contact when it was a contact, and from where are kept on
+the agreement, and they withdraw it from the same screen; taking the card off
+withdraws it too. Without a live agreement for that very card, nothing
+charges it: the service refuses, and `payments.intent` refuses again inside
+the transaction that asks the processor, whoever the caller is. The charge is
+Stripe's documented off session payment intent with the saved payment
+method. A bank that wants the cardholder to approve it answers
+`authentication_required`, and the customer is then sent the link to pay
+the invoice themselves; the office is told so, never left with a silent
+failure.
+
+**Paying automatically is a second agreement on the first.** A customer who
+agreed can turn on paying each bill as it is issued, in words of its own.
+The worker charges every bill they are the one paying that was issued after
+they turned it on, a plan's instalments included (M08 invoices those
+straight to open), once per invoice under a unique index. A charge that
+does not go through sends the customer the link to pay and puts a task in
+the office queue. A declined card is tried once more the next day and never
+again; a bank asking the customer to confirm, a card that is expired, lost
+or wrong, and a bank payment that fails days later are not tried again at
+all, because tomorrow will not change the answer. These are the only
+retries there are.
+
+**A bank payment on its way is not money to chase.** While an ACH payment is
+processing, the invoice shows "Payment on its way" on the office's page and
+the customer's, the collections agent (M27) neither drafts nor sends a
+reminder for it, and a workflow on overdue invoices (M29) does not fire for
+it. If the bank turns it down the invoice is still open and is chased then.
+
 **A job already marked paid stays paid when a refund arrives.** Its lifecycle does
 not go backwards, and the invoice is what now shows money owed.
 
@@ -123,13 +156,76 @@ write only, never read back (`docs/self-hosting/secrets.md`). The webhook addres
 dashboard; that is not something this product can do on its screens, and the
 screen says so.
 
+The sales tax rates the company charges are set up on `/settings/tax`, and on
+the setup wizard's tax step (`/setup/tax`), by somebody holding
+`settings:write`: a name and a percentage from a day for each rate, which one
+is usual, and whether the company charges sales tax at all.
+
 ## Using it
+
+### Sales tax
+
+The company writes down the rates it already charges ("Travis County 8.25%").
+Nothing looks a rate up from an address; that stays a decision this product has
+not taken (BUILD.md). Each rate is a name and a history of percentages from a
+day, so a county raising its rate on the first is a new percentage dated the
+first (`POST /v1/tax-rates/{id}/versions`) and every invoice already raised keeps
+what it charged. One rate is the usual one. A customer can name a rate of their
+own, an address can name one, and a customer can be exempt on a certificate
+whose number and last day are recorded on their page (`/customers/{id}`) or with
+`PATCH /v1/customers/{id}`; an address's rate is set on `/properties/{id}` or
+with `PATCH /v1/properties/{id}`. Which items are taxed is the price book's
+(`/pricebook/tax`): an item says whether it is taxed, a shelf says what an item
+added to it later is, and with nothing said labour is not taxed and everything
+else is. A line typed by hand is a part, taxed, or labour, not taxed, and the
+Tax box on the line says otherwise.
+
+A sale's rate is decided once, in this order (`core/tax.resolve`): nothing when
+the company says it charges no sales tax; nothing when the invoice's customer is
+exempt on a certificate whose last day has not passed; the address's rate; the
+job customer's rate; the usual rate; otherwise nothing. A lapsed certificate is
+taxed, because tax not collected on one is still owed, and the office is told
+why on every screen that shows the rate. A named rate with no percentage in
+force yet, or a retired one, is passed over. The percentage is the one in force
+on the invoice's date. It goes through a tax provider seam (`packages/api/src/tax`,
+`core/tax.TaxProvider`) whose only provider is this table.
+
+Every way an invoice is raised takes it: the office's invoice (`/invoices/new`
+and `POST /v1/invoices`), a draft saved again, "Bill this job" on `/jobs/{id}`, an
+estimate and the invoice converted from it, and an invoice raised on site on the
+phone or `/my-day`, whose day carries the visit's rate so the figure the
+customer signs is the server's. The office can choose another of the company's
+rates, or none, for a whole invoice or one line (`taxRateId` on the invoice and
+on a line), and on a draft. Each line records the rate, which of the company's
+rates it was, and where it came from (`taxRateId` and `taxSource` on the line).
+
+A draft is priced on the day it is written. Issuing it checks the lines the
+company's rates decided against the rate in force on the issue date and refuses,
+in words, when it has moved since; saving the draft prices it again. A rate a
+person chose, or one carried from a signed estimate, is not second guessed.
+
+The tax is worked out on each line, rounded once on the invoice, and shared back
+onto the lines by largest remainder, so each line's tax is within a cent of its
+own rate and the lines add up to the invoice's tax exactly. Sales tax payable is
+posted one ledger entry per rate, each carrying the rate and the sales it was
+charged on; a void and a credit note take back exactly what was posted.
+`/books/sales-tax` and `GET /v1/reports/sales-tax` read tax collected by rate
+from those entries for any period (`report.financial:read`), net of voids and
+credits, with anything else on the account (a payment to the state journalled
+by hand) shown so it reconciles to the ledger.
 
 ### Raise and issue
 
 `POST /v1/invoices` from a job, `POST /v1/invoices/{id}/issue` to issue a draft,
 `POST /v1/invoices/{invoiceId}/send` to send it. `/invoices/new` and
 `/invoices/{id}` are the office screens, and `/invoices/{id}/edit` is a draft.
+
+When one of the job's visits was booked outside the company's hours or on a
+holiday, and the company has chosen an after hours or holiday rate (M02), the new
+invoice and the draft being edited offer that item above the lines, saying which
+visits and why ("2026-10-06 at 19:00, after the 17:00 close"). It goes on only
+when somebody presses "Add" and then saves; nothing adds it by itself.
+`GET /v1/jobs/{id}/rate-offers` is the same offer for another client.
 
 ### Take money
 
@@ -142,6 +238,21 @@ company takes them (`POST /v1/portal/invoice/pay` and
 `POST /v1/portal/cards/{cardId}/pay`. The invoice screen lists the tips that
 came with its payments and who each is for, under **Tips**, and
 `GET /v1/invoices/{id}/tips` is the same list. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
+
+### Charge a card the customer agreed may be charged
+
+When the invoice's payer has agreed to it, the invoice page shows **Saved
+cards the customer lets you charge**, each with who agreed and when, and
+**Charge $N to Visa ending 4242** for whoever holds `payment:charge_saved`
+(office manager and accountant presets; owner and admin hold everything; a
+technician does not). It is `POST /v1/invoices/{id}/charge-card`, which also
+needs `payment:collect`, and the person charging is named on the charge and
+in the audit log. The same panel lists every charge of a saved card on the
+invoice: by whom or by the automatic payment, and what became of it, read
+from the payment attempt, so it says paid as soon as the webhook has said
+so. A second charge is refused while one is still with the processor.
+`GET /v1/invoices/{id}/cards-on-file` (`payment:read`) is the same read.
+The customer's side (agreeing, paying automatically, withdrawing) is M05's.
 
 ### On site
 
@@ -184,14 +295,34 @@ be credited for more than it charged, counting every earlier credit and draft, a
 goodwill needs a note. `/invoices/credit-notes` lists every one, with what is still
 unused.
 
+**Paying a credit back.** A credit the customer cannot use on another invoice
+can be given back as money from the credit note's page, with **Pay it back**
+(`POST /v1/credit-notes/{id}/payouts`, which needs `payment:refund`, because
+sending money back is a different decision from raising the credit). Back to
+their card goes through the card processor as a refund against one of their
+earlier card payments (`GET /v1/credit-notes/{id}/refundable-payments` lists
+them with what each still has to refund): the credit is set aside at once, so
+it cannot also be used on an invoice, and it is posted only when the
+processor's webhook says the refund moved, like any card refund; a refund the
+processor declines keeps nothing, and one it reports failed puts the credit
+back on the account. Until then the credit note's page shows it as on its way
+back, not paid back. Cash, a cheque or another way is recorded as handed
+over and posted on the day given. Either way the posting takes the credit out
+of customer deposits against cash and touches no invoice: the card payment
+records the money as refunded and as paid out, and still says it paid what it
+paid, so the invoice stays paid and nothing is reopened. The customer's
+statement shows it as the credit paid back. A credit note any of which has
+been paid out cannot be voided.
+
 A company syncing its books gets each credit note there too: the credit note itself,
-each use of it on an invoice on the day it was used, and a void as an invoice
-reversing it on the day of the void. M14 says how each lands in QuickBooks and Xero.
+each use of it on an invoice on the day it was used, each payout on the day it
+was paid, and a void as an invoice reversing it on the day of the void. M14 says
+how each lands in QuickBooks and Xero.
 
 ### Invoices and proposals as PDF
 
-**Download PDF** on an invoice's page saves it as a PDF: the company, the
-customer (and who pays, when somebody else does), the address, every line, the
+**Download PDF** on an invoice's page saves it as a PDF: the company with its
+logo, the customer (and who pays, when somebody else does), the address, every line, the
 totals, the payments made on it and the balance due. The customer gets the same
 file from the invoice link in their email and from each invoice on their account
 page, never a draft and never one billed to somebody else. An estimate's page and
@@ -200,6 +331,12 @@ and total and the terms, and so does the customer's estimate link. Both are buil
 from the same reader as the customer's screens, so no cost or margin is on them.
 The office's download follows the invoice and estimate lists' scope: a technician
 who sees invoices on their own work gets those and a not found for the rest.
+
+The invoice email attaches the customer's copy as a PDF beside the link to view
+and pay it, because a bookkeeper files the file. Names print as they are spelled:
+the PDFs carry their own font (Noto Sans, under the SIL Open Font License, bundled
+with its licence), cut down to the letters each document uses, so Nguyễn, Dvořák,
+Σωκράτης and Анна print as written rather than with their accents dropped.
 
 ### Statements
 
@@ -226,15 +363,28 @@ not to be emailed, a customer with no address, or no email provider connected is
 recorded as not sent, with the reason, under the button, and the link minted for
 it is revoked rather than left alive.
 
+**Text statement**, beside it (`POST /v1/customers/{id}/statement/text`), sends
+the same link by text, with no amounts, to the customer's main contact's mobile,
+the number on the customer, or one the office types. It goes through the consent
+gate every text goes through (M18): a number that replied STOP, no number to text,
+or no number registered to text from is recorded as not sent with the reason, and
+its link revoked.
+
 **Monthly statements** are a setting at `/invoices/statements`, off until
 somebody turns it on: on a day from 1 to 28, at a time in the company's
 timezone, every customer owing more than the amount set on open invoices
 (counted by whoever pays them) is emailed a link to their statement for the
 month before. Each customer is sent at most one per month, whatever the worker
 does: the record of it is keyed on the customer and the month under a unique
-index, and is written in the same transaction as the email. The same page lists
-every statement sent, by hand or by the run, with where it went, what was owed
-then, and what became of it.
+index, and is written in the same transaction as the email. With **Text it to
+customers whose main contact prefers texts** ticked, the run texts the link to a
+customer whose main contact prefers texts and emails everybody else; a text that
+cannot go is emailed instead, and the row says why. It is off unless somebody
+ticks it, including on a run set up before texting existed, because a contact
+says it prefers texts unless somebody changed it, and a company that chose
+emailed statements did not choose to text its customers. The same page lists
+every statement sent, by hand or by the run, with how and where it went, what was
+owed then, and what became of it.
 
 ### Deposits
 
@@ -295,6 +445,11 @@ customers see a link.
 | Technician | Reads an invoice, takes a payment on site, and raises and issues the invoice for their own visit's work (`invoice:raise_on_site`). Does not write, edit or issue invoices otherwise |
 | Accountant | Everything on this module, including refunds, credits and write offs |
 
+Charging a saved card with nobody on the page is its own permission,
+`payment:charge_saved`, separate from `payment:collect`: a technician takes
+payments all day from the person in front of them, and reaching into a
+customer's saved card without them is a different act.
+
 Five separate permissions on one document, deliberately: `invoice:write`,
 `invoice:send`, `invoice:void`, `invoice:writeoff` and `invoice:credit`. Voiding
 says the invoice should never have existed; writing off says it existed and will
@@ -314,6 +469,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
 | `GET /v1/customers/{id}/statement` | `invoice:read` |
 | `POST /v1/customers/{id}/statement/email` | `invoice:send` |
+| `POST /v1/customers/{id}/statement/text` | `invoice:send` |
 | `GET /v1/statement-deliveries` | `invoice:read` |
 | `GET /v1/statement-schedule` | `invoice:read` |
 | `POST /v1/statement-schedule` | `invoice:send` |
@@ -322,10 +478,17 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/credit-notes/{id}/issue` | `invoice:credit` |
 | `POST /v1/credit-notes/{id}/apply` | `invoice:credit` |
 | `POST /v1/credit-notes/{id}/void` | `invoice:credit` |
+| `POST /v1/credit-notes/{id}/payouts` | `payment:refund` |
+| `GET /v1/credit-notes/{id}/refundable-payments` | `payment:read` |
 | `GET /v1/payments` | `payment:read` |
 | `POST /v1/payments` | `payment:collect` |
 | `POST /v1/payments/{id}/apply` | `payment:collect` |
 | `POST /v1/payments/{paymentId}/refund` | `payment:refund` |
+| `GET /v1/invoices/{id}/cards-on-file` | `payment:read` |
+| `POST /v1/invoices/{id}/charge-card` | `payment:charge_saved`, `payment:collect` |
+| `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
 | `GET /v1/invoices/{invoiceId}/financing` | `invoice:read` |
 | `GET /v1/financing/applications` | `payment:read` |
@@ -333,6 +496,12 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/visits/{id}/financing-link` | `payment:collect`, and the technician on the visit or `invoice:send` |
 | `POST /v1/financing/applications/{id}/refresh` | `payment:collect` |
 | `GET /v1/financing/report` | `report.financial:read` |
+| `GET /v1/tax-rates` | `settings:read` |
+| `POST /v1/tax-rates` | `settings:write` |
+| `POST /v1/tax-rates/{id}/versions` | `settings:write` |
+| `POST /v1/tax-rates/{id}/retire` | `settings:write` |
+| `PATCH /v1/tax-settings` | `settings:write` |
+| `GET /v1/reports/sales-tax` | `report.financial:read` |
 | `GET /v1/deposits` | `deposit:read` |
 | `POST /v1/deposits` | `deposit:collect` |
 | `POST /v1/deposits/{id}/refund` | `deposit:refund` |
@@ -364,31 +533,58 @@ hold one for.
 
 ## What is not built
 
-A credit note cannot be paid out as money: an unused credit is used on a later
-invoice, or a refund is recorded against a payment. A credit note that has been used
-cannot be voided; the invoice it settled has to be dealt with on its own.
-A statement is emailed as a link with a PDF attached, and it is not sent
-by text. The monthly run covers the calendar month before and nothing else, and it
-emails nothing until an email provider is connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
+A credit is paid back to a card only through one of the customer's own earlier
+card payments with enough left to refund, one payment per payout, and never to a
+card they did not pay with. A card payout waits for the processor's webhook like
+every card refund, so with no webhook configured it stays with the card
+processor on the screen. A credit note that has been used or paid out cannot be
+voided; the invoice it settled has to be dealt with on its own.
+A statement is emailed as a link with a PDF attached, or texted as the link
+alone: a text carries no file. The monthly run reads a customer's preference from
+their main contact only, not from who the invoices name. It covers the calendar
+month before and nothing else, and it emails nothing until an email provider is
+connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
 until somebody corrects it by hand. Saved cards are
-Stripe's only. Tax rate determination is deliberately not
-built: the rate is on the line it was charged on, and BUILD.md says why. Overdue
+Stripe's only, and so is charging one on file. A card saved before its customer
+agreed was set up for use with them on the page, so Stripe may more often ask
+for the cardholder on a charge without them; that is answered with the link
+to pay, and the card is not saved again. Paying automatically charges bills
+issued after it was turned on, judged by when the invoice was issued (or,
+for an invoice that was never a draft, written) and by its issue date, so a
+bill backdated before that day is not charged; nothing already owed is swept
+up when it is turned on. One card pays automatically per customer. A charge
+on file takes the whole balance and no tip. The customer is told of a
+failure by email to the address on their record, or by text when the email
+cannot go and it is not quiet hours; when neither can go, the office task
+says so. A bank payment returned days later sends the link and leaves the
+office the bank payment's own task. Tax rate determination is deliberately not
+built: the company writes down the rates it charges, a rate is never looked up
+from an address, and BUILD.md says why. A rate is one percentage per sale: a
+county and a city rate charged together are written down as one combined rate,
+and a filing report that splits them by jurisdiction is not built. An item is
+taxed or not, whatever the rate; a reduced rate for one kind of item is the
+office choosing that rate on the line. The report reads only what was posted
+with its rate: invoices issued before rates were recorded on the ledger, and
+agreement billing, are a row of their own rather than placed on a rate. Overdue
 invoices are chased by the collections agent (M27): a reminder per step the
 company sets, drafted on the company's model key and sent from
 `/invoices/reminders` by a person or on its own when the company lets it. It
 needs the company's own model key (M27); chasing without one is a workflow
-somebody builds in M29. Financing has one lender adapter, Wisetack, tested against a fake rather
+somebody builds in M29. Neither chases an invoice while a bank payment for it
+is on its way; a workflow started by some other event than the invoice
+being past its due date is the company's own and is not checked. Financing has one lender adapter, Wisetack, tested against a fake rather
 than a live account; a loan Wisetack refunds after funding is flagged on the
 application and not reversed, so the refund is recorded on the payment by hand,
 and the payment is dated when the funding was heard about rather than the
 lender's settlement date. "As low as" uses the plans entered on the connection
 and is not asked of the lender per customer.
 
-The PDFs carry the company's name, colour, phone, email and address (M02) and not
-its logo, and are set in the
-standard Helvetica faces, so a letter outside Western European alphabets prints as
-its base letter where it has one and as "?" where it does not. An invoice is not
-attached as a PDF to the invoice email, which still sends the link to pay it.
+The PDFs print the company's logo when it is a PNG or a JPEG (a PNG with
+transparency or a palette included); an SVG or WebP logo is left off and the name
+printed alone. The bundled font covers Latin with every extension, Vietnamese,
+Greek and Cyrillic; a letter outside those (Chinese, Japanese, Korean, Arabic,
+Hebrew, Thai and the scripts of India) prints as its base letter where it has one
+and as "?" where it does not.

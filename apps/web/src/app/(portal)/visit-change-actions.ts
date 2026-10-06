@@ -47,3 +47,32 @@ export async function requestVisitChange(input: {
   revalidatePath(input.path);
   return { ok: true };
 }
+
+/**
+ * Taking or turning down the time the office offered, from the link. The
+ * service decides everything; a refusal is shown in its words.
+ */
+export async function answerVisitChangeProposal(input: {
+  token: string;
+  visitId?: string | undefined;
+  accept: boolean;
+  answer?: string | undefined;
+  path: string;
+}): Promise<VisitChangeResult> {
+  const h = await headers();
+  try {
+    await visitChanges.answer(getDb(), {
+      token: input.token,
+      ...(input.visitId ? { visitId: input.visitId } : {}),
+      accept: input.accept,
+      ...(input.answer?.trim() ? { answer: input.answer.trim() } : {}),
+    }, { ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() });
+  } catch (error) {
+    return {
+      ok: false,
+      message: refusalOf(error) ?? "Something went wrong sending that. Please reply to the message that brought you here.",
+    };
+  }
+  revalidatePath(input.path);
+  return { ok: true };
+}

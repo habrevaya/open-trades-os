@@ -30,6 +30,17 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           reason: field(form, "reason") ?? "",
         });
         return { message: "Held. It is kept whatever its age until the hold is released." };
+      case "create": {
+        const made = await retention.createPolicy(ctx, {
+          name: field(form, "name") ?? "",
+          entityType: field(form, "entityType") ?? "",
+          entityKind: field(form, "entityKind") ?? null,
+          clockStart: field(form, "clockStart") ?? "",
+          retainMonths: Number(field(form, "retainMonths") ?? ""),
+          basis: field(form, "basis") ?? null,
+        });
+        return { message: `Written: ${made.sentence} Purging is off until you turn it on.` };
+      }
       case "release":
         await retention.releaseHold(ctx, { id, ...(field(form, "note") ? { note: field(form, "note")! } : {}) });
         return { message: "Released." };

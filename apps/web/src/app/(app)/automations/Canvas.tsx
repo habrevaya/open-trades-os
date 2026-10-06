@@ -446,21 +446,46 @@ const FIELD = "mt-1 h-9 rounded border border-steel-300 px-2 text-sm";
 function MessageFields({
   config, set,
 }: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  const channel = config["channel"] === "email" ? "email" : "sms";
+  /** Always transactional: a promotion by email needs an unsubscribe link, and goes as a campaign. */
+  const change = (next: Record<string, unknown>) => set({ ...config, purpose: "transactional", channel, ...next });
   return (
-    <label className="mt-3 block text-sm">
-      <span className="block text-ink-700">What it says</span>
-      <textarea
-        rows={2}
-        value={String(config["body"] ?? "")}
-        onChange={(e) => set({ ...config, channel: "sms", purpose: "transactional", body: e.target.value })}
-        placeholder="Hi {{ customer.name }}, just checking on the quote we sent."
-        className="mt-1 w-full rounded border border-steel-300 p-2 text-sm"
-      />
-      <span className="mt-1 block text-xs text-ink-500">
+    <div className="mt-3 space-y-2 text-sm">
+      <label className="block">
+        <span className="block text-ink-700">How</span>
+        <select value={channel} onChange={(e) => change({ channel: e.target.value })} className={`${FIELD} w-40`}>
+          <option value="sms">By text</option>
+          <option value="email">By email</option>
+        </select>
+      </label>
+      {channel === "email" && (
+        <label className="block">
+          <span className="block text-ink-700">Subject</span>
+          <input
+            value={String(config["subject"] ?? "")}
+            onChange={(e) => change({ subject: e.target.value })}
+            placeholder="A message from {{ organization.name }}"
+            className={`${FIELD} w-full`}
+          />
+        </label>
+      )}
+      <label className="block">
+        <span className="block text-ink-700">What it says</span>
+        <textarea
+          rows={channel === "email" ? 4 : 2}
+          value={String(config["body"] ?? "")}
+          onChange={(e) => change({ body: e.target.value })}
+          placeholder="Hi {{ customer.name }}, just checking on the quote we sent."
+          className="mt-1 w-full rounded border border-steel-300 p-2 text-sm"
+        />
+      </label>
+      <span className="block text-xs text-ink-500">
         Placeholders are filled from the event. Nothing is evaluated: it is substitution and no
-        more. Consent is checked when the message is sent, not now.
+        more. {channel === "email"
+          ? "Sent from your email address. Somebody on your do not email list is not sent it."
+          : "Consent is checked when the message is sent, not now."}
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -563,6 +588,7 @@ function ReportFields({
 }) {
   const reports = choices?.reports ?? [];
   const people = choices?.people ?? [];
+  const toCustomer = config["to"] === "customer";
   const ticked = Array.isArray(config["userIds"]) ? (config["userIds"] as string[]) : [];
   const addresses = Array.isArray(config["addresses"])
     ? (config["addresses"] as string[]).join(", ")
@@ -595,6 +621,33 @@ function ReportFields({
         </label>
       </div>
       <fieldset>
+        <legend className="text-ink-700">Who gets it</legend>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name={`${name}, who gets it`} checked={!toCustomer}
+                   onChange={() => set({ ...config, to: "people" })} />
+            People you pick
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name={`${name}, who gets it`} checked={toCustomer}
+                   onChange={() => set({ ...config, to: "customer", userIds: [], addresses: [] })} />
+            The customer this is about
+          </label>
+        </div>
+      </fieldset>
+      {toCustomer ? (
+        <p className="text-xs text-ink-500">
+          {/*
+            Said before the save rather than discovered at it: what the save refuses,
+            in the words somebody choosing a report needs.
+          */}
+          Sent to the email address on their record, with only their own jobs, invoices, estimates or visits in it.
+          A report with your costs, margins or your own fields in it cannot be sent to a customer, and neither can
+          one on an automation that runs on a clock.
+        </p>
+      ) : (
+      <>
+      <fieldset>
         <legend className="text-ink-700">Email it to</legend>
         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
           {people.map((person) => (
@@ -624,6 +677,8 @@ function ReportFields({
           className={`${FIELD} w-80`}
         />
       </label>
+      </>
+      )}
       <p className="text-xs text-ink-500">
         It runs as whoever publishes this automation, with what they can see, and goes with a spreadsheet of
         every row. Each run sends it once.
@@ -723,77 +778,184 @@ function PlatformFields({
 }
 
 /**
- * The condition on a branch.
+ * THE CONDITION ON A BRANCH, AS THREE GROUPS
  *
- * `all` only, which is the honest subset: the engine evaluates `all`, `any` and
- * `none`, and a screen offering all three needs a nested group editor to say which
- * applies to what. Every condition here has to hold, which is what somebody means
- * by "only if" nine times out of ten, and the API takes the other two for anybody
- * who needs them.
+ * The engine has always evaluated three lists: every condition in `all` has
+ * to hold, at least one in `any`, and none in `none`. The canvas offered only
+ * the first, because three lists drawn as one list of rows leaves nobody able
+ * to tell which group a row belongs to, and a row in the wrong group inverts
+ * what the automation does without looking any different.
+ *
+ * So each group is its own box with its rule as its heading, its own rows and
+ * its own add button, and the sentence underneath reads the whole thing back
+ * the way the engine will take it. Three lists and never deeper, because that
+ * is what the engine runs: a group inside a group would be a picture of
+ * something nothing evaluates.
+ *
+ * Keyboard first: every control is a native field or button in reading order,
+ * each is named for its group and row, and adding a row puts the cursor in it.
  */
+type GroupKey = "all" | "any" | "none";
+type ConditionRow = { path: string; op: string; value?: unknown };
+
+const GROUPS: { key: GroupKey; heading: string; word: string; empty: string }[] = [
+  { key: "all", heading: "All of these have to hold", word: "", empty: "" },
+  {
+    key: "any", heading: "At least one of these has to hold", word: "at least one of, ",
+    empty: "Add two or more ways it can be true, and one is enough.",
+  },
+  {
+    key: "none", heading: "None of these may hold", word: "none of, ",
+    empty: "Anything here stops it taking the first lane.",
+  },
+];
+
+/** One condition in words, for the sentence that reads the group back. */
+const describeCondition = (c: ConditionRow) => {
+  const op = COMPARATORS.find((x) => x.value === c.op)?.label ?? c.op;
+  const path = c.path.trim() === "" ? "(nothing chosen)" : c.path.trim();
+  return needsValue(c.op) ? `${path} ${op} ${String(c.value ?? "") || "(blank)"}` : `${path} ${op}`;
+};
+
+/** The whole branch condition as the engine will read it, in one sentence. */
+function describeConditions(group: Partial<Record<GroupKey, ConditionRow[]>>): string {
+  const parts: string[] = [];
+  const all = group.all ?? [];
+  const any = group.any ?? [];
+  const none = group.none ?? [];
+  if (all.length > 0) parts.push(all.map(describeCondition).join(" and "));
+  if (any.length > 0) parts.push(`at least one of: ${any.map(describeCondition).join(" or ")}`);
+  if (none.length > 0) parts.push(`none of: ${none.map(describeCondition).join(", ")}`);
+  if (parts.length === 0) return "Nothing to check yet, so this would always take the first lane.";
+  return `Takes the first lane when ${parts.join(", and ")}. Otherwise it takes the second.`;
+}
+
 function BranchFields({
   config, set,
 }: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
-  const group = (config["conditions"] ?? {}) as { all?: { path: string; op: string; value?: unknown }[] };
-  const all = group.all ?? [];
+  const stored = (config["conditions"] ?? {}) as Partial<Record<GroupKey, ConditionRow[]>>;
+  const lists: Record<GroupKey, ConditionRow[]> = {
+    all: stored.all ?? [], any: stored.any ?? [], none: stored.none ?? [],
+  };
+  /** Which groups are drawn: `all` always, the others once they are added or hold something. */
+  const [shown, setShown] = useState<GroupKey[]>(() =>
+    (["all", "any", "none"] as GroupKey[]).filter((key) => key === "all" || lists[key].length > 0));
+  /** The row just added, so the cursor goes to it. */
+  const [fresh, setFresh] = useState<{ group: GroupKey; index: number } | null>(null);
 
-  const write = (next: { path: string; op: string; value?: unknown }[]) =>
-    set({ ...config, conditions: { all: next } });
+  const write = (key: GroupKey, next: ConditionRow[]) => {
+    const conditions: Partial<Record<GroupKey, ConditionRow[]>> = {};
+    for (const g of ["all", "any", "none"] as GroupKey[]) {
+      const rows = g === key ? next : lists[g];
+      if (rows.length > 0 || g === "all") conditions[g] = rows;
+    }
+    set({ ...config, conditions });
+  };
+
+  const addRow = (key: GroupKey) => {
+    setFresh({ group: key, index: lists[key].length });
+    write(key, [...lists[key], { path: "", op: "eq", value: "" }]);
+  };
+
+  const addGroup = (key: GroupKey) => {
+    setShown((current) => (current.includes(key) ? current : [...current, key]));
+    addRow(key);
+  };
+
+  const removeGroup = (key: GroupKey) => {
+    setShown((current) => current.filter((g) => g !== key));
+    write(key, []);
+  };
 
   return (
-    <div className="rounded border border-steel-200 bg-canvas-raised p-2">
-      <p className="text-xs font-medium text-ink-700">All of these have to hold</p>
-      {all.length === 0 && (
-        <p className="mt-1 text-xs text-ink-500">
-          {/*
-            A branch with no conditions is always true, which means the otherwise
-            arm can never run. Said here rather than refused, because somebody
-            mid-edit has not finished yet.
-          */}
-          Nothing to check yet, so this would always take the first lane.
-        </p>
-      )}
-      <div className="mt-2 space-y-2">
-        {all.map((condition, index) => (
-          <div key={index} className="flex flex-wrap items-center gap-2 text-sm">
-            <input
-              value={condition.path}
-              onChange={(e) => write(all.map((c, i) => (i === index ? { ...c, path: e.target.value } : c)))}
-              placeholder="invoice.total"
-              list="condition-paths"
-              aria-label={`What to check, condition ${index + 1}`}
-              className="h-8 w-48 rounded border border-steel-300 px-2 font-mono text-xs"
-            />
-            <select
-              value={condition.op}
-              onChange={(e) => write(all.map((c, i) => (i === index ? { ...c, op: e.target.value } : c)))}
-              aria-label={`How to compare, condition ${index + 1}`}
-              className="h-8 rounded border border-steel-300 px-2 text-sm"
-            >
-              {COMPARATORS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-            {needsValue(condition.op) && (
-              <input
-                value={String(condition.value ?? "")}
-                onChange={(e) => write(all.map((c, i) => (i === index ? { ...c, value: e.target.value } : c)))}
-                placeholder="1000"
-                aria-label={`What to compare against, condition ${index + 1}`}
-                className="h-8 w-32 rounded border border-steel-300 px-2 text-sm"
-              />
+    <div className="space-y-2">
+      {GROUPS.filter((group) => shown.includes(group.key)).map((group) => {
+        const rows = lists[group.key];
+        const named = (part: string, index: number) => `${part}, ${group.word}condition ${index + 1}`;
+        return (
+          <fieldset key={group.key} className="rounded border border-steel-200 bg-canvas-raised p-2">
+            <legend className="px-1 text-xs font-medium text-ink-700">{group.heading}</legend>
+            {rows.length === 0 && group.empty !== "" && (
+              <p className="mt-1 text-xs text-ink-500">{group.empty}</p>
             )}
-            <button type="button" className={BUTTON}
-                    onClick={() => write(all.filter((_, i) => i !== index))}
-                    aria-label={`Remove condition ${index + 1}`}>
-              Remove
-            </button>
-          </div>
-        ))}
+            <div className="mt-2 space-y-2">
+              {rows.map((condition, index) => (
+                <div key={index} className="flex flex-wrap items-center gap-2 text-sm">
+                  <input
+                    value={condition.path}
+                    onChange={(e) => write(group.key, rows.map((c, i) => (i === index ? { ...c, path: e.target.value } : c)))}
+                    placeholder="invoice.total"
+                    list="condition-paths"
+                    aria-label={named("What to check", index)}
+                    autoFocus={fresh?.group === group.key && fresh.index === index}
+                    className="h-8 w-48 rounded border border-steel-300 px-2 font-mono text-xs"
+                  />
+                  <select
+                    value={condition.op}
+                    onChange={(e) => write(group.key, rows.map((c, i) => (i === index ? { ...c, op: e.target.value } : c)))}
+                    aria-label={named("How to compare", index)}
+                    className="h-8 rounded border border-steel-300 px-2 text-sm"
+                  >
+                    {COMPARATORS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                  {needsValue(condition.op) && (
+                    <input
+                      value={String(condition.value ?? "")}
+                      onChange={(e) => write(group.key, rows.map((c, i) => (i === index ? { ...c, value: e.target.value } : c)))}
+                      placeholder="1000"
+                      aria-label={named("What to compare against", index)}
+                      className="h-8 w-32 rounded border border-steel-300 px-2 text-sm"
+                    />
+                  )}
+                  <button type="button" className={BUTTON}
+                          onClick={() => write(group.key, rows.filter((_, i) => i !== index))}
+                          aria-label={`Remove ${group.word}condition ${index + 1}`}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className={BUTTON} onClick={() => addRow(group.key)}
+                      aria-label={group.key === "all" ? "Add a condition" : `Add a condition to ${group.word.replace(/, $/, "")}`}>
+                Add a condition
+              </button>
+              {group.key !== "all" && (
+                <button type="button" className={BUTTON} onClick={() => removeGroup(group.key)}
+                        aria-label={`Remove the ${group.heading.toLowerCase()} group`}>
+                  Remove this group
+                </button>
+              )}
+            </div>
+          </fieldset>
+        );
+      })}
+
+      <div className="flex flex-wrap gap-2">
+        {!shown.includes("any") && (
+          <button type="button" className={BUTTON} onClick={() => addGroup("any")}>
+            Add an &quot;at least one of&quot; group
+          </button>
+        )}
+        {!shown.includes("none") && (
+          <button type="button" className={BUTTON} onClick={() => addGroup("none")}>
+            Add a &quot;none of&quot; group
+          </button>
+        )}
       </div>
-      <button type="button" className={`${BUTTON} mt-2`}
-              onClick={() => write([...all, { path: "", op: "eq", value: "" }])}>
-        Add a condition
-      </button>
-      <p className="mt-2 text-xs text-ink-500">
+
+      {/*
+        A branch with no conditions is always true, which means the otherwise arm
+        can never run. The sentence says so rather than the save refusing it,
+        because somebody mid-edit has not finished yet.
+
+        The whole condition read back as one sentence, updated as it changes, so
+        somebody who cannot see the boxes side by side still hears which rule each
+        row is under.
+      */}
+      <p aria-live="polite" className="text-xs text-ink-700">{describeConditions(lists)}</p>
+
+      <p className="text-xs text-ink-500">
         A path into the event, like <span className="font-mono">invoice.total</span>,
         {" "}<span className="font-mono">job.status</span>, or for one of your own records
         {" "}<span className="font-mono">record.type</span> and <span className="font-mono">record.fields.status</span>. Comparisons are on the values the event

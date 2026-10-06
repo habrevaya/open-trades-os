@@ -25,7 +25,55 @@ export const setStockTracking = defineRoute({
   permissions: ["inventory:adjust"],
   idempotent: true,
   input: z.object({ itemId: Uuid, mode: Mode.nullable() }),
-  output: z.object({ itemId: Uuid, mode: Mode.nullable() }),
+  output: z.object({
+    itemId: Uuid,
+    mode: Mode.nullable(),
+    /** Units on hand with no number yet, per place. Give them numbers with `POST /v1/stock/numbering` before they can move. */
+    unnumbered: z.array(z.object({ locationId: Uuid, locationName: z.string(), quantity: QuantityString })),
+  }),
+});
+
+export const numberStockUnits = defineRoute({
+  method: "post",
+  path: "/v1/stock/numbering",
+  summary: "Give numbers to units already on hand",
+  description:
+    "A count by number for one location: every label read off the shelf. Each new number takes one unit that had none (a lot takes the quantity said); a number already on this shelf is counted again and changes nothing. Nothing moves and nothing is bought, so the level and its value stay as they were. Refused: a number already in stock elsewhere, used on a job or gone, a number read twice, and more new numbers than units without one, because those extra units were never received.",
+  module: "M16",
+  permissions: ["inventory:adjust"],
+  idempotent: true,
+  input: z.object({
+    itemId: Uuid,
+    locationId: Uuid,
+    units: z.array(StockUnitInput.pick({ number: true, quantity: true, expiresOn: true })).min(1).max(500),
+  }),
+  output: z.object({
+    numbered: z.array(z.string()),
+    alreadyHere: z.array(z.string()),
+    /** Units at this place still without a number. */
+    stillUnnumbered: QuantityString,
+  }),
+});
+
+export const returnStockFromJob = defineRoute({
+  method: "post",
+  path: "/v1/stock/returns",
+  summary: "Take a serialised unit back off a job",
+  description:
+    "By its serial number, onto the shelf named. It comes back at the cost it left at, late freight included, as the same receipt's part, and comes off the job's material cost. The ledger reverses what the use posted: using stock posts nothing in this product except late freight a bill put on it, and that comes off the job and back into stock. The customer's equipment record it became stays on their register, its link to the serial cleared, and the answer names it so the office can retire it if the unit came out.",
+  module: "M16",
+  permissions: ["inventory:adjust"],
+  idempotent: true,
+  input: z.object({
+    itemId: Uuid,
+    locationId: Uuid,
+    numbers: z.array(z.string().min(1).max(100)).min(1).max(100),
+    note: z.string().max(200).nullable().optional(),
+  }),
+  output: z.object({
+    returned: z.array(z.object({ number: z.string(), jobId: Uuid.nullable(), jobNumber: z.number().int().nullable() })),
+    equipmentStillOnRecord: z.array(z.object({ number: z.string(), equipmentId: Uuid })),
+  }),
 });
 
 export const listTrackedItems = defineRoute({
@@ -56,6 +104,35 @@ const UnitView = z.object({
   equipmentId: Uuid.nullable(),
 });
 
+const UnitTrace = z.object({
+  unit: UnitView,
+  steps: z.array(z.object({
+    at: z.string().datetime(),
+    kind: z.string(),
+    label: z.string(),
+    quantity: QuantityString,
+    locationName: z.string(),
+    jobId: Uuid.nullable(),
+    jobNumber: z.number().int().nullable(),
+    purchaseOrderId: Uuid.nullable(),
+    purchaseOrderNumber: z.number().int().nullable(),
+    vendorName: z.string().nullable(),
+    cost: z.string().nullable(),
+  })),
+  equipment: z.object({
+    id: Uuid,
+    category: z.string(),
+    tag: z.string().nullable(),
+    manufacturer: z.string().nullable(),
+    model: z.string().nullable(),
+    serialNumber: z.string().nullable(),
+    propertyId: Uuid,
+    address: z.string(),
+    customerId: Uuid.nullable(),
+    customerName: z.string().nullable(),
+  }).nullable(),
+});
+
 export const listStockUnits = defineRoute({
   method: "get",
   path: "/v1/stock/units",
@@ -82,34 +159,18 @@ export const traceStockUnit = defineRoute({
   module: "M16",
   permissions: ["inventory:read"],
   input: z.object({ id: Uuid }),
-  output: z.object({
-    unit: UnitView,
-    steps: z.array(z.object({
-      at: z.string().datetime(),
-      kind: z.string(),
-      label: z.string(),
-      quantity: QuantityString,
-      locationName: z.string(),
-      jobId: Uuid.nullable(),
-      jobNumber: z.number().int().nullable(),
-      purchaseOrderId: Uuid.nullable(),
-      purchaseOrderNumber: z.number().int().nullable(),
-      vendorName: z.string().nullable(),
-      cost: z.string().nullable(),
-    })),
-    equipment: z.object({
-      id: Uuid,
-      category: z.string(),
-      tag: z.string().nullable(),
-      manufacturer: z.string().nullable(),
-      model: z.string().nullable(),
-      serialNumber: z.string().nullable(),
-      propertyId: Uuid,
-      address: z.string(),
-      customerId: Uuid.nullable(),
-      customerName: z.string().nullable(),
-    }).nullable(),
-  }),
+  output: UnitTrace,
+});
+
+export const traceEquipmentStock = defineRoute({
+  method: "get",
+  path: "/v1/equipment/{id}/stock-trace",
+  summary: "Where a customer's unit came from, when it came from our stock",
+  description: "Each serial of ours issued to a job as this equipment record, with its whole trace: the order and vendor it arrived from, each move between the warehouse and a truck, and the job. Empty for a unit that was not installed from stock. Cost only to a holder of `pricebook.cost:read`.",
+  module: "M16",
+  permissions: ["inventory:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ units: z.array(UnitTrace) }),
 });
 
 export const writeOffStockUnits = defineRoute({
@@ -215,7 +276,8 @@ export const restockTruck = defineRoute({
 });
 
 export const stockTrackingRoutes = {
-  setStockTracking, listTrackedItems, listStockUnits, traceStockUnit, writeOffStockUnits,
+  setStockTracking, numberStockUnits, returnStockFromJob, traceEquipmentStock,
+  listTrackedItems, listStockUnits, traceStockUnit, writeOffStockUnits,
   listStockLocations, listTruckMinimums, setTruckMinimum, clearTruckMinimum,
   listRestockSuggestions, restockTruck,
 } as const;

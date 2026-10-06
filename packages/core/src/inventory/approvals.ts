@@ -38,6 +38,40 @@ export interface ApprovalRule {
   /** A preset role name, or null when the step names one of the company's own roles. */
   readonly role: string | null;
   readonly roleId: string | null;
+  /**
+   * Which orders the step is for, beyond their size: orders to this vendor,
+   * with a line from this category, delivering to this location. Absent or
+   * null is every order. All that are set have to hold.
+   */
+  readonly vendorId?: string | null | undefined;
+  readonly categoryId?: string | null | undefined;
+  readonly locationId?: string | null | undefined;
+  /** The scope in words for a sentence: "orders from Ferguson". Empty for every order. */
+  readonly scopeLabel?: string | undefined;
+}
+
+/** What an order is, for deciding which scoped steps apply to it. */
+export interface OrderScope {
+  readonly vendorId: string;
+  /** The price book category of every line's item. */
+  readonly categoryIds: readonly string[];
+  /** Where every line is going. */
+  readonly locationIds: readonly string[];
+}
+
+/**
+ * Does a step apply to this order, leaving its amount aside? A step scoped
+ * to a category applies when ANY line is from it, and the amount it is
+ * compared with is the whole order's total, not that line's share: asking
+ * for more approval than a narrower reading would is the safe mistake.
+ */
+export function ruleCovers(rule: ApprovalRule, order: OrderScope | undefined): boolean {
+  if (!rule.vendorId && !rule.categoryId && !rule.locationId) return true;
+  if (!order) return false;
+  if (rule.vendorId && rule.vendorId !== order.vendorId) return false;
+  if (rule.categoryId && !order.categoryIds.includes(rule.categoryId)) return false;
+  if (rule.locationId && !order.locationIds.includes(rule.locationId)) return false;
+  return true;
 }
 
 export interface ApprovalRecord {
@@ -57,6 +91,7 @@ export interface ApprovalStep {
   readonly roleId: string | null;
   readonly state: "approved" | "rejected" | "waiting" | "later";
   readonly decidedByUserId: string | null;
+  readonly scopeLabel: string;
 }
 
 export interface ApprovalPlan {
@@ -84,9 +119,11 @@ export function approvalPlan(input: {
   rules: readonly ApprovalRule[];
   total: Money;
   approvals: readonly ApprovalRecord[];
+  /** The order's vendor, categories and locations, for scoped steps. Without it only unscoped steps apply. */
+  order?: OrderScope | undefined;
 }): ApprovalPlan {
   const applying = [...input.rules]
-    .filter((rule) => compare(input.total, rule.minimumTotal) >= 0)
+    .filter((rule) => compare(input.total, rule.minimumTotal) >= 0 && ruleCovers(rule, input.order))
     .sort((a, b) => a.step - b.step);
   const decided = new Map(input.approvals.map((a) => [a.step, a]));
 
@@ -102,13 +139,14 @@ export function approvalPlan(input: {
       roleId: rule.roleId,
       state: record ? record.decision : "later",
       decidedByUserId: record?.decidedByUserId ?? null,
+      scopeLabel: rule.scopeLabel ?? "",
     });
   }
   for (const record of input.approvals) {
     if (byStep.has(record.step)) continue;
     byStep.set(record.step, {
       step: record.step, ruleId: null, minimumTotal: record.minimumTotal, roleLabel: record.roleLabel,
-      role: null, roleId: null, state: record.decision, decidedByUserId: record.decidedByUserId,
+      role: null, roleId: null, state: record.decision, decidedByUserId: record.decidedByUserId, scopeLabel: "",
     });
   }
 
@@ -135,7 +173,8 @@ export function approvalPlan(input: {
     return {
       state: "waiting", steps, next,
       sentence: `Waiting for ${article(next.roleLabel)} ${next.roleLabel.toLowerCase()} to approve it, step ${done + 1} of ${steps.length}, `
-        + `because it is ${format(input.total)} and anything at or over ${format(next.minimumTotal)} needs one.`,
+        + `because it is ${format(input.total)} and anything at or over ${format(next.minimumTotal)}`
+        + `${next.scopeLabel ? ` on ${next.scopeLabel}` : ""} needs one.`,
     };
   }
   return {
@@ -187,4 +226,21 @@ export function checkDecision(input: {
     };
   }
   return { ok: true, step: plan.next };
+}
+
+/**
+ * WHICH APPROVALS AN EDIT UNDOES.
+ *
+ * Each decision copied the total it approved. An edit that takes the order
+ * above that total asks that step again: somebody said yes to four thousand
+ * dollars, not to the six it became. An edit that keeps it at or under every
+ * approved total leaves the decisions standing, because nobody approved a
+ * ceiling the order has not passed. Returns the steps to ask again.
+ */
+export function approvalsUndoneBy(
+  newTotal: Money, decisions: readonly { step: number; decision: "approved" | "rejected"; orderTotal: Money }[],
+): number[] {
+  return decisions
+    .filter((d) => d.decision === "approved" && compare(newTotal, d.orderTotal) > 0)
+    .map((d) => d.step);
 }

@@ -6,6 +6,7 @@ import { dispatch, fieldOps, safety } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Day } from "./Day";
 import { SafetyTalks } from "./SafetyTalks";
+import { OfflineReady } from "./OfflineReady";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,7 @@ export default async function MyDayPage({
 
   return (
     <>
+    <div className="mx-4 mt-2"><OfflineReady person={user.userId} /></div>
     <SafetyTalks talks={talks} timezone={user.organizationTimezone} />
     {can(user.actor, "safety:report") ? (
       <p className="mx-4 mt-3 text-sm">

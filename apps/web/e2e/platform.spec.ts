@@ -69,6 +69,38 @@ test("an app asks to be installed, the owner approves exactly what it asked for,
   expect(await again.json()).not.toHaveProperty("token");
 });
 
+test("the owner approves part of what an app asked for, and the app is told what was left out", async ({ owner, stranger }) => {
+  const name = `Partly trusted ${run}`;
+  const claimSecret = `e2e-${run}-${randomBytes(24).toString("base64url")}`;
+  const body = {
+    company: COMPANY, name, permissions: ["customer:read", "job:read"],
+    scopes: { customer: "all", job: "all" }, claimSecret,
+  };
+  const request = await (await stranger.request.post("/api/v1/public/app-requests", { data: body })).json() as {
+    id: string; decisionPath: string; repeated: boolean;
+  };
+  expect(request.repeated).toBe(false);
+  /** The answer was lost and the app asks again with the same secret: the first request comes back. */
+  const retried = await (await stranger.request.post("/api/v1/public/app-requests", { data: body })).json() as {
+    id: string; repeated: boolean;
+  };
+  expect(retried).toMatchObject({ id: request.id, repeated: true });
+
+  await owner.goto(request.decisionPath);
+  await owner.getByRole("checkbox", { name: "View jobs" }).uncheck();
+  await owner.getByRole("button", { name: `Approve ${name}` }).click();
+  await expect(owner.getByRole("status").filter({ hasText: /^Approved in part\./ })).toContainText("view jobs");
+  await expect(owner.getByRole("list", { name: "What it asks for" }).getByRole("listitem").filter({ hasText: "View jobs" }))
+    .toContainText("Left out");
+
+  const collected = await (await stranger.request.post(`/api/v1/public/app-requests/${request.id}/claim`, {
+    data: { claimSecret },
+  })).json() as { status: string; token: string; permissions: string[]; withheld: string[] };
+  expect(collected).toMatchObject({ status: "approved", permissions: ["customer:read"], withheld: ["job:read"] });
+  const me = await stranger.request.get("/api/v1/apps/me", { headers: { authorization: `Bearer ${collected.token}` } });
+  expect(await me.json()).toMatchObject({ permissions: ["customer:read"] });
+});
+
 test("the owner refuses a request, and the app is told no and gets nothing", async ({ owner, stranger }) => {
   const name = `Stranger app ${run}`;
   const asked = await stranger.request.post("/api/v1/public/app-requests", {

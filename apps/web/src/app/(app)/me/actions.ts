@@ -90,10 +90,18 @@ export async function signDrawn(input: { requestId: string; drawing: string }): 
   }
 }
 
+/** `13:30` from a time box, as minutes after midnight, or undefined. */
+function minutesOf(value: string | undefined): number | undefined {
+  const match = value ? /^(\d{2}):(\d{2})$/.exec(value) : null;
+  return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
+}
+
 /**
  * Asking for days off, as whole days in the company's own zone: from the
- * start of the first day to the end of the last. Half days are asked for
- * through the API with times; on a phone a day is what people ask for.
+ * start of the first day to the end of the last. Or, when both times are
+ * filled in, part of ONE day, from the first time to the second in the same
+ * zone: the route takes any two instants, and a screen that took a range of
+ * days with hours on the ends would be asking for something nobody means.
  */
 export async function requestTimeOff(_previous: FormState, form: FormData): Promise<FormState> {
   const user = await requireSetupUser();
@@ -103,9 +111,26 @@ export async function requestTimeOff(_previous: FormState, form: FormData): Prom
     if (!from || !to) throw new ConflictError("Choose the first day you want off.");
     if (to < from) throw new ConflictError("The last day is before the first. Put the earlier day first.");
     const zone = user.organizationTimezone;
+    const fromTime = field(form, "fromTime");
+    const toTime = field(form, "toTime");
+    let startsAt = time.startOfDayIn(from, zone);
+    let endsAt = time.startOfDayIn(time.nextDay(to), zone);
+    if (fromTime || toTime) {
+      const begins = minutesOf(fromTime);
+      const ends = minutesOf(toTime);
+      if (begins === undefined || ends === undefined) {
+        throw new ConflictError("For part of a day, say when it starts and when it ends.");
+      }
+      if (to !== from) {
+        throw new ConflictError("Part of a day is for one day. Ask for each day on its own, or ask for whole days.");
+      }
+      if (ends <= begins) throw new ConflictError("It has to end after it starts.");
+      startsAt = time.instantOfLocal(from, begins, zone);
+      endsAt = time.instantOfLocal(from, ends, zone);
+    }
     await timeOff.request({ actor: user.actor, db: getDb() }, {
-      startsAt: time.startOfDayIn(from, zone).toISOString(),
-      endsAt: time.startOfDayIn(time.nextDay(to), zone).toISOString(),
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
       reason: field(form, "reason") ?? null,
     });
     return { message: "Asked. You will see the answer here." };

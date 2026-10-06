@@ -236,7 +236,17 @@ const APP_ROLE = process.env.DATABASE_APP_ROLE ?? "authenticated";
  * would leak one tenant's context onto the next request that borrows the
  * connection, which is a cross tenant read and a silent one.
  */
-export async function inTenant<T>(ctx: ServiceContext, fn: (tx: Database) => Promise<T>): Promise<T> {
+export async function inTenant<T>(
+  ctx: ServiceContext,
+  fn: (tx: Database) => Promise<T>,
+  /**
+   * For the rare transaction that needs more than the default. A whole company
+   * export asks for `repeatable read`, so every table in it is read at the
+   * same moment and a row added halfway through cannot point at one that is
+   * not in the copy.
+   */
+  config?: { isolationLevel?: "read committed" | "repeatable read" | "serializable" },
+): Promise<T> {
   try {
     return await ctx.db.transaction(async (tx) => {
       /**
@@ -253,7 +263,7 @@ export async function inTenant<T>(ctx: ServiceContext, fn: (tx: Database) => Pro
       await tx.execute(sql`select set_config('app.organization_id', ${ctx.actor.organizationId}, true)`);
       await tx.execute(sql`select set_config('app.user_id', ${ctx.actor.userId}, true)`);
       return fn(tx as unknown as Database);
-    });
+    }, config);
   } catch (error) {
     // 25006, read_only_sql_transaction: the refusal above, in words.
     if (ctx.actor.readOnly && pgCode(error) === "25006") throw new DemoReadOnlyError();

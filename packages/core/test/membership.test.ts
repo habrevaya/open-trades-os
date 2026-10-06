@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { money, toString } from "../src/money/index.js";
 import {
   memberPricingFor, memberDiscounts, eligibleForMemberPricing, usableRate, priorityFor,
+  priorityShareFor, shareOf, readExclusions, excludedFromDiscount, excludedItemIds, hasExclusions,
   renewalDue, noticeDue, nextTerm, endingWithin, daysBetween, lastCoveredDay,
   type MemberCandidate, type RenewalState,
 } from "../src/membership/index.js";
@@ -23,7 +24,7 @@ describe("who is a member on the day", () => {
     expect(memberPricingFor([member()], { on: "2026-06-01", propertyId: "home" }))
       .toEqual({
         agreementId: "a1", planName: "Comfort Club", rate: "0.15",
-        waivesDiagnosticFee: false, waivesAfterHoursRate: false,
+        waivesDiagnosticFee: false, waivesAfterHoursRate: false, exclusions: { categoryIds: [], itemIds: [] },
       });
   });
 
@@ -71,7 +72,7 @@ describe("the perks a plan carries besides its rate", () => {
     const found = memberPricingFor([member({ discountRate: null, waivesDiagnosticFee: true })], { on: "2026-06-01" });
     expect(found).toEqual({
       agreementId: "a1", planName: "Comfort Club", rate: "0",
-      waivesDiagnosticFee: true, waivesAfterHoursRate: false,
+      waivesDiagnosticFee: true, waivesAfterHoursRate: false, exclusions: { categoryIds: [], itemIds: [] },
     });
   });
 
@@ -177,6 +178,81 @@ const state = (over: Partial<RenewalState> = {}): RenewalState => ({
   renewalNoticeDays: 30,
   renewalNoticeSentAt: null,
   ...over,
+});
+
+describe("what a plan's discount leaves out", () => {
+  /** Equipment, with furnaces under it, and labour beside it. */
+  const parents = new Map<string, string | null>([
+    ["equipment", null], ["furnaces", "equipment"], ["labour", null],
+  ]);
+  const exclusions = { categoryIds: ["equipment"], itemIds: ["permit"] };
+
+  it("leaves out an item filed anywhere under an excluded category, and an excluded item wherever it is filed", () => {
+    expect(excludedFromDiscount({ itemId: "furnace-80", categoryId: "furnaces" }, exclusions, parents)).toBe(true);
+    expect(excludedFromDiscount({ itemId: "condenser", categoryId: "equipment" }, exclusions, parents)).toBe(true);
+    expect(excludedFromDiscount({ itemId: "permit", categoryId: "labour" }, exclusions, parents)).toBe(true);
+    expect(excludedFromDiscount({ itemId: "hour", categoryId: "labour" }, exclusions, parents)).toBe(false);
+  });
+
+  it("never leaves out a line typed by hand, which names no item and no category", () => {
+    expect(excludedFromDiscount({ itemId: null, categoryId: null }, exclusions, parents)).toBe(false);
+  });
+
+  it("answers rather than hangs on categories edited into a loop", () => {
+    const loop = new Map<string, string | null>([["a", "b"], ["b", "a"]]);
+    expect(excludedFromDiscount({ itemId: "x", categoryId: "a" }, exclusions, loop)).toBe(false);
+    expect(excludedFromDiscount({ itemId: "x", categoryId: "a" }, { categoryIds: ["b"], itemIds: [] }, loop)).toBe(true);
+  });
+
+  it("flattens to the items a phone can check without the category tree", () => {
+    expect(excludedItemIds([
+      { id: "furnace-80", categoryId: "furnaces" }, { id: "hour", categoryId: "labour" },
+      { id: "permit", categoryId: null }, { id: "loose", categoryId: null },
+    ], exclusions, parents)).toEqual(["furnace-80", "permit"]);
+    expect(excludedItemIds([{ id: "hour", categoryId: "labour" }], readExclusions(null), parents)).toEqual([]);
+  });
+
+  it("reads a stored value defensively, without duplicates and in a fixed order", () => {
+    expect(readExclusions({ categoryIds: ["b", "a", "a", 7, ""], itemIds: "nope" })).toEqual({ categoryIds: ["a", "b"], itemIds: [] });
+    expect(readExclusions("junk")).toEqual({ categoryIds: [], itemIds: [] });
+    expect(hasExclusions(readExclusions({ categoryIds: [], itemIds: [] }))).toBe(false);
+  });
+
+  it("takes the rate off labour and nothing off equipment, and still waives a waived fee in an excluded category", () => {
+    const off = memberDiscounts([
+      { quantity: "2", unitPrice: money("120.00"), eligible: true },
+      { quantity: "1", unitPrice: money("3400.00"), eligible: true, excluded: true },
+      { quantity: "1", unitPrice: money("89.00"), eligible: true, excluded: true, feeRole: "diagnostic" },
+    ], "0.15", { diagnostic: true });
+    expect(off.map(toString)).toEqual(["36.0000", "0.0000", "89.0000"]);
+  });
+
+  it("carries the agreement's exclusions with the plan that priced the work", () => {
+    const found = memberPricingFor([member({ exclusions: { categoryIds: ["equipment"], itemIds: [] } })], { on: "2026-06-01" });
+    expect(found?.exclusions).toEqual({ categoryIds: ["equipment"], itemIds: [] });
+  });
+});
+
+describe("the share of a window a member's plan holds", () => {
+  const gold = member({ agreementId: "g", priorityDispatch: true, holdShare: 0.3 });
+  const plain = member({ agreementId: "p", priorityDispatch: true, holdShare: null });
+
+  it("is the plan's own share, or the company's when the plan sets none", () => {
+    expect(priorityShareFor([gold], { on: "2026-06-01", propertyId: "home" }, 0.1)).toBe(0.3);
+    expect(priorityShareFor([plain], { on: "2026-06-01", propertyId: "home" }, 0.1)).toBe(0.1);
+  });
+
+  it("is the larger of two plans, and nothing for a plan that does not promise priority", () => {
+    expect(priorityShareFor([plain, gold], { on: "2026-06-01" }, 0.1)).toBe(0.3);
+    expect(priorityShareFor([member()], { on: "2026-06-01" }, 0.1)).toBeNull();
+    expect(priorityShareFor([gold], { on: "2026-06-01", propertyId: "rental" }, 0.1)).toBeNull();
+  });
+
+  it("keeps a share between none and all of the window", () => {
+    expect(shareOf(2, 0.1)).toBe(1);
+    expect(shareOf(-1, 0.1)).toBe(0);
+    expect(shareOf(Number.NaN, 0.1)).toBe(0);
+  });
 });
 
 describe("renewing", () => {

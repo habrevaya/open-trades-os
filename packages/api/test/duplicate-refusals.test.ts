@@ -67,6 +67,10 @@ const REFUSED: Record<string, Refused> = {
   costing_rate_day_idx: { file: "costing.ts", how: "check", says: "already has a rate from" },
   /** A journal reversed twice, which would take the same money back twice. */
   journal_entry_reverses_idx: { file: "journals.ts", how: "check", says: "was already reversed by journal" },
+  /** A second sales tax rate in use under one name: two rows on a filing report that mean the same thing. */
+  tax_rate_name_idx: { file: "tax.ts", how: "check", says: "There is already a rate called" },
+  /** A second, different percentage for one rate on one day: "what did it charge on the 1st" would have two answers. */
+  tax_rate_version_day_idx: { file: "tax.ts", how: "check", says: "already has a percentage from" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
@@ -155,8 +159,11 @@ const REFUSED: Record<string, Refused> = {
  * the symptom of something much worse than a typo.
  */
 const LEFT_TO_THE_DATABASE: Record<string, string> = {
+  connected_app_claim_idx: "A claim secret is random and the app's own; a retry with the same one is read first and answered with the first request, and the insert is on conflict do nothing for two retries racing.",
+  backup_destination_org_idx: "One destination per company, and saving reads it first and updates it in place. Nobody types a duplicate; two saves racing is the only way to meet this, and that is a bug to see.",
   journal_entry_number_idx: "Allocated by the numbering service, in its own sequence.",
   financing_application_external_idx: "The lender's own id for an application, written once when the lender opens it. Nobody types it.",
+  agreement_term_idx: "A term's row is written by the code that writes the term, numbered from the renewal count, and a legacy term's row is added with on conflict do nothing. Nobody types a term number.",
   budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
   budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
   /* --- numbers and sequences this product generates --- */
@@ -181,7 +188,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   truck_stock_minimum_item_location_idx:
     "One live minimum per item per truck, written with on conflict do update: setting it again replaces it.",
   purchase_order_approval_step_idx:
-    "A step of an order is decided once. The service only ever decides the step that is waiting, so a collision is two people deciding the same step in the same instant, and the second is a conflict rather than a duplicate anybody typed.",
+    "A step of an order is decided once, among the decisions an edit has not set aside. The service only ever decides the step that is waiting, so a collision is two people deciding the same step in the same instant, and the second is a conflict rather than a duplicate anybody typed.",
+  vendor_return_number_idx: "Allocated by the return service as the next number under a per company lock.",
   purchase_order_send_token_idx: "The hash of thirty two random bytes minted for an emailed order's printable link.",
   onboarding_item_template_idx:
     "One copy of each checklist line per person. Starting onboarding inserts with on conflict do nothing, so starting again adds only the new lines.",
@@ -247,6 +255,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   task_template_occurrence_idx:
     "One task per recurring template per company day. The worker inserts with on conflict do "
     + "nothing, so a restarted or doubled worker raises the day's task once.",
+  safety_meeting_occurrence_idx:
+    "One toolbox talk per schedule per company day. The worker inserts with on conflict do "
+    + "nothing, so a restarted or doubled worker raises the day's talk once.",
   task_escalation_once_idx:
     "One escalation per task per rule, inserted first with on conflict do nothing, so only the "
     + "pass whose insert landed tells anybody.",
@@ -287,12 +298,27 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   payment_profile_customer_idx:
     "One processor customer per customer per payment connection, made the first time a card is "
     + "saved and inserted with on conflict do nothing, so two first saves racing are one profile.",
+  payment_agreement_live_idx:
+    "One live agreement to charge a saved card. Agreeing again returns the one that stands, and the insert "
+    + "is on conflict do nothing, so a double press is one agreement.",
+  payment_agreement_autopay_idx:
+    "One card paying automatically per customer. Turning it on for a card turns it off on the others in the "
+    + "same transaction first; only the customer's own two presses at the same instant could meet it, and the "
+    + "second then fails rather than leaving two cards charging every bill.",
+  card_on_file_charge_autopay_idx:
+    "One automatic charge per invoice per try, which is what makes a bill charged once whatever the worker "
+    + "does. Inserted with on conflict do nothing by the worker; nobody types one.",
+  card_on_file_charge_key_idx:
+    "The office's request key for a charge. A replay is found by a select first and answered with the charge "
+    + "already made; two identical requests at the same instant fail the second rather than charge twice.",
   saved_payment_method_external_idx:
     "The processor's own id for a saved card. Recording the same setup twice (a refresh of the page "
     + "the processor returned to) inserts with on conflict do nothing and records the card once.",
 
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
+  after_hours_rate_org_idx: "One choice of after hours and holiday rate per company, upserted.",
+  tax_setting_org_idx: "One sales tax answer per company, upserted.",
   ai_agent_setting_agent_idx: "One settings row per agent per company, upserted.",
   ai_agent_proposal_open_idx:
     "One open draft per agent per source. Inserted with on conflict do nothing, and the open draft is returned instead.",

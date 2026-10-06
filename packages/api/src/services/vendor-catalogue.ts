@@ -38,6 +38,14 @@ export interface VendorLinkView {
   description: string | null;
   cost: string | null;
   costUpdatedAt: string | null;
+  /** How many of our units are in one of theirs; `cost` is for one of theirs. "1" when they sell what we count. */
+  packQuantity: string;
+  /** What they call their unit, "box". Null for each. */
+  purchaseUnit: string | null;
+  /** Their price for one of their units at so many or more, lowest first. */
+  priceBreaks: catalogue.PriceBreak[];
+  /** What one of ours comes to at their base price. Null with no cost. */
+  eachCost: string | null;
 }
 
 async function linksWithin(
@@ -75,6 +83,10 @@ async function linksWithin(
     description: r.link.description,
     cost: r.link.cost,
     costUpdatedAt: r.link.costUpdatedAt?.toISOString() ?? null,
+    packQuantity: r.link.packQuantity,
+    purchaseUnit: r.link.purchaseUnit,
+    priceBreaks: r.link.priceBreaks,
+    eachCost: r.link.cost ? catalogue.eachCost(r.link.cost, r.link.packQuantity) : null,
   }));
 }
 
@@ -101,6 +113,11 @@ export async function setLink(
   input: {
     vendorId: string; itemId: string; partNumber: string;
     description?: string | null | undefined; cost?: string | null | undefined;
+    /** How many of ours in one of theirs. Left out keeps what is on record. */
+    packQuantity?: string | null | undefined;
+    purchaseUnit?: string | null | undefined;
+    /** Replaces the break table whole when given. */
+    priceBreaks?: readonly catalogue.PriceBreak[] | null | undefined;
   },
 ): Promise<VendorLinkView> {
   return guardedWrite(ctx, "vendor:write", async (tx) => {
@@ -111,6 +128,12 @@ export async function setLink(
     if (input.cost && input.cost.trim() !== "" && cost === null) {
       throw new ConflictError(`"${input.cost}" is not an amount. Give the vendor's price for one, like 12.50.`);
     }
+    const pack = input.packQuantity?.trim() ? catalogue.parsePack(input.packQuantity) : null;
+    if (input.packQuantity?.trim() && pack === null) {
+      throw new ConflictError(`"${input.packQuantity}" is not how many come in one of theirs. Give a number, like 25 for a box of 25.`);
+    }
+    const breaks = input.priceBreaks ? catalogue.checkBreaks(input.priceBreaks) : null;
+    if (breaks && !breaks.ok) throw new ConflictError(breaks.message);
 
     const [vendor] = await tx.select({ id: schema.vendor.id }).from(schema.vendor)
       .where(and(eq(schema.vendor.id, input.vendorId), isNull(schema.vendor.deletedAt))).limit(1);
@@ -128,6 +151,9 @@ export async function setLink(
       description: input.description?.trim() ? input.description.trim() : before?.description ?? null,
       cost: cost === null ? before?.cost ?? null : m.toString(m.money(cost)),
       costUpdatedAt: cost === null ? before?.costUpdatedAt ?? null : new Date(),
+      packQuantity: pack === null ? before?.packQuantity ?? "1" : m.toString(m.money(pack)),
+      purchaseUnit: input.purchaseUnit === undefined ? before?.purchaseUnit ?? null : input.purchaseUnit?.trim() || null,
+      priceBreaks: breaks?.ok ? breaks.breaks : before?.priceBreaks ?? [],
       updatedAt: new Date(),
     };
     const [row] = await refusingDuplicate("vendor_item_part_number_idx", PART_NUMBER_TAKEN(partNumber), () =>
@@ -225,6 +251,7 @@ async function stateFor(tx: Database, rows: readonly catalogue.CatalogueRow[]): 
     vendors,
     links: links.map((l) => ({
       vendorId: l.vendorId, itemId: l.itemId, partNumber: l.partNumber, cost: l.cost, description: l.description,
+      packQuantity: l.packQuantity, purchaseUnit: l.purchaseUnit, priceBreaks: l.priceBreaks,
     })),
     items: items.map((i) => ({ ...i, scheduled: ahead.has(i.id) })),
   };
@@ -308,6 +335,19 @@ export async function apply(
 
     const result = await planWithin(tx, ctx, input);
     const skip = new Set(input.skipLines ?? []);
+    /**
+     * Pack, unit and breaks as the FILE stated them. A file with no pack
+     * column says nothing about packs, so an existing link keeps its own.
+     */
+    const parsedOf = new Map(result.parsed.rows.map((r) => [r.line, r]));
+    const packing = (row: { line: number; pack: string; unit: string | null; breaks: catalogue.PriceBreak[] }) => {
+      const read = parsedOf.get(row.line);
+      return {
+        ...(read?.pack !== undefined ? { packQuantity: row.pack } : {}),
+        ...(read?.unit !== undefined ? { purchaseUnit: row.unit } : {}),
+        ...(read?.breaks !== undefined ? { priceBreaks: row.breaks } : {}),
+      };
+    };
     const now = new Date();
     let created = 0;
     let linked = 0;
@@ -337,7 +377,8 @@ export async function apply(
             version: 1,
             name: row.name,
             price: row.price,
-            cost: row.cost,
+            /** Per each, as the price book counts: their box price over the box. */
+            cost: row.eachCost,
             taxable: true,
             effectiveFrom: now,
           });
@@ -349,6 +390,7 @@ export async function apply(
             description: row.name,
             cost: row.cost,
             costUpdatedAt: now,
+            ...packing(row),
           });
           created += 1;
           break;
@@ -362,6 +404,7 @@ export async function apply(
             description: result.parsed.rows.find((r) => r.line === row.line)?.description.trim() || null,
             cost: row.cost,
             costUpdatedAt: now,
+            ...packing(row),
           });
           if (row.itemCostAfter !== null) await reviseCost(row.itemId, row.itemCostAfter);
           linked += 1;
@@ -374,6 +417,7 @@ export async function apply(
             ...(description ? { description } : {}),
             cost: row.cost,
             costUpdatedAt: now,
+            ...packing(row),
             updatedAt: now,
           }).where(and(eq(schema.vendorItem.vendorId, row.vendorId), eq(schema.vendorItem.itemId, row.itemId)));
           if (row.itemCostAfter !== null) await reviseCost(row.itemId, row.itemCostAfter);
@@ -413,7 +457,16 @@ export async function apply(
  */
 export async function resolvePart(
   tx: Database, vendorId: string, line: { itemId?: string | undefined; partNumber?: string | undefined },
-): Promise<{ itemId: string; partNumber: string | null; cost: string | null }> {
+): Promise<{
+  itemId: string; partNumber: string | null; cost: string | null;
+  /** How the vendor sells it: so many of ours in one of theirs, called what, and their breaks. */
+  packQuantity: string; purchaseUnit: string | null; priceBreaks: catalogue.PriceBreak[];
+}> {
+  const packing = (link: typeof schema.vendorItem.$inferSelect | undefined) => ({
+    packQuantity: link?.packQuantity ?? "1",
+    purchaseUnit: link?.purchaseUnit ?? null,
+    priceBreaks: link?.priceBreaks ?? [],
+  });
   const typed = line.partNumber?.trim() ?? "";
   if (line.itemId) {
     const [link] = await tx.select().from(schema.vendorItem)
@@ -421,14 +474,14 @@ export async function resolvePart(
     if (typed !== "" && link && link.partNumber.toLowerCase() !== typed.toLowerCase()) {
       throw new ConflictError(`${typed} is not this vendor's number for that item: they call it ${link.partNumber}.`);
     }
-    return { itemId: line.itemId, partNumber: link?.partNumber ?? (typed === "" ? null : typed), cost: link?.cost ?? null };
+    return { itemId: line.itemId, partNumber: link?.partNumber ?? (typed === "" ? null : typed), cost: link?.cost ?? null, ...packing(link) };
   }
   if (typed === "") throw new ConflictError("Every line needs a part: our item, or the vendor's part number.");
 
   const [byPart] = await tx.select().from(schema.vendorItem)
     .where(and(eq(schema.vendorItem.vendorId, vendorId), sql`lower(${schema.vendorItem.partNumber}) = ${typed.toLowerCase()}`))
     .limit(1);
-  if (byPart) return { itemId: byPart.itemId, partNumber: byPart.partNumber, cost: byPart.cost };
+  if (byPart) return { itemId: byPart.itemId, partNumber: byPart.partNumber, cost: byPart.cost, ...packing(byPart) };
 
   const byCode = await tx.select({ id: schema.priceBookItem.id }).from(schema.priceBookItem)
     .where(and(isNull(schema.priceBookItem.deletedAt), sql`lower(${schema.priceBookItem.code}) = ${typed.toLowerCase()}`))
@@ -436,7 +489,7 @@ export async function resolvePart(
   if (byCode.length === 1) {
     const [link] = await tx.select().from(schema.vendorItem)
       .where(and(eq(schema.vendorItem.vendorId, vendorId), eq(schema.vendorItem.itemId, byCode[0]!.id))).limit(1);
-    return { itemId: byCode[0]!.id, partNumber: link?.partNumber ?? null, cost: link?.cost ?? null };
+    return { itemId: byCode[0]!.id, partNumber: link?.partNumber ?? null, cost: link?.cost ?? null, ...packing(link) };
   }
   throw new ConflictError(
     `Nothing answers to ${typed}: it is not this vendor's part number for any item, and not one of your item codes. `
@@ -450,6 +503,8 @@ export const handlers = {
   setVendorItem: (ctx: ServiceContext, input: {
     vendorId: string; itemId: string; partNumber: string;
     description?: string | null | undefined; cost?: string | null | undefined;
+    packQuantity?: string | null | undefined; purchaseUnit?: string | null | undefined;
+    priceBreaks?: readonly { minimum: string; cost: string }[] | null | undefined;
   }) => setLink(ctx, input),
   removeVendorItem: (ctx: ServiceContext, input: { id: string }) => removeLink(ctx, input),
   previewVendorCatalogue: (ctx: ServiceContext, input: CatalogueInput) => preview(ctx, input),

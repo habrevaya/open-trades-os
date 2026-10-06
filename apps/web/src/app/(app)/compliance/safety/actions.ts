@@ -5,7 +5,7 @@ import { attempt, field, fields, type FormState } from "@/lib/actions";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { fileAsBase64, instantFromLocal } from "@/lib/local-time";
-import { safety } from "@opentradesos/api/services";
+import { safety, safetyTalks } from "@opentradesos/api/services";
 
 /**
  * Recording a toolbox talk and keeping its sign in sheet. Every refusal is the
@@ -23,8 +23,11 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
       case "create": {
         const names = (field(form, "visitors") ?? "").split(",").map((n) => n.trim()).filter(Boolean);
         const heldAt = instantFromLocal(field(form, "heldAt"), user.organizationTimezone) ?? new Date().toISOString();
+        const topicId = field(form, "topicId");
+        const fromLibrary = topicId ? (await safetyTalks.listTopics(ctx)).find((t) => t.id === topicId) : undefined;
         await safety.createMeeting(ctx, {
-          topic: field(form, "topic") ?? "",
+          topic: field(form, "topic") ?? fromLibrary?.title ?? "",
+          ...(fromLibrary ? { topicId: fromLibrary.id } : {}),
           notes: field(form, "notes"),
           heldAt,
           location: field(form, "location"),

@@ -42,6 +42,11 @@ export default async function CataloguePage() {
         A file with a part number, a description and a cost on each row, and the vendor&apos;s name in a column or
         chosen below. Nothing is written until you have seen what each row will do.
       </p>
+      <p className="mt-2 max-w-prose text-sm text-ink-700">
+        A supplier who sells by the box: add a pack column (how many in one, like 25) and a unit column (box). The cost
+        is then their price for the box, and the price book is costed for one. Price breaks go in pairs of columns,
+        like Break 1 Qty and Break 1 Price, counted in their boxes.
+      </p>
       <div className="mt-6">
         {vendors.length === 0 ? (
           <Empty title="Add a vendor first">

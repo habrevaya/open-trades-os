@@ -104,6 +104,20 @@ overridden with a reason by a caller holding `visit:assign_unqualified`), `POST 
 tells the customer somebody is coming, which needs `message:send` rather than a
 visit permission because it is a message.
 
+### Call it off
+
+`PATCH /v1/jobs/{id}` with `status: "cancelled"` cancels the job. With
+`cancelVisits: true` as well (which also needs `visit:reschedule`) it
+cancels the job's visits still to come: those not started whose window has
+not ended, or that have no time yet. Each one is cancelled the way a visit
+is cancelled on a customer's request: off the route order, its technicians
+(and a crew's members) told "Do not go" on their phones, and any request of
+the customer's still waiting on it closed. Visits somebody is on the way to
+or working, finished ones, and ones whose window passed without anybody
+marking them are left as they are. "Cancel this job" on `/jobs/{id}` offers
+it, ticked, says how many visits it would cancel, and names the ones under
+way it leaves.
+
 ### Finish it
 
 `POST /v1/visits/{id}/complete` records what was done, the notes, the checklist
@@ -152,7 +166,7 @@ because a technician may finish work and may not re-describe it.
 | `GET /v1/jobs` | `job:read` |
 | `GET /v1/jobs/{id}` | `job:read` |
 | `POST /v1/jobs` | `job:write` |
-| `PATCH /v1/jobs/{id}` | `job:write` |
+| `PATCH /v1/jobs/{id}` | `job:write`, and `visit:reschedule` with `cancelVisits` |
 | `GET /v1/jobs/{id}/lines` | `job:read` |
 | `POST /v1/jobs/{id}/visits` | `visit:write` |
 | `POST /v1/visits/{id}/assign` | `visit:dispatch` |
@@ -185,4 +199,7 @@ reference it explicable. Route optimisation is a proposal per technician that a
 person applies (M09), not an automatic reorder. A job can add skills of its own
 to its type's but cannot drop one of its type's. Booking with a technician who
 is refused has no override; book the visit unassigned and send them from the
-board.
+board. Cancelling a job does not cancel its visits unless the office ticks
+it; an API caller has to ask with `cancelVisits`, so an integration that
+cancels jobs today keeps its behaviour. A visit somebody is already on the
+way to is never cancelled with the job: the office rings them.

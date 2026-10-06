@@ -1,6 +1,7 @@
 export * from "./_shared";
 export * from "./tenancy";
 export * from "./acquisition";
+export * from "./tax";
 export * from "./crm";
 export * from "./pricebook";
 export * from "./scheduling";
@@ -40,3 +41,4 @@ export * from "./mail";
 export * from "./finance";
 export * from "./custom-objects";
 export * from "./knowledge";
+export * from "./portability";

@@ -5,7 +5,7 @@ import { PermissionError, type Actor } from "@opentradesos/core";
 import * as webhooks from "../src/services/webhooks";
 import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
 import { runPass } from "../src/services/workflow-worker";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, holdWholePassLock, WHOLE_PASS_WAIT_MS } from "./helpers";
 
 /**
  * OUTBOUND WEBHOOKS, WHICH NOTHING COULD REGISTER OR DELIVER
@@ -67,6 +67,13 @@ function transport(answer: (request: webhooks.DeliveryRequest) => webhooks.Deliv
 
 const T0 = Date.UTC(2026, 0, 14, 9, 0, 0);
 const at = (offsetMs: number) => () => new Date(T0 + offsetMs);
+
+/** This file runs the worker's pass over every company: see `holdWholePassLock`. */
+let releaseWholePass: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (url) releaseWholePass = await holdWholePassLock(url);
+}, WHOLE_PASS_WAIT_MS);
+afterAll(async () => { await releaseWholePass?.(); });
 
 beforeAll(async () => {
   if (!url) return;
@@ -849,5 +856,85 @@ run("replaying", () => {
     await webhooks.update(owner(), { id: endpoint.id, active: false });
     await expect(webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 }))
       .rejects.toBeInstanceOf(ConflictError);
+  });
+});
+
+run("stopping a replay", () => {
+  const replayed = (calls: webhooks.DeliveryRequest[]) =>
+    calls.filter((c) => c.headers[webhooks.REPLAY_HEADER]).length;
+
+  it("refuses a role that cannot change integrations, and a replay on another endpoint", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    const other = await webhooks.register(owner(), { url: `${RECEIVER}/other`, events: ["job.completed"] });
+    await emitted("job.completed");
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+    await expect(webhooks.cancelReplay(as(["accountant"]), { id: endpoint.id, replayId: replay.id }))
+      .rejects.toBeInstanceOf(PermissionError);
+    await expect(webhooks.cancelReplay(owner(), { id: other.id, replayId: replay.id }))
+      .rejects.toBeInstanceOf(NotFoundError);
+    expect((await webhooks.replays(owner(), { id: endpoint.id }))[0]).toMatchObject({ status: "pending" });
+  });
+
+  it("sends nothing of a replay stopped before it ran, and says who stopped it", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+
+    const stopped = await webhooks.cancelReplay(owner(), { id: endpoint.id, replayId: replay.id });
+    expect(stopped).toMatchObject({ id: replay.id, status: "cancelled", position: 0 });
+    expect(stopped.finishedAt).not.toBeNull();
+
+    const http = transport();
+    await webhooks.deliver(db(), ORG, { send: http.send, now: at(60_000) });
+    expect(replayed(http.calls)).toBe(0);
+    const [row] = await raw<{ cancelled_by_user_id: string }[]>`
+      select cancelled_by_user_id from public.webhook_replay where id = ${replay.id}`;
+    expect(row!.cancelled_by_user_id).toBe(USER);
+    const [line] = await raw<{ n: number }[]>`select count(*)::int as n from public.audit_log
+      where organization_id = ${ORG} and action = 'webhook.replay_cancelled' and entity_id = ${endpoint.id}`;
+    expect(line!.n).toBe(1);
+  });
+
+  it("stops a replay under way at the next event, and keeps how far it got", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await emitted("job.completed");
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+
+    const calls: webhooks.DeliveryRequest[] = [];
+    const send: webhooks.Transport = async (request) => {
+      calls.push(request);
+      // Somebody presses Stop while the first event of the replay is on its way.
+      if (calls.length === 1) await webhooks.cancelReplay(owner(), { id: endpoint.id, replayId: replay.id });
+      return OK;
+    };
+    await webhooks.deliver(db(), ORG, { send, now: at(60_000) });
+    expect(replayed(calls)).toBe(1);
+    expect((await webhooks.replays(owner(), { id: endpoint.id }))[0])
+      .toMatchObject({ status: "cancelled", position: 1 });
+
+    // And nothing more on the passes after.
+    const later = transport();
+    await webhooks.deliver(db(), ORG, { send: later.send, now: at(120_000) });
+    expect(replayed(later.calls)).toBe(0);
+  });
+
+  it("answers a replay that already finished as it is, so pressing twice is not an error", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(60_000) });
+    await expect(webhooks.cancelReplay(owner(), { id: endpoint.id, replayId: replay.id }))
+      .resolves.toMatchObject({ status: "done" });
+
+    const second = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+    await webhooks.cancelReplay(owner(), { id: endpoint.id, replayId: second.id });
+    await expect(webhooks.cancelReplay(owner(), { id: endpoint.id, replayId: second.id }))
+      .resolves.toMatchObject({ status: "cancelled" });
   });
 });

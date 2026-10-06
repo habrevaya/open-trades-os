@@ -7,6 +7,7 @@ import { Phone } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
+import { HoldPanel } from "@/components/HoldPanel";
 import { bookFromCall } from "../../actions";
 import { transcribeNow } from "./actions";
 
@@ -89,6 +90,10 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               <h2 className="text-sm font-medium">Voicemail</h2>
               <audio controls preload="none" src={`/marketing/calls/${call.id}/voicemail`} className="mt-1 w-full" />
             </div>
+          ) : null}
+          {call.hasRecording || call.hasVoicemail ? (
+            <HoldPanel ctx={ctx} entityType="call_recording" entityId={call.id} path={`/marketing/calls/${call.id}`}
+                       label="this call's recording" timezone={user.organizationTimezone} />
           ) : null}
         </section>
       ) : null}

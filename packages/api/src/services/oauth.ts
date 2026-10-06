@@ -95,7 +95,7 @@ export interface RegisteredClient {
   token_endpoint_auth_method: AuthMethod;
   /** A confidential client's secret, in this answer and never again. */
   client_secret?: string;
-  /** Zero: a secret does not run out. A leaked one is ended by registering again. */
+  /** Zero: a secret does not run out. It is replaced by rotating it at `/api/oauth/client-secret`. */
   client_secret_expires_at?: number;
 }
 
@@ -253,6 +253,106 @@ export async function authenticateClient(
   );
   if (match?.ok !== true) throw new OAuthError("invalid_client", "The client secret is not right.", 401);
   return { clientId, confidential: true };
+}
+
+/* ---------------------------------------------------- rotating a secret */
+
+/** How long the old secret still works after a rotation, unless asked otherwise. */
+export const DEFAULT_ROTATION_OVERLAP_SECONDS = 3600;
+/** The longest overlap a rotation may ask for. A day, because two working secrets is a cost. */
+export const MAX_ROTATION_OVERLAP_SECONDS = 86_400;
+
+export interface RotatedSecret {
+  client_id: string;
+  /** The new secret, in this answer and never again. */
+  client_secret: string;
+  client_secret_expires_at: 0;
+  /** Until when the old one also works, as seconds since the epoch. Null when it stopped at once. */
+  previous_secret_expires_at: number | null;
+}
+
+/**
+ * A confidential client rotates its own secret.
+ *
+ * WHO MAY ASK. The client itself, proving itself with its CURRENT secret.
+ * Not a company's administrator: a registration belongs to no company, its
+ * secret lives on its maker's server, and a new one shown to somebody at one
+ * of the companies that approved it is a secret handed to the wrong person.
+ * Not the secret in its overlap either, which the database function enforces:
+ * a leaked old secret that could rotate would let whoever holds it keep a
+ * working one for good.
+ *
+ * THE OVERLAP is short and chosen by the caller, an hour unless it says, a day
+ * at most, and none at all when it asks for nought, which is the answer when
+ * the old one leaked. During it both secrets work at every endpoint, so the
+ * maker can roll the new one out to each of its servers without a minute in
+ * which none can connect. A second rotation during an overlap retires the
+ * oldest, so two secrets at most ever work.
+ *
+ * SHOWN ONCE, KEPT HASHED, WRITTEN DOWN. Only the SHA-256 reaches the table.
+ * Every company that has connected the client gets a line in its own audit
+ * log, naming the client and when the old secret stops, so somebody there can
+ * see that the app they trust changed its key, and when.
+ */
+export async function rotateClientSecret(
+  db: Database, form: Record<string, string | undefined>, from?: string, credentials: ClientCredentials = {},
+): Promise<RotatedSecret> {
+  await throttle(db, `oauth-rotate:addr:${from ?? "unknown"}`, REGISTRATIONS_PER_ADDRESS);
+  const client = await authenticateClient(db, form, credentials);
+  if (!client.confidential) {
+    throw new OAuthError("invalid_client", "This client registered as public and has no secret to rotate.", 401);
+  }
+  const askedOverlap = form["overlap_seconds"];
+  const overlap = askedOverlap === undefined || askedOverlap === ""
+    ? DEFAULT_ROTATION_OVERLAP_SECONDS
+    : Number(askedOverlap);
+  if (!Number.isInteger(overlap) || overlap < 0 || overlap > MAX_ROTATION_OVERLAP_SECONDS) {
+    throw new OAuthError(
+      "invalid_request",
+      `overlap_seconds must be a whole number from 0 to ${MAX_ROTATION_OVERLAP_SECONDS}.`,
+    );
+  }
+  const presented = credentials.authorization
+    ? basicCredentials(credentials.authorization)?.secret
+    : form["client_secret"];
+  const secret = `ocs_${randomBytes(32).toString("base64url")}`;
+  const [row] = await db.execute<{ rotated: boolean; previous_expires_at: Date | string | null }>(
+    sql`select * from app.oauth_rotate_client_secret(
+      ${client.clientId}, ${sha256hex(presented ?? "")}, ${sha256hex(secret)}, ${overlap}::int)`,
+  );
+  if (row?.rotated !== true) {
+    /**
+     * The client proved itself, so the secret it sent matched: either the
+     * secret in its overlap, which may not rotate, or a rotation that raced
+     * this one and won. The same answer for both.
+     */
+    throw new OAuthError(
+      "invalid_client",
+      "Only the current secret can rotate it. Send the newest one.",
+      401,
+    );
+  }
+  const endsAt = row.previous_expires_at === null ? null : new Date(row.previous_expires_at);
+
+  const connections = await db.execute<{ organization_id: string; app_id: string }>(
+    sql`select * from app.oauth_client_connections(${client.clientId})`,
+  );
+  for (const connection of connections) {
+    await inTenant(systemCtx(db, connection.organization_id, connection.app_id), (tx) =>
+      audit(tx, systemCtx(db, connection.organization_id, connection.app_id),
+        "app.oauth_secret_rotated", "connectedApp", connection.app_id, null, {
+          clientId: client.clientId,
+          previousSecretWorksUntil: endsAt?.toISOString() ?? null,
+          from: from ?? null,
+        }));
+  }
+
+  return {
+    client_id: client.clientId,
+    client_secret: secret,
+    client_secret_expires_at: 0,
+    previous_secret_expires_at: endsAt === null ? null : Math.floor(endsAt.getTime() / 1000),
+  };
 }
 
 /* --------------------------------------------------------- authorization */
@@ -713,7 +813,9 @@ async function findToken(db: Database, token: string, hint: string | undefined):
  * it can still make a new one; that is what handing back one access token
  * means. The connected app itself stays on the company's Applications screen,
  * with nothing live, until somebody there turns it off or the client is
- * approved again.
+ * approved again, unless the client sends `end_connection=true`: then the
+ * app is turned off as well, which is what a person pressing "disconnect" in
+ * the assistant usually means.
  *
  * A token that was never issued, has already gone, or is not an OAuth token
  * at all is answered with the same success (section 2.2), so the answer says
@@ -727,6 +829,11 @@ export async function revoke(
   const client = await authenticateClient(db, form, credentials);
   const token = form["token"];
   if (!token) throw new OAuthError("invalid_request", "token is required.");
+  const ending = form["end_connection"];
+  if (ending !== undefined && ending !== "true" && ending !== "false") {
+    throw new OAuthError("invalid_request", "end_connection must be true or false.");
+  }
+  const endConnection = ending === "true";
 
   const found = await findToken(db, token, form["token_type_hint"]);
   if (!found) return;
@@ -734,31 +841,71 @@ export async function revoke(
   const outcome = await inTenant(
     { actor: { userId: SYSTEM_USER_ID, organizationId: found.organizationId, roles: [] }, db },
     async (tx): Promise<OAuthError | null> => {
+      let appId: string;
       if (found.kind === "refresh") {
         const [row] = await tx.select().from(schema.oauthRefreshToken)
           .where(eq(schema.oauthRefreshToken.tokenHash, found.hash)).for("update").limit(1);
         if (!row) return null;
         if (row.clientId !== client.clientId) return new OAuthError("unauthorized_client", "That token was issued to another client.");
-        if (row.revokedAt) return null;
-        await burnFamily(tx, row.familyId, null);
-        await audit(tx, systemCtx(db, found.organizationId, row.appId), "app.oauth_token_revoked", "connectedApp", row.appId,
-          null, { kind: "refresh_token", familyId: row.familyId, by: "client" });
-        return null;
+        appId = row.appId;
+        if (!row.revokedAt) {
+          await burnFamily(tx, row.familyId, null);
+          await audit(tx, systemCtx(db, found.organizationId, row.appId), "app.oauth_token_revoked", "connectedApp", row.appId,
+            null, { kind: "refresh_token", familyId: row.familyId, by: "client" });
+        }
+      } else {
+        const [row] = await tx.select({ token: schema.appToken, clientId: schema.connectedApp.oauthClientId })
+          .from(schema.appToken)
+          .innerJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appToken.appId))
+          .where(eq(schema.appToken.tokenHash, found.hash)).for("update", { of: schema.appToken }).limit(1);
+        if (!row) return null;
+        if (row.clientId !== client.clientId) return new OAuthError("unauthorized_client", "That token was issued to another client.");
+        appId = row.token.appId;
+        if (!row.token.revokedAt) {
+          await tx.update(schema.appToken).set({ revokedAt: new Date() }).where(eq(schema.appToken.id, row.token.id));
+          await audit(tx, systemCtx(db, found.organizationId, row.token.appId), "app.oauth_token_revoked", "appToken", row.token.id,
+            null, { kind: "access_token", appId: row.token.appId, by: "client" });
+        }
       }
-      const [row] = await tx.select({ token: schema.appToken, clientId: schema.connectedApp.oauthClientId })
-        .from(schema.appToken)
-        .innerJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appToken.appId))
-        .where(eq(schema.appToken.tokenHash, found.hash)).for("update", { of: schema.appToken }).limit(1);
-      if (!row) return null;
-      if (row.clientId !== client.clientId) return new OAuthError("unauthorized_client", "That token was issued to another client.");
-      if (row.token.revokedAt) return null;
-      await tx.update(schema.appToken).set({ revokedAt: new Date() }).where(eq(schema.appToken.id, row.token.id));
-      await audit(tx, systemCtx(db, found.organizationId, row.token.appId), "app.oauth_token_revoked", "appToken", row.token.id,
-        null, { kind: "access_token", appId: row.token.appId, by: "client" });
+      /**
+       * Checked after the token rather than instead of it, and for a token
+       * already handed back too: a client retrying a disconnect whose answer
+       * it lost has already revoked the token, and still means the
+       * connection to end.
+       */
+      if (endConnection) await endConnectionWithin(tx, systemCtx(db, found.organizationId, appId), appId);
       return null;
     },
   );
   if (outcome) throw outcome;
+}
+
+/**
+ * The app itself, turned off at the client's own request.
+ *
+ * What the company's "Turn off" does, from the other side: every token and
+ * every refresh token of the app ends, and the app is marked revoked with a
+ * reason that says who did it, so the Applications screen reads "the app
+ * disconnected itself" rather than leaving somebody wondering who pressed
+ * the button. Already off is a success that writes nothing, like a second
+ * press of the company's own button.
+ */
+async function endConnectionWithin(tx: Database, ctx: ServiceContext, appId: string): Promise<void> {
+  const [before] = await tx.select().from(schema.connectedApp)
+    .where(eq(schema.connectedApp.id, appId)).for("update").limit(1);
+  if (!before || before.status === "revoked") return;
+  const now = new Date();
+  await tx.update(schema.appToken).set({ revokedAt: now })
+    .where(and(eq(schema.appToken.appId, appId), isNull(schema.appToken.revokedAt)));
+  await tx.update(schema.oauthRefreshToken).set({ revokedAt: now })
+    .where(and(eq(schema.oauthRefreshToken.appId, appId), isNull(schema.oauthRefreshToken.revokedAt)));
+  const [after] = await tx.update(schema.connectedApp).set({
+    status: "revoked",
+    revokedAt: now,
+    revokedReason: "The application disconnected itself.",
+    updatedAt: now,
+  }).where(eq(schema.connectedApp.id, appId)).returning();
+  await audit(tx, ctx, "app.revoked", "connectedApp", appId, before, { ...after, by: "client" });
 }
 
 /** RFC 7662's answer. `active: false` and nothing else for anything not live. */

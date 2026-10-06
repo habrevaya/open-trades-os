@@ -149,9 +149,18 @@ export function resolveDrill(
 export function matchFor(
   definition: ReportDefinition,
   row: Record<string, string | number | null>,
+  /**
+   * Pin only these. A chart that adds a report's groupings up over one it does
+   * not draw (a bar per technician summed over statuses) opens the records of
+   * the bar, which are those of every status, so the grouping it folded away is
+   * left unpinned: pinned to whichever value the first row had, the records
+   * would not add up to the bar.
+   */
+  only?: readonly string[],
 ): DrillMatch {
   const match: DrillMatch = {};
   for (const key of definition.dimensions) {
+    if (only && !only.includes(key)) continue;
     const value = row[key];
     match[key] = value === null || value === undefined ? null : String(value);
   }

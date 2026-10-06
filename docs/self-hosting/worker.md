@@ -100,6 +100,34 @@ last twenty hours, through `app.retention_purge_organizations`, which the
 
 At most five hundred records go in one pass; the next day's pass carries on.
 
+## Copies of each company, into its own bucket
+
+A company that set up Settings, Backups has a copy of everything written to its
+bucket on its schedule. The pass finds companies with a copy due through
+`app.due_backups`, which only the `background` role may call, claims each one by
+moving its next time an hour on (so a second worker does not take the same
+copy), and writes the copy straight into a multipart upload, eight megabytes at
+a time: the company is never held in memory or written to this machine's disk.
+
+A copy is started beside the pass, not inside it, because a large company takes
+minutes to write out and a text waiting behind it must not. One batch of copies
+runs at a time per process, and a process shutting down finishes the copy it is
+writing before it exits.
+
+| What happens | What the pass does |
+|---|---|
+| The copy is written | The run is recorded with its size and row count, and copies past the company's "keep" are deleted from the bucket, only ones this company wrote |
+| The bucket refuses, or the secret is not in this deployment's store | The run is recorded as failed with the bucket's own words, a task goes in the office's queue the first time, and it is tried again within the hour |
+| The company is suspended | Nothing; its copy waits |
+
+The bucket's secret key is read through the same secret reader as every
+connection's credential: by default an environment variable named by what the
+owner typed as the key's name.
+
+On a host with no long running process (the tick below), a copy is started by a
+tick and may be cut off when the function's time runs out. Scheduled copies of
+anything but a small company want the process.
+
 ## Telling a technician's phone
 
 After the drain, each pass reads every company's log from its own position

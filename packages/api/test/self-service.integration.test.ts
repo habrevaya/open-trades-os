@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { PermissionError, type Actor } from "@opentradesos/core";
+import { inflateSync } from "node:zlib";
+import { pdf, PermissionError, type Actor } from "@opentradesos/core";
 import type { EmailProvider, OutboundEmail } from "../src/email/provider";
 import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
@@ -375,6 +376,54 @@ run("a person ticks their own onboarding and signs what they were given", () => 
       join public.document_signature s on s.id = a.entity_id
       where a.entity_type = 'document_signature' and s.subject_id = ${request.requestId}`;
     expect(picture!.kind).toBe("signature");
+  });
+
+  it("prints a signed document as a PDF, for the office and for the person who signed it", async () => {
+    const inflate = (bytes: Uint8Array) => new Uint8Array(inflateSync(bytes));
+    const rays = (await me.record(ray())).documents.find((d) => d.documentId === handbook)!;
+
+    const office = await staffDocuments.signedPdf(owner(), { requestId: rays.requestId });
+    expect(office.filename).toBe("Employee-handbook-signed-by-Ray-Ortiz.pdf");
+    const read = pdf.inspectPdf(office.bytes, inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.text).toContain("Employee handbook");
+    expect(read.text).toContain("Ray Ortiz");
+    expect(read.text).toContain("self-service-ray@test.local");
+    expect(read.text).toContain("Typed their full name");
+    expect(read.text).toContain("203.0.113.9");
+    // The words exactly as they were signed, and the fingerprint the signature carries.
+    expect(read.text).toContain("Show up on time, wear your boots, and call the office before you leave a job unfinished.");
+    const [signature] = await raw<{ document_hash: string }[]>`
+      select document_hash from public.document_signature where subject_id = ${rays.requestId}`;
+    expect(read.text).toContain(signature!.document_hash);
+    // The moment, in the company's own clock and zone.
+    expect(read.text).toMatch(/\w+ \d{1,2}, \d{4} at \d{1,2}:\d{2} (AM|PM) (CST|CDT|UTC|GMT[+-]\d+)/);
+
+    const own = await me.signedPdf(ray(), { requestId: rays.requestId });
+    expect(pdf.inspectPdf(own.bytes, inflate).text).toContain("Ray Ortiz");
+  });
+
+  it("prints a drawn signature as the picture, and keeps one person from printing another's", async () => {
+    const inflate = (bytes: Uint8Array) => new Uint8Array(inflateSync(bytes));
+    const sams = (await me.record(sam())).documents.find((d) => d.documentId === vehicle)!;
+    const read = pdf.inspectPdf((await staffDocuments.signedPdf(owner(), { requestId: sams.requestId })).bytes, inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.text).toContain("Drew their signature on the screen");
+    expect(read.images).toHaveLength(1);
+
+    // Ray's own copy is Ray's: Sam's request is not found for him, by its id.
+    await expect(me.signedPdf(ray(), { requestId: sams.requestId })).rejects.toBeInstanceOf(NotFoundError);
+    // And the office's copy is for whoever may read who signed, not a technician.
+    await expect(staffDocuments.signedPdf(ray(), { requestId: sams.requestId })).rejects.toBeInstanceOf(PermissionError);
+  });
+
+  it("will not print a document nobody has signed", async () => {
+    const waiting = (await me.record(sam())).documents.find((d) => d.documentId === handbook)!;
+    expect(waiting.signedAt).toBeNull();
+    await expect(staffDocuments.signedPdf(owner(), { requestId: waiting.requestId })).rejects.toThrow(/Nobody has signed this yet/);
+    await expect(me.signedPdf(sam(), { requestId: waiting.requestId })).rejects.toBeInstanceOf(ConflictError);
+    await expect(staffDocuments.signedPdf(owner(), { requestId: "00000000-0000-4000-8000-000000000000" }))
+      .rejects.toBeInstanceOf(NotFoundError);
   });
 
   it("asks nobody new to sign a retired document", async () => {

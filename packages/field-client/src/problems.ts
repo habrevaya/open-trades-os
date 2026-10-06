@@ -57,6 +57,7 @@ const DID: Record<string, string> = {
   "task.claim": "Taking a task",
   "task.close": "Finishing a task",
   "tip.record": "A cash tip at",
+  "safety.sign": "Signing a toolbox talk",
 };
 
 /**
@@ -80,9 +81,10 @@ const STATE: Record<string, string> = {
 
 /** "You arrived at Nina Patel's" or "Clocking in", depending on the kind. */
 function whatYouDid(op: QueuedOperation, name: string | undefined): string {
+  if (op.kind === "signature.capture" && op.payload["for"] === "safety_meeting") return "Your signature on a toolbox talk";
   const lead = DID[op.kind] ?? "Something you recorded";
   if (op.kind === "timeclock.punch_in" || op.kind === "timeclock.punch_out"
-    || op.kind === "task.claim" || op.kind === "task.close") return lead;
+    || op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign") return lead;
   return `${lead} ${name ? `${name}'s job` : "a job"}`;
 }
 

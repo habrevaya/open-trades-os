@@ -12,6 +12,18 @@ export interface CardRow {
   last4: string | null;
   expMonth: number | null;
   expYear: number | null;
+  /** Whether the customer lets the company charge it, and pays bills automatically with it. */
+  agreement?: { agreedAt: string; autopay: boolean; agreedByContact: string | null } | null;
+  /** The words they would agree to, exactly as the server checks them. */
+  wording?: { agreement: string; autopay: string };
+}
+
+export type AgreementResult = { ok: true } | { ok: false; message: string };
+
+export interface AgreementActions {
+  agree: (cardId: string, wording: string) => Promise<AgreementResult>;
+  autopay: (cardId: string, on: boolean, wording?: string) => Promise<AgreementResult>;
+  withdraw: (cardId: string) => Promise<AgreementResult>;
 }
 
 /**
@@ -22,7 +34,7 @@ export interface CardRow {
  * back here with the setup's id, and the page reads the setup from Stripe
  * before it records anything. Nothing is charged by saving a card.
  */
-export function SavedCards({ cards, canSave, canSaveBank = false, start, remove, notice }: {
+export function SavedCards({ cards, canSave, canSaveBank = false, start, remove, notice, agreements, company }: {
   cards: CardRow[];
   canSave: boolean;
   /** The company takes bank payments, so a bank account can be saved too. */
@@ -31,6 +43,9 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
   remove: (cardId: string) => Promise<{ ok: boolean; message?: string }>;
   /** What happened when Stripe sent the customer back, said by the page. */
   notice: { ok: boolean; text: string } | null;
+  /** Letting the company charge a card, paying automatically, and stopping. Absent, none is offered. */
+  agreements?: AgreementActions | undefined;
+  company?: string | undefined;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "saving">("idle");
   const [kind, setKind] = useState<"card" | "bank_account">("card");
@@ -113,23 +128,28 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
           No cards saved. Save one to pay your next bill in one tap.
         </p>
       ) : (
-        <ul className="mt-3 space-y-2 text-sm">
+        <ul className="mt-3 space-y-4 text-sm">
           {cards.map((card) => (
-            <li key={card.id} className="flex items-center justify-between gap-4">
-              <span>
-                {cardLabel(card)}
-                {card.kind !== "bank_account" && card.expMonth && card.expYear && (
-                  <span className="text-ink-500">, expires {String(card.expMonth).padStart(2, "0")}/{card.expYear}</span>
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={() => void drop(card.id)}
-                disabled={removing !== null}
-                className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40"
-              >
-                {removing === card.id ? "Removing…" : `Remove ${cardLabel(card)}`}
-              </button>
+            <li key={card.id}>
+              <div className="flex items-center justify-between gap-4">
+                <span>
+                  {cardLabel(card)}
+                  {card.kind !== "bank_account" && card.expMonth && card.expYear && (
+                    <span className="text-ink-500">, expires {String(card.expMonth).padStart(2, "0")}/{card.expYear}</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void drop(card.id)}
+                  disabled={removing !== null}
+                  className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40"
+                >
+                  {removing === card.id ? "Removing…" : `Remove ${cardLabel(card)}`}
+                </button>
+              </div>
+              {agreements && card.wording && (
+                <CardAgreement card={card} wording={card.wording} actions={agreements} company={company ?? "The company"} />
+              )}
             </li>
           ))}
         </ul>
@@ -181,5 +201,97 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
       )}
       {error && <p className="mt-3 rounded bg-red-tint px-3 py-2 text-sm text-red-600">{error}</p>}
     </section>
+  );
+}
+
+/**
+ * LETTING THE COMPANY CHARGE ONE CARD, AND PAYING BILLS AUTOMATICALLY WITH IT
+ *
+ * The words are the server's, shown exactly, and sent back with the yes: the
+ * server builds them again and stores them only if they match, so what is
+ * kept is what the customer read. A box to tick, then a button, because a
+ * yes to being charged with nobody on the page should take a deliberate
+ * second step. Paying automatically is a second yes, with its own words.
+ * Stopping either is one press.
+ */
+function CardAgreement({ card, wording, actions, company }: {
+  card: CardRow;
+  wording: { agreement: string; autopay: string };
+  actions: AgreementActions;
+  company: string;
+}) {
+  const [open, setOpen] = useState<"agree" | "autopay" | null>(null);
+  const [ticked, setTicked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = cardLabel(card);
+  const agreement = card.agreement ?? null;
+
+  async function run(work: () => Promise<AgreementResult>) {
+    setBusy(true);
+    setError(null);
+    const result = await work();
+    setBusy(false);
+    if (!result.ok) setError(result.message);
+    else { setOpen(null); setTicked(false); }
+  }
+
+  const words = open === "autopay" ? wording.autopay : wording.agreement;
+  return (
+    <div className="mt-2 rounded border border-steel-200 p-3">
+      {agreement ? (
+        <>
+          <p className="text-ink-700">
+            {company} may charge {label} for your bills
+            {agreement.agreedByContact ? ` (agreed by ${agreement.agreedByContact})` : ""}.
+            {agreement.autopay ? " Your bills are paid with it automatically when they are issued." : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+            {agreement.autopay ? (
+              <button type="button" disabled={busy} onClick={() => void run(() => actions.autopay(card.id, false))}
+                      className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
+                Stop paying automatically
+              </button>
+            ) : open !== "autopay" && (
+              <button type="button" disabled={busy} onClick={() => { setOpen("autopay"); setTicked(false); }}
+                      className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
+                Pay my bills automatically with {label}
+              </button>
+            )}
+            <button type="button" disabled={busy} onClick={() => void run(() => actions.withdraw(card.id))}
+                    className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
+              Stop {company} charging {label}
+            </button>
+          </div>
+        </>
+      ) : open !== "agree" && (
+        <button type="button" onClick={() => { setOpen("agree"); setTicked(false); }}
+                className="text-sm text-ink-700 underline underline-offset-4">
+          Let {company} charge {label} for my bills
+        </button>
+      )}
+      {open && (
+        <div className="mt-3">
+          <p className="rounded bg-steel-100 p-3 text-ink-900">{words}</p>
+          <label className="mt-2 flex items-start gap-2">
+            <input type="checkbox" checked={ticked} onChange={(e) => setTicked(e.target.checked)} className="mt-1" />
+            <span>I have read this and I agree.</span>
+          </label>
+          <div className="mt-2 flex gap-3">
+            <button type="button" disabled={!ticked || busy}
+                    onClick={() => void run(() => (open === "agree" ? actions.agree(card.id, words) : actions.autopay(card.id, true, words)))}
+                    style={{ backgroundColor: "var(--brand, #111827)", color: "var(--brand-on, #ffffff)" }}
+                    className="h-10 rounded px-4 text-sm font-medium disabled:opacity-40">
+              {busy ? "Saving…" : open === "agree" ? "Agree" : "Turn on automatic payments"}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setOpen(null)}
+                    className="text-sm text-ink-700 underline underline-offset-4">
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <p role="alert" className="mt-2 rounded bg-red-tint px-3 py-2 text-sm text-red-600">{error}</p>}
+    </div>
   );
 }

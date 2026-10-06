@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
+import { bytesOf } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
@@ -186,7 +187,7 @@ export async function transcribePending(
 
     const source = claimed.call.transcriptSource === "voicemail" ? "voicemail" : "recording";
     const result = await provider.transcribe({
-      bytes: new Uint8Array(claimed.file.bytes),
+      bytes: new Uint8Array(await bytesOf(claimed.file)),
       contentType: claimed.file.contentType,
       fileName: `${source}.${claimed.file.contentType === "audio/wav" ? "wav" : "mp3"}`,
       speaker: source === "voicemail" ? "caller" : "call",

@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
 import { organization, user } from "./tenancy";
 import { marketingChannel, acquisitionCampaign } from "./acquisition";
+import { taxRate } from "./tax";
 
 /**
  * CRM SPINE
@@ -60,6 +61,19 @@ export const customer = pgTable("customer", {
   paymentTermsDays: text("payment_terms_days").notNull().default("0"),
   taxExempt: boolean("tax_exempt").notNull().default(false),
   taxExemptCertificate: text("tax_exempt_certificate"),
+  /**
+   * The last day the exemption certificate is good for. After it the
+   * customer is taxed like anybody else, because a sale billed exempt on a
+   * lapsed certificate is tax the company owes and did not collect. Null for
+   * a certificate that does not lapse, or one nobody has dated.
+   */
+  taxExemptExpiresOn: date("tax_exempt_expires_on"),
+  /**
+   * The company's rate this customer is charged where their address names
+   * none: a customer in a district with its own rate, written once by the
+   * office. Null for the company's default. See `core/tax.resolve`.
+   */
+  taxRateId: uuid("tax_rate_id").references(() => taxRate.id, { onDelete: "set null" }),
   /** Org-wide discount applied to this customer, 0.10 for 10 percent. */
   discountRate: money("discount_rate"),
   doNotService: boolean("do_not_service").notNull().default(false),
@@ -217,6 +231,13 @@ export const property = pgTable("property", {
   territoryId: uuid("territory_id"),
   /** Jurisdiction stack for sales tax. Historical rates live on the invoice line. */
   taxJurisdictionId: uuid("tax_jurisdiction_id"),
+  /**
+   * The company's rate charged on work at this address. The rate follows
+   * where the work is done, so an address that names one wins over its
+   * customer's (`core/tax.resolve`). Null for "as the customer, or the
+   * company's default".
+   */
+  taxRateId: uuid("tax_rate_id").references(() => taxRate.id, { onDelete: "set null" }),
   squareFeet: text("square_feet"),
   yearBuilt: text("year_built"),
   gateCode: text("gate_code"),

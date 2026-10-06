@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, field, money as m } from "@opentradesos/core";
+import { can, field, money as m, tax } from "@opentradesos/core";
 import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
@@ -12,6 +12,7 @@ import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
+import * as safetyTalks from "./safety-talks";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -901,7 +902,15 @@ async function effect(
         deviceId: op.deviceId,
         operationId,
         clientId: String(op.payload["uploadId"] ?? op.clientId),
-        subjectType: op.kind === "signature.capture" ? "signature" : "visit",
+        /**
+         * A signature drawn for a toolbox talk waits, unattached, for the
+         * `safety.sign` operation after it to point it at the person's line
+         * on the sheet: the talk is not the line, and a signature that was
+         * refused must not end up on anything.
+         */
+        subjectType: op.kind === "signature.capture"
+          ? (op.payload["for"] === "safety_meeting" ? "talk_signature" : "signature")
+          : "visit",
         subjectId: op.subjectId || null,
         contentType: String(op.payload["contentType"] ?? "image/jpeg"),
         byteSize: (op.payload["byteSize"] as number) ?? null,
@@ -1013,7 +1022,12 @@ async function effect(
         quantity: String(op.payload["quantity"] ?? "1"),
         unitPrice: String(op.payload["unitPrice"] ?? "0"),
         unitCost: (op.payload["unitCost"] as string) ?? null,
-        taxable: op.payload["taxable"] !== false,
+        /**
+         * As the phone said; when it said nothing, a part is taxed and labour
+         * is not (`tax.defaultTaxable`), as a line typed by hand in the office is.
+         */
+        taxable: typeof op.payload["taxable"] === "boolean"
+          ? op.payload["taxable"] : tax.defaultTaxable(op.payload["kind"] as string | undefined),
         technicianId,
         nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
         occurredAt: op.occurredAt,
@@ -1106,6 +1120,9 @@ async function effect(
 
     case "tip.record":
       return fieldSales.recordCashTip(tx, ctx, op);
+
+    case "safety.sign":
+      return safetyTalks.signOperation(tx, ctx, op);
 
     default:
       /**

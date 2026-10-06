@@ -181,6 +181,23 @@ The signature is kept as every signature in the product is, a
 browser it came from, and a hash of the exact words they were shown; a drawing
 is kept as a picture beside it.
 
+**A signed document prints as a PDF.** On the document's page
+(`/people/documents/{id}`) each signature has "Print as PDF", as does the line
+for the document on the person's own page (`/people/{membershipId}`), and
+whoever signed prints their own copy from `/me`. The office's copy is
+`/people/documents/{id}/signed/{requestId}/pdf` and needs `user:read`, the
+permission that reads who signed; a person's own is `/me/documents/{requestId}/pdf`
+and needs `profile:own`, and a request that is somebody else's is not found. The
+page says, in this order: the document's title, who signed, their email, when (in
+the company's own clock and zone), how (typed their name or drew it), the address
+and browser the signature came from when the screen recorded them, the fingerprint
+of the words the signature carries, the words exactly as they were signed, and the
+signature: the name in bold when typed, the drawn picture when drawn. A drawing a
+PDF cannot carry is said in a line rather than dropped. It is set in the bundled
+Noto Sans like every other PDF here. A document nobody has signed yet is refused
+in words, because the words alone are the document and not the record of anybody
+having signed it. The PDF has no `/v1` route, as the invoice's has none.
+
 ### A person's own record
 
 `/me` is the record of whoever is signed in, for everybody, on a phone first
@@ -209,6 +226,12 @@ salary, piece rate, commission only) and the id payroll knows them by. Never
 what they are paid: that is payroll's, behind `payroll:read`. All of it is the
 roster's, `user:read` to read and `user:write` to change, and it is on
 `/people`, where somebody with nobody on file to ring is said in words.
+
+A person's own page, `/people/{membershipId}`, also says who they report to
+("Reports to", linked to the manager's page, or "Nobody recorded"), and
+`GET /v1/people/{membershipId}` carries it as `reportsTo`. The line is the one the
+escalation screen sets (M34) and nothing here changes it; the page links there for
+somebody who may.
 
 ### Skills with dates and evidence
 
@@ -309,7 +332,7 @@ log keeps beside the refusal.
 This is a qualification register and the office's record of each person, not
 an HR system. Certificates and scans attach through the ordinary attachment
 path; the documents people sign are text written here, not uploaded files, and
-a signed one cannot be printed as a PDF yet. A person keeps their own
+a printed copy is a record made from them on the day, not a stored file. A person keeps their own
 emergency contacts and nothing else of their record: a new address or phone
 number goes to the office. A person can tick any line of their own onboarding,
 and the office sees that they ticked it rather than the office. A skill's

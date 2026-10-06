@@ -116,6 +116,27 @@ run("waiting for something not to happen", () => {
     expect(task!.title).toBe("Chase estimate 4001");
   });
 
+  it("does not chase an overdue invoice a bank payment is on its way for", async () => {
+    await defineDwell({ shape: "invoice_overdue", afterDays: 5 });
+    const overdue = async (number: number) => (await raw<{ id: string }[]>`
+      insert into public.invoice (organization_id, number, customer_id, status, issued_on, due_on, total, balance)
+      values (${ORG}, ${number}, ${customerId}, 'open', current_date - 20, current_date - 10, 50.0000, 50.0000)
+      returning id`)[0]!.id;
+    const paidByBank = await overdue(8801);
+    await overdue(8802);
+    await raw`insert into public.integration_event
+      (organization_id, direction, provider, event_type, idempotency_key, status, entity_type, entity_id, request_payload)
+      values (${ORG}, 'outbound', 'stripe', 'payment.intent', ${`bank-${paidByBank}`}, 'in_flight', 'customer', ${customerId},
+        ${raw.json({ amount: "50.0000", method: "ach", allocations: [{ invoiceId: paidByBank, amount: "50.0000" }] } as never)})`;
+    try {
+      const [result] = ours(await dwell.sweep(db()));
+      expect(result!.matched).toBe(1);
+    } finally {
+      await raw`delete from public.integration_event where idempotency_key = ${`bank-${paidByBank}`}`;
+      await raw`delete from public.invoice where organization_id = ${ORG} and number in (8801, 8802)`;
+    }
+  });
+
   it("does not fire before the period is up", async () => {
     await defineDwell({ afterDays: 5 });
     await quietEstimate(2);

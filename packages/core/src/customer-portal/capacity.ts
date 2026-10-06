@@ -105,6 +105,55 @@ export function windowCapacity(input: {
   return { jobs: Math.max(supply - waiting, 0), whole, byTechnician };
 }
 
+/* --------------------------------------------------------- a route's stops */
+
+export interface RouteStopWork {
+  id: string;
+  routeId: string;
+  /** The company's calendar day the stop is on. */
+  day: string;
+  /** Its place in the route's order. Null sorts last, by id. */
+  order: number | null;
+  /** The window's start, which for a route stop is the start of the working day. */
+  start: Date;
+  minutes: number;
+}
+
+/**
+ * WHEN EACH OF A ROUTE'S STOPS ACTUALLY HAPPENS, for counting a day's time.
+ *
+ * A route sells a day and a place in the order, so every stop is written
+ * with the working day as its window. Each stop on a route's day starts
+ * when the one before it finished plus the route's drive between stops,
+ * from the earliest window start among them, and the drive to it is time
+ * the person is busy too: a stop occupies from when they leave the last
+ * one. Returns each stop's busy stretch by id. Deterministic: order, then
+ * id.
+ */
+export function layRouteStops(
+  stops: readonly RouteStopWork[],
+  driveMinutes: (routeId: string) => number,
+): Map<string, Occupied> {
+  const groups = new Map<string, RouteStopWork[]>();
+  for (const stop of stops) {
+    const key = `${stop.routeId}|${stop.day}`;
+    groups.set(key, [...(groups.get(key) ?? []), stop]);
+  }
+  const out = new Map<string, Occupied>();
+  for (const group of groups.values()) {
+    const sorted = [...group].sort((a, b) =>
+      (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id));
+    const drive = Math.max(driveMinutes(sorted[0]!.routeId), 0);
+    let at = Math.min(...sorted.map((s) => s.start.getTime()));
+    for (const [i, stop] of sorted.entries()) {
+      const leg = i > 0 ? drive : 0;
+      out.set(stop.id, { start: new Date(at), minutes: leg + Math.max(stop.minutes, 0) });
+      at += (leg + Math.max(stop.minutes, 0)) * MINUTE;
+    }
+  }
+  return out;
+}
+
 /* ------------------------------------------------- capacity held for members */
 
 /**
@@ -132,7 +181,15 @@ export interface MemberHold {
   releaseHours: number;
 }
 
-/** Jobs in a window still kept back from somebody who is not a member. */
+/**
+ * Jobs in a window still kept back from whoever is booking.
+ *
+ * `hold.share` is the largest share any live plan holds. Somebody who is not
+ * a member is kept out of all of what is still held. A member is kept out of
+ * only the part above what their own plan holds (`ownShare`), so a plan that
+ * holds a tenth lets its members into a tenth of the window and no further
+ * into the third a dearer plan keeps for its own.
+ */
 export function heldForMembers(input: {
   hold: MemberHold;
   /** What the window holds with nothing booked. */
@@ -141,10 +198,15 @@ export function heldForMembers(input: {
   memberJobs: number;
   opensAt: Date;
   now: Date;
+  /** The share the booker's own plan holds, 0 to 1. Absent or 0 for somebody who is not a member. */
+  ownShare?: number | undefined;
 }): number {
   const share = Math.min(Math.max(input.hold.share, 0), 1);
   const releasedAt = input.opensAt.getTime() - Math.max(input.hold.releaseHours, 0) * 3_600_000;
   if (share === 0 || input.now.getTime() >= releasedAt) return 0;
-  const reserved = Math.max(Math.ceil(input.whole * share - 0.5 - 1e-9), 0);
-  return Math.max(reserved - Math.max(input.memberJobs, 0), 0);
+  const jobsOf = (fraction: number) => Math.max(Math.ceil(input.whole * fraction - 0.5 - 1e-9), 0);
+  const reserved = jobsOf(share);
+  const own = Math.min(jobsOf(Math.min(Math.max(input.ownShare ?? 0, 0), 1)), reserved);
+  const stillHeld = Math.max(reserved - Math.max(input.memberJobs, 0), 0);
+  return Math.max(stillHeld - own, 0);
 }

@@ -24,6 +24,7 @@ import { Referral } from "./Referral";
 import { PortalSignIns } from "./PortalSignIns";
 import { AdData } from "./AdData";
 import { PreferredDays } from "./PreferredDays";
+import { SalesTax } from "./SalesTax";
 import { dispatchDays } from "@opentradesos/api/services";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
@@ -208,6 +209,7 @@ export default async function CustomerPage({
         canWrite={can(user.actor, "customer:write")}
       />
       <PreferredDays customerId={id} days={await dispatchDays.preferredDays(ctx, { id })} canWrite={can(user.actor, "customer:write")} />
+      <SalesTax ctx={ctx} customer={customer} />
 
       {addresses.length > 0 && (
         <div className="mt-10">

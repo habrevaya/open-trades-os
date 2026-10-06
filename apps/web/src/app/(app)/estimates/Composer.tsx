@@ -68,8 +68,11 @@ export function EstimateComposer({
         </label>
         <label className="block">
           <span className="text-sm font-medium text-ink-700">Tax rate (%)</span>
-          <input name="taxPercent" inputMode="decimal" placeholder="0"
+          <input name="taxPercent" inputMode="decimal" placeholder="Your rate for this address"
                  className="mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm" />
+          <span className="mt-1 block text-xs text-ink-500">
+            Leave empty to charge your rate for this customer and address, or type one. 0 charges none.
+          </span>
         </label>
       </div>
 
