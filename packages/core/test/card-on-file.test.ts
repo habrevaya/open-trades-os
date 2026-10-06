@@ -39,7 +39,7 @@ describe("the words a customer agrees to", () => {
 
   it("never carries a dash a customer would read as a machine's", () => {
     for (const text of [agreementWording(card), agreementWording(bank), autopayWording(card), autopayWording(bank)]) {
-      expect(text).not.toMatch(/[–—]/);
+      expect(text).not.toMatch(/[\u2013\u2014]/);
     }
   });
 });
