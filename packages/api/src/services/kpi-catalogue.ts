@@ -1,7 +1,12 @@
 import { sql, type SQL } from "drizzle-orm";
+import { reporting, type Permission } from "@opentradesos/core";
+import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
+ *
+ * (They are read now. Nineteen of the forty seven are computed here, four are
+ * M22's, and the twenty four that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -74,6 +79,13 @@ export interface Half {
   /** What the half is called on screen. */
   label: string;
   records: Records;
+  /**
+   * The half is dollars, whatever the KPI's own format. Left out, only the
+   * numerator of a money KPI is: revenue over a count of jobs. Install margin
+   * is a percentage of two dollar figures, so both its halves say so, and the
+   * screen shows each as money rather than as a bare number.
+   */
+  money?: boolean;
 }
 
 /**
@@ -91,7 +103,14 @@ export interface Measure {
 }
 
 export type Entry =
-  | { state: "computed"; format: Format; measure: Measure }
+  /**
+   * `permissions` is what reading the number needs BEYOND `report:read`, for a
+   * figure built from what work costs. A KPI that discloses a margin to
+   * somebody who may not read a margin is the report builder's cost column
+   * one click away, so a reader without them is told which they lack instead
+   * of being shown the number.
+   */
+  | { state: "computed"; format: Format; measure: Measure; permissions?: Permission[] }
   | { state: "elsewhere"; format: Format; endpoint: string; why: string }
   | { state: "needs"; format: Format; needs: string };
 
@@ -176,9 +195,10 @@ const revenueOf = (classes: readonly string[]): Records => (from, to, zone) => s
  * productive every time somebody takes leave, which is the opposite of what the
  * number is for.
  *
- * `pto`, `holiday`, `training` and `unpaid_break` are excluded; `travel`,
- * `on_site`, `shop`, `paid_break` and `on_call` are a day worked. One row per
- * person per day, which opens on that week's timesheets.
+ * `pto`, `holiday`, `training` and `unpaid_break` are excluded (the list is
+ * core's `NOT_A_DAY_WORKED`, which a crew's day shares); `travel`, `on_site`,
+ * `shop`, `paid_break` and `on_call` are a day worked. One row per person per
+ * day, which opens on that week's timesheets.
  */
 const technicianDays = (): Records => (from, to, zone) => sql`
   select 'technician_day'::text as kind,
@@ -191,7 +211,7 @@ const technicianDays = (): Records => (from, to, zone) => sql`
     select distinct te.technician_id, (te.started_at at time zone ${zone})::date as d
     from public.timeclock_entry te
     where te.deleted_at is null
-      and te.kind not in ('pto', 'holiday', 'training', 'unpaid_break')
+      and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])
       and te.started_at >= ${dayStart(from, zone)}
       and te.started_at < ${dayAfter(to, zone)}
   ) as days
@@ -333,6 +353,73 @@ const backflowDue = (retestedOnly: boolean): Records => (from, to) => sql`
       select 1 from tests t where t.equipment_id = d.equipment_id
         and t.performed_on >= ${from}::date and t.performed_on <= ${to}::date
     )` : sql``}
+`;
+
+
+/**
+ * CREW DAYS, from the crew's own clock.
+ *
+ * "Taken from crew clock in and out rather than from the roster, EXCLUDING yard
+ * time, shop days and rain days where no stop was completed." A crew's clock is
+ * what its members punched on the crew's own visits (`timeclock_entry.visit_id`
+ * to `visit.crew_id`), so nothing is inferred from who was assigned together,
+ * and the day is counted ONCE PER CREW however many people are on it. It has to
+ * be a day the crew completed a stop, which is what leaves out the rain, and
+ * the kinds of time are core's `NOT_A_CREW_DAY`, which leaves out the shop, the
+ * yard and leave. The same rule in TypeScript is `reporting.crewDays`, which
+ * the integration test holds this SQL to.
+ */
+const crewDays = (): Records => (from, to, zone) => sql`
+  select 'crew_day'::text as kind,
+         concat(d.crew_id, ':', d.day) as id,
+         concat(c.name, ', ', to_char(d.day, 'Mon FMDD')) as label,
+         to_char(d.day, 'YYYY-MM-DD') as on_day,
+         1::numeric as value,
+         '/timesheets?week=' || to_char(d.day, 'YYYY-MM-DD') as href
+  from (
+    select distinct v.crew_id, (te.started_at at time zone ${zone})::date as day
+    from public.timeclock_entry te
+    join public.visit v on v.id = te.visit_id
+    where te.deleted_at is null and v.deleted_at is null
+      and v.crew_id is not null
+      and te.kind::text <> all(${sql.param([...reporting.NOT_A_CREW_DAY])}::text[])
+      and te.started_at >= ${dayStart(from, zone)}
+      and te.started_at < ${dayAfter(to, zone)}
+      and exists (
+        select 1 from public.visit done
+        where done.crew_id = v.crew_id and done.deleted_at is null and done.status = 'completed'
+          and (done.completed_at at time zone ${zone})::date = (te.started_at at time zone ${zone})::date
+      )
+  ) as d
+  join public.crew c on c.id = d.crew_id
+`;
+
+/**
+ * An install job as a row of a records query, written against the job's own
+ * name (`job`) because the job costing fragments are correlated on it.
+ */
+const costedJobRow = (value: string, zone: string) => sql`
+  'job'::text as kind, job.id::text as id, concat('#', job.number, ' ', job.summary) as label,
+  to_char(job.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+  (${sql.raw(value)})::numeric(14,4) as value, '/jobs/' || job.id as href`;
+
+/**
+ * Completed installs whose costs are all in. See `install_gross_margin` for why
+ * the rest are left out of both halves; the test is the job statement's own
+ * (`SETTLEMENT_SQL`: nothing clocked in, every punch priced, every line billed
+ * or excused) plus hours recorded at all and no line without a cost, which is
+ * core's `costsAreIn`.
+ */
+const costedInstalls = (value: string): Records => (from, to, zone) => sql`
+  select ${costedJobRow(value, zone)}
+  from public.job job
+  join public.job_type jt on jt.id = job.job_type_id
+  where job.deleted_at is null and job.completed_at is not null
+    and jt.revenue_class = 'install'
+    and job.completed_at >= ${dayStart(from, zone)} and job.completed_at < ${dayAfter(to, zone)}
+    and ${sql.raw(SETTLEMENT_SQL)} = 'Settled'
+    and ${sql.raw(JOB_COSTING_SQL.labourNotRecorded)} = 0
+    and ${sql.raw(JOB_COSTING_SQL.uncostedLines)} = 0
 `;
 
 /* ------------------------------------------------------------- the entries */
@@ -573,19 +660,64 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   install_gross_margin: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A cost posting. The definition is install revenue less material, "
-      + "subcontract, disposal and crew burdened labour, and `ACCOUNTS.COGS` is "
-      + "declared in core while no code path debits it, so cost is read from "
-      + "`job_line.unit_cost` and the timeclock instead. `job_line` does have "
-      + "subcontract and disposal kinds, and job costing reads them, but the only "
-      + "thing that writes one is a line sent from a technician's phone: an office "
-      + "holding a subcontractor's bill or a tip receipt has nowhere to put it "
-      + "against the job. A margin computed from what is recorded would be too high "
-      + "on exactly the installs that used a subcontractor, which are the ones an "
-      + "owner is checking.",
+    /**
+     * A margin is what work cost, so reading one takes what reading a job's
+     * margin takes: the job costing permission and the financial reports.
+     */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Install revenue less material, subcontract, disposal and crew
+       * burdened labour, divided by install revenue. EXCLUDES maintenance and
+       * programme revenue, which carries a different margin and hides a badly
+       * estimated patio."
+       *
+       * Revenue is the ledger's, on completed jobs of the `install` class and
+       * no other, which is the exclusion. The costs are the job costing ones,
+       * from the same SQL a job's own statement reads (`JOB_COSTING_SQL`), so
+       * this cannot disagree with it: material is the job's lines of every
+       * kind but labour (subcontract and disposal among them) plus the cost of
+       * goods sold posted to the job, a journalled subcontractor's bill or
+       * disposal receipt included; labour is hours at the loaded rate frozen
+       * on each punch; and the burden is payroll taxes, benefits and workers'
+       * compensation at the company's own rates, which makes it crew BURDENED
+       * labour. Card fees and overhead are not in the definition and are not
+       * here: this is not the job's fully loaded margin.
+       *
+       * WHAT IT NEEDED, and what changed: a place to put a subcontractor's bill
+       * or a tip receipt against a job, which an office did not have. A journal
+       * line can now name a job (M14), and job costing reads it.
+       *
+       * ONLY INSTALLS WHOSE COSTS ARE ALL IN, left out of BOTH halves
+       * otherwise. A job nobody clocked time against has a labour cost of zero
+       * because nobody measured it, an hour with no wage scale costs nothing, a
+       * line with no cost is unknown rather than free, and work nobody has
+       * billed or excused may have revenue still to come. Counted, every one of
+       * those reads as a better margin than the job earned, and the installs
+       * where it is most likely are the ones an owner is checking. Left out, the
+       * figure is over fewer jobs, and says which: the records behind each half
+       * are exactly the jobs counted. An install that used a subcontractor
+       * nobody has booked yet still reads high, because the datum is a thing a
+       * person has to enter; the number is only as complete as the books.
+       *
+       * Every completed install counts, a warranty return included: its cost
+       * is the cost of the install and it earned nothing against it.
+       */
+      numerator: {
+        label: "dollars earned on installs whose costs are all in",
+        money: true,
+        records: costedInstalls(
+          `${JOB_COSTING_SQL.revenue} - ${JOB_COSTING_SQL.materialCost} - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.labourBurden}`,
+        ),
+      },
+      denominator: {
+        label: "install revenue on those jobs",
+        money: true,
+        records: costedInstalls(JOB_COSTING_SQL.revenue),
+      },
+    },
   },
 
   revenue_per_stop: {
@@ -699,19 +831,25 @@ export const CATALOGUE: Record<string, Entry> = {
       "A coded cancellation reason. The definition EXCLUDES customers who moved "
       + "out of the service area or sold the home, 'which are not churn the owner "
       + "can do anything about', and `agreement.cancellation_reason` is free "
-      + "text. Counting a house sale as churn makes a retention figure that "
-      + "moves with the local property market, and an owner reading it would "
-      + "conclude their service was getting worse.",
+      + "text. A customer's link to a property can be ended with a date "
+      + "(`customer_property.ended_on`, through the API), which would say the "
+      + "home was sold, but no screen sets it and cancelling an agreement does "
+      + "not ask, so most house sales would still be counted as churn. Counting a "
+      + "house sale as churn makes a retention figure that moves with the local "
+      + "property market, and an owner reading it would conclude their service "
+      + "was getting worse.",
   },
 
   renewal_rate: {
     state: "needs",
     format: "percent",
     needs:
-      "The same coded cancellation reason as `recurring_retention`. The "
-      + "numerator is computable from `agreement.renewal_count`; the "
-      + "denominator, programmes reaching the end of a term, has to exclude the "
-      + "ones that ended because the property sold.",
+      "The same coded cancellation reason as `recurring_retention`. A term is now "
+      + "a row of its own (`agreement_term`, with the day it ended), so the "
+      + "numerator, terms renewed, and the denominator, terms reaching their end, "
+      + "can be counted exactly; what is missing is the exclusion. The "
+      + "denominator has to leave out the programmes that ended because the "
+      + "property sold, and nothing records why one ended other than free text.",
   },
 
   programme_renewal: {
@@ -784,15 +922,45 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   revenue_per_crew_day: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "A crew clock. The definition says crew days 'taken from crew clock in and "
-      + "out rather than from the roster' and EXCLUDES yard time, shop days and "
-      + "rain days. `timeclock_entry` is per technician with no crew on it, so a "
-      + "crew day would have to be inferred from who was assigned together, which "
-      + "counts a four person crew as four days and reports a quarter of the real "
-      + "figure.",
+    measure: {
+      /**
+       * "Invoiced revenue divided by crew days worked, taken from crew clock in
+       * and out rather than from the roster. EXCLUDES yard time, shop days and
+       * rain days where no stop was completed."
+       *
+       * The denominator is `crewDays`: one per crew per day, from what the
+       * crew's members punched on the crew's own visits, on a day the crew
+       * completed a stop. It used to be impossible because a day could only be
+       * inferred from who was assigned together, which counts a four person
+       * crew as four days and reports a quarter of the real figure.
+       *
+       * The numerator is the ledger's revenue on completed jobs a crew worked
+       * (one with a completed visit sent to a crew), because a crew day is
+       * divided into the revenue of crew work: a technician's service call on
+       * the same books is not what a crew's day earned. Each half is dated by
+       * its own record, the job by its completion and the day by the clock, so
+       * a job that ran across a month end puts its revenue in one and some of
+       * its days in the other, as revenue per technician does.
+       */
+      numerator: {
+        label: "revenue on completed jobs a crew worked",
+        records: (from, to, zone) => sql`
+          select ${jobRow(REVENUE_ON_JOB, zone)}
+          from public.job j
+          join public.job_type jt on jt.id = j.job_type_id
+          where j.deleted_at is null and j.completed_at is not null
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+            and exists (
+              select 1 from public.visit v
+              where v.job_id = j.id and v.deleted_at is null and v.crew_id is not null and v.status = 'completed'
+            )
+        `,
+      },
+      denominator: { label: "crew days on the clock", records: crewDays() },
+    },
   },
 
   revenue_per_cleaner_hour: {
@@ -906,11 +1074,13 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "percent",
     needs:
-      "A cost posting, and a flag for supplies billed back. `ACCOUNTS.COGS` is "
-      + "declared and nothing debits it, and the definition EXCLUDES supplies "
-      + "stocked for a commercial account and billed back at cost, which would "
-      + "otherwise appear as both a cost and a revenue and make the ratio look "
-      + "right for the wrong reason.",
+      "A flag for supplies billed back. A cost can now be put on a job from the "
+      + "office (a journal line naming the job, M14) and job costing counts it, "
+      + "but the definition EXCLUDES supplies stocked for a commercial account "
+      + "and billed back at cost, and nothing marks a supply line, a stock "
+      + "movement or a purchase as billed back, so a pass through would appear "
+      + "as both a cost and a revenue and make the ratio look right for the "
+      + "wrong reason.",
   },
 
   record_completeness: {
@@ -1037,10 +1207,12 @@ export const CATALOGUE: Record<string, Entry> = {
     needs:
       "Miles driven between stops. The definition divides completed stops by "
       + "route miles and EXCLUDES the drive from the yard to the first stop and "
-      + "back. A van's odometer readings are now recorded (M22), but as one "
-      + "reading per vehicle per day, which includes both yard legs, and the "
-      + "timeclock's coordinates are a straight line between two points rather "
-      + "than a route.",
+      + "back. A van's odometer readings are recorded (M22), but as one "
+      + "reading per vehicle per day, which includes both yard legs, and road "
+      + "distances between two points are cached only for the pairs the planner "
+      + "asked a routing provider about, so most days would be missing legs. "
+      + "The timeclock's coordinates are a straight line between two points "
+      + "rather than a route.",
   },
 
   /* ------------------------------ the six the guard test found for me ------ */
@@ -1182,19 +1354,28 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "money",
     needs:
-      "Revenue attributed to a container. A rental knows its asset and the "
-      + "invoice knows its job, and nothing ties a ledger posting to the can, so "
-      + "the figure would be fleet revenue divided by fleet months rather than "
-      + "per container, which is the comparison the number exists to make.",
+      "Revenue attributed to a container. A hire's own invoice is linked to it "
+      + "now (`rental.invoice_id`), but it holds only the period (for a hire "
+      + "priced by the day), a meter that went over and the charges found on the "
+      + "haul: a hire sold at a flat price has that price on the job, which can "
+      + "have several containers on it in a swap chain. The ratio needs each "
+      + "container's share of a job's revenue, which nothing records, so the "
+      + "figure would be fleet revenue divided by fleet months rather than per "
+      + "container, which is the comparison the number exists to make.",
   },
   disposal_cost_pct: {
     state: "needs",
     format: "percent",
     needs:
       "Revenue attributed to the same hauls as the disposal cost. "
-      + "`rental.disposal_fee` is the cost side and is recorded; the definition "
-      + "divides it by invoiced revenue ON THE SAME HAULS, and a rental carries no "
-      + "invoice link.",
+      + "`rental.disposal_fee` is the cost side and is recorded, and a hire's own "
+      + "invoice is linked to it (`rental.invoice_id`), but that invoice holds only "
+      + "the period of a hire priced by the day, the meters that went over and the "
+      + "charges found. The definition divides by invoiced revenue ON THE SAME "
+      + "HAULS, which for a hire sold at a flat price is on the job, shared by "
+      + "every container in a swap chain, and nothing records a haul's share. "
+      + "Dividing by the hire invoice alone would read as a disposal cost several "
+      + "times the truth.",
   },
   hauls_per_truck_day: {
     state: "needs",

@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import postgres from "postgres";
 import { createHash } from "node:crypto";
 import { createClient, type Database } from "@opentradesos/db";
 
@@ -15,6 +15,8 @@ import { createClient, type Database } from "@opentradesos/db";
  * So: scoped deletes, in foreign key order, in one place.
  */
 const ORDER = [
+  /** A copy's runs point at their destination, so they go first. Nothing else points at any of the three. */
+  "backup_run", "backup_destination", "restore_run",
   /**
    * Payroll first. A commission event points at an invoice and a job, an entry
    * points at the event and at a pay period, and an export points at a close.
@@ -28,7 +30,9 @@ const ORDER = [
    */
   "tip_share",
   /** A cash tip a technician kept points at the technician, the job and the visit. */
-  "cash_tip",
+  "cash_tip_correction", "cash_tip",
+  /** What a person spent for the company and a day away both point at the technician and the job. */
+  "expense", "per_diem",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
   "commission_event", "commission_plan", "pay_period",
   /**
@@ -49,7 +53,7 @@ const ORDER = [
   "financing_application", "costing_rate", "budget_line", "budget", "journal_entry",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
-  "credit_note_application", "credit_note_line", "credit_note",
+  "credit_note_payout", "credit_note_application", "credit_note_line", "credit_note",
   /** An estimate's send points at the estimate, the message it became and the link it carried. */
   "estimate_delivery",
   /** A claim points at the invoice it is about, the job and the payer. */
@@ -58,13 +62,15 @@ const ORDER = [
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   /** A layout an estimate points at, after the estimates that copied it. */
   "proposal_template",
-  "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
+  "agreement_billing", "agreement_visit", "agreement_term", "agreement", "agreement_plan",
   /**
    * Safety records point at a job, an address and the technicians on them,
    * so they go before all three; a person on a report and a line on a sign in
    * sheet go before the report and the talk they belong to.
    */
   "incident_person", "incident_report", "safety_meeting_attendee", "safety_meeting",
+  /** A talk's schedule points at its topic, a crew and a technician; the library goes after it. */
+  "safety_talk_schedule", "safety_topic",
   // Then work.
   /**
    * What each ad platform was told about a job, and each customer's answer
@@ -109,9 +115,22 @@ const ORDER = [
   /** A customer's tags, one row each, written by a trigger from the customer's own list. */
   "customer_tag",
   "customer_property", "contact", "property", "customer",
+  /**
+   * The company's sales tax rates. Lines, customers and addresses name them,
+   * so they go after all three; the setting names the default rate.
+   */
+  "tax_setting", "tax_rate_version", "tax_rate",
+  /**
+   * An approval step can be for one vendor, one price book category or one
+   * location, so it goes before all three. A decision that copied it points
+   * at it with set null and does not hold it up.
+   */
+  "purchase_approval_rule",
   /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
   "vendor_item",
   "price_change_line", "price_change_batch",
+  /** Which item is charged after hours and on a holiday points at the items, so it goes first. */
+  "after_hours_rate",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
@@ -131,10 +150,15 @@ const ORDER = [
   // A movement points at the serial or lot it moved and the delivery it came
   // on; a delivery's charges, an order's approvals and its sends point at
   // the order; truck minimums point at the item and the truck.
+  // A late freight bill and a return to a vendor are named by the movements
+  // they made, and point at the delivery, the order and the vendor.
   "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
+  "landed_cost_bill_charge", "landed_cost_bill", "vendor_return",
   "purchase_order_receipt_charge", "purchase_order_receipt",
-  "purchase_order_approval", "purchase_order_send", "purchase_approval_rule",
+  "purchase_order_approval_notice",
+  "purchase_order_approval", "purchase_order_send", "purchase_order_acknowledgement",
   "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
+  "truck_fill_line", "truck_fill_draft",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
@@ -182,6 +206,12 @@ const ORDER = [
    * in that saved it, and a sign in's session is a grant naming the code
    * that opened it, so the cards go first and the codes last.
    */
+  /**
+   * A charge on file names the agreement it was made under, and an
+   * agreement names the card, so the charges go first, then the
+   * agreements, then the cards.
+   */
+  "card_on_file_charge", "payment_agreement",
   "saved_payment_method", "payment_profile",
   "portal_event", "portal_grant", "portal_sign_in",
   "booking_request", "bookable_service", "arrival_window",
@@ -199,7 +229,7 @@ const ORDER = [
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   /** A charge found on a haul points at the hire and at the fee it was priced from. */
   "rental_charge",
-  "rental", "rentable_asset", "territory", "business_hours",
+  "rental", "rentable_asset", "territory", "business_hours", "company_holiday",
   /**
    * The company's own tools, children first. Every one of these cascades
    * from `company_asset`, which cascades from the organization, but a scoped
@@ -460,4 +490,31 @@ export function testDb(url: string): Database {
 /** A string as a regular expression that matches it literally, every metacharacter and the backslash included. */
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * ONE WHOLE PASS AT A TIME
+ *
+ * The worker's pass reads every company with unread events, not the one a
+ * test made, so two files running a pass at once take each other's events:
+ * the file that asserts what its own drain handled finds the other file's
+ * pass got there first. Production is safe either way (a run is keyed on its
+ * event, so the second worker records it as already run); the tests are not,
+ * because they assert which pass did the work. Every file that runs a pass
+ * over all companies, or drains one and asserts what it handled, holds this
+ * lock for the whole file, so those files take turns while the rest of the
+ * suite runs beside them.
+ *
+ * A session lock on its own connection, released when the file ends.
+ */
+const WHOLE_PASS_LOCK = 7_101_001;
+export const WHOLE_PASS_WAIT_MS = 1_800_000;
+
+export async function holdWholePassLock(url: string): Promise<() => Promise<void>> {
+  const conn = postgres(url, { max: 1, onnotice: () => undefined });
+  await conn`select pg_advisory_lock(${WHOLE_PASS_LOCK})`;
+  return async () => {
+    await conn`select pg_advisory_unlock(${WHOLE_PASS_LOCK})`;
+    await conn.end();
+  };
 }

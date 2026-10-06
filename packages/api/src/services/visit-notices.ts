@@ -35,6 +35,7 @@ export async function sideOf(tx: Database, visitId: string): Promise<VisitSide |
     windowStart: schema.visit.windowStart,
     windowEnd: schema.visit.windowEnd,
     status: schema.visit.status,
+    crewId: schema.visit.crewId,
   }).from(schema.visit).where(eq(schema.visit.id, visitId)).limit(1);
   if (!visit) return null;
 
@@ -42,8 +43,22 @@ export async function sideOf(tx: Database, visitId: string): Promise<VisitSide |
     .from(schema.visitAssignment)
     .where(eq(schema.visitAssignment.visitId, visitId));
 
+  /**
+   * A VISIT SENT TO A CREW IS ON EVERY MEMBER'S DAY. Crew work is written as
+   * `visit.crew_id` and no assignment rows, so reading only the assignments
+   * told nobody when a crew's job was moved or called off, and the crew
+   * found out at the gate. The members are read as they are now, so the
+   * crew as it stands is who hears; a person who joins the crew later is
+   * not told about work already on it.
+   */
+  const crew = visit.crewId
+    ? await tx.select({ technicianId: schema.crewMember.technicianId })
+      .from(schema.crewMember)
+      .where(eq(schema.crewMember.crewId, visit.crewId))
+    : [];
+
   return {
-    technicianIds: [...new Set(people.map((p) => p.technicianId))],
+    technicianIds: [...new Set([...people, ...crew].map((p) => p.technicianId))],
     windowStart: visit.windowStart,
     windowEnd: visit.windowEnd,
     status: visit.status,

@@ -2,9 +2,10 @@ import { describe, it, expect } from "vitest";
 import { money, toString, sum, zero, add } from "../src/money/index.js";
 import {
   computeInvoice, postInvoice, postPayment, postRefund, postWriteOff,
-  postAgreementBilling, postAgreementRecognition, postDeferredRelease,
+  postAgreementBilling, postAgreementRecognition, postDeferredRelease, postAgreementBreakage,
   recognitionSchedule, imbalanceOf, assertBalanced, UnbalancedPostingError,
-  ACCOUNTS, type LedgerEntry, TaxAsAppliedError, totalsMismatch, postCreditApplication,
+  ACCOUNTS, CONTROL_ACCOUNTS, type LedgerEntry, TaxAsAppliedError, totalsMismatch, postCreditApplication,
+  postCreditNote, postCreditNotePayout, postRetainage,
 } from "../src/ledger/index.js";
 
 const usd = (v: string) => money(v, "USD");
@@ -93,6 +94,10 @@ describe("every posting balances", () => {
     ["agreement recognition", () => postAgreementRecognition({ agreementVisitId: "v1", occurredAt: at, amount: usd("114.00") })],
     ["deferred release to revenue", () => postDeferredRelease({ agreementId: "a1", occurredAt: at, amount: usd("57.00"), toRevenue: true })],
     ["deferred release to the customer", () => postDeferredRelease({ agreementId: "a2", occurredAt: at, amount: usd("57.00"), toRevenue: false })],
+    ["breakage at the end of a term", () => postAgreementBreakage({ agreementTermId: "t1", occurredAt: at, amount: usd("57.00") })],
+    ["credit paid out", () => postCreditNotePayout({ payoutId: "o1", occurredAt: at, amount: usd("64.95") })],
+    ["retainage held", () => postRetainage({ applicationId: "a1", occurredAt: at, change: usd("2250.00") })],
+    ["retainage released", () => postRetainage({ applicationId: "a2", occurredAt: at, change: usd("-2250.00") })],
   ];
 
   it.each(cases)("%s", (_name, build) => {
@@ -327,5 +332,78 @@ describe("money applied to nothing", () => {
     expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("40.0000");
     expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("10.0000");
     expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("-50.0000");
+  });
+});
+
+describe("a credit paid out as money", () => {
+  it("takes the credit out of what is held for the customer and the cash out of the bank, and nothing else", () => {
+    const posting = postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("108.25"), customerId: "c" });
+    expect(posting.sourceType).toBe("credit_note_payout");
+    expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("108.2500");
+    expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("-108.2500");
+    expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("0.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.REVENUE))).toBe("0.0000");
+    expect(posting.entries.every((e) => e.customerId === "c")).toBe(true);
+  });
+
+  it("leaves nothing held after a credit is issued and paid out in full, to the cent", () => {
+    const issued = postCreditNote({
+      creditNoteId: "n", occurredAt: at,
+      totals: { subtotal: usd("100.00"), taxTotal: usd("8.25"), total: usd("108.25") },
+    });
+    const paid = postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("108.25") });
+    const all = [...issued.entries, ...paid.entries];
+    expect(toString(imbalanceOf(all))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.REVENUE))).toBe("100.0000");
+    expect(toString(net(all, ACCOUNTS.TAX_PAYABLE))).toBe("8.2500");
+    expect(toString(net(all, ACCOUNTS.CASH))).toBe("-108.2500");
+  });
+
+  it("refuses nothing or less than nothing", () => {
+    expect(() => postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("0") })).toThrow(RangeError);
+    expect(() => postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("-5") })).toThrow(RangeError);
+  });
+});
+
+describe("retainage on an application for payment", () => {
+  it("books the work gross when billed, the held share on its own receivable, to the cent", () => {
+    // 25,000 of work, 2,250.50 held: the invoice asks for 22,749.50.
+    const invoice = postInvoice({
+      invoiceId: "i", occurredAt: at,
+      totals: { subtotal: usd("22749.50"), discountTotal: usd("0"), taxTotal: usd("0"), total: usd("22749.50") },
+    });
+    const held = postRetainage({ applicationId: "a", occurredAt: at, change: usd("2250.50"), customerId: "c" });
+    const all = [...invoice.entries, ...held.entries];
+    expect(toString(imbalanceOf(all))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.REVENUE))).toBe("-25000.0000");
+    expect(toString(net(all, ACCOUNTS.AR))).toBe("22749.5000");
+    expect(toString(net(all, ACCOUNTS.RETAINAGE_RECEIVABLE))).toBe("2250.5000");
+  });
+
+  it("moves released retainage onto the receivable without earning it twice", () => {
+    const held = postRetainage({ applicationId: "a1", occurredAt: at, change: usd("2250.50") });
+    // The release invoice bills 2,250.50 of retainage as a line.
+    const release = postInvoice({
+      invoiceId: "i2", occurredAt: at,
+      totals: { subtotal: usd("2250.50"), discountTotal: usd("0"), taxTotal: usd("0"), total: usd("2250.50") },
+    });
+    const released = postRetainage({ applicationId: "a2", occurredAt: at, change: usd("-2250.50") });
+    const all = [...held.entries, ...release.entries, ...released.entries];
+    expect(toString(imbalanceOf(all))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.REVENUE))).toBe("-2250.5000");
+    expect(toString(net(all, ACCOUNTS.RETAINAGE_RECEIVABLE))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.AR))).toBe("2250.5000");
+    expect(released.sourceType).toBe("retainage");
+  });
+
+  it("marks the reversal of a voided application's retainage as one", () => {
+    const back = postRetainage({ applicationId: "a", occurredAt: at, change: usd("-100.00"), reversal: true });
+    expect(back.sourceType).toBe("retainage_reversal");
+    expect(toString(net(back.entries, ACCOUNTS.RETAINAGE_RECEIVABLE))).toBe("-100.0000");
+  });
+
+  it("is a control account no journal may touch", () => {
+    expect(CONTROL_ACCOUNTS[ACCOUNTS.RETAINAGE_RECEIVABLE]).toMatch(/applications for payment/);
   });
 });

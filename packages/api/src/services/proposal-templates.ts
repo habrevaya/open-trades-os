@@ -6,7 +6,7 @@ import {
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { assertEstimateVisible } from "./estimates";
-import { attach, decode, put } from "./files";
+import { attach, decode, put, bytesOf, HELD } from "./files";
 import { remember, replayed } from "./once";
 
 /**
@@ -416,10 +416,10 @@ export async function proposalPhotoWithin(tx: Database, estimateId: string, phot
     }
   }
   if (!key) throw new NotFoundError("Photograph");
-  const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+  const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
     .from(schema.storedFile).where(and(eq(schema.storedFile.storageKey, key), isNull(schema.storedFile.deletedAt))).limit(1);
   if (!file) throw new NotFoundError("Photograph");
-  return { bytes: file.bytes, contentType: file.contentType };
+  return { bytes: await bytesOf(file), contentType: file.contentType };
 }
 
 /** The cover photograph of a template, for the editor's preview. */
@@ -428,10 +428,10 @@ export async function templatePhoto(ctx: ServiceContext, input: { id: string }) 
     const row = await load(tx, input.id);
     const key = row.cover?.photoKey;
     if (!key) throw new NotFoundError("Photograph");
-    const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+    const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
       .from(schema.storedFile).where(and(eq(schema.storedFile.storageKey, key), isNull(schema.storedFile.deletedAt))).limit(1);
     if (!file) throw new NotFoundError("Photograph");
-    return { bytes: file.bytes, contentType: file.contentType };
+    return { bytes: await bytesOf(file), contentType: file.contentType };
   });
 }
 

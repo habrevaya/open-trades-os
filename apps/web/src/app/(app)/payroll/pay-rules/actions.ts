@@ -4,7 +4,7 @@ import { attempt, field, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { laborSettings } from "@opentradesos/api/services";
+import { laborSettings, payExtras } from "@opentradesos/api/services";
 
 /** Hours typed on the form, as the minutes the policy is declared in, or null when left empty. */
 function minutes(form: FormData, name: string): number | null {
@@ -60,6 +60,9 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           externalReference: field(form, "externalReference") ?? null,
           jurisdiction: field(form, "jurisdiction") ?? null,
           fringeRate: field(form, "fringeRate") ?? null,
+          overtimeMultiplier: field(form, "overtimeMultiplier") ?? null,
+          doubleTimeMultiplier: field(form, "doubleTimeMultiplier") ?? null,
+          apprenticeRatio: field(form, "apprenticeRatio") ?? null,
           effectiveFrom: field(form, "effectiveFrom") ?? null,
         });
         return { message: "Loaded." };
@@ -80,6 +83,16 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           effectiveTo: field(form, "effectiveTo") ?? "",
         });
         return { message: "Retired. It stays on the record for the time already costed at it." };
+
+      case "extras": {
+        const rule = field(form, "tipSplit");
+        /** Left empty means pay none, which is a choice the box has to be able to make. */
+        await payExtras.set(ctx, {
+          perDiemRate: field(form, "perDiemRate") ?? null,
+          ...(rule === "even" || rule === "hours" || rule === "lead" ? { tipSplit: rule } : {}),
+        });
+        return { message: "Saved. Tips are shared this way from the next one, and a day away is recorded at this rate from now on. What was already shared or recorded keeps what it was worked out at." };
+      }
 
       case "classify":
         await laborSettings.setClassification(ctx, {

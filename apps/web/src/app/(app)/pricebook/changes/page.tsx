@@ -7,7 +7,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { ActionForm } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { refusalOf } from "@/lib/actions";
-import { formatIn } from "@/lib/dates";
+import { formatIn, todayIn } from "@/lib/dates";
 import { applyChange, undoChange } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -166,6 +166,15 @@ export default async function ChangePricesPage({
                   </tr>
                 ))}
               </Table>
+              <label className="block w-64">
+                <span className="text-sm font-medium text-ink-700">Takes effect (leave empty for now)</span>
+                <input type="date" name="effectiveOn" min={todayIn(user.organizationTimezone)}
+                       className="mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm" />
+                <span className="mt-1 block text-xs text-ink-500">
+                  A day ahead waits as a scheduled change on every item until the start of that day, and the prices
+                  now stay until then.
+                </span>
+              </label>
             </ActionForm>
           )}
         </section>
@@ -183,6 +192,9 @@ export default async function ChangePricesPage({
                 <Td>
                   <a href={`/pricebook/changes/${change.id}`} className="font-medium hover:underline">{change.description}</a>
                   {change.reversedById ? <> <Chip tone="neutral">Undone</Chip></> : null}
+                  {change.effectiveFrom && !change.reversedById && new Date(change.effectiveFrom) > new Date()
+                    ? <> <Chip tone="info">Waiting until {formatIn(change.effectiveFrom, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" })}</Chip></>
+                    : null}
                 </Td>
                 <Td className="text-right tabular-nums">{change.itemCount}</Td>
                 <Td className="text-ink-700">{change.appliedBy ?? ""}</Td>

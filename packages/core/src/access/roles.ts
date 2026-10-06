@@ -30,12 +30,13 @@ export type RoleId =
   | "technician" | "crew_lead" | "accountant" | "readonly";
 
 /**
- * WHAT EVERYBODY HOLDS ABOUT THEMSELVES. Their own record and their own pay
- * statements. In every preset rather than in a base the presets share,
- * because the presets share nothing else, and a person who cannot see the
- * emergency contacts they gave the office is a person who rings to ask.
+ * WHAT EVERYBODY HOLDS ABOUT THEMSELVES. Their own record, their own pay
+ * statements and what they paid for the company. In every preset rather than
+ * in a base the presets share, because the presets share nothing else, and a
+ * person who cannot see the emergency contacts they gave the office is a
+ * person who rings to ask.
  */
-const SELF: Permission[] = ["profile:own", "payroll:own"];
+const SELF: Permission[] = ["profile:own", "payroll:own", "expense:own"];
 
 const OFFICE_BASE: Permission[] = [
   "task:read", "task:write",
@@ -127,9 +128,13 @@ const OFFICE_MANAGER: Permission[] = [
   "booking:configure",
   "portal:revoke",
   "invoice:void", "invoice:credit",
+  /** A saved card charged from the invoice, only where the customer agreed to it. */
+  "payment:charge_saved",
   "vendor:read", "vendor:write", "po:read", "po:write",
   "inventory:read", "inventory:adjust",
   "timesheet:read",
+  /** The office decides what the company pays back, and records a cash tip a customer gave. */
+  "expense:approve", "tip:record",
   "campaign:read",
   "user:read", "user:invite",
   "settings:read",
@@ -157,6 +162,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
     description: "Runs the system. Payroll and the ledger are deliberately not included; grant them explicitly.",
     permissions: ALL_PERMISSIONS.filter((p) => ![
       "payroll:read", "payroll:export", "payroll:configure",
+      "expense:approve", "tip:record",
       "ledger:post", "accounting:close",
       "billing:manage", "data:export", "data:import",
     ].includes(p)),
@@ -264,7 +270,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "membership:read",
       "invoice:read", "invoice:write", "invoice:send", "invoice:void", "invoice:writeoff",
       "invoice:credit",
-      "payment:read", "payment:collect", "payment:refund",
+      "payment:read", "payment:collect", "payment:refund", "payment:charge_saved",
       "deposit:read", "deposit:refund",
       "ledger:read", "ledger:post", "accounting:sync", "accounting:close",
       "report.financial:read", "report:read", "report:build",
@@ -273,6 +279,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "inventory:read",
       "timesheet:read", "timesheet:approve",
       "payroll:read", "payroll:export", "payroll:configure",
+      "expense:approve", "tip:record",
       "commission:read", "commission:configure",
       "adspend:read",
       "audit:read",

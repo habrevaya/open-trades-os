@@ -2,7 +2,7 @@ import {
   registerProvider,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
-  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
+  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCreditNoteRefund, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalJournal, type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
@@ -118,6 +118,8 @@ const KEY_FIELD: Record<AccountingEntityKind, { entity: string; field: string }>
   credit_note_application: { entity: "Payment", field: "PaymentRefNum" },
   /** The invoice that reverses a voided credit note. See `pushOutbound` in the sync. */
   credit_note_void: { entity: "Invoice", field: "DocNumber" },
+  /** The cheque that pays a credit memo's credit out. See `pushCreditNoteRefund`. */
+  credit_note_refund: { entity: "Purchase", field: "DocNumber" },
   /** A manual journal, as a JournalEntry numbered with its key. */
   journal: { entity: "JournalEntry", field: "DocNumber" },
 };
@@ -257,14 +259,15 @@ function salesLines(
    * customer would differ. The invoice the customer holds is the authority;
    * see rule 3 at the top of schema/billing.ts.
    */
-  const taxLine = tax
-    ? [{
-      Amount: amountOf(tax.amount),
-      DetailType: "SalesItemLineDetail",
-      Description: "Sales tax",
-      SalesItemLineDetail: { ItemRef: { value: tax.accountExternalId }, Qty: 1 },
-    }]
-    : [];
+  const parts = tax && tax.byRate && tax.byRate.length > 1
+    ? tax.byRate
+    : tax ? [{ description: "Sales tax", amount: tax.amount }] : [];
+  const taxLine = parts.map((part) => ({
+    Amount: amountOf(part.amount),
+    DetailType: "SalesItemLineDetail",
+    Description: part.description,
+    SalesItemLineDetail: { ItemRef: { value: tax!.accountExternalId }, Qty: 1 },
+  }));
   return [...lines, ...taxLine];
 }
 
@@ -660,6 +663,52 @@ export function createQuickBooksProvider(
       return create("Purchase", {
         DocNumber: refund.idempotencyKey,
         TxnDate: refund.refundedOn,
+        PaymentType: "Check",
+        AccountRef: { value: refund.bankAccountExternalId },
+        EntityRef: { value: refund.customerExternalId, type: "Customer" },
+        CurrencyRef: { value: refund.amount.currency },
+        PrivateNote: refund.memo,
+        Line: [{
+          Amount: amountOf(refund.amount),
+          DetailType: "AccountBasedExpenseLineDetail",
+          Description: refund.memo,
+          AccountBasedExpenseLineDetail: {
+            AccountRef: { value: refund.receivableAccountExternalId },
+            CustomerRef: { value: refund.customerExternalId },
+          },
+        }],
+      });
+    },
+
+    /**
+     * A CREDIT PAID OUT: A CHEQUE FROM THE BANK, CATEGORISED TO ACCOUNTS
+     * RECEIVABLE FOR THE CUSTOMER.
+     *
+     * Intuit's own steps for giving a customer their credit back as money are
+     * an expense or cheque to the customer categorised to Accounts Receivable,
+     * then a receive-payment that links it to the credit memo ("Refund a
+     * customer's credit", QuickBooks Online help). This sends the first: cash
+     * out of the bank and the customer's receivable up by what the credit
+     * memo had taken off it, so their balance over there comes to what it is
+     * here. The link is not sent, because a QuickBooks payment linking an
+     * expense to a credit memo is not something its API is documented to
+     * take; the credit memo shows as unapplied until a bookkeeper links the
+     * two, and the customer's balance is right either way.
+     */
+    async pushCreditNoteRefund(refund: ExternalCreditNoteRefund): Promise<PushResult> {
+      if (!refund.receivableAccountExternalId) {
+        return {
+          ok: false,
+          code: "unmapped",
+          message: "Map the accounts receivable account to QuickBooks' Accounts Receivable before a credit paid out can be sent: "
+            + "the cheque takes the credit back off what the customer is owed.",
+          retryable: false,
+          duplicate: false,
+        };
+      }
+      return create("Purchase", {
+        DocNumber: refund.idempotencyKey,
+        TxnDate: refund.paidOn,
         PaymentType: "Check",
         AccountRef: { value: refund.bankAccountExternalId },
         EntityRef: { value: refund.customerExternalId, type: "Customer" },

@@ -63,6 +63,11 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
       <p className="mt-1 text-sm text-ink-500">
         {application.periodFrom ? `${application.periodFrom} to ` : "Up to "}{application.periodTo}
       </p>
+      <p className="mt-1 text-sm text-ink-700">
+        {application.retainageBooking === "receivable"
+          ? "Retainage on the books: the work is revenue in full when it is billed, and the retainage held waits on its own receivable until it is released and invoiced."
+          : "Retainage on the books the old way: this project was billed before retainage was held on a receivable, so it stays as it started, earned when it is released and invoiced."}
+      </p>
 
       {application.problems.length > 0 && (
         <ul role="alert" className="mt-4 list-disc space-y-1 rounded-md border border-red-600 bg-red-tint p-3 pl-8 text-sm text-ink-900">

@@ -177,7 +177,6 @@ export async function accept(ctx: ServiceContext, input: { id: string }, automat
     propertyId: body.propertyId,
     jobId: body.jobId,
     title: `Options for job ${body.jobNumber}`,
-    taxRate: "0",
     options: body.options.map((option) => ({
       name: option.name,
       ...(option.description ? { description: option.description } : {}),

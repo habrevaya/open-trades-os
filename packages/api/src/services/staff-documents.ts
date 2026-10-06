@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
+import { deflateSync, inflateSync } from "node:zlib";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { isSystem, people as peopleCore, safety as safetyRules } from "@opentradesos/core";
+import { isSystem, pdf, people as peopleCore, safety as safetyRules } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { attach, decode, put } from "./files";
+import { attach, bytesOf, decode, HELD, put } from "./files";
+import { companyOf, RENDER, type PdfFile } from "./documents";
 import * as once from "./once";
 
 /**
@@ -35,6 +37,12 @@ import * as once from "./once";
 
 const hashOf = (title: string, body: string): string =>
   createHash("sha256").update(JSON.stringify({ title, body })).digest("hex");
+
+/** What a drawn signature with transparency is decoded and compressed again with. */
+const CODECS: pdf.ImageCodecs = {
+  inflate: (bytes) => new Uint8Array(inflateSync(bytes)),
+  deflate: (bytes) => new Uint8Array(deflateSync(bytes)),
+};
 
 const uploader = (ctx: ServiceContext) => (isSystem(ctx.actor) ? null : ctx.actor.userId);
 
@@ -347,6 +355,95 @@ export async function signWithin(tx: Database, ctx: ServiceContext, self: {
     requestId: request.id, via: verdict.method, signerName: verdict.signerName, documentHash: doc.bodyHash,
   });
   return ownView();
+}
+
+/* ------------------------------------------------------------ as a PDF */
+
+/**
+ * A signature as a printed page: who signed, when in the company's own clock,
+ * how, the words as they were when signed, and the drawn picture when it was
+ * drawn.
+ *
+ * THE WORDS COME FROM THE DOCUMENT AND THE FINGERPRINT FROM THE SIGNATURE. A
+ * document's words never change (there is no edit), so the two agree; the
+ * fingerprint printed is the one the signature recorded, which is the claim
+ * the page makes about what was signed. `membershipId` narrows it to one
+ * person's own request, for the person printing their own copy: somebody
+ * else's reads as not found, as signing it would.
+ *
+ * Refused while unsigned: a page with the words and no signature is the
+ * document, not the record of anybody having signed it.
+ */
+export async function signedPdfWithin(
+  tx: Database, ctx: ServiceContext, input: { requestId: string; membershipId?: string | undefined },
+): Promise<PdfFile> {
+  const [found] = await tx.select({
+    request: schema.staffDocumentRequest,
+    doc: schema.staffDocument,
+    signature: schema.documentSignature,
+  }).from(schema.staffDocumentRequest)
+    .innerJoin(schema.staffDocument, eq(schema.staffDocument.id, schema.staffDocumentRequest.documentId))
+    .leftJoin(schema.documentSignature, eq(schema.documentSignature.id, schema.staffDocumentRequest.signatureId))
+    .where(and(
+      eq(schema.staffDocumentRequest.id, input.requestId),
+      eq(schema.staffDocumentRequest.organizationId, ctx.actor.organizationId),
+      ...(input.membershipId ? [eq(schema.staffDocumentRequest.membershipId, input.membershipId)] : []),
+    )).limit(1);
+  if (!found) throw new NotFoundError("Signed document");
+  const { request, doc, signature } = found;
+  if (!signature || !request.signedAt || !request.signedVia) {
+    throw new ConflictError("Nobody has signed this yet, so there is no signed copy to print.");
+  }
+
+  /** The drawn picture, read from the stored file the signing attached; a picture a PDF cannot carry prints as a line saying so. */
+  let picture: pdf.PdfImage | null = null;
+  if (request.signedVia === "drawn") {
+    const [file] = await tx.select(HELD).from(schema.attachment)
+      .innerJoin(schema.storedFile, eq(schema.storedFile.storageKey, schema.attachment.storageKey))
+      .where(and(
+        eq(schema.attachment.organizationId, ctx.actor.organizationId),
+        eq(schema.attachment.entityType, "document_signature"),
+        eq(schema.attachment.entityId, signature.id),
+        eq(schema.attachment.kind, "signature"),
+        isNull(schema.attachment.deletedAt),
+      )).limit(1);
+    if (file) picture = pdf.readImage(new Uint8Array(await bytesOf(file)), CODECS);
+  }
+
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  /** "March 4, 2026 at 2:15 PM CST", written part by part so the words do not depend on the runtime's idea of a long date. */
+  const parts = new Intl.DateTimeFormat("en-US", {
+    month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+    timeZone: zone, timeZoneName: "short",
+  }).formatToParts(signature.signedAt);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const signedAtText = `${part("month")} ${part("day")}, ${part("year")} at ${part("hour")}:${part("minute")} ${part("dayPeriod")} ${part("timeZoneName")}`;
+
+  const bytes = pdf.signedDocumentPdf({
+    company: await companyOf(tx, ctx.actor.organizationId),
+    title: doc.title,
+    body: doc.body,
+    documentHash: signature.documentHash,
+    signerName: signature.signerName,
+    signerEmail: signature.signerEmail,
+    signedAtText,
+    signedVia: request.signedVia === "drawn" ? "drawn" : "typed",
+    signature: picture,
+    ipAddress: signature.ipAddress,
+    userAgent: signature.userAgent,
+    generatedAt: new Date(),
+  }, RENDER);
+
+  const slug = (text: string) => text.normalize("NFKD").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return {
+    filename: `${slug(doc.title) || "document"}-signed-by-${slug(signature.signerName) || "signer"}.pdf`,
+    bytes,
+  };
+}
+
+/** The office's copy of anybody's signature: `user:read`, the permission that reads who signed. */
+export function signedPdf(ctx: ServiceContext, input: { requestId: string }): Promise<PdfFile> {
+  return guardedRead(ctx, "user:read", (tx) => signedPdfWithin(tx, ctx, input));
 }
 
 /* --------------------------------------------------------------- handlers */

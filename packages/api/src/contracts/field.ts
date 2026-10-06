@@ -15,6 +15,8 @@ export const OperationKind = z.enum([
   "invoice.raise",
   "task.claim", "task.close",
   "tip.record",
+  "safety.sign",
+  "expense.record",
 ]);
 
 export const OperationStatus = z.enum([
@@ -290,7 +292,30 @@ export const VisitForField = z.object({
     rate: RateString,
     waivesDiagnosticFee: z.boolean(),
     waivesAfterHoursRate: z.boolean(),
+    /**
+     * The price book items the plan's discount leaves out, flattened from
+     * the categories and items the plan names. Empty for none.
+     */
+    excludedItemIds: z.array(Uuid),
   }).nullable(),
+  /**
+   * The sales tax a sale on this visit is charged today, worked out by the
+   * server from the company's rates: this address's, the customer's, or the
+   * usual one, or nothing for a customer exempt on a certificate in force.
+   * The phone taxes an invoice for recorded work at it, on the lines that
+   * are taxable, and starts the estimate builder's percentage at it.
+   */
+  tax: z.object({
+    /** A fraction: "0.0825". "0" when nothing is charged. */
+    rate: RateString,
+    /** As a person reads it: "8.25". */
+    percent: z.string(),
+    /** "Travis County 8.25%", or null when it is none of the company's rates. */
+    label: z.string().nullable(),
+    source: z.string(),
+    /** Why, in a sentence, for the screen. */
+    note: z.string(),
+  }),
   /**
    * Estimates the technician can show the customer: the ones on this visit's
    * job, and the customer's undecided ones at this address that belong to no
@@ -310,6 +335,8 @@ export const VisitForField = z.object({
     itemKind: z.string().nullable(),
     /** A fee a plan may waive: "diagnostic" or "after_hours". */
     feeRole: z.string().nullable(),
+    /** The price book item, which decides whether the plan's discount leaves the line out. Null for a typed line. */
+    itemId: Uuid.nullable(),
   })),
   /** The job's invoices, other than void ones. Empty for a caller who may not read invoices. */
   invoices: z.array(z.object({
@@ -425,6 +452,22 @@ export const getFieldSnapshot = defineRoute({
       checklistDone: z.number().int(),
     })),
     /**
+     * The toolbox talks on this person's own sheet lines: the ones waiting for
+     * their signature, and the last fortnight's signed ones, each with why it
+     * cannot be signed yet when it cannot. Their own lines only. Empty for
+     * somebody who is not a technician.
+     */
+    talks: z.array(z.object({
+      meetingId: Uuid,
+      topic: z.string(),
+      notes: z.string().nullable(),
+      heldAt: z.string().datetime(),
+      location: z.string().nullable(),
+      ledBy: z.string().nullable(),
+      signedAt: z.string().datetime().nullable(),
+      cannotSign: z.string().nullable(),
+    })),
+    /**
      * What this person may do on site, so the phone offers only what the
      * server would accept, and what selling on site needs to know about the
      * company: whether it takes tips with a payment (and the suggested
@@ -440,7 +483,24 @@ export const getFieldSnapshot = defineRoute({
       tipping: z.object({ enabled: z.boolean(), presets: z.array(z.number().int()) }),
       financing: z.boolean(),
       assistant: z.boolean(),
+      /** Whether this person may record what they paid for the company. */
+      expenses: z.boolean(),
     }),
+    /**
+     * This person's own expenses from the last sixty days and what the office
+     * said about each, so an answer, and the reason for a refusal, reaches the
+     * phone they recorded it from. Empty on an unchanged poll.
+     */
+    expenses: z.array(z.object({
+      id: Uuid,
+      amount: MoneyString,
+      spentOn: z.string(),
+      description: z.string(),
+      jobNumber: z.number().int().nullable(),
+      status: z.enum(["pending", "approved", "refused"]),
+      decisionReason: z.string().nullable(),
+      receipts: z.number().int(),
+    })),
   }),
 });
 

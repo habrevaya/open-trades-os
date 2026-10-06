@@ -15,12 +15,19 @@ import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
+import { expiryPass } from "./estimate-expiry";
+import { nightlyPass as truckFillPass } from "./truck-fills";
 import { purgePass } from "./retention";
+import { talkPass } from "./safety-talks";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { purgePositions } from "./location";
 import { purgeUnusedClients } from "./oauth";
 import { collectionsPass } from "./rental-billing";
+import { autopayPass } from "./card-on-file";
+import type { PaymentDeps } from "./payments";
+import { startBackups } from "./backups";
+import { sweepPass } from "./file-storage";
 import type { PushProvider } from "../push/provider";
 
 /**
@@ -297,9 +304,25 @@ export interface PassOptions {
    * off.
    */
   oauthClients?: false;
+  /**
+   * Whether this pass also charges the bills of customers who pay
+   * automatically, and follows up charges to saved cards. On by default, at
+   * most once a minute; `false` turns it off, and an object passes the
+   * processor, which is how a test keeps it off the network.
+   */
+  autopay?: false | { deps?: PaymentDeps };
+  /**
+   * Scheduled copies to each company's bucket. Started beside the pass rather
+   * than inside it, because writing out a large company takes minutes and a
+   * text waiting behind it must not. `false` in tests that are about something
+   * else.
+   */
+  backups?: false;
 }
 
 let positionsPurgedAt = 0;
+let filesSweptAt = 0;
+const FILE_SWEEP_INTERVAL_MS = 10 * 60_000;
 const POSITION_PURGE_INTERVAL_MS = 10 * 60_000;
 let clientsPurgedAt = 0;
 const CLIENT_PURGE_INTERVAL_MS = 60 * 60_000;
@@ -377,6 +400,33 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       console.error("[worker] tasks:", (error as Error).message);
     }
     /**
+     * Estimates past their date, marked expired in each company's own
+     * calendar. Its own try, for the reason the task pass has one. A pass
+     * that has nothing to do is one cheap read, once a minute, and the unsold list and the
+     * estimate screens read the date themselves, so nothing waits on it.
+     */
+    try {
+      for (const result of await expiryPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] estimate expiry ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] estimate expiry:", (error as Error).message);
+    }
+    /**
+     * Truck fills proposed overnight, as drafts a person confirms, for each
+     * company that keeps a truck minimum: once a day of its own calendar, after
+     * one in the morning. Its own try, because a proposal that fails must not hold
+     * up anything else and a company's failure is kept to that company. It writes
+     * drafts and moves no stock.
+     */
+    try {
+      for (const result of await truckFillPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] truck fills ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] truck fills:", (error as Error).message);
+    }
+    /**
      * Contract clocks: SLA, invoicing and claim deadlines reconciled against
      * what has happened, and a task raised for any about to breach. Its own
      * try, for the reason the task pass has one. The tasks it raises go to
@@ -388,6 +438,18 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] contract clocks:", (error as Error).message);
+    }
+    /**
+     * Toolbox talks on a schedule, raised on their day with the crew's
+     * members on the sheet. Its own try, and idempotent on the unique index
+     * on (schedule, day), so a pass cut short and repeated raises once.
+     */
+    try {
+      for (const result of await talkPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] toolbox talks ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] toolbox talks:", (error as Error).message);
     }
     /**
      * Records past their retention, for the companies that switched purging
@@ -418,6 +480,26 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] collections:", (error as Error).message);
+    }
+    /**
+     * Bills charged to the saved card of a customer who pays automatically,
+     * the one next day try of a declined one, and charges the processor has
+     * answered since. Its own try, and each company's failure is kept to
+     * that company: an invoice is charged once whatever the worker does,
+     * because the charge is keyed on it under a unique index.
+     */
+    if (options.autopay !== false) {
+      try {
+        for (const result of await autopayPass(options.db, {
+          ...(stop ? { shouldStop: stop } : {}),
+          ...(options.autopay?.deps ? { deps: options.autopay.deps } : {}),
+        })) {
+          if (result.error) console.error(`[worker] automatic payments ${result.organizationId}: ${result.error}`);
+          if (result.failed > 0) delivered.add(result.organizationId);
+        }
+      } catch (error) {
+        console.error("[worker] automatic payments:", (error as Error).message);
+      }
     }
     /**
      * Reports and statements on a clock. Its own try, so a broken workflow
@@ -580,6 +662,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] webhooks:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Copies due to buckets, and the objects of removed files still to delete.
+   * Both their own try: a bucket that is down must not hold up anything else,
+   * and both are picked up again on a later pass.
+   */
+  if (options.backups !== false) startBackups(options.db);
+  if (Date.now() - filesSweptAt >= FILE_SWEEP_INTERVAL_MS) {
+    try {
+      await sweepPass(options.db);
+      filesSweptAt = Date.now();
+    } catch (error) {
+      console.error("[worker] file sweep:", (error as Error).message);
     }
   }
 

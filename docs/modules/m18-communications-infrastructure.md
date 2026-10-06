@@ -98,6 +98,17 @@ rendering a preview. If GET unsubscribed, a company's whole list would be opted
 out by software over a few months with no human having clicked anything. The
 unsubscribe suppresses email marketing only and leaves transactional mail alone.
 
+**A marketing email's unsubscribe link has to be this product's own.** The sender
+refuses marketing with no link, and it also refuses a link it did not make: the
+URL has to be `PUBLIC_BASE_URL` followed by the unsubscribe page's path and a
+token, with nothing after it, the token has to be one this company issued, and it
+has to have been issued for the address the mail is going to. A 404, a page on
+another system that cannot write a suppression here, another company's link and a
+link for somebody else are all refused, because each one is a button that leaves
+the reader on the list. Campaigns make their own links; `POST /v1/email/messages`
+makes one for the address when the caller leaves `unsubscribeUrl` out, and takes
+it back if the send is then refused.
+
 **The worker's authority is named rather than assumed.** The email sender's worker
 holds exactly two permissions and every path goes through a guard, so removing
 `message:send` from that list stops the sender, which is what an operator reading
@@ -185,7 +196,10 @@ ring group, voicemail, another menu, whoever is on call, a number outside
 the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
 Outside the business hours online booking keeps, calls go where the menu's
-after hours setting says, usually whoever is on call. Every save is checked
+after hours setting says, usually whoever is on call. The company's holiday list
+(`/settings/holidays`, M02) is read with them: on a closed holiday a call goes
+where an after hours call goes whatever the weekday, and on a short day the
+day's own hours decide. Every save is checked
 against what exists, so an option ringing a person with no number, a deleted
 group or a number nobody can dial is refused with the option named, and a menu
 or group that something still sends calls to cannot be deleted.
@@ -379,16 +393,13 @@ gate as everything else.
 
 ## What is not built
 
-Nothing checks that the unsubscribe URL handed to the email sender points at the
-page this product serves, so a caller can satisfy the gate with any string,
-including a 404. Campaigns supply the real one; another caller might not.
-
 Calls: none of the waiting line, the phone assistant or the browser phone has
 been tried on a live phone line. Each is built from Twilio's documentation and
 tested against a fake carrier: signed webhooks, a WebSocket client playing
 ConversationRelay's part, and a fake REST API. A menu takes key presses only,
-not spoken answers. Business hours come from online booking and have no
-holiday list. JustCall has no voice adapter.
+not spoken answers. Business hours come from online booking and the holiday
+list from Settings, one of each for the whole company: a number cannot keep
+hours or holidays of its own. JustCall has no voice adapter.
 
 Waiting lines: the longest wait and the caller's place are checked each time
 the hold music finishes, so a long track lets a caller wait past the limit by

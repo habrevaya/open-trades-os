@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, taskRules, time, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, taskRules, holidays as holidayRules, time, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -10,6 +10,7 @@ import * as email from "./email";
 import { publicBaseUrl } from "./setup-tokens";
 import { remember, replayed } from "./once";
 import { within } from "./workflow-schedule";
+import { loadHolidays } from "./holidays";
 
 /**
  * RECURRING TASKS AND ESCALATION
@@ -173,6 +174,8 @@ export interface TemplateInput {
   dueMinutes?: number | undefined;
   checklist?: string[] | undefined;
   startsOn?: string | undefined;
+  /** Raise nothing on a date the holiday list says the company is closed. */
+  skipHolidays?: boolean | undefined;
 }
 
 export interface TemplateView {
@@ -189,6 +192,7 @@ export interface TemplateView {
   dueMinutes: number;
   checklist: string[];
   startsOn: string;
+  skipHolidays: boolean;
   active: boolean;
   lastRaisedOn: string | null;
   /** "Every Monday", read back from the same function the worker uses. */
@@ -217,9 +221,10 @@ function viewOf(
     dueMinutes: row.dueMinutes,
     checklist: row.checklist,
     startsOn: row.startsOn,
+    skipHolidays: row.skipHolidays,
     active: row.active,
     lastRaisedOn: row.lastRaisedOn,
-    schedule: taskRules.describeSchedule(schedule),
+    schedule: `${taskRules.describeSchedule(schedule)}${row.skipHolidays ? ", not on a holiday" : ""}`,
     nextOn: !row.active ? null
       : dueToday && !raisedToday ? today
       : taskRules.occurrenceAfter(schedule, today),
@@ -272,11 +277,12 @@ export async function createTemplate(ctx: ServiceContext, input: TemplateInput):
       assigneeUserId: input.assigneeUserId ?? null,
       queue: input.queue?.trim() || null,
       frequency: input.frequency,
-      weekday: input.frequency === "weekly" ? input.weekday ?? null : null,
+      weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null,
       monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
       dueMinutes: input.dueMinutes ?? 17 * 60,
       checklist: (input.checklist ?? []).map((l) => l.trim()).filter((l) => l !== ""),
       startsOn,
+      skipHolidays: input.skipHolidays ?? false,
       createdByUserId: ctx.actor.userId,
     }).returning();
 
@@ -323,11 +329,12 @@ export async function updateTemplate(
       ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}),
       ...(input.queue !== undefined ? { queue: input.queue.trim() || null } : {}),
       frequency: merged.frequency,
-      weekday: merged.frequency === "weekly" ? merged.weekday ?? null : null,
+      weekday: taskRules.NEEDS_WEEKDAY.includes(merged.frequency) ? merged.weekday ?? null : null,
       monthDay: merged.frequency === "monthly" ? merged.monthDay ?? null : null,
       dueMinutes: merged.dueMinutes ?? before.dueMinutes,
       checklist: (merged.checklist ?? []).map((l) => l.trim()).filter((l) => l !== ""),
       startsOn: merged.startsOn,
+      ...(input.skipHolidays !== undefined ? { skipHolidays: input.skipHolidays } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.taskTemplate.id, input.id)).returning();
@@ -551,6 +558,7 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
     const templates = await tx.select().from(schema.taskTemplate)
       .where(eq(schema.taskTemplate.active, true));
     const raised: string[] = [];
+    const holidayList = templates.some((t) => t.skipHolidays) ? await loadHolidays(tx, organizationId) : [];
 
     for (const template of templates) {
       const day = taskRules.occurrenceToRaise(
@@ -558,6 +566,23 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
         today, template.lastRaisedOn,
       );
       if (!day) continue;
+
+      /**
+       * A template told to skip holidays raises nothing on a closed date,
+       * and the day is written down as dealt with, so the next pass does not
+       * look at it again and the occurrence is not raised the day after
+       * instead. Skipped, not moved, the same way a missed occurrence is not
+       * backfilled. A short day is a working day and is not skipped.
+       */
+      const holiday = template.skipHolidays ? holidayRules.holidayOn(holidayList, day) : null;
+      if (holiday?.closed) {
+        await tx.update(schema.taskTemplate)
+          .set({ lastRaisedOn: day, updatedAt: new Date() })
+          .where(eq(schema.taskTemplate.id, template.id));
+        await audit(tx, ctx, "task_template.skipped_holiday", "task_template", template.id, null,
+          { occurrenceOn: day, holiday: holiday.name });
+        continue;
+      }
 
       const [made] = await tx.insert(schema.task).values({
         organizationId,

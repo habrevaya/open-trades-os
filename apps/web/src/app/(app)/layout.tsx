@@ -2,6 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { branding, sandbox } from "@opentradesos/api/services";
 import { AppShell } from "@/components/AppShell";
+import { MyDayCache } from "@/components/MyDayCache";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireSetupUser();
@@ -34,6 +35,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {brand?.hasFavicon && (
         <link rel="icon" href={`/brand/favicon?v=${brand.version}`} />
       )}
+      {/* The day kept on this phone for no signal is this person's, or nobody's. */}
+      <MyDayCache person={user.userId} />
       <AppShell user={user} brand={brand} sandboxOf={where.production}>{children}</AppShell>
     </>
   );

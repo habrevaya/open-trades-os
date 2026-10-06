@@ -52,6 +52,16 @@ describe("the share held for members", () => {
     expect(cp.heldForMembers({ hold, whole: 8, memberJobs: 0, opensAt, now: exactly })).toBe(0);
   });
 
+  it("lets a member of a plan holding less into its own share and no further", () => {
+    const big = { share: 0.5, releaseHours: 24 };
+    /** Half of eight is four held; a quarter plan's member may use two of them. */
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 0, opensAt, now: early, ownShare: 0.25 })).toBe(2);
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 0, opensAt, now: early, ownShare: 0.5 })).toBe(0);
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 0, opensAt, now: early })).toBe(4);
+    /** Members' work uses the hold up for everybody, the smaller plan's members included. */
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 3, opensAt, now: early, ownShare: 0.25 })).toBe(0);
+  });
+
   it("holds nothing when the share is none", () => {
     expect(cp.heldForMembers({ hold: { share: 0, releaseHours: 24 }, whole: 8, memberJobs: 0, opensAt, now: early })).toBe(0);
   });
@@ -74,5 +84,35 @@ describe("Suggest who puts members first", () => {
     /** The stranger comes second, and wherever it goes beside four hours of the member's work something is late, which it says. */
     expect(result[1]!.visitId).toBe("stranger");
     expect(result[1]!.makesLate.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a route's stops on the day", () => {
+  const dayStart = new Date("2026-05-05T13:00:00Z");
+  const stopAt = (id: string, order: number | null, minutes = 20, routeId = "pool") =>
+    ({ id, routeId, day: "2026-05-05", order, start: dayStart, minutes });
+
+  it("lays the stops end to end in route order, each busy from leaving the one before", () => {
+    const laid = cp.layRouteStops([stopAt("c", 3), stopAt("a", 1), stopAt("b", 2, 30)], () => 10);
+    expect(laid.get("a")).toEqual({ start: new Date("2026-05-05T13:00:00.000Z"), minutes: 20 });
+    expect(laid.get("b")).toEqual({ start: new Date("2026-05-05T13:20:00.000Z"), minutes: 40 });
+    expect(laid.get("c")).toEqual({ start: new Date("2026-05-05T14:00:00.000Z"), minutes: 30 });
+  });
+
+  it("keeps each route's day to itself, and counts no drive where none is declared", () => {
+    const laid = cp.layRouteStops([stopAt("a", 1), stopAt("b", 2), stopAt("x", 1, 45, "lawn")], () => 0);
+    expect(laid.get("b")).toEqual({ start: new Date("2026-05-05T13:20:00.000Z"), minutes: 20 });
+    expect(laid.get("x")).toEqual({ start: dayStart, minutes: 45 });
+  });
+
+  it("takes the time a full route really takes out of a window, not all of it at the start", () => {
+    const stops = Array.from({ length: 12 }, (_, i) => stopAt(`s${i}`, i + 1));
+    const laid = cp.layRouteStops(stops, () => 5);
+    const morning = { start: dayStart, end: new Date("2026-05-05T17:00:00Z") };
+    const afternoon = { start: morning.end, end: new Date("2026-05-05T21:00:00Z") };
+    const busy = stops.map((s) => laid.get(s.id)!);
+    /** Twelve stops of twenty minutes and eleven drives of five: 295 minutes from eight. */
+    expect(cp.occupiedMinutes(morning, busy)).toBe(240);
+    expect(cp.occupiedMinutes(afternoon, busy)).toBe(55);
   });
 });

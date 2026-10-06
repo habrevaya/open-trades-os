@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/lib/db";
-import { portalAccount, portalSignIn, savedCards, visitChanges } from "@opentradesos/api/services";
+import { cardOnFile, portalAccount, portalSignIn, savedCards, visitChanges } from "@opentradesos/api/services";
 import { refusalOf } from "@/lib/actions";
 import { clearPortalToken, portalToken, requestMeta, requirePortalSession } from "@/lib/portal-session";
 import { startPaymentFor, type StartPayment } from "../../../start-payment";
@@ -82,6 +82,46 @@ export async function removeCard(slug: string, cardId: string): Promise<{ ok: bo
 }
 
 /**
+ * Letting the company charge a saved card, paying bills automatically with
+ * it, and stopping either. The words go back to the service with the yes,
+ * and it stores them only if they are the words it builds for that card.
+ */
+export async function agreeToCharges(slug: string, cardId: string, wording: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.agree(getDb(), { token: session.token, cardId, wording }, await requestMeta());
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
+export async function setAutopay(
+  slug: string, cardId: string, on: boolean, wording?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.setAutopay(getDb(), { token: session.token, cardId, on, ...(wording ? { wording } : {}) });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
+export async function withdrawCharges(slug: string, cardId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.withdraw(getDb(), { token: session.token, cardId });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
+/**
  * Open one estimate, job or invoice on its own page: a narrower link,
  * minted for that record and one day, and the browser sent to it.
  */
@@ -115,6 +155,27 @@ export async function requestSessionVisitChange(slug: string, input: {
       ...(input.requestedDate ? { requestedDate: input.requestedDate } : {}),
       ...(input.arrivalWindowId ? { arrivalWindowId: input.arrivalWindowId } : {}),
       ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+    }, await requestMeta());
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? "Something went wrong sending that. Please contact us." };
+  }
+  if (input.visitId) revalidatePath(`${home(slug)}/change/${input.visitId}`);
+  return { ok: true };
+}
+
+/** Taking or turning down the time the office offered, as the account link does, from the sign in. */
+export async function answerSessionVisitChangeProposal(slug: string, input: {
+  visitId?: string | undefined;
+  accept: boolean;
+  answer?: string | undefined;
+}): Promise<VisitChangeResult> {
+  const session = await requirePortalSession(slug);
+  try {
+    await visitChanges.answer(getDb(), {
+      token: session.token,
+      ...(input.visitId ? { visitId: input.visitId } : {}),
+      accept: input.accept,
+      ...(input.answer?.trim() ? { answer: input.answer.trim() } : {}),
     }, await requestMeta());
   } catch (error) {
     return { ok: false, message: refusalOf(error) ?? "Something went wrong sending that. Please contact us." };

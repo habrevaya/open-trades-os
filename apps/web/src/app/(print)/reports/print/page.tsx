@@ -40,6 +40,8 @@ export default async function PrintReportPage({ searchParams }: { searchParams: 
   const title = first(params.title) ?? "Report";
   const chart = first(params.chart);
   const measure = first(params.measure);
+  const split = first(params.split);
+  const arrange = first(params.arrange) === "grouped" ? "grouped" as const : first(params.arrange) === "stacked" ? "stacked" as const : undefined;
   const back = safeBack(params.back);
 
   let result: reports.ReportResult | null = null;
@@ -87,6 +89,8 @@ export default async function PrintReportPage({ searchParams }: { searchParams: 
             <ReportChart
               result={result!}
               measure={measure}
+              split={split}
+              arrange={arrange}
               prefer={chart === "columns" ? "columns" : chart === "line" ? "line" : undefined}
               additive={additivityFor(dataset)}
               title={title}

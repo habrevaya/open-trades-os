@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Twenty four operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, and the last seven are selling and closing on site, below): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty five operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, and the last, `expense.record`, is what the technician paid for the company): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -267,9 +267,10 @@ conflict the office sees and the phone says in the office's words.
 **Taking the money, and a tip.** Cash or a check against the invoice raised
 there, through `payment.collect` as before, now with a tip on top when the
 company takes tips (the setting on `/settings/portal`, the same one the
-portal's pay button reads): the tip is held in Tips payable and split evenly
-between everybody on the job's visits, the way a tip on the portal is, with
-the same suggestions and the same refusals. A card goes through the
+portal's pay button reads): the tip is held in Tips payable and shared
+between everybody on the job's visits by the company's rule (evenly, by hours on
+the job or to the lead: M17), the way a tip on the portal is, with the same
+suggestions and the same refusals. A card goes through the
 invoice's own link, where the customer can add a tip. With a lender
 connected (M13), `POST /v1/visits/{id}/financing-link` opens the lender's
 application for what is owing and texts it or hands it over; like the card
@@ -278,13 +279,34 @@ link it needs a signal.
 **A cash tip kept.** A customer hands the technician a twenty for
 themselves. It never reaches the company, so nothing is booked; `tip.record`
 puts it on the technician's own pay statement as `cash_tip`, already in their
-hand (M17). Always the phone's own person.
+hand (M17). Always the phone's own person: the office records one for somebody who did not, or corrects one, on `/timesheets/tips` (M17), and the technician sees both on `/me/pay`.
+
+**Money I spent.** What the technician paid out of their own pocket for the
+company: the amount, the day, what it was for, the job from the day's visits if
+there was one and a photograph of the receipt, on the phone ("Money I spent") and on
+`/my-day`. `expense.record` (an append, the twenty fifth kind) carries it with an id the phone made, so a retry records
+it once, and the receipt is an `attachment.attach` whose payload says
+`entityType: "expense"`, kept beside the expense by the same hash checked upload path
+as any photograph and only for the phone's own person's expense. The office decides
+on `/timesheets/expenses` and the answer, with the reason for a refusal in the
+office's own words, comes back in the day's `expenses` (the last sixty days) and
+moves the revision, so the next poll fetches it. Always the phone's own person
+(`expense:own`); an approved one is paid back through payroll (M17).
 
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes
 its own (`task.close`) through the queue's own services, so the second of two
 people taking the same task offline is told somebody else has it. A task with
 a checklist is finished on its own page, where the items are.
+
+**Toolbox talks.** The snapshot carries the talks on the person's own sheet lines
+(`talks`), and "Toolbox talks to sign" on the day opens them: what was covered,
+then a pad to draw a signature on. The signature is kept on the phone and recorded
+first, as an upload for the talk (`signature.capture` naming the talk), then
+`safety.sign` names it, so a talk signed with no signal is signed in order when
+the phone next has one. The server finds the line from the phone's own
+technician and refuses a closed sheet, a talk not held yet or somebody not on it
+in words; a refused signature is attached to nothing (M23).
 
 **What the person may do.** The snapshot's `abilities` says, from the
 person's permissions and the company's settings, whether they may build
@@ -311,8 +333,14 @@ When the office puts a visit on somebody's day, takes it off, moves it or
 cancels it, the change emits `visit.assigned`, `visit.unassigned`,
 `visit.rescheduled` or `visit.cancelled`, naming the technicians it is about.
 Every path that does those things emits them: the board, booking a job with
-people on it, adding a visit, and the office answering a customer's request to
-move or cancel.
+people on it, adding a visit, the office answering a customer's request to
+move or cancel, a customer taking a time the office offered, the several
+day rebalance, and cancelling a whole job with its visits still to come.
+
+A visit sent to a crew is on every member's day, so a change to it names
+each member of the crew as it stands: sending it to the crew tells them all
+it is theirs, moving or cancelling it tells them all, and a crew card handed
+to one person on the board tells the others it is off their day.
 
 The worker reads them from its own place in each company's log and pushes a
 notice through Expo's push service to every phone of those technicians with a
@@ -329,6 +357,18 @@ call technician's day at ten for eleven rings. A change read more than twelve
 hours after it was made is skipped as old news. When Expo says the app is gone
 from a phone, at the send or in the receipt a quarter of an hour later, the
 phone's token is forgotten.
+
+A notice that never reached anybody is put in front of the office. Once
+every one of a person's phones has finished with a change (five tries, or
+twelve hours, or a receipt saying it was not shown) and none of them got
+it, the worker raises a task in the office queue on the visit, high and due
+when the work starts: "Ray Nunez's phone was not told: Job cancelled", with
+the notice's own words, why it could not be sent, and "Call Ray Nunez to
+tell them." One task per change per person, never one per retry. A phone
+signed out or taken away on purpose raises nothing, and nor does a change
+another of their phones received. A task rather than the field conflicts
+list, because a conflict is something a phone sent that the office must
+reconcile, and this is something the office sent that never arrived.
 
 The app asks for permission on its first launch, makes the two Android
 channels the server sends to, and registers its token with
@@ -369,10 +409,17 @@ person being located:
   (`visit:dispatch`), not to a CSR and not to other technicians. A customer
   sees one pin, only on the way to their own visit, only after the text, and
   nothing once the technician arrives.
-- **Kept briefly.** Three days unless the company sets one to thirty, then
-  deleted by the worker. Turning sharing off for the company or a person
-  deletes what was kept at once; shortening the retention deletes what is now
-  past it.
+- **Kept briefly, and bounded.** Three days unless the company sets one to
+  thirty, then deleted by the worker. Turning sharing off for the company or
+  a person deletes what was kept at once; shortening the retention deletes
+  what is now past it. No two positions of one person are kept closer
+  together than half the company's interval (never under five seconds), so a
+  person's day is at most 2,880 positions at the default of one a minute,
+  and the whole store at most that times the retention.
+- **Today's path, to the same few people.** The dispatch map draws the path
+  each person took today behind their pin, from the positions already kept,
+  for `visit:dispatch` only. Yesterday's is inside the retention for the
+  record and is not drawn.
 - **Not precise beyond need.** A fix less accurate than a kilometre, one from
   the future, one at 0, 0 and one from a phone faking its GPS are refused.
   The phone thins what it keeps: a parked van sends one every few minutes.
@@ -385,6 +432,26 @@ Telling the customer you are on the way also moves the visit on the way on
 the phone, into the queue like every other tap, so the tracking link has a
 van to show and the office sees the visit move whether or not the text got
 through.
+
+### Opening `/my-day` with no signal
+
+The first time `/my-day` is opened on a phone with a signal, it registers a
+service worker for `/my-day` alone (`/my-day-sw.js`) and keeps two things on
+the phone: the day as the server drew it for the person signed in, and the
+page's own script and style files. A line at the top says "This day is
+saved on this phone, so it opens with no signal." From then on, every time
+the page is opened with a signal the kept copy is refreshed; opened with no
+answer from the network, the kept copy is shown instead, with "No signal.
+This is your day as it was last saved on this phone", and everything done
+on it goes into the queue as it would on a page already open.
+
+Only that person's own day is kept, never another screen and never an API
+answer. The copy is written down as belonging to whoever is signed in:
+every signed in page checks it, and a different person signing in on the
+same phone empties it before anything of theirs is kept. The sign in page
+empties it outright, and signing out and an ended session both land there,
+so a shared or borrowed phone keeps nobody's day once they have gone.
+`apps/web/src/lib/my-day-offline.ts` has the rules.
 
 ### Offline, and sending
 
@@ -440,7 +507,8 @@ held for ever.
 Four things happen to bytes that arrive. They are checked against the hash the
 device declared, and a mismatch is a corrupted file refused rather than stored.
 They are stored under a content addressed key, so a phone retrying four times in
-a car park does not leave four copies of a four megabyte photograph. They are
+a car park does not leave four copies of a four megabyte photograph, in Postgres
+or in the deployment's bucket, whichever it keeps files in. They are
 attached to the record they were taken for, because an upload that reached
 storage and never reached the job is a photograph nobody will ever find. And the
 attempt is counted, so an upload that can never succeed is abandoned with the
@@ -493,8 +561,9 @@ resolves a conflict and does not write a report.
 
 **Can a technician open the app with no signal?** The phone app, yes: it opens
 on the day it last fetched, with everything done since laid over it. The web
-page, no: they can record a day on a page already open, and true offline page
-loads need a service worker.
+page, yes, once it has been opened on that phone with a signal: it opens as
+the day was when it was last saved there, says so, and keeps recording into
+the queue.
 
 **What happens to a photo taken offline?** The record that it exists syncs with
 everything else; the bytes follow separately, and the office can see what has
@@ -522,13 +591,10 @@ against a fake of the push service, and a build needs an Expo project id
 (`eas init`) before the app can get a token at all. There is no store listing
 and no icon of its own; a company builds and distributes it.
 
-Notices go to the technicians on a visit's assignment list. A visit sent to a
-crew is not on any one technician's phone day, so a change to it tells nobody.
-Cancelling a whole job does not cancel its visits, so it sends no notice; a
-visit is cancelled today when the office agrees to a customer's request.
-A notice that could not be sent is tried again on the worker's next passes for
-twelve hours and then left, with the reason on its row; nobody is told about
-a phone that missed one.
+Notices go to the technicians on a visit's assignment list and to the
+members of the crew it is sent to. Somebody with no phone registered for
+notices is told nothing and raises no task, because there was nothing to
+send; the office sees which phones get changes on `/settings/phones`.
 
 A code is sent only by a company with a text number or a mail provider
 connected; with neither, the person is told a code is on its way and none
@@ -548,19 +614,55 @@ browser on `/my-day`. On the phone an estimate has at most three options
 (the server takes five) and no discount the technician types; a line not in
 the price book is typed with its price. An invoice raised on site bills the
 option signed for or the work recorded, never both; recorded parts left off
-stay unbilled for the office. Invoices carry no sales tax yet (BUILD.md), so
-neither does the phone's. A signature for an invoice the customer was not
+stay unbilled for the office. An invoice raised on site is taxed exactly as one the
+office raises. An invoice made from the option the customer signed for carries the
+tax that estimate was written with, each line at the rate it was charged, because the
+phone runs the same conversion the office's "Convert to job" does and a test raises
+both from the same estimate and compares the tax to the cent. An invoice made from
+work recorded on the visit is taxed from the company's own rates (M13): the day the
+phone carries (`GET /v1/field/snapshot`) says each visit's rate, the one the server
+works out for that customer at that address today, and the phone taxes the taxable
+lines at it, so the figure the customer signs is the one `billing.createIn` writes.
+The phone's estimate builder starts its percentage at the same rate, with the reason
+beside it, and the technician can change it. A part recorded without saying whether
+it is taxed is taxed, and labour is not. If the rate changes between the day being
+fetched and the invoice landing, the invoice is kept as a draft for the office with
+the difference in words, as any other disagreement is. A signature for an invoice the customer was not
 there for can be skipped, and the invoice is raised unsigned. A task with a
 checklist is finished on its own page in a browser, not on the phone. The
 lender's link and the field assistant need a signal; nothing about them is
 queued.
 
-Object storage: the bytes are columns in Postgres, which is right
-for a self hoster with a few gigabytes of photographs and wrong for a company
-with a terabyte. The customer portal shows a job's photographs only through
+Photographs and signatures are kept in Postgres by default, which is right
+for a self hoster with a few gigabytes, and in an S3 compatible bucket when the
+deployment sets `FILE_STORAGE=s3` (`docs/self-hosting/files-and-backups.md`);
+`move-files` moves what is already stored, checking each file's hash, while the
+app is in use. Files are served through the app either way, never by a link
+straight into the bucket, which costs the app's bandwidth on a large deployment
+and keeps every read behind the company's own permission. The customer portal shows a job's photographs only through
 the job link, the treatment the logo already has (a token that already grants
 sight of the record), and only the ones somebody chose with **Show the
 customer** or all of them when the company says so (M05). There is still no
-unauthenticated way to read one. True
-offline page loads need a service worker: a technician with no signal can record
-a day on a page already open; they cannot open the page.
+unauthenticated way to read one.
+
+Revoking a browser is weaker than revoking a phone. A phone's revocation ends its
+token, and only signing in again on it lifts it. A browser has no token of its
+own: `/my-day` registers it on the person's ordinary sign in each time the day is
+opened, and registering lifts a revocation, so a revoked browser syncs again the
+next time its technician opens their day. The page fetching itself to keep its
+copy for no signal only looks the device up, so that fetch does not lift it.
+Holding a browser's revocation until the person signs in again needs the session's
+start to be known where the day is drawn, and is not built; to stop a browser,
+the office deactivates the person, which ends every sign in they have, or takes
+`field:sync` from their role.
+
+`/my-day` opens with no signal only once it has been opened on that phone
+with one, only in a browser that keeps service workers (any current one, on
+HTTPS or localhost), and only as the day was when it was last saved: a
+visit the office added since is not on it until the signal is back, and
+neither is anything the server would have redrawn (a closed punch, a
+finished visit) beyond what the phone's own queue lays over it. A day kept
+from yesterday opens as yesterday's, with its date. Other screens do not
+open without a signal. The copy kept is the page and its script files,
+nothing else, so photographs of earlier visits and the price book's
+pictures are not there offline.

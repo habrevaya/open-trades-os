@@ -55,8 +55,10 @@ export default async function VendorOrderPage({ params }: { params: Promise<{ to
                 {line.itemName}
                 <span className="block text-xs text-ink-500">Deliver to {line.deliverTo}</span>
               </td>
-              <td className="py-2 pr-2 text-right tabular-nums">{line.quantityOrdered}</td>
-              <td className="py-2 pr-2 text-right tabular-nums">{dollars(line.unitPrice)}</td>
+              <td className="py-2 pr-2 text-right tabular-nums">
+                {line.packs ? `${line.packs.count} ${line.packs.unit ?? "pack"} of ${line.packs.size} (${line.quantityOrdered})` : line.quantityOrdered}
+              </td>
+              <td className="py-2 pr-2 text-right tabular-nums">{dollars(line.packs ? line.packs.price : line.unitPrice)}</td>
               <td className="py-2 text-right tabular-nums">{dollars(line.lineTotal)}</td>
             </tr>
           ))}

@@ -127,6 +127,34 @@ describe("the work on the account, laid out by the trade", () => {
     expect(html).toContain("Job #31, with Ray");
   });
 
+  it("draws one unit's readings over time as a line as well as the table, and nothing for a single reading", () => {
+    const trended = {
+      ...extras,
+      blocks: [{ kind: "readings_trend" as const, title: "Readings over time", config: {}, declared: true }],
+      readings: [
+        {
+          key: "superheat", label: "Superheat", unit: "F", equipment: "Upstairs, Air conditioner",
+          points: [
+            { at: "2026-04-02T15:00:00Z", value: "11.0000", outOfRange: false },
+            { at: "2026-06-10T15:00:00Z", value: "14.5000", outOfRange: false },
+            { at: "2026-09-01T15:00:00Z", value: "19.0000", outOfRange: true },
+          ],
+        },
+        {
+          key: "superheat", label: "Superheat", unit: "F", equipment: "Downstairs, Air conditioner",
+          points: [{ at: "2026-09-01T15:00:00Z", value: "9.0000", outOfRange: false }],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<AccountView account={account({ extras: trended })} pay={() => null} />);
+    // One chart, for the unit with more than one day; both tables.
+    expect(html.match(/<svg/g)).toHaveLength(1);
+    expect(html).toContain("Superheat, Upstairs, Air conditioner: Superheat (F) by date, as a line");
+    expect(html).toContain("Downstairs, Air conditioner");
+    expect(html).toContain("19 F (outside the normal range)");
+    expect(html).toContain("9 F");
+  });
+
   it("shows every account its history and equipment even with no pack", () => {
     const html = renderToStaticMarkup(<AccountView account={account()} pay={() => null} />);
     expect(html).toContain("Service history");

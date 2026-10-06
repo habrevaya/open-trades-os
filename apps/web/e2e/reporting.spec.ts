@@ -44,7 +44,7 @@ test("Drill through: a number on a report opens the invoices behind it, and they
 
 test("Drill through: a bar on a dashboard opens the records behind it", async ({ owner }) => {
   await owner.goto("/dashboards/money");
-  await owner.getByTitle(/^Open the records behind Who owes us, /).first().click();
+  await owner.locator("section", { has: owner.getByRole("heading", { name: "Who owes us" }) }).locator("svg a").first().click();
   await expect(owner.getByRole("heading", { level: 1, name: "Invoices behind Who owes us" })).toBeVisible();
   // The tile's own filter came with it, said in words.
   await expect(owner.getByText("Status is not Paid.")).toBeVisible();
@@ -113,14 +113,14 @@ test("Statements: one is emailed from the statement page, the refusal is kept, a
 
   const monthly = owner.getByRole("region", { name: "Monthly statements" });
   await expect(monthly).toContainText("Off.");
-  await monthly.getByRole("checkbox").check();
+  await monthly.getByRole("checkbox", { name: /Send every customer/ }).check();
   await monthly.getByLabel("Only if they owe more than ($)").fill("25");
   await monthly.getByRole("button", { name: "Save" }).click();
   await expect(monthly).toContainText("On. Every customer owing more than $25.00");
   await expect(monthly).toContainText("Next:");
 
   // Off again, so a later run of the suite starts where this one did.
-  await monthly.getByRole("checkbox").uncheck();
+  await monthly.getByRole("checkbox", { name: /Send every customer/ }).uncheck();
   await monthly.getByRole("button", { name: "Save" }).click();
   await expect(monthly).toContainText("Off.");
 });

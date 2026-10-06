@@ -47,6 +47,23 @@ export default async function PortalSettingsPage() {
           </a>
         </p>
       )}
+      <p className="mt-2 text-sm">
+        <a href="/settings/portal/layout" className="text-blue-600 underline underline-offset-4">
+          Arrange what customers see on their account
+        </a>
+      </p>
+
+      <section className="mt-8">
+        <h2 className="text-base font-semibold">Saved cards you may charge</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A signed in customer can let you charge a card or bank account they saved, by reading and agreeing to the
+          words on their account page. Then whoever may charge saved cards can charge it from the invoice, and is
+          named on the charge. A customer who agreed can also have each bill paid automatically when it is issued,
+          a plan&apos;s instalments included. If an automatic payment does not go through, they are sent the link to pay
+          and your office queue gets a task; a declined card is tried once more the next day, and never again after
+          that. Without the customer&apos;s agreement, nobody can charge their card. They can stop it at any time.
+        </p>
+      </section>
 
       <section className="mt-8">
         <h2 className="text-base font-semibold">Tips</h2>

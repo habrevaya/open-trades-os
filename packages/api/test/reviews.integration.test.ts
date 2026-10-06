@@ -388,8 +388,12 @@ run("what to do about a review that arrived", () => {
     const now = new Date("2026-10-07T19:00:00Z");
     const hours = (n: number) => new Date(now.getTime() - n * 3600_000);
 
-    /** Two days past a four hour clock. */
-    await reviews.record(owner(), { platform: "google", rating: 1, postedAt: hours(48) });
+    /**
+     * Five days old, so well past a four business hour clock whatever day the
+     * suite runs: two days old on a Sunday is still inside it, because the
+     * clock does not run over the weekend.
+     */
+    await reviews.record(owner(), { platform: "google", rating: 1, postedAt: hours(120) });
     /** Two hours past a one week clock. */
     await reviews.record(owner(), { platform: "google", rating: 5, postedAt: hours(170) });
 

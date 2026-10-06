@@ -7,6 +7,7 @@ import {
   NotFoundError, ConflictError, UnprocessableError, timezoneOf,
 } from "./context";
 import { writePosting } from "./ledger";
+import * as billing from "./billing";
 import { nextNumber } from "./jobs";
 import type {
   createCreditNote, listCreditNotes, CreditNoteReason,
@@ -38,6 +39,24 @@ const say = (v: m.Money | string) => m.edit(m.round(typeof v === "string" ? usd(
 
 type Note = typeof schema.creditNote.$inferSelect;
 type InvoiceRow = typeof schema.invoice.$inferSelect;
+export type Payout = typeof schema.creditNotePayout.$inferSelect;
+
+/**
+ * What is left on a credit note and what that makes it, from what it was
+ * issued for, what was used on invoices and what was paid out as money.
+ *
+ * One function for every path that moves any of the three, so "part used"
+ * means the same thing whether the part went on an invoice or back to a card.
+ * A credit with nothing left reads as applied, the word every list already
+ * uses for "used up", whichever way it went.
+ */
+function standingOf(total: m.Money, applied: m.Money, paidOut: m.Money) {
+  const balance = m.subtract(m.subtract(total, applied), paidOut);
+  const status: Note["status"] = m.isPositive(balance)
+    ? (m.isPositive(m.add(applied, paidOut)) ? "partially_applied" : "open")
+    : "applied";
+  return { balance, status };
+}
 
 /* --------------------------------------------------------------- reading */
 
@@ -65,6 +84,9 @@ async function view(
   const lines = await tx.select().from(schema.creditNoteLine)
     .where(inArray(schema.creditNoteLine.creditNoteId, ids))
     .orderBy(schema.creditNoteLine.sortOrder);
+  const payouts = await tx.select().from(schema.creditNotePayout)
+    .where(inArray(schema.creditNotePayout.creditNoteId, ids))
+    .orderBy(schema.creditNotePayout.createdAt);
   const applications = await tx.select({
     application: schema.creditNoteApplication,
     invoiceNumber: schema.invoice.number,
@@ -90,6 +112,7 @@ async function view(
     taxTotal: note.taxTotal,
     total: note.total,
     amountApplied: note.amountApplied,
+    amountPaidOut: note.amountPaidOut,
     balance: note.balance,
     voidedAt: note.voidedAt,
     createdAt: note.createdAt,
@@ -113,10 +136,26 @@ async function view(
       amount: a.application.amount,
       appliedOn: a.application.appliedOn,
     })),
+    payouts: payouts.filter((p) => p.creditNoteId === note.id).map((p) => ({
+      id: p.id,
+      method: p.method as PayoutMethod,
+      status: p.status as PayoutStatus,
+      amount: p.amount,
+      paymentId: p.paymentId,
+      reference: p.reference,
+      paidOn: p.paidOn,
+      note: p.note,
+      failureReason: p.failureReason,
+      createdAt: p.createdAt,
+    })),
   }));
 }
 
+export type PayoutMethod = "card" | "cash" | "check" | "other";
+export type PayoutStatus = "pending" | "paid" | "failed";
+
 export type CreditNoteView = Awaited<ReturnType<typeof loadNote>>;
+export { loadNote };
 
 export async function get(ctx: ServiceContext, input: { id: string }) {
   return guardedRead(ctx, "invoice:read", (tx) => loadNote(tx, input.id));
@@ -401,6 +440,25 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createCr
 
 /* -------------------------------------------------------------- issuing */
 
+/**
+ * The tax a credit note gives back, by rate: each line at the rate its
+ * invoice line charged, under the company's rate that line named. Left as
+ * one figure when the invoice it credits posted its own tax as one figure
+ * (issued before rates were recorded on the ledger), so a rate's row in the
+ * filing report is never taken down by more than it was put up by.
+ */
+async function creditedByRate(tx: Database, ctx: ServiceContext, note: Note) {
+  if (note.invoiceId && !(await billing.postedTaxByRate(tx, ctx.actor.organizationId, note.invoiceId))) return undefined;
+  const lines = await tx.select({
+    taxable: schema.creditNoteLine.taxable, taxRate: schema.creditNoteLine.taxRate,
+    taxAmount: schema.creditNoteLine.taxAmount, lineTotal: schema.creditNoteLine.lineTotal,
+    taxRateId: schema.invoiceLine.taxRateId,
+  }).from(schema.creditNoteLine)
+    .leftJoin(schema.invoiceLine, eq(schema.invoiceLine.id, schema.creditNoteLine.invoiceLineId))
+    .where(eq(schema.creditNoteLine.creditNoteId, note.id));
+  return billing.taxByRateOf(lines, usd(note.taxTotal));
+}
+
 async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: boolean): Promise<void> {
   /** Checked again: the invoice may have been credited or closed since the draft. */
   const invoice = note.invoiceId ? await invoiceFor(tx, note.invoiceId) : null;
@@ -415,6 +473,7 @@ async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: b
     customerId: note.customerId,
     ...(note.invoiceId ? { invoiceId: note.invoiceId } : {}),
     ...(invoice?.jobId ? { jobId: invoice.jobId } : {}),
+    taxByRate: await creditedByRate(tx, ctx, note),
   }));
 
   const [issued] = await tx.update(schema.creditNote).set({
@@ -451,7 +510,7 @@ export async function issue(ctx: ServiceContext, input: { id: string; apply: boo
   });
 }
 
-async function lockNote(tx: Database, id: string): Promise<Note> {
+export async function lockNote(tx: Database, id: string): Promise<Note> {
   const [note] = await tx.select().from(schema.creditNote)
     .where(eq(schema.creditNote.id, id))
     .for("update").limit(1);
@@ -539,11 +598,11 @@ async function applyInTx(
   }));
 
   const applied = m.add(usd(note.amountApplied), total);
-  const left = m.subtract(usd(note.balance), total);
+  const { balance: left, status } = standingOf(usd(note.total), applied, usd(note.amountPaidOut));
   await tx.update(schema.creditNote).set({
     amountApplied: m.toString(applied),
     balance: m.toString(left),
-    status: m.isPositive(left) ? "partially_applied" : "applied",
+    status,
     updatedAt: now,
   }).where(eq(schema.creditNote.id, note.id));
 
@@ -583,6 +642,127 @@ export async function apply(
   });
 }
 
+/* ------------------------------------------------------ paying it out */
+
+/**
+ * Set aside part of a credit note for a payout, so the same credit cannot
+ * also be used on an invoice or paid out twice while a card refund is on its
+ * way. Nothing is posted: the money has not moved yet.
+ */
+export async function reservePayout(tx: Database, note: Note, amount: m.Money): Promise<void> {
+  if (note.status !== "open" && note.status !== "partially_applied") {
+    throw new ConflictError(
+      note.status === "draft"
+        ? `Credit note ${note.number} is a draft. Issue it before paying it out.`
+        : `Credit note ${note.number} is ${note.status.replace("_", " ")} and has nothing left to pay out.`,
+    );
+  }
+  if (!m.isPositive(amount)) {
+    throw new UnprocessableError("A payout is a positive amount", [{
+      path: "amount", message: "Pay out a positive amount.",
+    }]);
+  }
+  if (m.compare(amount, usd(note.balance)) > 0) {
+    throw new ConflictError(
+      `Credit note ${note.number} has ${say(usd(note.balance))} left, and ${say(amount)} was asked to be paid out.`,
+    );
+  }
+  const paidOut = m.add(usd(note.amountPaidOut), amount);
+  const { balance, status } = standingOf(usd(note.total), usd(note.amountApplied), paidOut);
+  await tx.update(schema.creditNote).set({
+    amountPaidOut: m.toString(paidOut), balance: m.toString(balance), status, updatedAt: new Date(),
+  }).where(eq(schema.creditNote.id, note.id));
+}
+
+/**
+ * The money has gone: post it and say so on the payout.
+ *
+ * Dated `at`, which is when it went: the processor's own time for a card
+ * refund, the day the office says for cash or a cheque.
+ */
+export async function postPayout(tx: Database, ctx: ServiceContext, payout: Payout, at: Date): Promise<Payout> {
+  await writePosting(tx, ctx, ledger.postCreditNotePayout({
+    payoutId: payout.id, occurredAt: at, amount: usd(payout.amount), customerId: payout.customerId,
+  }));
+  const paidOn = time.dateIn(at, await timezoneOf(tx, ctx.actor.organizationId));
+  const [after] = await tx.update(schema.creditNotePayout).set({
+    status: "paid", paidAt: at, paidOn, updatedAt: new Date(),
+  }).where(eq(schema.creditNotePayout.id, payout.id)).returning();
+  await audit(tx, ctx, "credit_note.paid_out", "credit_note", payout.creditNoteId,
+    { status: payout.status }, { payoutId: payout.id, method: payout.method, amount: payout.amount, paidOn });
+  return after!;
+}
+
+/**
+ * The processor reported a card payout's refund done.
+ *
+ * Posted as a payout, and the card payment it went back through records the
+ * money as refunded, which is what the processor will say about it, and as
+ * paid out, so what the payment paid and holds is left as it was
+ * (`billing.unappliedOf`). Called by the webhook path in `payments.ts`
+ * with the payment row already locked. Safe to call twice: a payout that is
+ * no longer pending is left alone.
+ */
+export async function settleCardPayout(
+  tx: Database, ctx: ServiceContext, payout: Payout, payment: typeof schema.payment.$inferSelect, at: Date,
+): Promise<typeof schema.payment.$inferSelect> {
+  if (payout.status !== "pending") return payment;
+  await postPayout(tx, ctx, payout, at);
+  const refunded = m.add(usd(payment.refundedAmount), usd(payout.amount));
+  const [after] = await tx.update(schema.payment).set({
+    refundedAmount: m.toString(refunded),
+    paidOutAmount: m.toString(m.add(usd(payment.paidOutAmount), usd(payout.amount))),
+    status: m.compare(refunded, usd(payment.amount)) >= 0 ? "refunded" : "partially_refunded",
+    updatedAt: new Date(),
+  }).where(eq(schema.payment.id, payment.id)).returning();
+  return after!;
+}
+
+/**
+ * A card payout the processor will not make. The credit it set aside goes
+ * back on the account, because nothing left: the customer still holds it,
+ * to be used or paid out another way. Nothing was posted, so nothing is
+ * reversed.
+ */
+export async function failCardPayout(
+  tx: Database, ctx: ServiceContext, payout: Payout, reason: string,
+): Promise<void> {
+  if (payout.status !== "pending") return;
+  await tx.update(schema.creditNotePayout).set({
+    status: "failed", failureReason: reason, updatedAt: new Date(),
+  }).where(eq(schema.creditNotePayout.id, payout.id));
+  const note = await lockNote(tx, payout.creditNoteId);
+  const paidOut = m.subtract(usd(note.amountPaidOut), usd(payout.amount));
+  const { balance, status } = standingOf(usd(note.total), usd(note.amountApplied), paidOut);
+  await tx.update(schema.creditNote).set({
+    amountPaidOut: m.toString(paidOut), balance: m.toString(balance), status, updatedAt: new Date(),
+  }).where(eq(schema.creditNote.id, note.id));
+  await audit(tx, ctx, "credit_note.payout_failed", "credit_note", note.id,
+    { payoutId: payout.id, status: "pending" }, { status: "failed", reason, balance: m.toString(balance) });
+}
+
+/** Card payouts on one payment still waiting for the processor, oldest first. */
+export async function pendingPayoutsOn(tx: Database, paymentId: string): Promise<Payout[]> {
+  return tx.select().from(schema.creditNotePayout)
+    .where(and(
+      eq(schema.creditNotePayout.paymentId, paymentId),
+      eq(schema.creditNotePayout.status, "pending"),
+    ))
+    .orderBy(schema.creditNotePayout.createdAt);
+}
+
+/** The payout a processor refund id belongs to, if one does. */
+export async function payoutForRefund(
+  tx: Database, organizationId: string, refundId: string,
+): Promise<Payout | null> {
+  const [row] = await tx.select().from(schema.creditNotePayout)
+    .where(and(
+      eq(schema.creditNotePayout.organizationId, organizationId),
+      eq(schema.creditNotePayout.processorRefundId, refundId),
+    )).limit(1);
+  return row ?? null;
+}
+
 /* ------------------------------------------------------ voiding, deleting */
 
 export async function voidNote(ctx: ServiceContext, input: { id: string; reason: string }) {
@@ -597,6 +777,11 @@ export async function voidNote(ctx: ServiceContext, input: { id: string; reason:
         `Credit note ${note.number} has ${say(usd(note.amountApplied))} applied to invoices. A credit that has been used cannot be taken back here.`,
       );
     }
+    if (m.isPositive(usd(note.amountPaidOut))) {
+      throw new ConflictError(
+        `Credit note ${note.number} has ${say(usd(note.amountPaidOut))} paid out to the customer. Money that has gone back cannot be taken back here.`,
+      );
+    }
     /** The job the credited invoice was for, so restoring the revenue restores it on that job. */
     const [credited] = note.invoiceId
       ? await tx.select({ jobId: schema.invoice.jobId }).from(schema.invoice).where(eq(schema.invoice.id, note.invoiceId)).limit(1)
@@ -607,6 +792,8 @@ export async function voidNote(ctx: ServiceContext, input: { id: string; reason:
       totals: { subtotal: usd(note.subtotal), taxTotal: usd(note.taxTotal), total: usd(note.total) },
       customerId: note.customerId,
       ...(credited?.jobId ? { jobId: credited.jobId } : {}),
+      /** Each rate restored exactly as the credit note took it off. */
+      taxByRate: await billing.postedTaxByRate(tx, ctx.actor.organizationId, note.id, "credit_note"),
     }));
     await tx.update(schema.creditNote).set({
       status: "void", balance: "0", voidedAt: new Date(), updatedAt: new Date(),

@@ -77,7 +77,8 @@ export default async function AgreementPage({
       {agreement.discountRate && Number(agreement.discountRate) > 0 ? (
         <p className="mt-2 text-sm text-ink-700">
           Members get {agreements.percentOf(agreement.discountRate)} off eligible work, taken off each line of their
-          estimates and invoices. Fixed when this agreement was sold, so a change to the plan does not reach it.
+          estimates and invoices{data.leavesOut.length > 0 ? `, except ${data.leavesOut.join(", ")}` : ""}. Fixed when
+          this agreement was sold, so a change to the plan does not reach it.
         </p>
       ) : null}
       {/*
@@ -211,10 +212,12 @@ export default async function AgreementPage({
             {plan.renewalNoticeDays <= 0
               ? "The plan owes none"
               : agreement.renewalNoticeSentAt === null
-                ? `${plan.renewalNoticeDays} days before the end, by text or email`
+                ? `${plan.renewalNoticeDays} days before the end, the way set under Renewal notices`
                 : agreement.renewalNoticeOutcome === "queued"
                   ? `Sent ${formatIn(agreement.renewalNoticeSentAt, zone)}`
-                  : <span className="text-red-600">Could not be sent. {agreement.renewalNoticeOutcome}</span>}
+                  : agreement.renewalNoticeOutcome?.startsWith("Sent by")
+                    ? `${agreement.renewalNoticeOutcome} (${formatIn(agreement.renewalNoticeSentAt, zone)})`
+                    : <span className="text-red-600">Could not be sent. {agreement.renewalNoticeOutcome}</span>}
           </dd>
         </dl>
         {writes && (agreement.status === "active" || agreement.status === "lapsed") ? (
@@ -238,6 +241,39 @@ export default async function AgreementPage({
           instalments. Leave the price blank to keep this member&apos;s price.
         </p>
       </section>
+
+      {data.terms.length > 0 ? (
+        <section aria-labelledby="terms" className="mt-10 border-t border-steel-200 pt-4">
+          <h2 id="terms" className="text-sm font-medium text-ink-700">Terms</h2>
+          {/*
+            Breakage, said where it happened. What a term's visits never taken
+            were worth is moved from unearned to earned on the day the term
+            ends, and never before; the visit stays owed.
+          */}
+          <p className="mt-1 text-xs text-ink-500">
+            When a term ends, the money for any visits they never took is counted as earned. Never before the end.
+            Those visits stay on the list if you still want to do them, and doing one later adds nothing to the books.
+          </p>
+          <Table head={<><Th>Term</Th><Th>Ran</Th><Th>At the end</Th><Th className="text-right">Earned at the end</Th></>}>
+            {data.terms.map((t) => (
+              <tr key={t.id}>
+                <Td>{t.term}</Td>
+                <Td className="tabular-nums">
+                  {t.startsOn ? `${formatDay(t.startsOn, zone)} to ` : "Until "}{formatDay(t.endsOn, zone)}
+                </Td>
+                <Td className="text-ink-700">
+                  {t.breakageReleasedOn === null
+                    ? "Still running"
+                    : Number(t.breakageAmount ?? "0") > 0
+                      ? `${t.breakageVisits === 1 ? "1 visit" : `${t.breakageVisits ?? 0} visits`} not taken, counted ${formatDay(t.breakageReleasedOn, zone)}`
+                      : "Nothing left to count"}
+                </Td>
+                <Td className="text-right">{t.breakageReleasedOn ? <Money value={t.breakageAmount ?? "0"} /> : null}</Td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+      ) : null}
 
       {writes && agreement.status !== "cancelled" ? (
         <div className="mt-10 border-t border-steel-200 pt-4">

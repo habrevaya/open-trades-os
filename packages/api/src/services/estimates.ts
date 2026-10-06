@@ -1,12 +1,12 @@
-import { and, asc, eq, desc, lt, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, desc, gte, lt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { permissionsFor, estimate as est, membership, money as m, time } from "@opentradesos/core";
+import { permissionsFor, estimate as est, ledger, membership, money as m, tax, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
-  scopeOf, timezoneOf,
+  scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
 import { listFilter } from "./custom-fields";
 import { layoutForNew } from "./proposal-templates";
@@ -15,9 +15,10 @@ import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
-import { memberPricingWithin } from "./agreements";
+import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 import { emit } from "./events";
 import * as marketing from "./marketing";
+import * as taxRates from "./tax";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
@@ -258,6 +259,14 @@ export async function createIn(
     const estimateId = row!.id;
     const optionIds: string[] = [];
 
+    /**
+     * SALES TAX, decided once for the document, as an invoice's is: one of
+     * the company's rates by id, a rate typed (named for the company's rate it
+     * matches), or the company's rate for this customer and address on the
+     * day it is written. History keeps whatever it was given.
+     */
+    const estimateRate = await estimateRateWithin(tx, ctx, input, issuedOn, historical || Boolean(input.externalRef));
+
     for (const [index, option] of input.options.entries()) {
       const resolved = option.lines.map((line, lineIndex) => {
         const version = versionFor(index, lineIndex, line.priceBookItemId);
@@ -270,12 +279,15 @@ export async function createIn(
           unitCost: version?.cost ?? line.unitCost ?? null,
           discountAmount: line.discountAmount,
           taxable: version?.taxable ?? line.taxable,
-          taxRate: (version?.taxable ?? line.taxable) ? (line.taxRate ?? input.taxRate) : "0",
+          ...tax.onLine(line.taxRate !== undefined
+            ? { rate: line.taxRate, taxRateId: tax.nameTyped(estimateRate.table, line.taxRate, issuedOn), source: estimateRate.typedSource }
+            : estimateRate.resolved, version?.taxable ?? line.taxable),
           isOptional: line.isOptional,
           isSelected: line.isSelected,
           costCode: line.costCode ?? null,
           kind: version?.kind ?? null,
           feeRole: version?.feeRole ?? null,
+          itemId: version?.itemId ?? null,
           memberDiscountAmount: "0",
           memberAgreementId: null as string | null,
         };
@@ -296,12 +308,15 @@ export async function createIn(
        * taken off silently.
        */
       if (member) {
+        /** What the plan's discount leaves out, by the line's item or its category. */
+        const leftOut = await exclusionTestWithin(tx, member.exclusions, resolved.map((l) => l.itemId));
         const off = membership.memberDiscounts(resolved.map((l) => ({
           quantity: l.quantity,
           unitPrice: usd(l.unitPrice),
           discountAmount: usd(l.discountAmount),
           eligible: membership.eligibleForMemberPricing({ unitPrice: usd(l.unitPrice), itemKind: l.kind }),
           feeRole: l.feeRole,
+          excluded: leftOut(l.itemId),
         })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
         for (const [i, line] of resolved.entries()) {
           const amount = off[i]!;
@@ -386,6 +401,8 @@ export async function createIn(
         taxable: line.taxable,
         taxRate: line.taxRate,
         taxAmount: m.toString(computed.lines[i]!.taxAmount),
+        taxRateId: line.taxRateId,
+        taxSource: line.taxSource,
         lineTotal: m.toString(computed.lines[i]!.lineTotal),
         isOptional: line.isOptional,
         isSelected: line.isSelected,
@@ -552,6 +569,15 @@ export async function unsold(
   input: { sort?: "age" | "value"; limit?: number } = {},
 ): Promise<UnsoldEstimate[]> {
   return guardedRead(ctx, "estimate:read", async (tx) => {
+    /**
+     * THE DATE IS READ HERE AS WELL AS BY THE WORKER. The worker marks an
+     * estimate `expired` once its date has passed in the company's calendar
+     * (`estimate-expiry.ts`), but it goes round once a minute and may not be
+     * running, and a pipeline that listed a quote as closable until the next
+     * pass would be wrong in a way nobody could see. So an open estimate whose
+     * date has passed is left off whether or not it has been marked yet.
+     */
+    const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     const rows = await tx.select({
       id: schema.estimate.id,
       number: schema.estimate.number,
@@ -567,6 +593,7 @@ export async function unsold(
       .where(and(
         estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor),
         inArray(schema.estimate.status, ["sent", "viewed"]),
+        or(isNull(schema.estimate.expiresOn), gte(schema.estimate.expiresOn, today)),
       ))
       .orderBy(asc(schema.estimate.sentAt))
       .limit(Math.min(Math.max(input.limit ?? 200, 1), 500));
@@ -811,9 +838,18 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
         ne(schema.portalGrant.id, grant!.id),
       ));
 
+    /**
+     * AN ESTIMATE SENT AFTER ITS DATE GOES OUT AS EXPIRED. Marking it `sent`
+     * would put it back in the unsold pipeline for the worker to take out
+     * again within the minute, a status that was true for as long as it took
+     * to read. It is still sent, and the customer can still approve it (an
+     * expiry date is a nudge, not a cliff); it just never counts as open.
+     */
     const sentAt = new Date();
+    const today = time.dateIn(sentAt, await timezoneOf(tx, ctx.actor.organizationId));
+    const pastItsDate = current.expiresOn !== null && current.expiresOn !== undefined && current.expiresOn < today;
     await tx.update(schema.estimate)
-      .set({ status: "sent", sentAt, updatedAt: sentAt })
+      .set({ status: pastItsDate ? "expired" : "sent", sentAt, updatedAt: sentAt })
       .where(eq(schema.estimate.id, input.id));
 
     await tx.insert(schema.portalEvent).values({
@@ -862,7 +898,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
     });
 
     await audit(tx, ctx, "estimate.sent", "estimate", input.id,
-      { status: current.status }, { status: "sent", channel, deliveryId });
+      { status: current.status }, { status: pastItsDate ? "expired" : "sent", channel, deliveryId });
     await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
 
     const all = await deliveriesWithin(tx, input.id);
@@ -1104,6 +1140,19 @@ export async function convertIn(
       }).returning({ id: schema.invoice.id });
       invoiceId = invoice!.id;
 
+      /**
+       * The tax on the lines being billed, shared over those lines alone: an
+       * option's lines each show their part of the tax on everything offered,
+       * and the invoice's lines must add up to the invoice's tax. The rates and
+       * the total are the option's, unchanged.
+       */
+      const billedTax = ledger.computeInvoice(lines.map((l) => ({
+        quantity: l["quantity"] as string,
+        unitPrice: usd(l["unitPrice"] as string),
+        discountAmount: usd(l["discountAmount"] as string),
+        taxable: l["taxable"] as boolean,
+        taxRate: l["taxRate"] as string,
+      })));
       await tx.insert(schema.invoiceLine).values(lines.map((l, i) => ({
         organizationId: ctx.actor.organizationId,
         invoiceId: invoiceId!,
@@ -1123,7 +1172,10 @@ export async function convertIn(
         memberDiscountAmount: (l["memberDiscountAmount"] ?? "0") as string,
         taxable: l["taxable"] as boolean,
         taxRate: l["taxRate"] as string,
-        taxAmount: l["taxAmount"] as string,
+        taxAmount: m.toString(billedTax.lines[i]!.taxAmount),
+        /** The rate the customer signed for, which issuing never second guesses. */
+        taxRateId: (l["taxRateId"] ?? null) as string | null,
+        taxSource: l["taxable"] && Number(l["taxRate"]) > 0 ? "estimate" : null,
         lineTotal: l["lineTotal"] as string,
         costCode: (l["costCode"] ?? null) as string | null,
       })));
@@ -1325,6 +1377,43 @@ export async function decide(
     });
 
   return loadEstimate(tx, ctx, input.estimateId);
+}
+
+/**
+ * An estimate's rate, as `createIn` charges it: the company's rate for the
+ * sale, one of its rates by id, or a figure typed. Returns the table too, so
+ * a line's own typed rate can be named against it.
+ */
+async function estimateRateWithin(
+  tx: Database, ctx: ServiceContext,
+  input: { customerId: string; propertyId: string; taxRate?: string | undefined; taxRateId?: string | null | undefined },
+  on: string, history: boolean,
+): Promise<{ table: tax.TaxTable; resolved: Pick<tax.Resolved, "rate" | "taxRateId" | "source">; typedSource: tax.TaxSource }> {
+  const table = await taxRates.tableWithin(tx, ctx.actor.organizationId);
+  const typedSource: tax.TaxSource = history ? "given" : "chosen";
+  if (input.taxRateId === null) return { table, resolved: { rate: "0", taxRateId: null, source: "chosen" }, typedSource };
+  if (input.taxRateId !== undefined) {
+    const found = tax.chosen(table, input.taxRateId, on);
+    if (!found) {
+      throw new UnprocessableError("That tax rate is not in force", [{
+        path: "taxRateId", message: `Choose one of the company's sales tax rates in force on ${on}.`,
+      }]);
+    }
+    return { table, resolved: found, typedSource };
+  }
+  if (history) {
+    const rate = input.taxRate ?? "0";
+    return { table, resolved: { rate, taxRateId: tax.nameTyped(table, rate, on), source: "given" }, typedSource };
+  }
+  const worked = await taxRates.saleRateWithin(tx, ctx.actor.organizationId, {
+    customerId: input.customerId, propertyId: input.propertyId, on,
+  }, table);
+  if (input.taxRate === undefined) return { table, resolved: worked, typedSource };
+  return {
+    table,
+    resolved: { rate: input.taxRate, taxRateId: tax.nameTyped(table, input.taxRate, on, worked.taxRateId), source: "chosen" },
+    typedSource,
+  };
 }
 
 /**

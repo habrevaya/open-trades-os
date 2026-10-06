@@ -3,9 +3,9 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
-  claims as claimService, entitlements, financing, customFields, fieldSales,
+  claims as claimService, entitlements, financing, customFields, fieldSales, cardOnFile,
 } from "@opentradesos/api/services";
-import { can, claims, rates, work } from "@opentradesos/core";
+import { can, claims, rates, tax, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -21,12 +21,19 @@ import { fileClaim } from "../claims/actions";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
 import { creditInvoice } from "../credit-notes/actions";
 import { FinancingPanel } from "@/components/FinancingPanel";
+import { chargeCardOnFile } from "./card-actions";
 
 export const dynamic = "force-dynamic";
 
 const DELIVERY_STATE: Record<string, string> = {
   interrupted: "Interrupted", refused: "Refused", link_issued: "Link handed over", exported: "In a file", queued: "Queued",
   sent: "Sent", delivered: "Delivered", bounced: "Bounced", failed: "Failed",
+};
+
+/** A charge to a saved card, in the office's words. */
+const CHARGE_STATE: Record<string, string> = {
+  charging: "Asking the card processor", submitted: "Sent to the card processor", paid: "Paid",
+  failed: "Did not go through", needs_customer: "Their bank wants them to confirm it", cancelled: "Not charged",
 };
 
 export default async function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
@@ -53,6 +60,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const bank = can(user.actor, "payment:read")
     ? (await payments.bankPayments(ctx, { invoiceId: id })).bankPayments
     : [];
+  const onItsWay = bank.find((b) => b.status === "pending") ?? null;
+  /** Saved cards the payer agreed may be charged, and every charge of one on this invoice. */
+  const onFile = can(user.actor, "payment:read") && invoice.status !== "draft"
+    ? await cardOnFile.forInvoice(ctx, { invoiceId: id })
+    : { cards: [], charges: [] };
+  /** A charge already with the processor: no second button until it settles. */
+  const chargeWaiting = onFile.charges.some((c) => c.status === "charging" || c.status === "submitted");
   const memberIds = invoice.lines.map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
   const plans = memberIds.length > 0 && can(user.actor, "customer:read")
     ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
@@ -97,6 +111,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <div className="flex items-center gap-3">
           <a href={`/invoices/${invoice.id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
           <Chip tone={tone(INVOICE_TONE, invoice.status)}>{label(INVOICE_STATUS, invoice.status)}</Chip>
+          {onItsWay && <Chip tone="info">Payment on its way</Chip>}
         </div>
       </div>
 
@@ -140,7 +155,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           <tr key={line.id}>
             <Td>
               <span className="font-medium">{line.name}</span>
-              {line.taxable ? <span className="ml-2 text-xs text-ink-500">taxable</span> : null}
+              {line.taxable ? (
+                <span className="ml-2 text-xs text-ink-500">
+                  {Number(line.taxRate) > 0
+                    ? <>tax {tax.rateToPercent(line.taxRate)}%: <Money value={line.taxAmount} /></>
+                    : line.taxSource === "exempt" ? "taxable, customer exempt" : "taxable, no tax charged"}
+                </span>
+              ) : null}
               {line.description ? <p className="mt-0.5 text-ink-700">{line.description}</p> : null}
               {/* Never silently: the plan that took money off this line, and how much. */}
               {Number(line.memberDiscountAmount ?? "0") > 0 ? (
@@ -240,6 +261,63 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         </section>
       )}
 
+      {(onFile.cards.length > 0 || onFile.charges.length > 0) && (
+        <section aria-label="Saved cards" className="mt-6 rounded-md border border-steel-200 p-4">
+          <h2 className="text-sm font-semibold">Saved cards the customer lets you charge</h2>
+          {onFile.cards.length === 0 ? (
+            <p className="mt-1 text-sm text-ink-700">
+              None now. The customer withdrew their agreement or took the card off, so nothing can be charged without them.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-ink-700">
+                The customer agreed, in their own account, to let you charge these for their bills. It shows as paid
+                when the processor confirms the money moved.
+              </p>
+              <ul className="mt-3 space-y-3 text-sm">
+                {onFile.cards.map((card) => (
+                  <li key={card.cardId} className="flex flex-wrap items-center justify-between gap-3">
+                    <span>
+                      <span className="font-medium">{card.label}</span>
+                      <span className="text-ink-500">
+                        {", "}agreed {formatIn(card.agreedAt, tz, { dateStyle: "medium" })}
+                        {card.agreedByContact ? ` by ${card.agreedByContact}` : ""}
+                      </span>
+                      {card.autopay && <Chip tone="recurring" className="ml-2">Pays bills automatically</Chip>}
+                    </span>
+                    {owed && !onItsWay && !chargeWaiting && can(user.actor, "payment:charge_saved") && can(user.actor, "payment:collect") && (
+                      <ActionForm action={chargeCardOnFile} className="flex flex-col items-end gap-1" submit={`Charge $${Number(invoice.balance ?? "0").toFixed(2)} to ${card.label}`}
+                                  hidden={{ invoiceId: invoice.id, cardId: card.cardId, formKey: crypto.randomUUID() }} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {onFile.charges.length > 0 && (
+            <Table label="Charges to saved cards" head={
+              <><Th>When</Th><Th>Card</Th><Th>By</Th><Th>What happened</Th><Th className="text-right">Amount</Th></>
+            }>
+              {onFile.charges.map((c) => (
+                <tr key={c.id}>
+                  <Td>{formatIn(c.createdAt, tz)}</Td>
+                  <Td>{c.card}</Td>
+                  <Td>{c.trigger === "autopay" ? (c.attempt > 1 ? "Automatic payment, second try" : "Automatic payment") : c.requestedBy ?? "Office"}</Td>
+                  <Td className="text-ink-700">
+                    {CHARGE_STATE[c.status] ?? c.status}
+                    {c.failureReason && c.status !== "submitted" && c.status !== "paid" ? `: ${c.failureReason}` : ""}
+                    {c.customerTold === "email" ? " Emailed them the link to pay." : c.customerTold === "text" ? " Texted them the link to pay." : ""}
+                    {c.customerTold === "not_sent" ? ` The link to pay was not sent${c.customerToldNote ? ` (${c.customerToldNote})` : ""}.` : ""}
+                    {c.retryAt ? ` Tried again ${formatIn(c.retryAt, tz)}.` : ""}
+                  </Td>
+                  <Td className="text-right">{c.amount ? <Money value={c.amount} /> : null}</Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </section>
+      )}
+
       {loan && (loan.connected ? (owed || loan.applications.length > 0) : collects) ? (
         <FinancingPanel
           subject={{ invoiceId: id }}
@@ -276,15 +354,19 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           <h2 className="mt-10 text-base font-semibold">Tips</h2>
           <p className="mt-1 text-sm text-ink-700">
             Added by the customer when they paid. Not part of the invoice: held for the technicians and
-            paid out through payroll.
+            paid out through payroll. Shared by the company's rule when it arrived (on Pay rules).
           </p>
+          {tipped.filter((t) => t.splitNote !== "").map((t) => (
+            <p key={t.paymentId} className="mt-1 text-sm text-amber-700">{t.splitNote}</p>
+          ))}
           <Table label="Tips on this invoice" head={
-            <><Th>Paid</Th><Th>For</Th><Th>Passed on</Th><Th className="text-right">Tip</Th></>
+            <><Th>Paid</Th><Th>For</Th><Th>Shared</Th><Th>Passed on</Th><Th className="text-right">Tip</Th></>
           }>
             {tipped.flatMap((t) => t.shares.map((share) => (
               <tr key={`${t.paymentId}-${share.technicianId}`}>
                 <Td>{formatIn(t.receivedAt, tz, { dateStyle: "medium" })}</Td>
                 <Td>{share.technicianName}</Td>
+                <Td className="text-ink-700">{t.splitRule === "hours" ? "By hours" : t.splitRule === "lead" ? "To the lead" : "Evenly"}</Td>
                 <Td className="text-ink-700">{share.paidAt ? formatIn(share.paidAt, tz, { dateStyle: "medium" }) : "Not yet"}</Td>
                 <Td className="text-right"><Money value={share.amount} /></Td>
               </tr>

@@ -1,6 +1,6 @@
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, can, voice, type Actor, type telephony as tel } from "@opentradesos/core";
+import { SYSTEM_USER_ID, can, voice, holidays as holidayRules, time, type Actor, type telephony as tel } from "@opentradesos/core";
 import {
   audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -15,6 +15,7 @@ import * as voiceAgent from "./voice-agent";
 import * as callQueues from "./call-queues";
 import * as softphone from "./softphone";
 import { memberActor } from "./session";
+import { loadHolidays } from "./holidays";
 import { emit } from "./events";
 import { leaseForCall } from "./website-tracking";
 import { readerFor } from "../secrets/store";
@@ -443,12 +444,20 @@ type NumberRow = typeof schema.phoneNumber.$inferSelect;
 
 /**
  * Where the call goes now, from core's router, with the hours the company
- * keeps online: the number's phone menu when it has one, otherwise the
- * forward it has always had.
+ * keeps online and its holiday list: the number's phone menu when it has one,
+ * otherwise the forward it has always had. A call on a closed holiday goes
+ * where an after hours call goes, and on a short day the day's own hours
+ * decide. The list is read for the days either side of now in the company's
+ * zone, which is all the router asks about.
  */
 async function routeOf(tx: Database, organizationId: string, number: NumberRow, knownCustomer: boolean, now: Date) {
   const rows = await tx.select().from(schema.businessHours);
-  const hours = voice.businessHoursFrom(rows, await timezoneOf(tx, organizationId));
+  const zone = await timezoneOf(tx, organizationId);
+  const today = time.dateIn(now, zone);
+  const holidays = holidayRules.forPhones(
+    await loadHolidays(tx, organizationId), time.addDays(today, -1), time.addDays(today, 1),
+  );
+  const hours = voice.businessHoursFrom(rows, zone, holidays);
   if (number.menuId) {
     const menu = await phoneMenus.loadMenu(tx, organizationId, number.menuId);
     if (menu) {

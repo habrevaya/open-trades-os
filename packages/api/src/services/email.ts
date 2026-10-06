@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms, SYSTEM_USER_ID, type Actor, type Permission } from "@opentradesos/core";
@@ -48,10 +48,11 @@ import {
  * paragraph used to say the product hosted no such page, which it did not when
  * the gate was written and does now.
  *
- * What is NOT closed, and the reason this note still exists: nothing checks
- * that the URL handed in points at that page. A caller can satisfy the gate
- * with any string, including a 404, so a company can still look compliant,
- * pass its own check and keep emailing people who asked it to stop.
+ * And the URL is CHECKED, which it was not for a long time: a caller could
+ * satisfy the gate with any string, including a 404, so a company could look
+ * compliant, pass its own check and keep emailing people who asked it to
+ * stop. `unsubscribeUrlProblem` below is the check, and a URL that is not a
+ * link this product issued, for this company and this address, is refused.
  *
  * THE SUPPRESSION LIST is the existing `suppression` table, not a new one. It
  * already keys on address plus channel plus purpose, already has the partial
@@ -324,6 +325,99 @@ export function normalizeAddress(address: string): string {
   return address.trim().toLowerCase();
 }
 
+/* ----------------------------------------------------------- the unsubscribe */
+
+/**
+ * Where the unsubscribe page lives, under the deployment's own address. One
+ * definition, read by the campaign sender that builds a link and by the check
+ * below that reads one back, so the two cannot drift apart.
+ */
+export const UNSUBSCRIBE_PATH = "/api/v1/public/unsubscribe/";
+
+/**
+ * Whether a URL handed in as a marketing email's unsubscribe link is one this
+ * product will honour, or the reason it is not.
+ *
+ * THE GATE USED TO TAKE ANY STRING. `queue` has always refused marketing with
+ * no unsubscribe URL, and nothing looked at the URL it was given, so a 404, a
+ * page on another system that cannot write a suppression here, or another
+ * company's link all passed. The company looked compliant and kept emailing
+ * people who had asked it to stop.
+ *
+ * So the link has to be this deployment's own page (`PUBLIC_BASE_URL` and the
+ * path above, nothing after the token), its token has to be one this company
+ * issued, and it has to be for the address the mail is going to. The last one
+ * matters as much as the others: a valid link for somebody else is a button
+ * that unsubscribes the wrong person and leaves the reader on the list.
+ *
+ * Checked by the token's hash, the way the page itself finds it, so the token
+ * is never stored or compared in the clear.
+ */
+export async function unsubscribeUrlProblem(
+  tx: Database, organizationId: string, address: string, url: string,
+): Promise<string | null> {
+  const refused = (why: string) =>
+    `That unsubscribe link cannot be used: ${why} A marketing email has to carry a link to this `
+    + "product's own unsubscribe page, made for the person it is going to, or the people who press it "
+    + "are never taken off the list.";
+  const base = (process.env["PUBLIC_BASE_URL"] ?? "").trim().replace(/\/+$/, "");
+  if (base === "") {
+    return refused("PUBLIC_BASE_URL is not set, so this deployment does not know its own address.");
+  }
+  let given: URL;
+  let home: URL;
+  try {
+    given = new URL(url);
+    home = new URL(base);
+  } catch {
+    return refused("it is not a URL.");
+  }
+  const prefix = `${home.pathname.replace(/\/+$/, "")}${UNSUBSCRIBE_PATH}`;
+  if (given.origin !== home.origin || !given.pathname.startsWith(prefix)
+      || given.search !== "" || given.hash !== "" || given.username !== "" || given.password !== "") {
+    return refused("it does not point at this product's unsubscribe page.");
+  }
+  const token = given.pathname.slice(prefix.length);
+  if (!/^[A-Za-z0-9_-]{20,200}$/.test(token)) {
+    return refused("it does not end in an unsubscribe token.");
+  }
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const [link] = await tx.select({ address: schema.unsubscribeLink.address })
+    .from(schema.unsubscribeLink)
+    .where(and(
+      eq(schema.unsubscribeLink.tokenHash, tokenHash),
+      eq(schema.unsubscribeLink.organizationId, organizationId),
+    )).limit(1);
+  if (!link) return refused("this company never issued it.");
+  if (normalizeAddress(link.address) !== normalizeAddress(address)) {
+    return refused("it was made for a different address.");
+  }
+  return null;
+}
+
+/**
+ * A link for one address with no campaign behind it, made inside the
+ * transaction that is about to send the mail. Only the hash is kept.
+ */
+async function mintUnsubscribeIn(
+  tx: Database, organizationId: string, address: string,
+): Promise<{ id: string; url: string }> {
+  const base = (process.env["PUBLIC_BASE_URL"] ?? "").trim().replace(/\/+$/, "");
+  if (base === "") {
+    throw new ConflictError(
+      "PUBLIC_BASE_URL is not set, so this deployment cannot build an unsubscribe link, and a "
+      + "marketing email without a working one is refused.",
+    );
+  }
+  const token = randomBytes(32).toString("base64url");
+  const [row] = await tx.insert(schema.unsubscribeLink).values({
+    organizationId,
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    address: normalizeAddress(address),
+  }).returning({ id: schema.unsubscribeLink.id });
+  return { id: row!.id, url: `${base}${UNSUBSCRIBE_PATH}${token}` };
+}
+
 /* ----------------------------------------------------------------- queue */
 
 export interface QueueEmailInput {
@@ -446,6 +540,11 @@ export async function queueIn(tx: Database, ctx: ServiceContext, input: QueueEma
       "A marketing email needs an unsubscribe URL. Sending commercial email without a working "
       + "opt out breaks CAN-SPAM and the bulk sender rules at Gmail and Yahoo.",
     );
+  }
+
+  if (purpose === "marketing" && input.unsubscribeUrl) {
+    const problem = await unsubscribeUrlProblem(tx, ctx.actor.organizationId, to, input.unsubscribeUrl);
+    if (problem) throw new ConflictError(problem);
   }
 
   const decision = await emailability(tx, ctx.actor.organizationId, to, purpose);
@@ -1322,7 +1421,35 @@ export const handlers = {
     purpose?: EmailPurpose | undefined;
     customerId?: string | undefined;
     unsubscribeUrl?: string | undefined;
-  }): Promise<QueueOutcome> => queue(ctx, {
+  }): Promise<QueueOutcome> => {
+    /**
+     * A marketing email over the API with no link of its own gets one made
+     * here, for its address, in the same transaction. A caller outside this
+     * product has no way to make a link `unsubscribeUrlProblem` would accept,
+     * and asking them for one is asking for the any-string gate back. A send
+     * that is then refused takes its link with it, so nothing live is left
+     * for a mail that never went.
+     */
+    if (input.purpose === "marketing" && !input.unsubscribeUrl) {
+      return guardedWrite(ctx, "message:send", async (tx) => {
+        const link = await mintUnsubscribeIn(tx, ctx.actor.organizationId, input.to);
+        const outcome = await queueIn(tx, ctx, {
+          to: input.to,
+          subject: input.subject,
+          ...(input.text ? { text: input.text } : {}),
+          ...(input.html ? { html: input.html } : {}),
+          ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+          purpose: "marketing",
+          ...(input.customerId ? { customerId: input.customerId } : {}),
+          unsubscribeUrl: link.url,
+        });
+        if (!outcome.queued) {
+          await tx.delete(schema.unsubscribeLink).where(eq(schema.unsubscribeLink.id, link.id));
+        }
+        return outcome;
+      });
+    }
+    return queue(ctx, {
     to: input.to,
     subject: input.subject,
     ...(input.text ? { text: input.text } : {}),
@@ -1331,7 +1458,8 @@ export const handlers = {
     ...(input.purpose ? { purpose: input.purpose } : {}),
     ...(input.customerId ? { customerId: input.customerId } : {}),
     ...(input.unsubscribeUrl ? { unsubscribeUrl: input.unsubscribeUrl } : {}),
-  }),
+    });
+  },
 
   listEmailMessages: async (ctx: ServiceContext, input: {
     status?: string | undefined; limit?: number | undefined;

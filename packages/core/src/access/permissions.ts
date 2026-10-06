@@ -125,6 +125,14 @@ export const PERMISSIONS = {
   "invoice:credit": "Issue, apply and void a credit note",
   "payment:read": "View payments",
   "payment:collect": "Take a payment",
+  /**
+   * Charging a card or bank account the customer saved, from the office,
+   * with nobody on the page. Separate from `payment:collect` because a
+   * technician takes payments all day from the person in front of them, and
+   * reaching into a customer's saved card without them is a different act.
+   * Even with it, only a card whose customer agreed in their own account.
+   */
+  "payment:charge_saved": "Charge a customer's saved card or bank account, when they have agreed to it",
   "payment:refund": "Issue a refund",
   "deposit:read": "View deposits held",
   "deposit:collect": "Request and take a deposit",
@@ -185,6 +193,28 @@ export const PERMISSIONS = {
    * two. Every preset holds it; taking it away is a choice somebody makes.
    */
   "payroll:own": "See your own pay statements and commission for closed pay periods",
+  /**
+   * RECORDING WHAT YOU PAID FOR THE COMPANY, AND SEEING WHAT BECAME OF IT. Their
+   * own and nobody else's. Every preset holds it, for the reason `payroll:own`
+   * is held by all: a person who cannot say what they spent rings the office.
+   */
+  "expense:own": "Record what you paid for the company, and see your own expenses",
+  /**
+   * Deciding whether the company pays something back is a spending decision,
+   * which is what `po:approve` is for purchase orders. It also records a per
+   * diem day, which is the company paying out for a day away. Narrowed to the
+   * people the approver's timesheet scope reaches, so a branch manager decides
+   * their own branch's.
+   */
+  "expense:approve": "Approve or refuse what people paid for the company, and record a per diem day",
+  /**
+   * A cash tip is pay the company has to report, so putting one on somebody's
+   * pay or changing one already there is its own grant rather than a part of
+   * running payroll: the person who knows a customer handed a technician a
+   * twenty is usually the office, and is usually not the person who runs the
+   * bureau export.
+   */
+  "tip:record": "Record a cash tip for a technician, or correct one",
 
   // --- Grow ----------------------------------------------------------------
   "message:read": "View customer messages and call history",

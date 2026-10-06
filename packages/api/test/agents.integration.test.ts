@@ -444,6 +444,34 @@ run("the chat agent on the website", () => {
     expect(time.minutesInDay(visit!.window_start, ZONE)).toBe(8 * 60);
   });
 
+  it("knows a member by the number they give, offers them the member windows, and tells only the office", async () => {
+    const [plan] = await raw<{ id: string }[]>`insert into public.agreement_plan (organization_id, name, price, priority_dispatch)
+      values (${ORG}, 'Gold Club', 180, true) returning id`;
+    const [customer] = await raw<{ id: string }[]>`insert into public.customer (organization_id, name, phone)
+      values (${ORG}, 'Mo Member', '(512) 555-0191') returning id`;
+    await raw`insert into public.agreement (organization_id, plan_id, customer_id, status, started_on, price, billing_frequency)
+      values (${ORG}, ${plan!.id}, ${customer!.id}, 'active', ${time.dateIn(new Date(Date.now() - 30 * 864e5), ZONE)}, 180, 'annual')`;
+    /** From an address of its own, so the other chats' starts do not count against it. */
+    const opened = await chat.start(db(), { companyKey: SLUG }, { ip: "203.0.113.91" });
+    let told = "";
+    model.script = (request) => {
+      told = promptOf(request);
+      return call("create_booking_request", {
+        ...firstWindow(request), contactName: "Mo Member", phone: "+15125550191",
+        address: { line1: "5 Gold Ln", city: "Austin", state: "TX", postalCode: "78705" },
+        text: "Done. The office will confirm your booking shortly.",
+      });
+    };
+    const after = await chat.say(db(), { companyKey: SLUG, token: opened.token, text: "Mo Member, 5 Gold Ln Austin 78705, my number is 512 555 0191" }, { ip: "203.0.113.91" }, deps());
+    expect(after.bookingTaken).toBe(true);
+    /** Nothing about the membership reaches the model, so nothing about it can reach the visitor. */
+    expect(told).not.toContain("Gold Club");
+    expect(told).not.toMatch(/held for members|membership|agreement/i);
+    expect((await activity("answered")).map((a) => a.detail).join(" "))
+      .toMatch(/Took a booking request from Mo Member.*belongs to a member, so it offered the windows held for members/);
+    await raw`update public.agreement_plan set priority_dispatch = false where id = ${plan!.id}`;
+  });
+
   it("is one message and one answer when the visitor taps send twice", async () => {
     const opened = await chat.start(db(), { companyKey: SLUG });
     model.script = () => call("reply", { text: "Hello again." });
@@ -614,6 +642,31 @@ run("the collections agent", () => {
     expect(message!.status).toBe("queued");
     expect(message!.body).toMatch(/Pay here: /);
     expect(invoiceId).not.toBe("");
+  });
+
+  it("does not chase an invoice with a bank payment on its way, drafting or sending", async () => {
+    const [c] = await raw<{ id: string }[]>`
+      insert into public.customer (organization_id, type, name, phone) values (${ORG}, 'residential', 'Bea Bank', '+15125550151') returning id`;
+    const due = time.dateIn(new Date(Date.now() - 20 * 864e5), ZONE);
+    const invoice = async (number: number) => (await raw<{ id: string }[]>`
+      insert into public.invoice (organization_id, number, customer_id, status, issued_on, due_on, total, balance)
+      values (${ORG}, ${number}, ${c!.id}, 'open', ${due}, ${due}, 90.0000, 90.0000) returning id`)[0]!.id;
+    const onItsWay = async (id: string) => raw`insert into public.integration_event
+      (organization_id, direction, provider, event_type, idempotency_key, status, entity_type, entity_id, request_payload)
+      values (${ORG}, 'outbound', 'stripe', 'payment.intent', ${`bank-${id}`}, 'in_flight', 'customer', ${c!.id},
+        ${raw.json({ amount: "90.0000", method: "ach", allocations: [{ invoiceId: id, amount: "90.0000" }] } as never)})`;
+    const paidByBank = await invoice(7002);
+    await onItsWay(paidByBank);
+    const later = await invoice(7003);
+    model.script = () => call("draft_reminder", { body: "Hi Bea, a reminder that $90.00 is now overdue." });
+    await collections.run(db(), ORG, { deps: deps() });
+    const drafts = (await collections.handlers.listCollectionReminders(owner(), { status: ["proposed"] })).drafts;
+    expect(drafts.map((d) => d.draft["invoiceId"])).not.toContain(paidByBank);
+    const draft = drafts.find((d) => d.draft["invoiceId"] === later)!;
+
+    // Paid by bank after the reminder was drafted: it is not sent.
+    await onItsWay(later);
+    await expect(collections.send(owner(), { id: draft.id })).rejects.toThrow(/bank payment for invoice 7003 is on its way/);
   });
 });
 

@@ -312,3 +312,72 @@ run("a cancelled job gives its parts back", () => {
     expect(open.filter((c) => c.jobId === jobId)).toHaveLength(1);
   });
 });
+
+run("cancelling a job with its visits still to come", () => {
+  const hours = (n: number) => new Date(Date.now() + n * 3_600_000);
+  async function visitOn(jobId: string, status: string, start: Date | null) {
+    const [v] = await raw`insert into public.visit (organization_id, job_id, status, window_start, window_end)
+      values (${ORG_A}, ${jobId}, ${status}, ${start}, ${start ? new Date(start.getTime() + 2 * 3_600_000) : null}) returning id`;
+    return v!.id as string;
+  }
+  const statusOf = async (id: string) => (await raw`select status from public.visit where id = ${id}`)[0]!.status as string;
+
+  it("cancels the visits not started, leaves work under way and past work alone, and tells the technicians", async () => {
+    const job = await aJob("Called off");
+    await raw`update public.job set status = 'scheduled' where id = ${job.id}`;
+    const tomorrow = await visitOn(job.id, "dispatched", hours(24));
+    const unscheduled = await visitOn(job.id, "unassigned", null);
+    const onTheWay = await visitOn(job.id, "en_route", hours(1));
+    const yesterday = await visitOn(job.id, "scheduled", hours(-26));
+    const done = await visitOn(job.id, "completed", hours(-50));
+    const [membership] = await raw`select id from public.membership where organization_id = ${ORG_A} limit 1`;
+    const [tech] = await raw`insert into public.technician (organization_id, membership_id, display_name)
+      values (${ORG_A}, ${membership!.id}, 'Cancel Tech') returning id`;
+    await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id, is_lead)
+      values (${ORG_A}, ${tomorrow}, ${tech!.id}, true)`;
+
+    await jobs.update(owner(), { id: job.id, status: "cancelled", cancelVisits: true });
+
+    expect(await statusOf(tomorrow)).toBe("cancelled");
+    expect(await statusOf(unscheduled)).toBe("cancelled");
+    expect(await statusOf(onTheWay)).toBe("en_route");
+    expect(await statusOf(yesterday)).toBe("scheduled");
+    expect(await statusOf(done)).toBe("completed");
+
+    const events = await raw`select payload from public.domain_event
+      where organization_id = ${ORG_A} and name = 'visit.cancelled' and entity_id = ${tomorrow}`;
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload.technicianIds).toEqual([tech!.id]);
+  });
+
+  it("leaves the visits where they are unless asked", async () => {
+    const job = await aJob("Rebooked on another job");
+    const coming = await visitOn(job.id, "scheduled", hours(30));
+    await jobs.update(owner(), { id: job.id, status: "cancelled" });
+    expect(await statusOf(coming)).toBe("scheduled");
+  });
+
+  it("closes a customer's request still waiting on a cancelled visit", async () => {
+    const job = await aJob("With a request");
+    const coming = await visitOn(job.id, "scheduled", hours(40));
+    const [task] = await raw`insert into public.task (organization_id, title) values (${ORG_A}, 'Answer the customer') returning id`;
+    const [row] = await raw`select customer_id from public.job where id = ${job.id}`;
+    await raw`insert into public.visit_change_request (organization_id, visit_id, job_id, customer_id, kind, reason, task_id)
+      values (${ORG_A}, ${coming}, ${job.id}, ${row!.customer_id}, 'cancel', 'No longer needed', ${task!.id})`;
+    await jobs.update(owner(), { id: job.id, status: "cancelled", cancelVisits: true });
+    const [request] = await raw`select status from public.visit_change_request where visit_id = ${coming}`;
+    expect(request!.status).toBe("superseded");
+    const [closed] = await raw`select status from public.task where id = ${task!.id}`;
+    expect(closed!.status).toBe("done");
+  });
+
+  it("needs the permission that cancels visits, and goes only with the move to cancelled", async () => {
+    const job = await aJob("Guarded");
+    const coming = await visitOn(job.id, "scheduled", hours(30));
+    await expect(jobs.update(ctxFor(ORG_A, USER_A, ["csr"]), { id: job.id, status: "cancelled", cancelVisits: true }))
+      .rejects.toThrow(PermissionError);
+    await expect(jobs.update(owner(), { id: job.id, status: "scheduled", cancelVisits: true }))
+      .rejects.toThrow(/goes with the move to cancelled/);
+    expect(await statusOf(coming)).toBe("scheduled");
+  });
+});

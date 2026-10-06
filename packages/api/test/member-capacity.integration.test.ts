@@ -5,6 +5,8 @@ import { schema } from "@opentradesos/db";
 import { geo, time, type Actor } from "@opentradesos/core";
 import * as booking from "../src/services/booking";
 import * as dispatchMap from "../src/services/dispatch-map";
+import * as jobs from "../src/services/jobs";
+import * as agentFacts from "../src/services/agent-facts";
 import { inTenant, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
@@ -129,7 +131,10 @@ afterAll(async () => { if (raw) await raw.end(); });
 
 run("a share of each window held for members", () => {
   it("holds nothing until a company sets a share", async () => {
-    expect(await booking.memberHold(owner())).toEqual({ reservePercent: 0, releaseHours: 48, plansWithPriority: 1 });
+    expect(await booking.memberHold(owner())).toEqual({
+      reservePercent: 0, releaseHours: 48, plansWithPriority: 1,
+      plans: [{ id: planId, name: "Comfort Club", holdPercent: null }],
+    });
     expect(await remaining(HELD_DAY, false)).toBe(8);
   });
 
@@ -138,7 +143,7 @@ run("a share of each window held for members", () => {
       .rejects.toMatchObject({ name: "PermissionError" });
     await expect(booking.setMemberHold(owner(), { reservePercent: 95, releaseHours: 72 })).rejects.toThrow(/ninety per cent/);
     expect(await booking.setMemberHold(owner(), { reservePercent: 25, releaseHours: 72 }))
-      .toEqual({ reservePercent: 25, releaseHours: 72, plansWithPriority: 1 });
+      .toMatchObject({ reservePercent: 25, releaseHours: 72, plansWithPriority: 1 });
   });
 
   it("offers a stranger six of eight and a member all eight, until three days before", async () => {
@@ -191,5 +196,176 @@ run("Suggest who puts members first", () => {
     expect(ids.indexOf(members)).toBeLessThan(ids.indexOf(strangers));
     expect(result.suggestions.find((s) => s.visitId === members)!.member).toBe("Comfort Club");
     expect(result.suggestions.find((s) => s.visitId === strangers)!.member).toBeNull();
+  });
+});
+
+run("each plan holds its own share", () => {
+  const DAY = companyToday(10);
+  let silverPlan = "";
+  let silverMember = "";
+
+  beforeAll(async () => {
+    if (!url) return;
+    const [plan] = await raw<{ id: string }[]>`insert into public.agreement_plan (organization_id, name, price, priority_dispatch)
+      values (${ORG}, 'Silver', 90, true) returning id`;
+    silverPlan = plan!.id;
+    const [c] = await raw<{ id: string }[]>`insert into public.customer (organization_id, name) values (${ORG}, 'Sue Silver') returning id`;
+    silverMember = c!.id;
+    await raw`insert into public.agreement (organization_id, plan_id, customer_id, status, started_on, price, billing_frequency)
+      values (${ORG}, ${silverPlan}, ${silverMember}, 'active', ${companyToday(-30)}, 90, 'annual')`;
+  });
+
+  const left = async (customerId: string | null) => {
+    const slots = await booking.openSlots(db(), {
+      organizationId: ORG, timezone: ZONE, service: await service(), from: DAY, days: 1,
+      member: customerId ? await booking.memberTest(db(), ORG, customerId, null) : undefined,
+    });
+    return slots.find((s) => s.arrivalWindowId === windowId)?.remaining ?? 0;
+  };
+
+  it("keeps back the largest share any plan holds, and lets each member into their own plan's share", async () => {
+    /** The company's quarter, for both plans: two of eight held. */
+    expect(await left(null)).toBe(6);
+    expect(await left(silverMember)).toBe(8);
+
+    /** Comfort Club now holds half of each window for its own members. */
+    await raw`update public.agreement_plan set member_hold_percent = 50 where id = ${planId}`;
+    expect(await left(null)).toBe(4);
+    expect(await left(memberId)).toBe(8);
+    /** Silver still holds the company's quarter: its members get two of the four held, and no further. */
+    expect(await left(silverMember)).toBe(6);
+
+    const hold = await booking.memberHold(owner());
+    expect(hold.plans).toEqual(expect.arrayContaining([
+      { id: planId, name: "Comfort Club", holdPercent: 50 },
+      { id: silverPlan, name: "Silver", holdPercent: null },
+    ]));
+    await raw`update public.agreement_plan set member_hold_percent = null where id = ${planId}`;
+  });
+
+  it("holds nothing when every plan that promises priority holds none", async () => {
+    await raw`update public.agreement_plan set member_hold_percent = 0 where organization_id = ${ORG}`;
+    expect(await left(null)).toBe(8);
+    await raw`update public.agreement_plan set member_hold_percent = null where organization_id = ${ORG}`;
+  });
+
+  afterAll(async () => {
+    if (!url) return;
+    await raw`update public.agreement_plan set priority_dispatch = false where id = ${silverPlan}`;
+  });
+});
+
+run("the office booking a job by hand into time held for members", () => {
+  const DAY = companyToday(11);
+  let typeId = "";
+
+  const placeFor = async (customerId: string) => {
+    const [p] = await raw<{ id: string }[]>`
+      insert into public.property (organization_id, address_line1, city, state, postal_code)
+      values (${ORG}, 'Another house', 'Austin', 'TX', '78701') returning id`;
+    await raw`insert into public.customer_property (organization_id, customer_id, property_id) values (${ORG}, ${customerId}, ${p!.id})`;
+    return p!.id;
+  };
+  const book = async (customerId: string, bookAnyway?: boolean) => {
+    const propertyId = await placeFor(customerId);
+    return jobs.create(as(["office_manager"]), {
+      customerId, propertyId, jobTypeId: typeId, summary: "No cooling", tags: [], customFields: {},
+      visit: {
+        windowStart: booking.windowStart(DAY, "09:00", ZONE).toISOString(),
+        windowEnd: booking.windowStart(DAY, "11:00", ZONE).toISOString(),
+        estimatedDurationMinutes: 60, technicianIds: [],
+        ...(bookAnyway === undefined ? {} : { bookAnyway }),
+      },
+    } as Parameters<typeof jobs.create>[1]);
+  };
+
+  beforeAll(async () => {
+    if (!url) return;
+    const [t] = await raw<{ id: string }[]>`select job_type_id as id from public.bookable_service where id = ${serviceId}`;
+    typeId = t!.id;
+    /** Six waiting for somebody leave two places in the morning, and both are held. */
+    for (let i = 0; i < 6; i += 1) await visitFor(strangerId, DAY, null);
+  });
+
+  it("refuses a stranger in words, and says how to book them anyway", async () => {
+    await expect(book(strangerId)).rejects.toThrow(/Morning window on .* is held for members.*Book anyway/);
+    expect(await booking.memberHoldInForce(as(["office_manager"]))).toBe(true);
+  });
+
+  it("books a member there without asking", async () => {
+    const job = await book(memberId);
+    expect(job.visits).toHaveLength(1);
+  });
+
+  it("books a stranger when the person booking says so, and puts it on the record with their name", async () => {
+    const job = await book(strangerId, true);
+    const [visit] = await raw<{ id: string }[]>`select id from public.visit where job_id = ${job.id as string}`;
+    const [row] = await raw<{ actor_user_id: string; after: { window: string } }[]>`
+      select actor_user_id, after from public.audit_log
+      where organization_id = ${ORG} and action = 'visit.booked_into_member_hold' and entity_id = ${visit!.id}`;
+    expect(row!.actor_user_id).toBe(USER);
+    expect(row!.after.window).toBe("Morning");
+  });
+
+  it("does not ask when nothing is held there", async () => {
+    await raw`update public.agreement_plan set priority_dispatch = false where id = ${planId}`;
+    await expect(book(strangerId)).resolves.toBeDefined();
+    await raw`update public.agreement_plan set priority_dispatch = true where id = ${planId}`;
+  });
+});
+
+run("a visit moved to another day by the rebalance", () => {
+  it("is told how much room a held window has for somebody who is not a member, and nothing for a member", async () => {
+    const DAY = companyToday(12);
+    for (let i = 0; i < 5; i += 1) await visitFor(strangerId, DAY, null);
+    const at = booking.windowStart(DAY, "09:00", ZONE);
+    const rooms = await inTenant(owner(), (tx) => booking.roomOutsideHold(tx, {
+      organizationId: ORG, timezone: ZONE,
+      asks: [
+        { ref: "stranger", customerId: strangerId, propertyId: null, jobTypeId: null, durationMinutes: 60, windowStart: at },
+        { ref: "member", customerId: memberId, propertyId: null, jobTypeId: null, durationMinutes: 60, windowStart: at },
+      ],
+    }));
+    /** Eight places, five taken by work waiting, two held: one left for somebody who is not a member. */
+    expect(rooms.get("stranger")).toEqual({ key: `${DAY}|${windowId}`, room: 1 });
+    expect(rooms.has("member")).toBe(false);
+  });
+});
+
+run("the assistants know a member by how they reached us", () => {
+  const DAY = companyToday(13);
+
+  beforeAll(async () => {
+    if (!url) return;
+    await raw`update public.customer set phone = '(512) 555-0142', email = 'mel@member.test' where id = ${memberId}`;
+    /** Six waiting leave two places, both held for members. */
+    for (let i = 0; i < 6; i += 1) await visitFor(strangerId, DAY, null);
+  });
+
+  it("matches the number or email to a member, and nobody else", async () => {
+    const byPhone = await inTenant(owner(), (tx) => agentFacts.memberByContact(tx, ORG, { phone: "+15125550142" }));
+    expect(byPhone?.(DAY)).toBe(0.25);
+    const byEmail = await inTenant(owner(), (tx) => agentFacts.memberByContact(tx, ORG, { email: "MEL@member.test" }));
+    expect(byEmail?.(DAY)).toBe(0.25);
+    const nobody = await inTenant(owner(), (tx) => agentFacts.memberByContact(tx, ORG, { phone: "+15125550999" }));
+    expect(nobody).toBeNull();
+    expect(agentFacts.contactsIn(["hi, it's mel", "you can reach me at 512.555.0142 or mel@member.test"]))
+      .toEqual({ phone: "512.555.0142", email: "mel@member.test" });
+  });
+
+  it("offers the member the held windows the public page keeps back, and lets the request into one", async () => {
+    const member = await inTenant(owner(), (tx) => agentFacts.memberByContact(tx, ORG, { phone: "+15125550142" }));
+    const facts = (who: typeof member) => inTenant(owner(), (tx) => agentFacts.servicesAndWindows(tx, ORG, ZONE, DAY, { days: 1, member: who }));
+    expect((await facts(null)).windows.filter((w) => w.date === DAY)).toHaveLength(0);
+    expect((await facts(member)).windows.filter((w) => w.date === DAY)).toHaveLength(1);
+
+    const ask = {
+      organizationSlug: "member-air", bookableServiceId: serviceId, requestedDate: DAY, arrivalWindowId: windowId,
+      contactName: "Mel Member", contactPhone: "+15125550142",
+      addressLine1: "1 Mel St", city: "Austin", state: "TX", postalCode: "78701", intakeAnswers: {}, utm: {},
+    };
+    await expect(booking.createRequest(db(), ask)).rejects.toThrow(/just been taken/);
+    const made = await booking.createRequest(db(), ask, undefined, { member });
+    expect(made.request.status).toBe("pending");
   });
 });

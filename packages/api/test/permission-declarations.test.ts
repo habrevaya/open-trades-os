@@ -84,6 +84,14 @@ const ESCALATES: Record<string, { also: Permission; when: string; service: strin
       + "or closing anybody else's, is the office's and takes `task:write`.",
     service: "tasks.ts",
   },
+  updateJob: {
+    also: "visit:reschedule",
+    when:
+      "Only when cancelling the job also cancels its visits still to come (`cancelVisits`). "
+      + "Editing or cancelling a job on its own takes `job:write`; calling off visits on the "
+      + "schedule is the act `visit:reschedule` already governs everywhere else.",
+    service: "jobs.ts",
+  },
   visitPaymentLink: {
     also: "invoice:send",
     when:

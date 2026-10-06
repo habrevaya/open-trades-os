@@ -53,7 +53,7 @@ export default async function KpiRecordsPage({
     refusal = error.message;
   }
 
-  const money = drilled?.format === "money" && half === "numerator";
+  const money = drilled?.money ?? false;
   const shown = (value: string) => (money ? <Money value={value} /> : NUMBER.format(Number(value)));
 
   return (

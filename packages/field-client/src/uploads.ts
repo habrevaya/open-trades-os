@@ -29,12 +29,14 @@ const KEY = {
   prefix: "otos.upload.",
 } as const;
 
-export type UploadKind = "photo" | "signature";
+/** A receipt is a photograph kept with an expense instead of a visit. */
+export type UploadKind = "photo" | "signature" | "receipt";
 export type UploadStatus = "waiting" | "sent" | "failed";
 
 export interface UploadRecord {
   /** The file's own id, which is also the server's `clientId` for it. */
   uploadId: string;
+  /** The visit it was taken at, or for a receipt the expense it is for. */
   visitId: string;
   kind: UploadKind;
   contentType: string;
@@ -44,6 +46,12 @@ export interface UploadRecord {
   /** Where the app keeps the bytes. Opaque here. */
   localUri: string;
   caption?: string | undefined;
+  /**
+   * What the file is for when it is not a visit: a signature drawn for a
+   * toolbox talk, whose `visitId` is then the talk's id. The server holds it
+   * unattached until the operation that signs points it at the line.
+   */
+  subject?: "safety_meeting" | undefined;
   createdAt: string;
   /**
    * Whether the record's operation is in the operation queue. Written false
@@ -110,9 +118,11 @@ export class UploadQueue {
     contentHash: string;
     localUri: string;
     caption?: string | undefined;
+    subject?: "safety_meeting" | undefined;
     occurredAt?: Date | undefined;
   }): Promise<UploadRecord> {
     const record: UploadRecord = {
+      ...(input.subject ? { subject: input.subject } : {}),
       uploadId: input.uploadId,
       visitId: input.visitId,
       kind: input.kind,
@@ -298,11 +308,12 @@ export class UploadQueue {
       byteSize: record.byteSize,
       contentHash: record.contentHash,
       ...(record.caption ? { caption: record.caption } : {}),
+      ...(record.subject ? { for: record.subject } : {}),
     };
     await this.queue.enqueue({
       kind: record.kind === "signature" ? "signature.capture" : "attachment.attach",
       subjectId: record.visitId,
-      payload,
+      payload: record.kind === "receipt" ? { ...payload, entityType: "expense" } : payload,
       occurredAt: occurredAt ?? new Date(record.createdAt),
     });
   }

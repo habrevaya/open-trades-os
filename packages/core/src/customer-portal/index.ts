@@ -297,3 +297,4 @@ export function readPortalSettings(stored: unknown): PortalSettings {
 
 export * from "./blocks.js";
 export * from "./capacity.js";
+export * from "./card-on-file.js";

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { assertCan, permissionsFor, type reporting } from "@opentradesos/core";
+import { assertCan, costing as costingRules, permissionsFor, type reporting } from "@opentradesos/core";
 import { guardedRead, NotFoundError, type ServiceContext } from "./context";
 import { JOB_COSTING_SQL, GROSS_MARGIN_SQL, FULLY_LOADED_MARGIN_SQL, SETTLEMENT_SQL, PROFITABILITY_DATASET } from "./report-catalogue";
 import { run, scopeFilterFor, type ReportResult } from "./reports";
@@ -54,8 +54,10 @@ export const CAVEATS = {
     + "The overtime premium is NOT included, because overtime is a property of a person's week rather than of a job: "
     + "the forty first hour is expensive because of forty hours worked on other jobs. The premium stays on the timesheet.",
   cost:
-    "Revenue and processing fees come from the ledger. Material and labour cost do not, because nothing in this product posts to COGS: "
+    "Revenue and processing fees come from the ledger. Material and labour cost mostly do not, because using stock does not post to cost of goods sold here: "
     + "they are read from the job lines and the timeclock, which are the records of consumption that exist. "
+    + "The exceptions are cost of goods sold posted to the job in the ledger: freight or duty billed after a delivery on parts this job used, and any cost an accountant journalled to the job, such as a subcontractor's bill or a disposal receipt. Those are added to material cost, each read once, from the ledger. "
+    + "A cost already on one of the job's lines should not also be journalled to the job, or it is counted twice. A journal line on a job in an account the margin does not read, labour for one, is listed and left out, because the hours are counted from the timeclock. "
     + "Every figure traces to the rows listed beside it.",
   fees:
     "A card fee is posted against the customer rather than the job, because one payment can clear invoices on several jobs. "
@@ -71,6 +73,26 @@ export interface LedgerRow {
   sourceType: string;
   sourceId: string;
   memo: string | null;
+  /** The journal's number, when the row is a line of a manual journal. */
+  journalNumber: number | null;
+}
+
+/**
+ * A line of a manual journal that names this job (M14), and what the margin
+ * does with it. Every one is listed, so a journal never touches a job without
+ * the statement saying so, and the ones costing does not read say that too.
+ */
+export interface JournalOnJob {
+  transactionId: string;
+  occurredAt: Date;
+  journalId: string;
+  journalNumber: number;
+  accountCode: string;
+  direction: string;
+  amount: string;
+  memo: string | null;
+  /** Which figure it is in: revenue, materials or card fees. Null when costing does not count it. */
+  countedIn: costingRules.JournalCounts;
 }
 
 export interface CostedLine {
@@ -109,6 +131,8 @@ export interface JobProfitability {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  /** What people spent for the job that the company agreed to pay back, and the per diem for days away on it (M17). */
+  expenseCost: string;
   grossMargin: string;
   /** Null, never zero, when there is no revenue to be a percentage of. */
   grossMarginPercent: number | null;
@@ -136,7 +160,14 @@ export interface JobProfitability {
 
   caveats: typeof CAVEATS;
   revenueEntries: LedgerRow[];
+  /**
+   * Cost of goods sold posted to the job: late freight on parts it used, and
+   * what an accountant journalled to it. Added to material cost.
+   */
+  costEntries: LedgerRow[];
   feeEntries: LedgerRow[];
+  /** Every manual journal line on this job, with what the margin does with it. */
+  journalLines: JournalOnJob[];
   lines: CostedLine[];
   labour: LabourRow[];
 }
@@ -151,6 +182,7 @@ type LedgerSqlRow = {
   source_type: string;
   source_id: string;
   memo: string | null;
+  journal_number: number | null;
 };
 
 /** A money column as a decimal string, never a float. */
@@ -173,6 +205,7 @@ type StatementRow = {
   material_cost: string;
   labour_cost: string;
   processing_fees: string;
+  expense_cost: string;
   gross_margin: string;
   labour_burden: string;
   overhead: string;
@@ -223,6 +256,7 @@ export async function statement(
         ${money(JOB_COSTING_SQL.materialCost, "material_cost")},
         ${money(JOB_COSTING_SQL.labourCost, "labour_cost")},
         ${money(JOB_COSTING_SQL.processingFees, "processing_fees")},
+        ${money(JOB_COSTING_SQL.expenseCost, "expense_cost")},
         ${money(GROSS_MARGIN_SQL, "gross_margin")},
         ${money(JOB_COSTING_SQL.labourBurden, "labour_burden")},
         ${money(JOB_COSTING_SQL.overhead, "overhead")},
@@ -249,13 +283,40 @@ export async function statement(
      */
     if (!row) throw new NotFoundError("Job");
 
+    /**
+     * THE LEDGER ROWS BY JOB, which is where a manual journal line on a job
+     * arrives too: a line that names a job is a ledger entry with that job on
+     * it, so these three accounts read it without a second query, and a line
+     * cannot be counted twice by being read in two places. The journal's
+     * number is joined on so a reader can find the entry it came from.
+     */
     const ledger = await tx.execute<LedgerSqlRow>(sql`
       select le.transaction_id, le.occurred_at, le.account_code, le.direction::text as direction,
-             le.amount::numeric(14,4)::text as amount, le.source_type, le.source_id, le.memo
+             le.amount::numeric(14,4)::text as amount, le.source_type, le.source_id, le.memo,
+             je.number as journal_number
       from public.ledger_entry le
+      left join public.journal_entry je on le.source_type = 'journal' and je.id = le.source_id
       where le.job_id = ${input.jobId}::uuid
-        and le.account_code in ('4000', '4100', '4900', '6100')
+        and le.account_code in ('4000', '4100', '4900', '6100', '5000')
       order by le.occurred_at, le.account_code
+    `);
+
+    /**
+     * Every journal line on the job, counted or not. The three accounts above
+     * are the ones costing reads; a journal line on any other account (labour,
+     * rent, an asset) is listed here as booked to the job and left out of the
+     * margin, with the reason in core (`journalCounts`).
+     */
+    const journalLines = await tx.execute<{
+      transaction_id: string; occurred_at: Date; source_id: string; journal_number: number;
+      account_code: string; direction: string; amount: string; memo: string | null;
+    }>(sql`
+      select le.transaction_id, le.occurred_at, le.source_id, je.number as journal_number,
+             le.account_code, le.direction::text as direction, le.amount::numeric(14,4)::text as amount, le.memo
+      from public.ledger_entry le
+      join public.journal_entry je on je.id = le.source_id
+      where le.job_id = ${input.jobId}::uuid and le.source_type = 'journal'
+      order by le.occurred_at, je.number, le.account_code
     `);
 
     /**
@@ -268,7 +329,8 @@ export async function statement(
      */
     const allocatedFees = await tx.execute<LedgerSqlRow>(sql`
       select distinct le.transaction_id, le.occurred_at, le.account_code, le.direction::text as direction,
-             le.amount::numeric(14,4)::text as amount, le.source_type, le.source_id, le.memo
+             le.amount::numeric(14,4)::text as amount, le.source_type, le.source_id, le.memo,
+             null::int as journal_number
       from public.payment_allocation pa
       join public.invoice i on i.id = pa.invoice_id
       join public.ledger_entry le
@@ -380,6 +442,16 @@ export async function statement(
         `${uncosted} ${uncosted === 1 ? "line has" : "lines have"} no cost recorded, which is unknown rather than zero.`,
       );
     }
+    const [waiting] = await tx.execute<{ n: string }>(sql`
+      select count(*)::text as n from public.expense
+      where job_id = ${input.jobId}::uuid and status = 'pending'
+    `);
+    if (Number(waiting?.n ?? 0) > 0) {
+      provisional.push(
+        `${waiting!.n} ${waiting!.n === "1" ? "receipt is" : "receipts are"} waiting for the office to approve, `
+        + "so what they cost is not in this margin yet.",
+      );
+    }
     if (!labourRecorded) {
       provisional.push(
         "No hours were ever recorded against this job, so its labour cost is zero because nobody measured it, "
@@ -397,6 +469,7 @@ export async function statement(
       sourceType: r.source_type,
       sourceId: r.source_id,
       memo: r.memo,
+      journalNumber: r.journal_number,
     });
 
     return {
@@ -412,6 +485,7 @@ export async function statement(
       materialCost: row.material_cost,
       labourCost: row.labour_cost,
       processingFees: row.processing_fees,
+      expenseCost: row.expense_cost,
       grossMargin: row.gross_margin,
       /**
        * Null rather than zero when there is no revenue. A warranty job has a
@@ -441,11 +515,23 @@ export async function statement(
       labourRecorded,
 
       caveats: CAVEATS,
-      revenueEntries: ledger.filter((r) => r.account_code !== "6100").map(toLedgerRow),
+      revenueEntries: ledger.filter((r) => r.account_code !== "6100" && r.account_code !== "5000").map(toLedgerRow),
+      costEntries: ledger.filter((r) => r.account_code === "5000").map(toLedgerRow),
       feeEntries: [
         ...ledger.filter((r) => r.account_code === "6100").map(toLedgerRow),
         ...allocatedFees.map(toLedgerRow),
       ],
+      journalLines: journalLines.map((j) => ({
+        transactionId: j.transaction_id,
+        occurredAt: j.occurred_at,
+        journalId: j.source_id,
+        journalNumber: j.journal_number,
+        accountCode: j.account_code,
+        direction: j.direction,
+        amount: j.amount,
+        memo: j.memo,
+        countedIn: costingRules.journalCounts(j.account_code),
+      })),
       lines: lines.map((l) => ({
         id: l.id,
         kind: l.kind,

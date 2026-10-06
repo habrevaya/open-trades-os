@@ -7,6 +7,7 @@ import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextArea, TextField } from "@/components/ActionForm";
 import { Crumb, Fact, Facts } from "@/components/Detail";
 import { Empty, PageHeader } from "@/components/Table";
+import { HoldPanel } from "@/components/HoldPanel";
 import { formatIn } from "@/lib/dates";
 import { act } from "../actions";
 
@@ -120,6 +121,8 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
           <p className="mt-1 whitespace-pre-wrap text-sm">{incident.closingNote}</p>
         </>
       ) : null}
+      <HoldPanel ctx={ctx} entityType="incident_report" entityId={incident.id} path={`/compliance/incidents/${incident.id}`}
+                 label="this report" timezone={zone} />
     </div>
   );
 }

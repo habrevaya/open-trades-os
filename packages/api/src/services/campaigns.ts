@@ -1064,7 +1064,12 @@ async function sendCampaignEmail(tx: Database, ctx: ServiceContext, input: {
     campaignId: input.campaignId,
   });
 
-  const outcome = await email.queue(ctx, {
+  /**
+   * In the same transaction as the link, because the sender now checks the
+   * link is one this company issued, and a row written here is invisible to a
+   * second transaction until this one commits.
+   */
+  const outcome = await email.queue({ ...ctx, db: tx }, {
     to: input.address,
     subject: input.subject,
     text: input.body,
@@ -1128,7 +1133,7 @@ export async function mintUnsubscribe(tx: Database, organizationId: string, inpu
     campaignId: input.campaignId ?? null,
   });
 
-  return { token, url: `${base}/api/v1/public/unsubscribe/${token}` };
+  return { token, url: `${base}${email.UNSUBSCRIBE_PATH}${token}` };
 }
 
 /* ------------------------------------------------------------ the clock */

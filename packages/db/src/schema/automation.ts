@@ -481,7 +481,12 @@ export const taskChecklistItem = pgTable("task_checklist_item", {
   taskIdx: index("task_checklist_item_task_idx").on(t.taskId, t.position),
 }));
 
-export const taskFrequency = pgEnum("task_frequency", ["daily", "weekly", "monthly"]);
+export const taskFrequency = pgEnum("task_frequency", [
+  "daily", "weekly", "monthly",
+  // Added later: a weekday every second week, Monday to Friday only, and the
+  // last given weekday of the month. core's tasks module says how each counts.
+  "every_other_week", "weekdays", "last_weekday_of_month",
+]);
 
 /**
  * WORK THAT COMES ROUND AGAIN.
@@ -503,7 +508,7 @@ export const taskTemplate = pgTable("task_template", {
   assigneeUserId: uuid("assignee_user_id").references(() => user.id, { onDelete: "set null" }),
   queue: text("queue"),
   frequency: taskFrequency("frequency").notNull(),
-  /** For weekly: 0 is Sunday, 6 is Saturday. */
+  /** For weekly, every other week and the last of the month: 0 is Sunday, 6 is Saturday. */
   weekday: integer("weekday"),
   /** For monthly: the day of the month, held to the month's length. */
   monthDay: integer("month_day"),
@@ -512,6 +517,12 @@ export const taskTemplate = pgTable("task_template", {
   /** Copied onto each task it raises, so ticking Monday's does not tick Tuesday's. */
   checklist: jsonb("checklist").$type<string[]>().notNull().default([]),
   startsOn: date("starts_on").notNull(),
+  /**
+   * Raise nothing on a date the company's holiday list says it is closed.
+   * The occurrence is skipped, not moved: Friday's van check on Christmas Day
+   * is not owed on the Monday after. A short day is not skipped.
+   */
+  skipHolidays: boolean("skip_holidays").notNull().default(false),
   active: boolean("active").notNull().default(true),
   /** The last day it raised a task for. Bookkeeping; the unique index is the guarantee. */
   lastRaisedOn: date("last_raised_on"),

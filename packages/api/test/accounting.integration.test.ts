@@ -4,12 +4,13 @@ import { PermissionError, ledger, type Actor } from "@opentradesos/core";
 import * as accounting from "../src/services/accounting";
 import * as billing from "../src/services/billing";
 import * as creditNotes from "../src/services/credit-notes";
+import * as creditPayouts from "../src/services/credit-payouts";
 import { ConflictError, NotFoundError, inTenant, type ServiceContext } from "../src/services/context";
 import {
   AccountingNotConfiguredError, createProvider, registeredProviders,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalRef, type ExternalRefund, type ExternalCredit,
-  type ExternalCreditApplication, type ExternalCreditNote, type ExternalInvoice,
+  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCreditNoteRefund, type ExternalInvoice,
   type HttpResponse, type PushResult, type ReadResult,
 } from "../src/accounting/provider";
 import {
@@ -113,6 +114,7 @@ interface Fake extends AccountingProvider {
   invoices: ExternalInvoice[];
   creditNotes: ExternalCreditNote[];
   applications: ExternalCreditApplication[];
+  creditRefunds: ExternalCreditNoteRefund[];
   options: FakeOptions;
 }
 
@@ -124,6 +126,7 @@ function fakeProvider(options: FakeOptions = {}): Fake {
   const invoices: ExternalInvoice[] = [];
   const creditNotes: ExternalCreditNote[] = [];
   const applications: ExternalCreditApplication[] = [];
+  const creditRefunds: ExternalCreditNoteRefund[] = [];
   let next = 1;
   let readsLeft = options.readsAllowed ?? Number.MAX_SAFE_INTEGER;
   const affordable = () => {
@@ -167,6 +170,10 @@ function fakeProvider(options: FakeOptions = {}): Fake {
       applications.push(a);
       return push("credit_note_application", a.idempotencyKey);
     },
+    async pushCreditNoteRefund(r) {
+      creditRefunds.push(r);
+      return push("credit_note_refund", r.idempotencyKey);
+    },
     async findCreditApplication(a) {
       if (!affordable()) return blocked<ExternalRef | null>();
       lookups.push({ kind: "credit_note_application", key: a.idempotencyKey });
@@ -178,6 +185,7 @@ function fakeProvider(options: FakeOptions = {}): Fake {
     invoices,
     creditNotes,
     applications,
+    creditRefunds,
     async findPushed(kind, key) {
       if (!affordable()) return blocked<ExternalRef | null>();
       lookups.push({ kind, key });
@@ -1980,6 +1988,51 @@ run("credit notes into the books", () => {
   });
 });
 
+run("a credit paid out, into the books", () => {
+  it("goes once the credit note is there, out of the bank, on the day it was paid", async () => {
+    await mapEverything();
+    await accounting.setMapping(owner(), {
+      accountCode: ledger.ACCOUNTS.AR, externalId: "qbo-ar", externalName: "Accounts Receivable", externalKind: "Account",
+    });
+    const note = await aCreditNote({ amount: "60.00" });
+    await creditPayouts.payOut(owner(), { id: note.id, method: "check", amount: "45.00", reference: "2210" });
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.creditRefunds).toHaveLength(1);
+    const [noteLink] = await raw<{ external_id: string }[]>`
+      select external_id from public.accounting_entity_link
+      where organization_id = ${ORG} and kind = 'credit_note' and entity_id = ${note.id}`;
+    const payout = (await creditNotes.get(owner(), { id: note.id })).payouts[0]!;
+    expect(provider.creditRefunds[0]).toEqual({
+      idempotencyKey: accounting.creditPayoutKey(payout.id),
+      customerExternalId: expect.any(String),
+      creditNoteExternalId: noteLink!.external_id,
+      paidOn: payout.paidOn,
+      amount: { amount: "45.0000", currency: "USD" },
+      bankAccountExternalId: `qbo-${ledger.ACCOUNTS.CASH}`,
+      receivableAccountExternalId: "qbo-ar",
+      memo: `Credit note ${note.number} paid back by cheque 2210`,
+    });
+    /** After the credit note itself, in the same pass. */
+    const order = provider.creates.map((c) => c.kind);
+    expect(order.indexOf("credit_note")).toBeLessThan(order.indexOf("credit_note_refund"));
+  });
+
+  it("waits for a card payout until the processor says the refund moved", async () => {
+    await mapEverything();
+    const note = await aCreditNote({ amount: "30.00" });
+    const [payout] = await raw<{ id: string }[]>`
+      insert into public.credit_note_payout (organization_id, credit_note_id, customer_id, method, status, amount)
+      values (${ORG}, ${note.id}, ${customerId}, 'card', 'pending', 30) returning id`;
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.creditRefunds).toHaveLength(0);
+    await raw`delete from public.credit_note_payout where id = ${payout!.id}`;
+  });
+});
+
 run("credit notes, as each book is sent them", () => {
   const qbo = (calls: Call[], reply: (call: Call) => unknown) => createQuickBooksProvider(
     { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
@@ -2071,6 +2124,92 @@ run("credit notes, as each book is sent them", () => {
       expect.objectContaining({ LineAmount: 8.25, AccountID: "tax-2200" }),
     ]);
     expect(sent[0]!.headers["Idempotency-Key"]).toBe("CN7");
+  });
+
+  /** A credit note that gave back tax at two of the company's rates. */
+  const twoRates: ExternalCreditNote = {
+    ...note,
+    tax: {
+      amount: { amount: "14.5000", currency: "USD" }, accountExternalId: "tax-2200",
+      byRate: [
+        { description: "Sales tax, Travis County 8.25%", amount: { amount: "8.2500", currency: "USD" } },
+        { description: "Sales tax, State only 6.25%", amount: { amount: "6.2500", currency: "USD" } },
+      ],
+    },
+  };
+
+  it("sends tax at several rates to QuickBooks as one line per rate on the tax account", async () => {
+    const calls: Call[] = [];
+    await qbo(calls, () => ({ CreditMemo: { Id: "cm-2", SyncToken: "0" } })).pushCreditNote(twoRates);
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
+    const body = JSON.parse(sent[0]!.body!) as { Line: Record<string, unknown>[] };
+    expect(body.Line.slice(1)).toEqual([
+      expect.objectContaining({ Amount: 8.25, Description: "Sales tax, Travis County 8.25%", SalesItemLineDetail: { ItemRef: { value: "tax-2200" }, Qty: 1 } }),
+      expect.objectContaining({ Amount: 6.25, Description: "Sales tax, State only 6.25%", SalesItemLineDetail: { ItemRef: { value: "tax-2200" }, Qty: 1 } }),
+    ]);
+  });
+
+  it("sends tax at several rates to Xero as one line per rate, none of it worked out by Xero", async () => {
+    const calls: Call[] = [];
+    await xero(calls, () => ({ CreditNotes: [{ CreditNoteID: "xcn-2" }] })).pushCreditNote(twoRates);
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
+    const body = (JSON.parse(sent[0]!.body!) as { CreditNotes: Record<string, unknown>[] }).CreditNotes[0]!;
+    expect((body["LineItems"] as unknown[]).slice(1)).toEqual([
+      expect.objectContaining({ LineAmount: 8.25, AccountID: "tax-2200", TaxType: "NONE", Description: "Sales tax, Travis County 8.25%" }),
+      expect.objectContaining({ LineAmount: 6.25, AccountID: "tax-2200", TaxType: "NONE", Description: "Sales tax, State only 6.25%" }),
+    ]);
+  });
+
+  const paidBack: ExternalCreditNoteRefund = {
+    idempotencyKey: "OP0123456789abcdef",
+    customerExternalId: "c-1",
+    creditNoteExternalId: "cm-1",
+    paidOn: "2026-10-03",
+    amount: { amount: "54.1300", currency: "USD" },
+    bankAccountExternalId: "bank-1000",
+    receivableAccountExternalId: "ar-1200",
+    memo: "Credit note 7 paid back to the customer's card",
+  };
+
+  it("pays a credit out in QuickBooks as a cheque from the bank to the customer's receivable", async () => {
+    const calls: Call[] = [];
+    const result = await qbo(calls, () => ({ Purchase: { Id: "pu-3", SyncToken: "0" } })).pushCreditNoteRefund!(paidBack);
+    expect(result).toMatchObject({ ok: true, externalId: "pu-3" });
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
+    expect(new URL(sent[0]!.url).pathname).toBe("/v3/company/9/purchase");
+    const body = JSON.parse(sent[0]!.body!) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      DocNumber: paidBack.idempotencyKey, TxnDate: "2026-10-03", PaymentType: "Check",
+      AccountRef: { value: "bank-1000" }, EntityRef: { value: "c-1", type: "Customer" },
+    });
+    expect(body["Line"]).toEqual([expect.objectContaining({
+      Amount: 54.13,
+      AccountBasedExpenseLineDetail: { AccountRef: { value: "ar-1200" }, CustomerRef: { value: "c-1" } },
+    })]);
+    const refused = await qbo([], () => ({})).pushCreditNoteRefund!({ ...paidBack, receivableAccountExternalId: null });
+    expect(refused).toMatchObject({ ok: false, code: "unmapped" });
+  });
+
+  it("pays a credit out in Xero as a payment against the credit note, found again by its reference", async () => {
+    const calls: Call[] = [];
+    const result = await xero(calls, () => ({ Payments: [{ PaymentID: "xp-9" }] })).pushCreditNoteRefund!(paidBack);
+    expect(result).toMatchObject({ ok: true, externalId: "xp-9" });
+    const sent = calls.filter((c) => new URL(c.url).host !== "token.test");
+    expect(sent[0]!.method).toBe("PUT");
+    expect(new URL(sent[0]!.url).pathname).toBe("/Payments");
+    expect(JSON.parse(sent[0]!.body!)).toEqual({
+      Payments: [{
+        CreditNote: { CreditNoteID: "cm-1" }, Account: { AccountID: "bank-1000" },
+        Date: "2026-10-03", Amount: 54.13, Reference: paidBack.idempotencyKey,
+      }],
+    });
+    expect(sent[0]!.headers["Idempotency-Key"]).toBe(paidBack.idempotencyKey);
+
+    const lookups: Call[] = [];
+    await xero(lookups, () => ({ Payments: [{ PaymentID: "xp-9" }] })).findPushed("credit_note_refund", paidBack.idempotencyKey);
+    const where = decodeURIComponent(new URL(lookups.at(-1)!.url).searchParams.get("where") ?? "");
+    expect(new URL(lookups.at(-1)!.url).pathname).toBe("/Payments");
+    expect(where).toContain(paidBack.idempotencyKey);
   });
 
   it("applies in Xero as an Allocation on the credit note", async () => {

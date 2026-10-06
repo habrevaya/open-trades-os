@@ -14,11 +14,16 @@
  *   filtered `FlateDecode` with the PNG predictor, which is the same
  *   compression and the same per row filters PNG itself uses.
  *
- * Anything else (a PNG with transparency, a palette, sixteen bits, a HEIC
- * straight off a phone) is refused by returning null, and the caller prints
- * a line saying the photograph is on the screen copy instead. Decoding and
- * flattening transparency is real work, and doing it badly prints a black
- * box where somebody's kitchen should be.
+ * A PNG with transparency or a palette, which is what most logos are, is
+ * decoded when the caller hands over a compressor (`ImageCodecs`): its rows
+ * unfiltered, a palette looked up, and the transparency written as the
+ * image's soft mask, so a logo on a white page has no black box round it.
+ * Core imports nothing from Node, so without the codecs it is refused as
+ * before.
+ *
+ * Anything else (sixteen bits, interlaced, a HEIC straight off a phone) is
+ * refused by returning null, and the caller prints a line saying the
+ * photograph is on the screen copy instead, or leaves a logo off.
  */
 
 export interface PdfImage {
@@ -29,6 +34,14 @@ export interface PdfImage {
   /** Extra entries for the image dictionary: the PNG predictor, or the Adobe CMYK decode. */
   extra: string;
   data: Uint8Array;
+  /** The transparency, as a grey image the same size: 0 clear, 255 solid. */
+  mask?: PdfImage | undefined;
+}
+
+/** Compression, handed in by the caller because core imports nothing from Node. */
+export interface ImageCodecs {
+  inflate: (bytes: Uint8Array) => Uint8Array;
+  deflate: (bytes: Uint8Array) => Uint8Array;
 }
 
 const u16 = (b: Uint8Array, at: number) => (b[at]! << 8) | b[at + 1]!;
@@ -73,11 +86,14 @@ function jpeg(bytes: Uint8Array): PdfImage | null {
   return null;
 }
 
-function png(bytes: Uint8Array): PdfImage | null {
+function png(bytes: Uint8Array, codecs?: ImageCodecs): PdfImage | null {
   let at = 8;
   let width = 0;
   let height = 0;
   let colors = 0;
+  let colourType = -1;
+  let palette: Uint8Array | null = null;
+  let transparency: Uint8Array | null = null;
   const parts: Uint8Array[] = [];
   while (at + 8 <= bytes.length) {
     const length = u32(bytes, at);
@@ -88,12 +104,19 @@ function png(bytes: Uint8Array): PdfImage | null {
       width = u32(body, 0);
       height = u32(body, 4);
       const depth = body[8];
-      const colourType = body[9];
+      colourType = body[9]!;
       const interlace = body[12];
       if (depth !== 8 || interlace !== 0) return null;
       if (colourType === 0) colors = 1;
       else if (colourType === 2) colors = 3;
-      else return null;
+      else if (colourType === 3 || colourType === 4 || colourType === 6) {
+        if (!codecs) return null;
+        colors = colourType === 4 ? 2 : colourType === 6 ? 4 : 1;
+      } else return null;
+    } else if (type === "PLTE") {
+      palette = body.slice();
+    } else if (type === "tRNS") {
+      transparency = body.slice();
     } else if (type === "IDAT") {
       parts.push(body);
     } else if (type === "IEND") {
@@ -106,6 +129,10 @@ function png(bytes: Uint8Array): PdfImage | null {
   const data = new Uint8Array(total);
   let offset = 0;
   for (const part of parts) { data.set(part, offset); offset += part.length; }
+  if (colourType === 3 || colourType === 4 || colourType === 6) {
+    if (colourType === 3 && !palette) return null;
+    return decoded({ width, height, colourType, channels: colors, data, palette, transparency }, codecs!);
+  }
   return {
     width, height,
     colorSpace: colors === 1 ? "DeviceGray" : "DeviceRGB",
@@ -115,10 +142,99 @@ function png(bytes: Uint8Array): PdfImage | null {
   };
 }
 
-/** The photograph as something a page can draw, or null when it is not a kind this can print. */
-export function readImage(bytes: Uint8Array): PdfImage | null {
+/**
+ * A palette, grey with alpha, or colour with alpha PNG, decoded: its rows
+ * inflated and unfiltered (the five PNG filters, by the bytes per pixel),
+ * then split into colour and transparency, each compressed again for the
+ * file. A mask that is solid everywhere is left off.
+ */
+function decoded(
+  input: {
+    width: number; height: number; colourType: number; channels: number; data: Uint8Array;
+    palette: Uint8Array | null; transparency: Uint8Array | null;
+  },
+  codecs: ImageCodecs,
+): PdfImage | null {
+  const { width, height, channels } = input;
+  let raw: Uint8Array;
+  try {
+    raw = codecs.inflate(input.data);
+  } catch {
+    return null;
+  }
+  const stride = width * channels;
+  if (raw.length < height * (stride + 1)) return null;
+  const pixels = new Uint8Array(height * stride);
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[y * (stride + 1)]!;
+    const row = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    const out = pixels.subarray(y * stride, (y + 1) * stride);
+    const up = y > 0 ? pixels.subarray((y - 1) * stride, y * stride) : null;
+    for (let x = 0; x < stride; x += 1) {
+      const a = x >= channels ? out[x - channels]! : 0;
+      const b = up ? up[x]! : 0;
+      const c = up && x >= channels ? up[x - channels]! : 0;
+      let value = row[x]!;
+      if (filter === 1) value += a;
+      else if (filter === 2) value += b;
+      else if (filter === 3) value += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        value += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      } else if (filter !== 0) return null;
+      out[x] = value & 255;
+    }
+  }
+
+  const count = width * height;
+  const grey = input.colourType === 4;
+  const colour = new Uint8Array(count * (grey ? 1 : 3));
+  const alpha = new Uint8Array(count);
+  let solid = true;
+  for (let i = 0; i < count; i += 1) {
+    if (input.colourType === 3) {
+      const index = pixels[i]!;
+      colour[i * 3] = input.palette![index * 3] ?? 0;
+      colour[i * 3 + 1] = input.palette![index * 3 + 1] ?? 0;
+      colour[i * 3 + 2] = input.palette![index * 3 + 2] ?? 0;
+      alpha[i] = input.transparency?.[index] ?? 255;
+    } else if (grey) {
+      colour[i] = pixels[i * 2]!;
+      alpha[i] = pixels[i * 2 + 1]!;
+    } else {
+      colour[i * 3] = pixels[i * 4]!;
+      colour[i * 3 + 1] = pixels[i * 4 + 1]!;
+      colour[i * 3 + 2] = pixels[i * 4 + 2]!;
+      alpha[i] = pixels[i * 4 + 3]!;
+    }
+    if (alpha[i] !== 255) solid = false;
+  }
+  return {
+    width, height,
+    colorSpace: grey ? "DeviceGray" : "DeviceRGB",
+    filter: "FlateDecode",
+    extra: "",
+    data: codecs.deflate(colour),
+    ...(solid ? {} : {
+      mask: {
+        width, height, colorSpace: "DeviceGray" as const, filter: "FlateDecode" as const, extra: "",
+        data: codecs.deflate(alpha),
+      },
+    }),
+  };
+}
+
+/**
+ * The photograph or logo as something a page can draw, or null when it is not
+ * a kind this can print. With `codecs`, a PNG with transparency or a palette
+ * is decoded too; without, it is refused.
+ */
+export function readImage(bytes: Uint8Array, codecs?: ImageCodecs): PdfImage | null {
   if (bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8) return jpeg(bytes);
-  if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return png(bytes);
+  if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return png(bytes, codecs);
   return null;
 }
 

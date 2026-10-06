@@ -46,6 +46,8 @@ export interface MapLine {
   id: string;
   color: string;
   points: geo.LatLng[];
+  /** Drawn thin and dotted: a path somebody took, beside the planned day's solid line. */
+  dotted?: boolean;
 }
 
 const ZOOM_MIN = 3;
@@ -189,9 +191,11 @@ export function SlippyMap({
               }).join(" ")}
               fill="none"
               stroke={line.color}
-              strokeWidth={3}
+              strokeWidth={line.dotted ? 2 : 3}
               strokeLinejoin="round"
-              strokeOpacity={0.8}
+              strokeLinecap="round"
+              strokeOpacity={line.dotted ? 0.9 : 0.8}
+              {...(line.dotted ? { strokeDasharray: "1 5" } : {})}
             />
           ))}
         </svg>

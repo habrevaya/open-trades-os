@@ -45,6 +45,10 @@ export const MovementKind = z.enum([
   "return_to_stock", "return_to_vendor",
   "adjustment_in", "adjustment_out", "scrap",
   "commit", "release",
+  /** A unit already on the shelf given its serial or lot number. Moves nothing. */
+  "numbered",
+  /** Freight or duty billed after the delivery, added to what parts cost. Moves nothing. */
+  "revaluation",
 ]);
 
 export const PurchaseOrderStatus = z.enum([
@@ -347,6 +351,19 @@ export const createVendor = defineRoute({
 
 /* ------------------------------------------------------- purchase orders */
 
+/**
+ * THE CALL TO MAKE ABOUT AN ORDER, when there is one: sent and nobody has
+ * answered for the company's own number of days, or past the day the vendor
+ * promised with something still owed. Null otherwise.
+ */
+export const OrderFollowUp = z.object({
+  kind: z.enum(["not_acknowledged", "past_promise"]),
+  /** Days since it was sent, or since the day they promised. */
+  days: z.number().int(),
+  /** Said in words, for the list: who, since when, and what is wrong. */
+  sentence: z.string(),
+}).nullable();
+
 export const PurchaseOrderSummary = z.object({
   id: Uuid,
   /** Per organization and sequential. A vendor asking "which PO was that" needs an answer shorter than a uuid. */
@@ -354,6 +371,13 @@ export const PurchaseOrderSummary = z.object({
   status: PurchaseOrderStatus,
   vendorName: z.string(),
   expectedAt: z.string().datetime().nullable(),
+  /** When it went to the vendor. */
+  submittedAt: z.string().datetime().nullable(),
+  /** The first time somebody wrote down a reply from the vendor. */
+  acknowledgedAt: z.string().datetime().nullable(),
+  /** The day the vendor promised it by, as the company's calendar day. */
+  promisedOn: z.string().nullable(),
+  followUp: OrderFollowUp,
   lineCount: z.number().int(),
   total: MoneyString,
   /** True while any line is still owed. */
@@ -364,10 +388,56 @@ export const listPurchaseOrders = defineRoute({
   method: "get",
   path: "/v1/purchase-orders",
   summary: "List purchase orders",
+  description: "Each with when it was sent, when the vendor first answered, the day they promised it by and, when there is one, the call to make: nobody has answered after the company's number of days (`GET /v1/purchasing/settings`), or the promise has passed with something still owed.",
   module: "M16",
   permissions: ["po:read"],
   input: z.object({}),
   output: z.object({ purchaseOrders: z.array(PurchaseOrderSummary) }),
+});
+
+export const recordPurchaseOrderAcknowledgement = defineRoute({
+  method: "post",
+  path: "/v1/purchase-orders/{id}/acknowledgement",
+  summary: "Write down what the vendor said back",
+  description:
+    "By hand, from their reply: the day they promised it by (`promisedOn`, the company's calendar day), their own reference and what else they said. Nothing is read out of an email. The first reply moves a sent order to acknowledged; every reply is kept with the promise it replaced, so a date that has moved says so. What the buyer asked for stays as it was; the reorder suggestions and the purchasing list both read the promise, due at the end of that day, so they agree about what is late. A draft was never sent, and a received or cancelled order has nothing left to promise; an order they have already answered needs something new said.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    promisedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date like 2026-11-01").nullable().optional(),
+    reference: z.string().max(100).nullable().optional(),
+    note: z.string().max(1000).nullable().optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    status: PurchaseOrderStatus,
+    promisedOn: z.string().nullable(),
+    acknowledgedAt: z.string().datetime(),
+  }),
+});
+
+export const getPurchasingSettings = defineRoute({
+  method: "get",
+  path: "/v1/purchasing/settings",
+  summary: "How long a vendor may sit on an order before the list says to ring them",
+  module: "M16",
+  permissions: ["po:read"],
+  input: z.object({}),
+  output: z.object({ acknowledgeAfterDays: z.number().int() }),
+});
+
+export const setPurchasingSettings = defineRoute({
+  method: "post",
+  path: "/v1/purchasing/settings",
+  summary: "Set how long a vendor may sit on an order before the list says to ring them",
+  description: "Whole days, 1 to 30. An order sent and not answered for this long is on the purchasing list as needing a call.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({ acknowledgeAfterDays: z.number().int().min(1).max(30) }),
+  output: z.object({ acknowledgeAfterDays: z.number().int() }),
 });
 
 export const createPurchaseOrder = defineRoute({
@@ -400,6 +470,46 @@ export const createPurchaseOrder = defineRoute({
   output: z.object({ id: Uuid, number: z.number().int(), status: PurchaseOrderStatus }),
 });
 
+const OrderLineInput = z.object({
+  /** Our item. Either this or `partNumber`. */
+  itemId: Uuid.optional(),
+  /** The vendor's own part number, or our item code, looked up for this vendor. */
+  partNumber: z.string().min(1).max(100).optional(),
+  locationId: Uuid.optional(),
+  /** How many of OUR units. A vendor selling by the pack is sent whole packs: 250 wire nuts, not 10 boxes. */
+  quantity: QuantityString,
+  /** What the vendor charges for one of ours. Their price on record, at the break reached, when left out. */
+  unitPrice: MoneyString.optional(),
+}).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
+  message: "Name the part: our item, or the vendor's part number",
+});
+
+export const editPurchaseOrder = defineRoute({
+  method: "put",
+  path: "/v1/purchase-orders/{id}",
+  summary: "Change an order before it is sent",
+  description:
+    "A draft only: once the vendor has it, a change is a phone call and a new order. The lines are replaced whole through the same lookup, pack and price break rules as a new order. An edit that takes the total above what an approval said yes to sets that approval aside (kept as the record) and the step asks again, telling its approvers; an edit at or under every approved total leaves them standing. A rejected order is cancelled and raised again, not edited.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    defaultLocationId: Uuid.optional(),
+    expectedAt: z.string().datetime().nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+    lines: z.array(OrderLineInput).min(1),
+  }),
+  output: z.object({
+    id: Uuid,
+    total: MoneyString,
+    /** Steps whose approval the edit went above, asked again. */
+    askedAgain: z.array(z.number().int()),
+    /** Where the order stands now, in one sentence. */
+    approval: z.string(),
+  }),
+});
+
 /** Where an order stands against the company's approval steps. */
 export const PurchaseOrderApprovalState = z.object({
   /** `not_needed` means no step applies to an order this size, and the sender's own `po:approve` is the approval. */
@@ -413,6 +523,8 @@ export const PurchaseOrderApprovalState = z.object({
     decidedBy: z.string().nullable(),
     decidedAt: z.string().datetime().nullable(),
     note: z.string().nullable(),
+    /** Which orders the step is for, in words: "orders from Ferguson". Empty for every order. */
+    scopeLabel: z.string(),
   })),
 });
 
@@ -444,6 +556,21 @@ export const getPurchaseOrder = defineRoute({
     vendorAccount: z.string().nullable(),
     expectedAt: z.string().datetime().nullable(),
     submittedAt: z.string().datetime().nullable(),
+    acknowledgedAt: z.string().datetime().nullable(),
+    promisedOn: z.string().nullable(),
+    /** Their own number for the order, from their confirmation. */
+    vendorReference: z.string().nullable(),
+    /** Every time they answered, oldest first, with the promise each one replaced. */
+    replies: z.array(z.object({
+      id: Uuid,
+      promisedOn: z.string().nullable(),
+      previousPromisedOn: z.string().nullable(),
+      reference: z.string().nullable(),
+      note: z.string().nullable(),
+      recordedByName: z.string().nullable(),
+      recordedAt: z.string().datetime(),
+    })),
+    followUp: OrderFollowUp,
     notes: z.string().nullable(),
     total: MoneyString,
     lines: z.array(z.object({
@@ -456,7 +583,12 @@ export const getPurchaseOrder = defineRoute({
       locationName: z.string(),
       quantityOrdered: QuantityString,
       quantityReceived: QuantityString,
+      /** What the vendor charges for one of ours. */
       unitPrice: MoneyString,
+      /** What the line comes to: whole packs at the pack price, otherwise quantity at the unit price. */
+      lineTotal: MoneyString,
+      /** How the vendor sells it, when by the pack: so many packs of so many, called what, at what a pack. */
+      packs: z.object({ count: QuantityString, size: QuantityString, unit: z.string().nullable(), price: MoneyString }).nullable(),
       /** How the item is tracked, when it is: a receipt of this line has to name its serials or lots. */
       tracking: z.enum(["serial", "lot"]).nullable(),
       /** Freight and fees spread onto this line across every delivery so far. */
@@ -471,8 +603,25 @@ export const getPurchaseOrder = defineRoute({
       basis: z.enum(["value", "quantity"]),
       chargesTotal: MoneyString,
       charges: z.array(z.object({ description: z.string(), amount: MoneyString })),
+      /** Freight and duty billed after this delivery, and where each bill went: the shelf, jobs, stock already gone. */
+      lateBills: z.array(z.object({
+        id: Uuid,
+        recordedAt: z.string().datetime(),
+        reference: z.string().nullable(),
+        basis: z.enum(["value", "quantity"]),
+        total: MoneyString,
+        onShelf: MoneyString,
+        onJobs: MoneyString,
+        onGone: MoneyString,
+        charges: z.array(z.object({ description: z.string(), amount: MoneyString })),
+      })),
     })),
     approval: PurchaseOrderApprovalState,
+    /** Who was emailed that the order waits for them, whether the email went or not, newest first. */
+    approvalNotices: z.array(z.object({
+      step: z.number().int(), name: z.string(), destination: z.string(),
+      state: z.string(), explanation: z.string().nullable(), at: z.string().datetime(),
+    })),
     /** Every time it was emailed, whether it went or not, newest first. */
     sends: z.array(PurchaseOrderSend),
   }),
@@ -490,9 +639,17 @@ export const VendorItem = z.object({
   /** The vendor's own number for the part, as their catalogue prints it. */
   partNumber: z.string(),
   description: z.string().nullable(),
-  /** What one costs from this vendor. Null when nobody has said. */
+  /** What one of THEIR units costs from this vendor (a box, when they sell by the box). Null when nobody has said. */
   cost: MoneyString.nullable(),
   costUpdatedAt: z.string().datetime().nullable(),
+  /** How many of our units are in one of theirs. "1.0000" when they sell what we count. */
+  packQuantity: QuantityString,
+  /** What they call their unit: "box", "case". Null for each. */
+  purchaseUnit: z.string().nullable(),
+  /** Their price for one of their units when ordering at least `minimum` of them, lowest first. */
+  priceBreaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })),
+  /** What one of OUR units comes to at their base price: the cost over the pack. */
+  eachCost: MoneyString.nullable(),
 });
 
 export const listVendorItems = defineRoute({
@@ -520,6 +677,11 @@ export const setVendorItem = defineRoute({
     partNumber: z.string().min(1).max(100),
     description: z.string().max(500).nullable().optional(),
     cost: z.string().max(20).nullable().optional(),
+    /** How many of ours in one of theirs: 25 for a box of 25. Left out keeps what is on record. */
+    packQuantity: z.string().max(20).nullable().optional(),
+    purchaseUnit: z.string().max(40).nullable().optional(),
+    /** Replaces their break table whole. Each minimum is in their units. */
+    priceBreaks: z.array(z.object({ minimum: z.string().max(20), cost: z.string().max(20) })).max(10).nullable().optional(),
   }),
   output: VendorItem,
 });
@@ -576,6 +738,12 @@ const CatalogueRow = z.object({
   costHeldBack: z.boolean().optional(),
   /** Why a skipped row was skipped. */
   reason: z.string().optional(),
+  /** How the vendor sells it: so many of ours to a pack, called what, with their breaks. `cost` is per pack. */
+  pack: QuantityString.optional(),
+  unit: z.string().nullable().optional(),
+  breaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })).optional(),
+  /** What one of ours comes to: the pack cost over the pack. The price book's cost follows this, never the pack's. */
+  eachCost: MoneyString.optional(),
 });
 
 const CatalogueResult = z.object({
@@ -678,6 +846,7 @@ export const inventoryRoutes = {
   reserveStock, releaseStock, issueStock, receiveStock, countStock, transferStock,
   listReorderSuggestions, getJobMaterialCost,
   listVendors, createVendor,
-  listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, editPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  recordPurchaseOrderAcknowledgement, getPurchasingSettings, setPurchasingSettings,
   listVendorItems, setVendorItem, removeVendorItem, previewVendorCatalogue, applyVendorCatalogue,
 } as const;

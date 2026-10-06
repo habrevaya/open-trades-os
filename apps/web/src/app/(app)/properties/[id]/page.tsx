@@ -3,7 +3,7 @@ import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { properties, equipment as equipmentService, customFields, NotFoundError } from "@opentradesos/api/services";
+import { properties, equipment as equipmentService, customFields, taxRates, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -11,7 +11,8 @@ import { Empty } from "@/components/Table";
 import { Register } from "./Register";
 import { PinEditor } from "@/components/PinEditor";
 import { tileSource } from "@/lib/map-tiles";
-import { placePropertyPin, clearPropertyPin } from "./actions";
+import { placePropertyPin, clearPropertyPin, setPropertyTaxRate } from "./actions";
+import { ActionForm, Select } from "@/components/ActionForm";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,12 @@ export default async function PropertyPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
+
+  /** What work here is charged in sales tax today, for the first customer here, and the rates to choose from. */
+  const tax = await taxRates.picker(ctx, {
+    customerId: property.customers[0]?.id ?? null, propertyId: id, permission: "property:read",
+  });
+  const ownRate = (property as { taxRateId?: string | null }).taxRateId ?? null;
 
   const readsEquipment = can(user.actor, "equipment:read");
   const register = readsEquipment
@@ -107,6 +114,21 @@ export default async function PropertyPage({
             clear={can(user.actor, "property:write") ? clearPropertyPin : null}
           />
         </div>
+      </section>
+
+      <section aria-label="Sales tax here" className="mt-8">
+        <h2 className="text-base font-semibold">Sales tax here</h2>
+        {tax.worked ? <p className="mt-1 text-sm text-ink-700">Today: {tax.worked.note}</p> : null}
+        {can(user.actor, "property:write") ? (
+          <ActionForm action={setPropertyTaxRate} submit="Save rate" tone="quiet" hidden={{ id }}
+                      className="mt-2 flex max-w-xl flex-wrap items-end gap-3">
+            <Select label="Rate for work at this address" name="taxRateId" defaultValue={ownRate ?? ""} className="min-w-64 flex-1" options={[
+              { value: "", label: "The customer's, or your usual rate" },
+              ...tax.choices.map((c) => ({ value: c.id, label: c.label })),
+              ...(ownRate && !tax.choices.some((c) => c.id === ownRate) ? [{ value: ownRate, label: "A rate no longer in use" }] : []),
+            ]} />
+          </ActionForm>
+        ) : null}
       </section>
 
       {readsEquipment ? (

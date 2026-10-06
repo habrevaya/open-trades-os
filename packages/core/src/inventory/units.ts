@@ -62,7 +62,13 @@ export function deriveUnitLevels(movements: readonly Movement[]): UnitLevel[] {
     const current = levels.get(key) ?? {
       lotId: movement.lotId, itemId: movement.itemId, locationId: movement.locationId, onHand: ZERO_QUANTITY,
     };
-    levels.set(key, { ...current, onHand: current.onHand + effectOf(movement.kind, movement.quantity).onHand });
+    /**
+     * NUMBERING gives a unit already on the shelf its number. The item's
+     * level does not change, because nothing arrived; the unit's own level
+     * starts here, because this is the first movement that names it.
+     */
+    const change = movement.kind === "numbered" ? movement.quantity : effectOf(movement.kind, movement.quantity).onHand;
+    levels.set(key, { ...current, onHand: current.onHand + change });
   }
   return [...levels.values()];
 }
@@ -105,7 +111,8 @@ export type UnitRefusal =
   | { ok: false; reason: "unit_twice"; number: string }
   | { ok: false; reason: "units_do_not_add_up"; mode: TrackingMode; requested: Quantity; named: Quantity }
   | { ok: false; reason: "unit_not_here"; number: string; locationLabel: string; onHand: Quantity; wanted: Quantity }
-  | { ok: false; reason: "untracked_given_units"; itemLabel: string };
+  | { ok: false; reason: "untracked_given_units"; itemLabel: string }
+  | { ok: false; reason: "more_numbers_than_shelf"; itemLabel: string; locationLabel: string; loose: Quantity; named: Quantity };
 
 /** The refusal in the sentence somebody can act on. */
 export function explainUnitRefusal(refusal: UnitRefusal): string {
@@ -128,6 +135,11 @@ export function explainUnitRefusal(refusal: UnitRefusal): string {
         : `${refusal.number} is not at ${refusal.locationLabel}. Look up where it is before moving it.`;
     case "untracked_given_units":
       return `${refusal.itemLabel} is not tracked by serial or lot, so there are no numbers to give for it.`;
+    case "more_numbers_than_shelf":
+      return refusal.loose > ZERO_QUANTITY
+        ? `There ${refusal.loose === qty("1") ? "is" : "are"} ${quantityLabel(refusal.loose)} of ${refusal.itemLabel} at ${refusal.locationLabel} with no number, and ${quantityLabel(refusal.named)} new numbers were read. `
+          + "If more are physically there, the extra ones were never received: receive them with their cost and numbers."
+        : `Every ${refusal.itemLabel} at ${refusal.locationLabel} already has its number. One that was never received has to be received, with its cost.`;
   }
 }
 
@@ -240,3 +252,120 @@ export function parseSerialList(text: string): string[] {
   return text.split(/[\s,;]+/).map((s) => s.trim()).filter((s) => s !== "");
 }
 
+
+/**
+ * GIVE NUMBERS TO UNITS ALREADY ON THE SHELF.
+ *
+ * Tracking an item starts long after its first delivery, and the units
+ * already there have no numbers. Somebody walks the shelf and reads every
+ * label; this turns what they read into movements. A number already on
+ * this shelf is a unit that was counted before and changes nothing. A new
+ * number takes one unnumbered unit (or, for a lot, the quantity said).
+ * More new numbers than unnumbered units is refused: the extra units were
+ * never received, and stock cannot appear here without a cost.
+ *
+ * A number already somewhere else, or already used, is not this function's
+ * to judge: the caller looks each one up and refuses it by name before it
+ * gets here, because only the caller knows where it is.
+ *
+ * Fewer numbers than unnumbered units is allowed and said: a label that
+ * cannot be read today is still a unit on the shelf, and writing it off
+ * because the count was short would destroy stock nobody has lost.
+ */
+export type NumberingDecision =
+  | { ok: true; movements: Movement[]; alreadyHere: string[]; stillUnnumbered: Quantity }
+  | UnitRefusal;
+
+export function planNumbering(input: {
+  mode: TrackingMode;
+  itemLabel: string;
+  locationLabel: string;
+  /** The item's level at this location. */
+  level: { itemId: string; locationId: string; onHand: Quantity };
+  /** Every unit level for this item, from `deriveUnitLevels`. */
+  unitLevels: readonly UnitLevel[];
+  /** What was read. A pick for a number already on this shelf is recognised and skipped. */
+  picks: readonly UnitPick[];
+  numbers: ReadonlyMap<string, string>;
+  stamps: readonly MovementStamp[];
+}): NumberingDecision {
+  const label = (lotId: string) => input.numbers.get(lotId) ?? lotId;
+  const here = (lotId: string) => input.unitLevels
+    .find((u) => u.lotId === lotId && u.locationId === input.level.locationId)?.onHand ?? ZERO_QUANTITY;
+  const numbered = input.unitLevels
+    .filter((u) => u.locationId === input.level.locationId && u.onHand > ZERO_QUANTITY)
+    .reduce((total, u) => total + u.onHand, ZERO_QUANTITY);
+  const loose = input.level.onHand - numbered > ZERO_QUANTITY ? input.level.onHand - numbered : ZERO_QUANTITY;
+
+  const seen = new Set<string>();
+  const alreadyHere: string[] = [];
+  const fresh: UnitPick[] = [];
+  for (const pick of input.picks) {
+    if (seen.has(pick.lotId)) return { ok: false, reason: "unit_twice", number: label(pick.lotId) };
+    seen.add(pick.lotId);
+    if (input.mode === "serial" && pick.quantity !== qty("1")) {
+      return { ok: false, reason: "serial_not_one", number: label(pick.lotId) };
+    }
+    if (pick.quantity <= ZERO_QUANTITY) {
+      return { ok: false, reason: "units_do_not_add_up", mode: input.mode, requested: loose, named: pick.quantity };
+    }
+    /**
+     * Already numbered here. A serial is the same unit counted again. A lot
+     * read as more than it holds here takes the difference from the
+     * unnumbered units: "lot 4471, ten of them" with four already on file
+     * is six more of that lot.
+     */
+    const already = here(pick.lotId);
+    if (already > ZERO_QUANTITY) {
+      if (input.mode === "lot" && pick.quantity > already) {
+        fresh.push({ lotId: pick.lotId, quantity: pick.quantity - already });
+      } else {
+        alreadyHere.push(label(pick.lotId));
+      }
+      continue;
+    }
+    fresh.push(pick);
+  }
+  const named = fresh.reduce((total, pick) => total + pick.quantity, ZERO_QUANTITY);
+  if (named > loose) {
+    return {
+      ok: false, reason: "more_numbers_than_shelf",
+      itemLabel: input.itemLabel, locationLabel: input.locationLabel, loose, named,
+    };
+  }
+  if (input.stamps.length < fresh.length) throw new RangeError("One stamp is needed for each unit.");
+  return {
+    ok: true,
+    alreadyHere,
+    stillUnnumbered: loose - named,
+    movements: fresh.map((pick, i) => ({
+      ...input.stamps[i]!,
+      itemId: input.level.itemId,
+      locationId: input.level.locationId,
+      kind: "numbered" as const,
+      quantity: pick.quantity,
+      lotId: pick.lotId,
+      reasonCode: "numbered",
+    })),
+  };
+}
+
+/**
+ * How many of an item at each location have no number: on hand less what
+ * the numbered units there add up to. What `planNumbering` takes from, and
+ * what turning tracking on reports as still to be numbered.
+ */
+export function unnumberedByLocation(
+  levels: readonly { itemId: string; locationId: string; onHand: Quantity }[],
+  unitLevels: readonly UnitLevel[],
+): { locationId: string; quantity: Quantity }[] {
+  const out: { locationId: string; quantity: Quantity }[] = [];
+  for (const level of levels) {
+    const numbered = unitLevels
+      .filter((u) => u.locationId === level.locationId && u.itemId === level.itemId && u.onHand > ZERO_QUANTITY)
+      .reduce((total, u) => total + u.onHand, ZERO_QUANTITY);
+    const loose = level.onHand - numbered;
+    if (loose > ZERO_QUANTITY) out.push({ locationId: level.locationId, quantity: loose });
+  }
+  return out;
+}

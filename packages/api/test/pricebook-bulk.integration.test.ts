@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
-import { PermissionError, type Actor, type Permission } from "@opentradesos/core";
+import { PermissionError, time, type Actor, type Permission } from "@opentradesos/core";
 import * as priceBook from "../src/services/pricebook";
 import * as categories from "../src/services/price-categories";
 import * as repricing from "../src/services/repricing";
 import { ConflictError, NotFoundError, UnprocessableError, type ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
 /**
  * THE PRICE BOOK'S SHELVES AND CHANGING MANY PRICES AT ONCE
@@ -286,5 +286,96 @@ run("undoing a change", () => {
     expect((await repricing.lines(owner(), { id: undone.id })).skipped).toEqual([
       expect.objectContaining({ code: "A-2" }),
     ]);
+  });
+});
+
+run("a change dated ahead", () => {
+  const ahead = (days: number) => companyToday(days);
+
+  it("waits as a scheduled revision per item from the start of that day, and the price in force stays until then", async () => {
+    const a = await item(`DATED-A-${Date.now()}`, "100.00");
+    const b = await item(`DATED-B-${Date.now()}`, "250.00");
+    const applied = await repricing.apply(owner(), {
+      selection: { itemIds: [a, b] }, rule: { adjust: { kind: "percent", percent: "10" } }, effectiveOn: ahead(30),
+    });
+    expect(applied.changed).toBe(2);
+    expect(applied.description).toContain(`from ${ahead(30)}`);
+
+    /** In force now: the old price. Waiting: the new one, from that day. */
+    expect((await priceBook.detail(owner(), { id: a })).price).toBe("100.0000");
+    const waiting = await priceBook.scheduledRevisions(owner());
+    const mine = waiting.filter((w) => [a, b].includes(w.itemId));
+    expect(mine.map((w) => [w.currentPrice, w.price]).sort()).toEqual([["100.0000", "110.0000"], ["250.0000", "275.0000"]]);
+    const [row] = await raw<{ effective_from: Date }[]>`
+      select effective_from from public.price_book_item_version where item_id = ${a} and version = 2`;
+    expect(row!.effective_from.toISOString()).toBe(time.startOfDayIn(ahead(30), "America/Chicago").toISOString());
+
+    const listed = (await repricing.history(owner())).find((c) => c.id === applied.id)!;
+    expect(listed.effectiveFrom).toBe(row!.effective_from.toISOString());
+  });
+
+  it("is called off rather than undone before its day, leaving the price in force as it was", async () => {
+    const a = await item(`DATED-C-${Date.now()}`, "80.00");
+    const applied = await repricing.apply(owner(), {
+      selection: { itemIds: [a] }, rule: { adjust: { kind: "amount", amount: "5" } }, effectiveOn: ahead(14),
+    });
+    const undone = await repricing.reverse(owner(), { id: applied.id });
+    expect(undone.description).toMatch(/^Called off/);
+    expect(undone.changed).toBe(1);
+    const rows = await versions(a);
+    expect(rows.map((r) => [r.version, r.price, r.effective_to])).toEqual([[1, "80.0000", null], [2, "85.0000", null]]);
+    const [called] = await raw<{ deleted_at: Date | null }[]>`
+      select deleted_at from public.price_book_item_version where item_id = ${a} and version = 2`;
+    expect(called!.deleted_at).not.toBeNull();
+    /** Nothing waits for it any more. */
+    expect((await priceBook.scheduledRevisions(owner())).some((w) => w.itemId === a)).toBe(false);
+  });
+
+  it("takes today as now, and refuses a day gone by", async () => {
+    const a = await item(`DATED-D-${Date.now()}`, "40.00");
+    await repricing.apply(owner(), {
+      selection: { itemIds: [a] }, rule: { adjust: { kind: "amount", amount: "1" } }, effectiveOn: ahead(0),
+    });
+    expect((await priceBook.detail(owner(), { id: a })).price).toBe("41.0000");
+    await expect(repricing.apply(owner(), {
+      selection: { itemIds: [a] }, rule: { adjust: { kind: "amount", amount: "1" } }, effectiveOn: ahead(-1),
+    })).rejects.toBeInstanceOf(UnprocessableError);
+  });
+});
+
+run("a kit's parts", () => {
+  it("are changed as a new revision, carried forward by every revision after", async () => {
+    const stamp = Date.now();
+    const kit = await item(`KIT-${stamp}`, "450.00");
+    const valve = await item(`KV-${stamp}`, "60.00");
+    const hose = await item(`KH-${stamp}`, "15.00");
+    const revised = await priceBook.revise(owner(), {
+      id: kit, components: [{ itemId: valve, quantity: 1 }, { itemId: hose, quantity: 2 }, { itemId: hose, quantity: 1 }],
+    });
+    expect(revised.version).toBe(2);
+    expect(revised.components).toEqual([{ itemId: valve, quantity: 1 }, { itemId: hose, quantity: 3 }]);
+    /** The version before still lists what it listed. */
+    const [first] = await raw<{ components: unknown }[]>`
+      select components from public.price_book_item_version where item_id = ${kit} and version = 1`;
+    expect(first!.components).toEqual([]);
+
+    const repriced = await priceBook.revise(owner(), { id: kit, price: "475.00" });
+    expect(repriced.components).toEqual([{ itemId: valve, quantity: 1 }, { itemId: hose, quantity: 3 }]);
+    expect((await priceBook.revise(owner(), { id: kit, components: [] })).components).toEqual([]);
+  });
+
+  it("refuses the kit inside itself, however deep, and a part that is not sold", async () => {
+    const stamp = Date.now();
+    const outer = await item(`KO-${stamp}`, "900.00");
+    const inner = await item(`KI-${stamp}`, "300.00");
+    await expect(priceBook.revise(owner(), { id: outer, components: [{ itemId: outer, quantity: 1 }] }))
+      .rejects.toThrow(/cannot contain itself/);
+    await priceBook.revise(owner(), { id: outer, components: [{ itemId: inner, quantity: 1 }] });
+    await expect(priceBook.revise(owner(), { id: inner, components: [{ itemId: outer, quantity: 1 }] }))
+      .rejects.toThrow(/already contains this one/);
+    const retired = await item(`KR-${stamp}`, "10.00");
+    await priceBook.setActive(owner(), { id: retired, active: false });
+    await expect(priceBook.revise(owner(), { id: outer, components: [{ itemId: retired, quantity: 1 }] }))
+      .rejects.toThrow(/no longer sold/);
   });
 });

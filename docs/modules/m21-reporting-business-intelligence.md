@@ -51,11 +51,10 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty one of the forty seven are answered: seventeen computed here, four by
-M22's fleet report. The other twenty six each name the single datum that is
-missing.
+Twenty three of the forty seven are answered: nineteen computed here, four by
+M22's fleet report. The other twenty four each name what they still lack.
 
-Two moved off the list when it was checked against what has shipped since.
+Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
 where the commute leg is, before a person's first stop of the day and after
 their last, so a drive is counted when the same person has a stop that ended
@@ -64,10 +63,19 @@ calendar. A day that records no driving (or no stop) is left out of both
 halves rather than read as nought per cent. `backflow_recert` needed a typed
 last test date on the assembly, and M33 gave it one: a backflow test is an
 inspection whose checkpoint is about a `backflow-assembly` and whose answer
-names the unit, on a real date. The rest were checked too, and where something
-has shipped that answers half of one (a customer's own cancel request, a van's
-odometer, an inspection naming a water heater, a change order) the `needs`
-sentence now says which half is still missing.
+names the unit, on a real date. `revenue_per_crew_day` needed a crew clock, and
+a crew's clock is what its members punch on the crew's own visits, so a crew
+day is counted once per crew however many people are on it (below).
+`install_gross_margin` needed somewhere for the office to put a subcontractor's
+bill or a disposal receipt against a job, and a journal line can now name the
+job (M14) and job costing reads it (below). Every one of the rest was checked
+again against what has shipped since (crews, terms and breakage, member holds,
+purchasing returns and late freight, part days off, estimate expiry, credit
+payouts, retainage, push notices). Where something answers half of one the
+`needs` sentence says which half is still missing: a term is now a row of its
+own (`agreement_term`) but nothing records why a programme ended other than
+free text, a hire's invoice is linked to it but holds only part of what the haul
+earned, and a cost can be put on a job but nothing marks a supply as billed back.
 
 That is a product decision rather than an apology. **Most of these definitions
 name an exclusion**, and a KPI computed without its exclusions is worse than an
@@ -85,14 +93,60 @@ the ones somebody makes a hiring decision on.
 ### Three missing data would unlock most of the rest
 
 - **A coded cancellation reason.** Four KPIs need it: every retention and
-  renewal figure has to separate churn from a house sale.
-- **A cost posting.** `ACCOUNTS.COGS` is declared in core and nothing debits it,
-  so margin KPIs would read material and labour and miss subcontract and
-  disposal, which is exactly where a badly estimated install goes wrong.
+  renewal figure has to separate churn from a house sale. A customer's link to a
+  property can be ended with a date through the API, which would say the home was
+  sold, but no screen sets it and cancelling an agreement does not ask, so it is
+  not enough to compute them: most house sales would still read as churn.
+- **A flag for supplies billed back.** Two cost ratios need it. A cost posting
+  was the other half of this item, and it exists now: an accountant can journal a
+  subcontractor's bill or a disposal receipt to a job (M14) and job costing counts
+  it, which is what unlocked install gross margin.
 - **A finer job type class.** `job_revenue_class` was added for these and
   unlocked five. A trade's own upsell path (a drain job that became a lining, a
   troubleshooting call that converted on the visit) needs the pack to mark which
   of its own job types and price book items are the upsell.
+
+### The two that were unlocked, and what they leave out
+
+**Revenue per crew day** divides the ledger's revenue on completed jobs a crew
+worked (a job with a completed visit sent to a crew, every revenue class but
+internal) by crew days. A crew day is a crew and a day in the company's calendar
+on which both are true: somebody on the crew was on the clock on the crew's own
+visit, in a kind of time that is a crew's day, and the crew completed a stop. That
+is the definition's three exclusions made literal. Yard and shop time is not a
+crew's day (the shop is a technician's day on the clock but not a crew's, which
+is why the two lists differ), a rain day has punches and no completed stop, and a
+punch on no visit belongs to no crew. A crew of four is one day, not four. The
+rule is `reporting.crewDays` in core, and the integration test puts the same rows
+through it and through the SQL and requires the same days. Each half is dated by
+its own record, the job by its completion and the day by the clock, so a job that
+ran across a month end puts its revenue in one month and some of its days in the
+other. `stops_per_day` is still counted per technician day for every trade that
+declares it, a lawn crew's included, because the one entry serves cleaning teams
+and pest technicians too.
+
+**Install gross margin** is install revenue less material, subcontract, disposal
+and burdened labour, over install revenue, for completed jobs of the `install`
+class. The costs are the job's own statement's (M15, one copy of the SQL): the
+job's lines of every kind but labour, so subcontract and disposal are in, plus
+the cost of goods sold posted to the job, a journalled bill included; hours at the
+loaded rate frozen on each punch; and payroll taxes, benefits and workers'
+compensation at the company's rates, which makes the labour burdened. Card fees
+and overhead are not in the definition and are not here. **Only installs whose
+costs are all in are counted, in both halves**: no hours ever recorded, a punch
+still running, hours no wage scale could price, a line with no cost, and work
+nobody has billed or excused all make a job's margin read higher than it earned,
+and an install that used a subcontractor nobody has booked yet is the likeliest
+of them. The figure is over fewer jobs and the records behind each half are
+exactly the jobs counted, so an owner can see which. This is the conservative
+choice, and the cost is that a company that never records costs sees "Not this
+window". An install booked with no subcontract cost still reads high: the number
+is only as complete as the books, and a warranty return on an install counts at
+its cost with no revenue against it. Because it is what jobs cost, it takes what
+a job's margin takes: reading it needs the job costing permission and the
+financial reports permission (`job.cost:read` and `report.financial:read`), and a
+reader without them is told which in the unavailable list instead of being shown
+a margin one division away from the cost column.
 
 ### What `job_revenue_class` is, and is not
 
@@ -143,17 +197,20 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
-agreement, a visit, a customer, the week's timesheets, or the unit.
+agreement, a visit, a customer, the week's timesheets (a crew's day opens on
+them too), or the unit.
 
-It is refused, in words, rather than trimmed, in three cases. The figure is
-the whole company's, so somebody whose scope is narrower (a technician who
-sees their own jobs) is refused: a list of only their records would not add up
-to the number above it. A record kind the reader may not read is refused,
-naming the permission. Revenue per job needs `report.financial:read`.
+It is refused, in words, rather than trimmed, in three cases. The figure is the
+whole company's, so somebody whose scope is narrower (a technician who sees their
+own jobs) is refused: a list of only their records would not add up to the number
+above it. A record kind the reader may not read is refused, naming the permission.
+Revenue per job needs `report.financial:read`, and what each install cost and
+earned needs `job.cost:read` as well, which is also what shows install margin on
+the scorecard at all.
 `kpi-drill.integration.test.ts` drills every half of every computed KPI under
 every trade and checks the rows add up to what the scorecard shows.
 
@@ -286,14 +343,36 @@ Every report grouped by a date or a category is drawn above its table, from
 the same rows. Grouped by a date, it is a line, oldest on the left, and "Columns"
 draws the same numbers as columns; grouped by anything else, it is bars in the
 report's own order (biggest first, or the aging buckets in age order). A loss
-is drawn below the axis in red, and every bar and point opens the records
+is drawn below the axis in red (in a breakdown, below it in its value's own colour), and every bar and point opens the records
 behind it, as the numbers in the table do. A report counting several things
 draws the first and offers the others ("Draw"). A report grouped by two things
 is drawn by one of them with the other added up, and says so, unless what it
 counts cannot be added up (an average), in which case it says why there is no
-chart. Twenty five bars at most, and four hundred points; the table always
-has every row. The chart is SVG drawn on the server: no chart library, it
-prints, and it works with JavaScript off.
+chart. Under the chart, "Break down by" offers each other grouping the report
+has, and choosing one cuts every bar or column into that grouping's values:
+"Stacked" puts them end to end, which is a total with its parts and so needs
+something that can be added up, and "Side by side" sets them beside each other,
+which any measure allows and which draws a line for each value when the first
+grouping is a date (columns again with "Columns"). Each value has a colour, and
+a legend names every colour in words beside its swatch, because a colour on its
+own says nothing to everybody; each part is named in its own tooltip. Six values
+are told apart at most: the five biggest and the rest added together as "Everything
+else", which the chart says, and which opens no records because it is not one
+value. A part opens the records of that bar and that value together, and a bar's
+own label opens every value of it. The choice lives in the address (`split` and
+`arrange`), so it survives being sent and prints. Twenty five bars at most (twelve
+clusters side by side, sixty columns over time), and four hundred points for a
+line; the table always has every row. The chart is SVG drawn on the server: no chart
+library, it prints, and it works with JavaScript off.
+
+A dashboard tile is drawn by the same chart, and not by bars and columns of its
+own: a tile and the report it came from cannot disagree about which bar is
+longest, and the tile has the chart's accessibility, including "View as a table"
+under it, which a tile needs because it has no table of the report beneath it the
+way a report screen does. A tile keeps its one grouping and its columns over time.
+The emailed PDF of a report draws the chart as the screen draws it before anybody
+breaks it down: a breakdown is a choice made on the screen, and is on the printed
+page and not in the schedule.
 
 ### Print it, or save it as a PDF
 
@@ -403,6 +482,9 @@ sent once per run, so a run resumed after a wait does not send it again.
 `report:build` saves and deletes reports and sets up, changes, pauses and stops
 schedules. The financial datasets additionally need `report.financial:read`, and
 a drill is refused exactly where its report would be, in the same words.
+Install gross margin on the trade scorecard is what jobs cost, so it needs
+`job.cost:read` and `report.financial:read` on top of `report:read`, and a reader
+without them sees it in the unavailable list with the permissions named.
 
 ## API
 
@@ -456,7 +538,7 @@ prefix off.
 
 ## What is not built
 
-Twenty six of the forty seven declared KPIs cannot be computed, and each one
+Twenty four of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. The records behind a KPI are listed only for a
@@ -466,12 +548,16 @@ own, because no dataset is a row of one; a unit's fields reach only the kinds of
 record that link a unit, and a technician's only Visits, through its lead. A drill, of a report or of a KPI, lists at most a thousand records (its
 totals still cover all of them).
 
-The PDF is set in the standard Helvetica faces, which cover Western European
-characters: a letter they lack prints as its unaccented base letter where it
-has one and as "?" where it does not. An emailed report appears as a
+The PDF is set in the Noto Sans that ships inside the product, as every PDF is,
+so a customer, a technician or a column in Latin, Vietnamese, modern Greek or
+Cyrillic prints as spelled (a test prints a report whose title, column heading and
+rows are Greek, Cyrillic and Vietnamese and reads them back out of the file). A
+script the face does not carry (Chinese, Arabic, Hebrew) and the polytonic Greek
+accents print as the plain letter where there is one and as "?" where there is
+not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
-Nothing is emailed until an email provider is connected. Dashboard tiles keep
-their own bars and columns rather than the report chart. A chart draws one
-measure at a time and does not stack a second grouping. No cross company report
+Nothing is emailed until an email provider is connected. A chart draws one
+measure at a time, and a tile has one grouping, so a dashboard tile cannot be
+broken down by a second. No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

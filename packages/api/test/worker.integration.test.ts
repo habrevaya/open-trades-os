@@ -6,7 +6,7 @@ import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import { drainOrganization, drainAll, runWorker, advanceCursor } from "../src/services/workflow-worker";
 import type { ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, holdWholePassLock, WHOLE_PASS_WAIT_MS } from "./helpers";
 
 /**
  * NOTHING WAS READING THE LOG
@@ -68,6 +68,13 @@ async function completeAJob() {
   await jobs.update(owner(), { id: job.id, status: "completed" });
   return job;
 }
+
+/** This file runs the worker's pass over every company: see `holdWholePassLock`. */
+let releaseWholePass: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (url) releaseWholePass = await holdWholePassLock(url);
+}, WHOLE_PASS_WAIT_MS);
+afterAll(async () => { await releaseWholePass?.(); });
 
 beforeAll(async () => {
   if (!url) return;

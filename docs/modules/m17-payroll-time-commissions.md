@@ -13,8 +13,9 @@ status: partial
 ## What it does
 
 Records time, prices it, classifies a week into regular, overtime and double
-time, calculates and settles commission, and produces a CSV a payroll bureau
-takes.
+time, calculates and settles commission, pays people back what they spent for
+the company and the company's allowance for a day away, and produces a CSV a
+payroll bureau takes.
 
 ## The problem
 
@@ -95,6 +96,24 @@ what was paid under it. That is why the commission screen has no edit control.
 Revenue, gross margin and a flat amount each mislead in their own way, and a note
 behind a link is a note nobody reads while choosing.
 
+**What somebody spent for the company is not wages, and is not in the gross.** A
+reimbursement and a per diem are paid in full and no tax is taken from them, so a
+statement keeps them out of `gross`, totals them beside it as `nonTaxable`, and
+the file names each by its own pay category (`reimbursement`, `per_diem`) for the
+bureau to read, as it reads `cash_tip`. A commission reversal is never taken out
+of one, for the reason it is never taken out of a tip.
+
+**Neither is posted to the ledger.** What the company owes a person for a receipt
+is a payable, and whether this product books payables is the question receiving
+stock left unanswered (M16), so the conservative answer was taken. They are paid
+through payroll and counted in the job's cost (M15), which is where an owner reads
+them. Posting them as well would be a second place for the same money to be wrong.
+
+**An approval is dated by the instant it is given.** A receipt from last month
+approved this week is paid in this week's pay period and never changes one that has
+already been paid. A per diem is dated by the day itself, and a day inside a closed
+period is refused.
+
 **Payroll is not processed here.** The export goes to Gusto, ADP, Paychex or
 QuickBooks Payroll. BUILD.md says so, and it is a deliberate boundary rather than
 a gap.
@@ -131,7 +150,16 @@ in.
 ### Time off
 
 A technician asks for days off on `/me/time-off` (`POST /v1/time-off`, with
-`timeclock:own`), and sees each request's answer there. Whoever approves the
+`timeclock:own`), and sees each request's answer there. The form takes a first
+and last day, which is whole days; or one day with "Only part of the day: from"
+and "until", which is those hours in the company's own clock (a lunch hour to the
+end of the afternoon, say). Half of the two times is refused in words, as is a
+range of days with times, and an end before the start. The request and the
+approval queue say the hours ("Tue, Oct 6, 1:00 PM to 5:00 PM"). What part of a
+day off does elsewhere: the booking page keeps customers off exactly those hours,
+and the dispatch board and the crew check count a technician with any approved
+leave on a day as off for the whole of it, which is the conservative reading for
+the people planning the day. Whoever approves the
 hours answers on `/timesheets/time-off` (`GET /v1/time-off/pending`,
 `POST /v1/time-off/{id}/approve`, `POST /v1/time-off/{id}/decline`, all
 `timesheet:approve`), which also lists the leave already granted that is still
@@ -163,11 +191,67 @@ write. `POST /v1/commissions` settles an earning,
 `POST /v1/payroll/commission-payments` records them as paid, which is a payroll
 act and takes `payroll:export`. `/payroll/commissions` is the screen.
 
+### What people paid for the company, and a day away
+
+A technician records what they paid out of their own pocket: the amount, the day,
+what it was for, the job if any and a photograph of the receipt. From the phone app
+and `/my-day` it is an `expense.record` in the same offline queue as everything else
+(M11), the receipt following through the hash checked upload path as an
+`attachment.attach` naming the expense; from a desk it is `/me/expenses`
+(`POST /v1/me/expenses`, `expense:own`, which every preset holds).
+`GET /v1/me/expenses` is the person's own list with the office's answer and the days
+away they are paid for, and `POST /v1/me/expenses/{id}/receipts` adds a photograph
+while it is still waiting. The id is made by the phone, so a retried send records it
+once. Always the person's own: nothing here takes a person.
+
+Whoever approves them (`expense:approve`: the office manager, the branch manager for
+their own branch's people, the accountant and the owner) answers on
+`/timesheets/expenses`: `GET /v1/expenses` is the queue, waiting ones first, each
+with its receipt and the job it was for, and `POST /v1/expenses/{id}/decision`
+approves it or refuses it with a reason the person reads. The people a reader may
+decide for are the ones their timesheet scope reaches. **A decision is final,**
+because the payroll file is built from it: the same decision again answers with the
+first, and the other one is refused saying who decided. A wrong approval is put right
+with the bureau and a wrong refusal by the person recording it again; taking a
+decision back is not built.
+
+An approved expense goes to the pay period the approval falls in, as a
+`reimbursement` line on the register and in the export, in the export's existing
+format: one row per person per pay category, the amount in `amount`, no hours and no
+rate. It is not in `grossTotal`; the register and the export carry it as
+`reimbursementTotal`. A period that has not been declared for the day of the approval
+leaves the expense approved and unpaid, and the office's screen says so beside it.
+The close's fingerprint covers approved expenses and days away, so an edit after the
+close is refused at the export like any other.
+
+A per diem is the company's rate for one day away. `POST /v1/payroll/pay-extras`
+(`payroll:configure`) sets it, on `/payroll/pay-rules` under "A day away", and
+`GET /v1/payroll/pay-extras` reads it (`timesheet:read`). No rate means no per diem is
+paid. `POST /v1/per-diem` (`expense:approve`) records each day from the first to the
+last (at most 31) a person was away on a job, named by id or by number, at the rate as
+it stands that day, kept on the row so a later change does not reprice it. A day that
+already has one for that person is left as it was and named. A day inside a closed
+period is refused, and `POST /v1/per-diem/{id}/removal` takes a wrong one back out while
+its period is open. `GET /v1/per-diem` lists them. A per diem is exported as `per_diem`,
+the same way, and the office does it on `/timesheets/expenses`.
+
+**Two judgements the product owner has not made, and the conservative reading taken.**
+A per diem is paid with no tax taken from it, which is only right while it is within
+what the tax authority allows for the place and the day (an accountable plan), and
+that check is the company's: the screen says so beside the rate. And a receipt is not
+required to record an expense; the office sees "No receipt" and decides.
+
+**On the job.** Approved reimbursements and per diem days for a job are in its cost:
+`expenseCost` on `GET /v1/jobs/{jobId}/expenses` (`job.cost:read`) and on the job's
+costing statement, subtracted in the gross margin, in the project roll up and
+available as the "Expenses and per diem" report measure. A receipt still waiting for
+the office is not counted, and the job's margin says so in words while there is one.
+
 ### Tips
 
 A tip a customer adds when paying an invoice from the portal (M05, M13) is
-split evenly between the technicians on the job's visits and arrives owed to
-them. Each share is its own line on that technician's register and export,
+shared between the technicians on the job's visits by the company's rule and
+arrives owed to them. Each share is its own line on that technician's register and export,
 `tip` in the pay category column, in the period the payment arrived in, and a
 technician who was tipped and not on the clock that period is still on the
 register. A commission reversal is never taken out of a tip: it is measured
@@ -191,6 +275,37 @@ period, everything owed up to its end; it debits Tips payable against cash and
 marks each share with the period that paid it, so running it twice pays nothing
 twice. **Record tips as paid** on `/payroll/{id}` is the same thing.
 
+**How a tip is shared.** The company chooses on `/payroll/pay-rules`, under "Tips
+and days away" (`POST /v1/payroll/pay-extras`, `payroll:configure`;
+`GET /v1/payroll/pay-extras` reads it, `timesheet:read`): evenly to the cent, as it
+always was and what a company that never chose gets; by the hours each person was
+clocked in on the job (closed, paid punches against that job, in proportion, to the
+cent, the odd cent to the largest share; somebody with no hours has no share); or all
+to the lead, the person marked lead on any of the job's visits that were not
+cancelled (several leads share it evenly). A rule with nothing to go on, no hours
+recorded or no lead marked, shares the tip evenly and says so in a sentence kept on
+the share and shown on the invoice's tips. **It applies to tips from then on:** a
+tip is shared the moment the money arrives with the rule in force then, the rule is
+kept on each share, and a change never re-splits one already shared. The arithmetic
+is core's (`payExtras.splitTipByRule`), with unit tests, and the portal and the
+phone's cash payment both go through it.
+
+**The office and a cash tip.** A tip the technician kept normally comes from their
+phone. When they did not record it, or got the amount wrong, whoever holds `tip:record`
+(the office manager, the branch manager for their own branch's people, the accountant
+and the owner) records it on `/timesheets/tips` (`POST /v1/cash-tips`) or corrects
+it (`POST /v1/cash-tips/{id}/correction`), each with a reason, audited, and
+`GET /v1/cash-tips` lists them with every change. A correction keeps the amount before
+and after, the reason and who made it, and a correction to 0 takes a tip that was never
+given off their pay. A second tip of the same amount for the same person on the same
+day is refused as a likely duplicate, because tax paid on a tip twice is the mistake
+this would otherwise make easy. A tip in a pay period that has been closed is not
+recorded or changed: the period is reopened first, as with a backdated commission, and
+the close's fingerprint covers every amount, so an edit that slips round it is refused
+at the export. **The technician sees it:** `GET /v1/me/cash-tips` (`payroll:own`) and
+"Cash tips on your pay" on `/me/pay` list their own, including the ones the office put
+there, why, and every change with the reason, before the period closes.
+
 ### Declare overtime and wage scales
 
 `/payroll/pay-rules` is the screen: the overtime rule in use and the ones it
@@ -207,7 +322,20 @@ the old scale is closed the day before and a new one opened from that day with
 everything else it said, in one step, so time worked before keeps its rate. A change
 dated on or before the day the scale began is refused, because that scale was wrong
 rather than changed: `POST /v1/payroll/wage-scales/{id}/retire` stops it on a date
-and the right one is loaded. Nothing is deleted.
+and the right one is loaded.
+
+A scale can also carry the terms of the agreement it came from: its own overtime
+multiplier, its own double time multiplier (each a number of at least 1, double
+time not below overtime) and an apprentice ratio in the agreement's words ("1:3").
+"Load a wage scale" on `/payroll/pay-rules` offers all three, the scales table
+shows them under "Agreement terms", `GET /v1/payroll/wage-scales` returns them,
+and a change of rate carries them to the new scale. **They are records, not
+rules.** Overtime is worked out from the company's overtime rule, as it always
+was, and nothing checks the apprentice ratio against who is on a job, so loading
+a scale with 2 for double time does not change what a week costs; the screen says
+so beside the boxes. Making a scale's own multipliers override the company rule
+changes pay, which is a decision for whoever answers for the payroll rather than a
+default, and it is not built. Nothing is deleted.
 `GET /v1/payroll/crew-rates` says who costs what today and
 `POST /v1/payroll/classifications` sets a person's classification. Loading,
 changing and declaring answer a retried request with the first answer rather than
@@ -218,12 +346,12 @@ writing a second row.
 | Role | Access |
 |---|---|
 | Owner | Everything |
-| Administrator | Nothing in payroll unless it is granted explicitly |
-| Office manager | Reads timesheets |
+| Administrator | Nothing in payroll unless it is granted explicitly, which includes approving what people paid for the company and recording cash tips |
+| Office manager | Reads timesheets, approves what people paid for the company (`expense:approve`) and records or corrects a cash tip (`tip:record`) |
 | Dispatcher | Reads timesheets |
-| Technician | Clocks in and out. Their own time only, and their own pay statements for closed periods |
+| Technician | Clocks in and out. Their own time only, their own pay statements for closed periods, and what they paid for the company (`expense:own`, which every preset holds) |
 | Branch manager | Reads their branch's people's timesheets and time off; approving them is granted by name |
-| Accountant | Reads payroll, runs the export, reads commission |
+| Accountant | Reads payroll, runs the export, reads commission, approves what people paid for the company and records or corrects a cash tip |
 
 `payroll:read` and `commission:read` are both on the sensitive list, and the
 administrator preset deliberately excludes `payroll:read`, `payroll:export` and
@@ -255,6 +383,20 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/me/pay-statements` | `payroll:own` |
 | `GET /v1/time-off/pending` | `timesheet:approve` |
 | `GET /v1/time-off/upcoming` | `timesheet:read` |
+| `POST /v1/me/expenses` | `expense:own` |
+| `POST /v1/me/expenses/{id}/receipts` | `expense:own` |
+| `GET /v1/me/expenses` | `expense:own` |
+| `GET /v1/expenses` | `expense:approve` |
+| `POST /v1/expenses/{id}/decision` | `expense:approve` |
+| `POST /v1/per-diem` | `expense:approve` |
+| `GET /v1/per-diem` | `expense:approve` |
+| `POST /v1/per-diem/{id}/removal` | `expense:approve` |
+| `GET /v1/payroll/pay-extras` | `timesheet:read` |
+| `POST /v1/payroll/pay-extras` | `payroll:configure` |
+| `POST /v1/cash-tips` | `tip:record` |
+| `POST /v1/cash-tips/{id}/correction` | `tip:record` |
+| `GET /v1/cash-tips` | `tip:record` |
+| `GET /v1/me/cash-tips` | `payroll:own` |
 
 ## Common questions
 
@@ -276,16 +418,24 @@ could hold, which is worse than a coarse one.
 ## What is not built
 
 No payroll processing, by design. A wage scale's own overtime multipliers and
-apprentice ratio are taken by the API and not offered on the pay rules screen,
-which loads a scale's classification, rates, authority, reference, jurisdiction
-and start date; and a scale cannot be corrected in place: a wrong one is retired and the right one
-loaded. Tips given through the portal or with a payment on site are paid through
-payroll; a cash tip a technician kept is recorded only by the technician, on
-the phone or on `/my-day`, and nobody in the office can record or change one
-for them. A tip is split evenly with no way to split it otherwise. Reimbursements and per diem
-are not modelled. Certified payroll reporting is not built. Commission
+apprentice ratio are kept and shown but do not change any figure: overtime comes
+from the company's overtime rule only, and the ratio is not checked against crews.
+A scale's agreement terms are set when it is loaded and cannot be changed on the
+screen afterwards; a scale cannot be corrected in place: a wrong one is retired and
+the right one loaded. Tips given through the portal or with a payment on site are paid through
+payroll; a cash tip a technician kept is recorded on the phone and on `/my-day` by
+the technician, and by the office when they did not or got it wrong, on
+`/timesheets/tips`. A tip is shared evenly, by hours on the job or to the lead, one
+rule for the whole company: there is no rule per job or per technician, and "hours" is
+the hours clocked against the job, not against one visit of it. Reimbursements and per diem
+are recorded, decided and exported, but not posted to the ledger, only for people on
+the board, and a decision on a reimbursement cannot be taken back; there is no mileage
+rate, no per diem that varies by place or by meal, and nothing checks a per diem
+against the tax authority's allowance. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.
-Time off is asked for in whole days on a screen; part of a day is asked for
-through the API.
+Part of a day off is one day with two times: there is no leave that is part of
+the first day and part of the last of a run of days (ask for the whole days and a
+part day separately), and the dispatch board shows a technician with part of a day
+off as off for that whole day.

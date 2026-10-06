@@ -3,7 +3,7 @@ import {
   FieldApi, FieldQueue, MemoryStorage, SyncEngine, UploadQueue, projectDay, describeOperation,
   lineFromBook, typedLine, draftTotals, estimatePayload, estimateFromPayload, findInPriceBook, optionProblem,
   presentationOrder, optionTotal, approvalPayload, invoiceFromWork, invoiceFromEstimate, invoicePayload,
-  paymentPayload, tipChoices, decidable, compareAmounts,
+  paymentPayload, tipChoices, decidable, compareAmounts, newBuilder,
   type DraftOption, type PriceBookEntry, type QueuedOperation, type UploadFiles, type MemberTerms,
 } from "../src/index";
 import { FakeServer } from "./fake-server";
@@ -122,6 +122,22 @@ describe("the invoice and the money", () => {
     ], MEMBER);
     expect(work.totals.total).toBe("324.0000");
     expect(work.lines.map((l) => l.memberDiscount)).toEqual(["36.0000", "89.0000"]);
+  });
+
+  it("taxes the taxable work at the visit's rate, the lines adding up to the tax", () => {
+    const work = invoiceFromWork([
+      { id: "l1", name: "Expansion tank", quantity: "1", unitPrice: "10.0500", taxable: true, itemKind: "material", feeRole: null },
+      { id: "l2", name: "Fitting", quantity: "1", unitPrice: "10.0500", taxable: true, itemKind: "material", feeRole: null },
+      { id: "l3", name: "Labour", quantity: "1", unitPrice: "120.0000", taxable: false, itemKind: "labor", feeRole: null },
+    ], null, "0.0825");
+    expect(work.totals.taxTotal).toBe("1.6600");
+    expect(work.lines.map((l) => l.taxAmount)).toEqual(["0.8300", "0.8300", "0.0000"]);
+    expect(invoiceFromWork(work.lines, null).totals.taxTotal).toBe("0.0000");
+  });
+
+  it("starts the estimate builder at the visit's rate", () => {
+    expect(newBuilder(() => "x", "Leak", "8.25").taxPercent).toBe("8.25");
+    expect(newBuilder(() => "x", "Leak", "0").taxPercent).toBe("");
   });
 
   it("bills the option signed for as signed, and nothing until one is", () => {

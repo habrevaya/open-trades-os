@@ -26,6 +26,9 @@ export interface PlanFormValues {
   benefits: string[];
   autoRenews: boolean;
   renewalNoticeDays: number;
+  discountExclusions: { categoryIds: string[]; itemIds: string[] };
+  /** Null is the company's own figure; absent leaves it as it is. */
+  memberHoldPercent?: number | null;
 }
 
 const text = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
@@ -55,5 +58,12 @@ export function planFromForm(form: FormData, { editing = false }: { editing?: bo
     benefits: text(form, "benefits").split("\n").map((b) => b.trim()).filter(Boolean),
     autoRenews: form.get("autoRenews") === "on",
     renewalNoticeDays: whole(form, "renewalNoticeDays", 30),
+    discountExclusions: {
+      categoryIds: form.getAll("excludedCategoryIds").map(String).filter(Boolean),
+      itemIds: form.getAll("excludedItemIds").map(String).filter(Boolean),
+    },
+    ...(text(form, "memberHoldPercent") !== ""
+      ? { memberHoldPercent: Number(text(form, "memberHoldPercent")) }
+      : editing ? { memberHoldPercent: null } : {}),
   };
 }

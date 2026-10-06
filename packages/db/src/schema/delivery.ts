@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -69,6 +69,14 @@ export const deliverySchedule = pgTable("delivery_schedule", {
   externalAddresses: jsonb("external_addresses").$type<string[]>().notNull().default([]),
   /** Statements only: a customer owing this much or less is not sent one. */
   minimumBalance: money("minimum_balance"),
+  /**
+   * Statements only: text the statement to a customer whose main contact
+   * prefers texts, rather than emailing everybody. OFF unless somebody turns
+   * it on, including on every run set up before texting existed: a contact
+   * says it prefers texts by default, and a company that chose emailed
+   * statements did not choose to start texting its customers.
+   */
+  textWhenPreferred: boolean("text_when_preferred").notNull().default(false),
   /**
    * WHOSE AUTHORITY A REPORT RUNS UNDER. The person who set it up, re-checked
    * against what they hold on the day it runs, so a report somebody has lost
@@ -160,12 +168,19 @@ export const statementDelivery = pgTable("statement_delivery", {
   periodFrom: date("period_from").notNull(),
   /** Inclusive, as the statement prints it. */
   periodTo: date("period_to").notNull(),
+  /** `email` or `sms`: how it went, or how it was tried last. */
+  channel: text("channel").notNull().default("email"),
   destination: text("destination"),
   closingBalance: money("closing_balance"),
   messageId: uuid("message_id").references(() => message.id, { onDelete: "set null" }),
   portalGrantId: uuid("portal_grant_id"),
   /** Why it did not go: no address, suppressed, no email connected. */
   error: text("error"),
+  /**
+   * Why it went another way than the customer prefers: a text the consent
+   * gate refused, emailed instead. Null when it went the way it was meant to.
+   */
+  note: text("note"),
   sentByUserId: uuid("sent_by_user_id").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

@@ -23,7 +23,7 @@ const isStatus = (value: string | undefined): value is Status =>
 
 const TONE = { delivered: "success", refused: "danger", unreachable: "warning" } as const;
 const SAID = { delivered: "Delivered", refused: "Refused", unreachable: "No answer" } as const;
-const REPLAY = { pending: "Waiting", done: "Sent", failed: "Gave up" } as const;
+const REPLAY = { pending: "Waiting", done: "Sent", failed: "Gave up", cancelled: "Stopped" } as const;
 
 /**
  * WHERE THIS COMPANY'S EVENTS GO, AND WHAT EACH RECEIVER SAID
@@ -267,7 +267,7 @@ export default async function WebhooksPage({
 
           {replays.length > 0 ? (
             <Table label="Sent again on request"
-                   head={<><Th>Asked</Th><Th>Events</Th><Th>State</Th><Th>Why it stopped</Th></>}>
+                   head={<><Th>Asked</Th><Th>Events</Th><Th>State</Th><Th>Why it stopped</Th><Th>{""}</Th></>}>
               {replays.map((replay) => (
                 <tr key={replay.id}>
                   <Td className="whitespace-nowrap">{formatIn(replay.createdAt, zone)}</Td>
@@ -281,7 +281,21 @@ export default async function WebhooksPage({
                       {REPLAY[replay.status]}
                     </Chip>
                   </Td>
-                  <Td className="text-ink-700">{replay.lastError ?? ""}</Td>
+                  <Td className="text-ink-700">
+                    {replay.status === "cancelled"
+                      ? `Stopped by hand${replay.position >= replay.fromSequence ? ` after event ${replay.position}` : " before anything went"}.`
+                      : replay.lastError ?? ""}
+                  </Td>
+                  <Td>
+                    {/*
+                      Only while it is waiting: a replay that finished has nothing
+                      left to stop. What already went stays gone, and the line says so.
+                    */}
+                    {writes && replay.status === "pending" ? (
+                      <ActionForm action={act} className="" tone="quiet" submit="Stop it"
+                                  hidden={{ op: "cancel-replay", id: chosen.id, replayId: replay.id }} />
+                    ) : null}
+                  </Td>
                 </tr>
               ))}
             </Table>

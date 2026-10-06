@@ -27,13 +27,16 @@ import { work, type reporting } from "@opentradesos/core";
  * discount disappears, because the total is already net of it while the
  * ledger carries it as contra revenue somebody can see.
  *
- * Cost is the other half and it has NO ledger posting in this product.
- * `ACCOUNTS.COGS` is declared in packages/core/src/ledger and nothing debits
- * it: no code path anywhere writes a cost entry. So material cost reads from
- * `job_line.unit_cost` and labour cost from `timeclock_entry`, which are the
- * records of consumption this product actually keeps, and the statement says
- * so rather than implying a trial balance behind it. When something posts
- * COGS, these two fragments are where the reads move.
+ * Cost is the other half and it has almost no ledger posting in this
+ * product. Material cost reads from `job_line.unit_cost` and labour cost
+ * from `timeclock_entry`, which are the records of consumption this product
+ * actually keeps, and the statement says so rather than implying a trial
+ * balance behind it. The one thing that debits `ACCOUNTS.COGS` is freight or
+ * duty billed after a delivery, on parts a job already used (and the same
+ * freight leaving stock when a part carrying it is used later, or coming
+ * back off the job with a returned unit). That is cost the job's lines can
+ * never show, so material cost ADDS the job's cost of goods sold entries to
+ * the lines rather than reading one instead of the other.
  */
 /** The company's own zone, for a day in its calendar, with the fallback the session resolver uses. */
 const COMPANY_ZONE = "coalesce((select o.timezone from public.organization o where o.id = job.organization_id), 'America/Chicago')";
@@ -72,11 +75,43 @@ export const JOB_COSTING_SQL = {
    * `uncostedLines` below, so "we do not know" is visible rather than
    * arriving as zero.
    */
-  materialCost: `(
+  materialCost: `((
     select coalesce(sum(jl.quantity * jl.unit_cost), 0)
     from public.job_line jl
     where jl.job_id = job.id and jl.kind <> 'labor' and jl.unit_cost is not null
-  )`,
+  ) + (
+    /*
+     * Late freight on parts this job used, from the ledger: debits less
+     * credits on cost of goods sold tagged with the job. Nothing else posts
+     * there, so this cannot count a job line twice.
+     */
+    select coalesce(sum(case when le.direction = 'debit' then le.amount else -le.amount end), 0)
+    from public.ledger_entry le
+    where le.job_id = job.id and le.account_code = '5000'
+  ))`,
+
+  /**
+   * WHAT PEOPLE SPENT FOR THE JOB AND THE COMPANY HAS AGREED TO PAY BACK, and
+   * the per diem for the days they were away on it.
+   *
+   * Approved reimbursements only: a waiting one is not yet agreed and a
+   * refused one never will be. A per diem has no approval step, because the
+   * office recording it is the agreement. Read from the two tables rather than
+   * the ledger because neither is posted to it (M17): they are paid through
+   * payroll, and this is where an owner reads them, so a job two hours from the
+   * shop does not look more profitable than it was.
+   *
+   * A receipt for the shop, with no job, is on no job and is not here.
+   */
+  expenseCost: `((
+    select coalesce(sum(e.amount), 0)
+    from public.expense e
+    where e.job_id = job.id and e.status = 'approved'
+  ) + (
+    select coalesce(sum(pd.amount), 0)
+    from public.per_diem pd
+    where pd.job_id = job.id
+  ))`,
 
   /**
    * LABOUR AT THE RATE THAT WAS ACTUALLY APPLIED.
@@ -325,7 +360,8 @@ export const JOB_COSTING_SQL = {
  */
 export const GROSS_MARGIN_SQL =
   `(${JOB_COSTING_SQL.revenue} - ${JOB_COSTING_SQL.materialCost}`
-  + ` - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.processingFees})`;
+  + ` - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.processingFees}`
+  + ` - ${JOB_COSTING_SQL.expenseCost})`;
 
 /**
  * FULLY LOADED MARGIN: the gross margin above, less labour burden and
@@ -582,6 +618,10 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     {
       key: "processing_fees", label: "Processing fees", kind: "sum", type: "money",
       permission: "job.cost:read", sql: JOB_COSTING_SQL.processingFees,
+    },
+    {
+      key: "expense_cost", label: "Expenses and per diem", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.expenseCost,
     },
     {
       key: "gross_margin", label: "Gross margin (no overhead)", kind: "sum", type: "money",

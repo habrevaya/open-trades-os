@@ -6,9 +6,9 @@ import {
 } from "../reporting/chart.js";
 
 /**
- * THE FOUR DOCUMENTS A CUSTOMER OR AN ACCOUNTANT IS HANDED AS A FILE
+ * THE DOCUMENTS A CUSTOMER, A VENDOR OR AN ACCOUNTANT IS HANDED AS A FILE
  *
- * An invoice, a proposal, a statement and a report. Each takes the shape its
+ * An invoice, a proposal, a statement, a purchase order and a report. Each takes the shape its
  * screen already reads, built by the api from ONE function for the office and
  * the customer's link alike, so the file and the page cannot disagree about a
  * number. Nothing here reads a database or a clock it was not handed.
@@ -28,6 +28,11 @@ export interface Company {
    * Empty or absent prints nothing, never an empty label.
    */
   contact?: string[] | undefined;
+  /**
+   * The company's logo as a page can draw it (`readImage`), on every page
+   * beside the name. Absent or null prints the name alone.
+   */
+  logo?: PdfImage | null | undefined;
 }
 
 const accentOf = (company: Company): Rgb | null => (company.color ? hex(company.color) : null);
@@ -80,6 +85,7 @@ export function invoicePdf(input: InvoicePdfInput, options: RenderOptions = {}):
     company: input.company.name,
     contact: input.company.contact,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: `Invoice ${input.number}`,
     subtitle: [input.issuedOn ? `Issued ${longDate(input.issuedOn)}` : null, input.dueOn ? `Due ${longDate(input.dueOn)}` : null]
       .filter(Boolean).join(", ") || undefined,
@@ -193,6 +199,7 @@ export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}
     company: input.company.name,
     contact: input.company.contact,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: `Proposal ${input.number}`,
     subtitle: [input.issuedOn ? `Written ${longDate(input.issuedOn)}` : null, input.expiresOn ? `Good until ${longDate(input.expiresOn)}` : null]
       .filter(Boolean).join(", ") || undefined,
@@ -331,6 +338,7 @@ export function statementPdf(input: StatementPdfInput, options: RenderOptions = 
     company: input.company.name,
     contact: input.company.contact,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: "Statement",
     subtitle: `${longDate(input.from)} to ${longDate(input.to)}`,
   });
@@ -398,6 +406,174 @@ export function statementPdf(input: StatementPdfInput, options: RenderOptions = 
     title: `${input.company.name} statement for ${input.customerName}`,
     createdAt: input.generatedAt,
     footer: `${input.company.name}, statement for ${input.customerName}`,
+  }, options);
+}
+
+/* ------------------------------------------------------ purchase order */
+
+/**
+ * A PURCHASE ORDER AS THE VENDOR'S COUNTER READS IT.
+ *
+ * Their part number first, because that is what they pick by; how many in
+ * THEIR units when they sell by the pack ("2 box of 25"), with our count
+ * beside it; the price as they quote it; and where each line is going, with
+ * the street, because "deliver to Van 4" means nothing to a driver. The same
+ * fields the emailed body and the printable link carry, from the same reader.
+ */
+export interface PurchaseOrderPdfInput {
+  company: Company;
+  number: number;
+  status: string;
+  vendorName: string;
+  vendorAccount: string | null;
+  submittedAt: string | null;
+  expectedAt: string | null;
+  notes: string | null;
+  total: string;
+  lines: Array<{
+    vendorPartNumber: string | null; itemCode: string; itemName: string;
+    quantityOrdered: string; unitPrice: string; lineTotal: string; deliverTo: string;
+    /** When the vendor sells by the pack: how many packs, of how many, called what, at what each. */
+    packs?: { count: string; size: string; unit: string | null; price: string } | null | undefined;
+  }>;
+  generatedAt: Date;
+}
+
+export function purchaseOrderPdf(input: PurchaseOrderPdfInput, options: RenderOptions = {}): Uint8Array {
+  const flow = new Flow({
+    company: input.company.name,
+    contact: input.company.contact,
+    accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
+    title: `Purchase order ${input.number}`,
+    subtitle: [
+      input.submittedAt ? `Sent ${longDate(input.submittedAt)}` : null,
+      input.expectedAt ? `Wanted by ${longDate(input.expectedAt)}` : null,
+    ].filter(Boolean).join(", ") || undefined,
+  });
+
+  flow.facts([
+    ["To", input.vendorName],
+    ...(input.vendorAccount ? [["Our account", input.vendorAccount] as [string, string]] : []),
+  ]);
+  if (input.status === "cancelled") { flow.gap(6); flow.paragraph("Cancelled. Do not ship anything on this order.", { font: "bold" }); }
+  flow.gap(14);
+
+  flow.table(
+    [
+      { label: "Part", width: 90 },
+      { label: "Description" },
+      { label: "Qty", width: 92, align: "right" },
+      { label: "Each", width: 76, align: "right" },
+      { label: "Amount", width: 80, align: "right" },
+    ],
+    input.lines.map((line) => {
+      const packs = line.packs;
+      const qty = packs
+        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}\n(${quantity(line.quantityOrdered)})`
+        : quantity(line.quantityOrdered);
+      return [
+        line.vendorPartNumber ?? line.itemCode,
+        `${line.itemName}\nDeliver to ${line.deliverTo}`,
+        qty,
+        usd(packs ? packs.price : line.unitPrice),
+        usd(line.lineTotal),
+      ];
+    }),
+  );
+  flow.totals([["Total", usd(input.total), true]]);
+
+  if (input.notes) { flow.gap(12); flow.paragraph(input.notes); }
+  flow.gap(14);
+  flow.paragraph("Please confirm this order and when it will ship by replying to the email it came with.", { color: MUTED });
+
+  return flow.finish({
+    title: `${input.company.name} purchase order ${input.number}`,
+    createdAt: input.generatedAt,
+    footer: `${input.company.name}, purchase order ${input.number}`,
+  }, options);
+}
+
+/* ------------------------------------------------- a signed staff document */
+
+export interface SignedDocumentPdfInput {
+  company: Company;
+  /** The document's title, as it was when it was signed. */
+  title: string;
+  /** The exact words that were signed. */
+  body: string;
+  /** The fingerprint the signature carries: SHA-256 of the title and the words. */
+  documentHash: string;
+  /** The name as they signed it: typed, or the name on their record when drawn. */
+  signerName: string;
+  signerEmail?: string | null | undefined;
+  /** When, already written in the company's own clock and zone, "March 4, 2026 at 2:15 PM CST". */
+  signedAtText: string;
+  signedVia: "typed" | "drawn";
+  /** The drawn signature as a page can print it. Null for a typed one, or a picture a PDF cannot carry. */
+  signature?: PdfImage | null | undefined;
+  /** Where it came from, when the screen could say. Evidence, printed as kept. */
+  ipAddress?: string | null | undefined;
+  userAgent?: string | null | undefined;
+  generatedAt: Date;
+}
+
+/**
+ * A signed document, for the person who signed it or the office that asked.
+ *
+ * WHO, WHEN, HOW, AND THE WORDS, in that order, because a printed copy is read
+ * as evidence: the facts the record keeps about the signing, then the words
+ * exactly as they were shown, then the signature itself. Nothing is added to
+ * the words and nothing is left out of them. The fingerprint is the one every
+ * signature of the document carries, so a copy can be checked against the
+ * record without trusting this page.
+ */
+export function signedDocumentPdf(input: SignedDocumentPdfInput, options: RenderOptions = {}): Uint8Array {
+  const flow = new Flow({
+    company: input.company.name,
+    contact: input.company.contact,
+    accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
+    title: "Signed document",
+    subtitle: input.signedAtText,
+  });
+
+  flow.heading(input.title, 14);
+  flow.gap(4);
+  flow.facts([
+    ["Signed by", input.signerName],
+    ["Email", input.signerEmail],
+    ["Signed", input.signedAtText],
+    ["How", input.signedVia === "drawn" ? "Drew their signature on the screen" : "Typed their full name"],
+    ["From address", input.ipAddress],
+    ["Browser", input.userAgent ? fit(input.userAgent, "regular", 10, 200) : null],
+  ]);
+  flow.gap(6);
+  flow.paragraph(`Fingerprint of the words: ${input.documentHash}`, { size: 8, color: MUTED });
+  flow.gap(14);
+
+  flow.heading("The words they signed", 11);
+  flow.paragraph(input.body);
+
+  flow.gap(18);
+  flow.heading("Signature", 11);
+  if (input.signedVia === "drawn" && input.signature) {
+    flow.image(input.signature, { maxHeight: 90, caption: `Drawn by ${input.signerName}` });
+  } else if (input.signedVia === "drawn") {
+    flow.paragraph(`${input.signerName} drew their signature. The picture is kept with the record but this page cannot print it.`, { color: MUTED });
+  } else {
+    flow.paragraph(input.signerName, { font: "bold", size: 14 });
+  }
+  flow.gap(10);
+  flow.paragraph(
+    `Signing says ${input.signerName} read the words above and agreed to them, on ${input.signedAtText}.`,
+    { size: 9, color: MUTED },
+  );
+
+  return flow.finish({
+    title: `${input.company.name}: ${input.title}, signed by ${input.signerName}`,
+    createdAt: input.generatedAt,
+    footer: `${input.company.name}, ${input.title}, signed by ${input.signerName}`,
   }, options);
 }
 
@@ -517,6 +693,7 @@ export function reportPdf(input: ReportPdfInput, options: RenderOptions = {}): U
   const flow = new Flow({
     company: input.company.name,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: fit(input.name, "bold", 14, 300),
     subtitle: input.period,
   });

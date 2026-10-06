@@ -20,13 +20,19 @@ export interface TechnicianChoice {
  * service, and refused there in a sentence naming them.
  */
 export function VisitFields({
-  technicians, defaultDate, optional = false, legend = "Visit",
+  technicians, defaultDate, optional = false, legend = "Visit", memberHold = false,
 }: {
   technicians: TechnicianChoice[];
   defaultDate?: string | undefined;
   /** When the whole visit can be left blank, as on a job booked as a lead. */
   optional?: boolean;
   legend?: string;
+  /**
+   * The company holds a share of its arrival windows for members. Offers the
+   * box that books into it anyway, which the service asks for only when the
+   * time chosen is held from this customer.
+   */
+  memberHold?: boolean;
 }) {
   return (
     <fieldset className="space-y-4 rounded-md border border-steel-200 p-4">
@@ -79,6 +85,17 @@ export function VisitFields({
           <p className="mt-1 text-xs text-ink-500">Nobody ticked puts it on the board unassigned.</p>
         </div>
       )}
+      {memberHold ? (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" name="bookAnyway" className="mt-1" />
+          <span>
+            Book anyway, even into time held for members.
+            <span className="block text-xs text-ink-500">
+              Only needed when you are told the time is held. Your name goes on the record.
+            </span>
+          </span>
+        </label>
+      ) : null}
     </fieldset>
   );
 }

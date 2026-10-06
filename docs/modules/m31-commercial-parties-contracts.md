@@ -305,6 +305,29 @@ due, what is due within a day, and what is later. A clock already met since
 the worker last went round is not shown, because the read checks the facts
 itself rather than waiting for the record.
 
+## Annual escalation
+
+A contract that says rates rise by a percentage each year carries that rate in
+its terms ("Rates rise each year by, per cent" on `/contracts/{id}`). The
+contract's page then shows the next anniversary of its start date and, for every
+card in force the day before it, each listed price, hourly rate and trip charge
+now and after rising by the rate, to the cent, rounded half up once
+(`GET /v1/contracts/{contractId}/escalation`; markups are fractions of our cost and
+are kept). Nothing changes until a person presses **Apply year N prices**
+(`POST /v1/contracts/{contractId}/escalation`, `pricebook:write`), which is refused
+unless it names the anniversary and rate the page showed, so a rate changed in
+between is a different rise somebody has to look at again.
+
+Applying it writes a new version of each card, named for the year, in force from
+the anniversary, and ends the old card the day before. A card is a price list and
+is never edited in place: work done before the anniversary is priced by the old
+card and every invoice already raised keeps its prices. It can be applied from
+sixty days before the anniversary, so the prices are ready the morning they are
+owed, and any time after, for one that was missed; anniversaries are applied one
+at a time, oldest first, and the contract records the last one applied. It is
+refused, in words, when the contract has no start date or ends first, when no
+card is in force, or when a card is already loaded from the anniversary.
+
 ## Billing a job in parts
 
 `GET /v1/jobs/{id}/billing` prices every unbilled line on the job, plus a
@@ -332,6 +355,43 @@ written, and a mismatch keeps nothing. Each invoice is posted to the ledger
 on its own payer's receivable by the same path as any invoice. The job's
 authorisation applies to the payer it belongs to, and each payer's contract
 limit to theirs.
+
+**The tax follows the line to whoever pays it.** Each taxable line carries its
+own rate: the one the company's rates (M13) give the job's address and customer
+today, or one of the company's rates chosen for that line on the billing preview
+(`lineRates` on both calls, `line:<job line id>=<rate id>` or `=none`), so a job
+whose parts owe two districts' rates is billed in parts at each. A figure typed
+for the whole job (`taxRate`, as a fraction: 0.0825) still charges every taxable
+line at it. The preview shows each line's rate and offers the company's rates
+beside it. Each payer's invoice is then taxed on that payer's part of each
+taxable line at the line's rate, and a payer exempt on a certificate whose last
+day has not passed is taxed on nothing; the job customer's own exemption does
+not untax a warranty company's part. Each invoice line records which of the
+company's rates it charged, and the ledger posts each payer's tax one entry per
+rate. The tax is worked out once on the whole job,
+rounded once, and shared between the payers and then between their lines by
+largest remainder (`core/splits.taxAcross`): two payers each owing half a cent
+are not each charged a cent, so the invoices' tax adds up to exactly what one
+invoice for the whole job would charge, and every line's tax is still within a
+cent of its own rate. That is checked again after the invoices are written,
+like the total, and the ledger posts each payer's tax as collected from them.
+A limit is checked against what the invoice will carry, tax included.
+
+**A member pays their own part at the member's price (M08).** When the job's
+own customer holds a running plan with a discount, the plan's discount comes
+off the customer's own part of each line priced at our price, by the same
+rule and arithmetic as an ordinary invoice: per line, rounded to the cent, with
+what the plan leaves out left out and a waived fee waived. A third party's
+part is priced by its own authority and never takes it, and neither does the
+customer's share of a line a third party's schedule priced, such as the
+deductible on covered work, because that figure is the third party's terms. A
+property manager or landlord billed for the job is not the member. It is
+taken before the tax is shared, so each payer is taxed on what they actually
+pay. The preview shows it on the customer's part as "Member discount" with
+the plan named (`memberDiscount` on the payer and the plan, `member` naming
+the agreement), the invoice line carries it as its member discount naming
+the agreement, and the check after the invoices are written counts it: the
+invoices, the member discount and anything absorbed come to the priced work.
 
 Billing is refused while the preview lists a problem, with the problem as the
 reason: covered work with nobody named to pay it, a payer with no customer
@@ -415,16 +475,23 @@ Ariba or Coupa punchout, or a facilities network's invoice API, and the
 being claimed by a file somebody downloaded. The XML is this product's own
 shape, not any standard's.
 
-**No annual escalation.** A contract's escalation rate is stored and nothing
-applies it to the card; next year's rates are loaded as next year's card.
+**Escalation is one rate, applied by a person.** Nothing applies it on its own on
+the anniversary or raises a task when one is due; the contract's page shows it
+from sixty days ahead. A contract whose rises differ by year, or by trade, loads
+next year's card by hand. A rate typed with more than four decimal places of a
+percentage is rounded when it is saved.
 
-**Tax on a split.** Sales tax is not yet resolved by jurisdiction anywhere in
-the product, so a split is cut before tax and each payer's invoice carries
-its own (zero) tax. A taxable split will need the tax worked out on each part.
+**Tax rates on a split.** Each line is billed at its own rate, but the rates
+are the company's own: nothing looks up a jurisdiction's rate, and a line taxed
+at a different district's rate is chosen for it on the preview by a person. A
+payer is exempt for everything or nothing, as the customer record says, and
+nothing taxes one payer's part of a line at a different rate from another's.
 
-**Member pricing on a job billed in parts.** The plan discount is applied to
-an invoice raised the ordinary way, and not when a job is billed by payer:
-there, every line is priced once by the payer's authority before it is cut.
+**Member pricing on the deductible.** The plan discount comes off the
+customer's own part of a job billed by payer at our price, and never off their
+share of a line a third party's schedule priced, so a member's deductible is
+never discounted. Whether a plan should reduce a deductible is the warranty
+company's terms and the company's decision, and nobody has made it.
 
 **Labour beyond an allowance.** A manufacturer's allowance pays the card's
 listed price for the repair; the minutes it allows are shown, and time worked

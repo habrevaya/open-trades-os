@@ -31,8 +31,10 @@ import { leadConnectorRoutes } from "./lead-connectors";
 import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
 import { financeRoutes } from "./finance";
+import { taxRoutes } from "./tax";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
+import { expenseRoutes } from "./expenses";
 import { payRuleRoutes } from "./pay-rules";
 import { aiRoutes } from "./ai";
 import { agentRoutes } from "./agents";
@@ -77,6 +79,8 @@ import { contactRoutes } from "./contacts";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
 import { customerPortalRoutes } from "./customer-portal";
+import { cardOnFileRoutes } from "./card-on-file";
+import { portalLayoutRoutes } from "./portal-layout";
 import { portalAccessRoutes } from "./portal-access";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
@@ -84,6 +88,9 @@ import { phoneMenuRoutes } from "./phone-menus";
 import { callHandlingRoutes } from "./call-handling";
 import { safetyRoutes } from "./safety";
 import { retentionRoutes } from "./retention";
+import { holidayRoutes } from "./holidays";
+import { afterHoursRoutes } from "./after-hours";
+import { safetyTalkRoutes } from "./safety-talks";
 import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
@@ -94,6 +101,7 @@ import { proposalTemplateRoutes } from "./proposal-templates";
 import { sandboxRoutes } from "./sandbox";
 
 export * from "./common";
+export * from "./export";
 export * from "./visits";
 export * from "./customers";
 export * from "./properties";
@@ -132,8 +140,10 @@ export * from "./lead-connectors";
 export * from "./invoice-delivery";
 export * from "./profitability";
 export * from "./finance";
+export * from "./tax";
 export * from "./crews";
 export * from "./payroll";
+export * from "./expenses";
 export * from "./pay-rules";
 export * from "./ai";
 export * from "./agents";
@@ -150,6 +160,9 @@ export * from "./service-reports";
 export * from "./reports";
 export * from "./safety";
 export * from "./retention";
+export * from "./holidays";
+export * from "./after-hours";
+export * from "./safety-talks";
 export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
@@ -162,9 +175,12 @@ export * from "./agreements";
 export * from "./visit-changes";
 export * from "./customer-tags";
 export * from "./contacts";
+export * from "./equipment";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
 export * from "./customer-portal";
+export * from "./card-on-file";
+export * from "./portal-layout";
 export * from "./portal-access";
 export * from "./setup";
 export * from "./branches";
@@ -235,8 +251,10 @@ export const routes = {
   ...invoiceDeliveryRoutes,
   ...profitabilityRoutes,
   ...financeRoutes,
+  ...taxRoutes,
   ...crewRoutes,
   ...payrollRoutes,
+  ...expenseRoutes,
   ...payRuleRoutes,
   ...aiRoutes,
   ...agentRoutes,
@@ -277,6 +295,8 @@ export const routes = {
   ...priceBookBulkRoutes,
   ...taskRuleRoutes,
   ...customerPortalRoutes,
+  ...cardOnFileRoutes,
+  ...portalLayoutRoutes,
   ...portalAccessRoutes,
   ...setupRoutes,
   ...branchRoutes,
@@ -285,6 +305,9 @@ export const routes = {
   ...directMailRoutes,
   ...safetyRoutes,
   ...retentionRoutes,
+  ...holidayRoutes,
+  ...afterHoursRoutes,
+  ...safetyTalkRoutes,
   ...stockTrackingRoutes,
   ...purchasingRoutes,
   ...rentalBillingRoutes,

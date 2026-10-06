@@ -5,8 +5,10 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
+import { invoiceFileWithin } from "./documents";
 import * as email from "./email";
 import * as payments from "./payments";
+import { pendingBankPayments } from "./payments";
 import * as tips from "./tips";
 import {
   consume, inGrant, mintGrant, peek, requireScope, type ResolvedGrant,
@@ -344,6 +346,7 @@ function compose(input: {
     `${action}:`,
     url,
     "",
+    "A copy of the invoice is attached as a PDF.",
     /**
      * Named rather than left implicit. A customer who cannot open a link
      * needs to know who to ring, and an invoice email with no sender in the
@@ -365,8 +368,8 @@ function compose(input: {
     `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 20px;`
     + `background:${escapeHtml(fill)};color:${escapeHtml(onFill)};text-decoration:none;`
     + `border-radius:6px">${escapeHtml(action)}</a></p>`,
-    `<p style="font-size:14px;color:#4b5563">This link opens your invoice without an `
-    + `account. Reply to this email if anything looks wrong.</p>`,
+    `<p style="font-size:14px;color:#4b5563">A copy of the invoice is attached as a PDF. `
+    + `This link opens your invoice without an account. Reply to this email if anything looks wrong.</p>`,
     `<p style="font-size:14px;color:#4b5563">${escapeHtml(organizationName)}</p>`,
     `</div>`,
   ].join("");
@@ -638,6 +641,13 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
      * and is why the refusal below is a real outcome rather than a
      * formality.
      */
+    /**
+     * THE INVOICE ITSELF, ATTACHED, as the customer's copy prints it from
+     * their link: the same reader, so nothing on it is anything their link
+     * would not show. A bookkeeper files the file, and an accounts payable
+     * clerk will not follow a link to fetch one.
+     */
+    const printed = await invoiceFileWithin(tx, ctx.actor.organizationId, invoice.id);
     const outcome = await email.queue(transportContext(ctx, tx), {
       to,
       subject: composed.subject,
@@ -645,6 +655,7 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
       html: composed.html,
       purpose: "transactional",
       customerId: invoice.payerCustomerId ?? invoice.customerId,
+      attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
     });
 
     if (!outcome.queued) {
@@ -1124,6 +1135,12 @@ export interface PortalInvoice {
   tips: PortalInvoiceTip[];
   /** Whether the pay button should appear at all. */
   payable: boolean;
+  /**
+   * A bank payment for this invoice that the bank has not confirmed. The
+   * page says the payment is on its way rather than asking for it again,
+   * and the invoice cannot be paid a second way until the bank answers.
+   */
+  paymentOnItsWay: { amount: string; startedAt: string } | null;
   /** False when the company has connected no processor. Nothing to click. */
   onlinePaymentAvailable: boolean;
   /** What the pay control offers as a tip, when the company takes them. */
@@ -1237,8 +1254,10 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
      * A positive balance on a void or written off invoice is not money the
      * customer owes, and a pay button there takes it anyway.
      */
+    const [onItsWay] = await pendingBankPayments(tx, { invoiceIds: [invoiceId] });
     const payable = (invoice.status === "open" || invoice.status === "partially_paid")
-      && m.isPositive(m.money(invoice.balance, invoice.currency));
+      && m.isPositive(m.money(invoice.balance, invoice.currency))
+      && !onItsWay;
 
     return {
       organizationName: org?.name ?? "",
@@ -1258,6 +1277,7 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
       payments,
       tips: tipRows.map((t) => ({ receivedAt: t.receivedAt.toISOString(), amount: t.amount })),
       payable,
+      paymentOnItsWay: onItsWay ? { amount: onItsWay.amount, startedAt: onItsWay.startedAt.toISOString() } : null,
       onlinePaymentAvailable: payable && await processorConnected(tx),
       tipping: payable
         ? await tips.offerFor(tx, grant.organizationId, invoiceId, m.money(invoice.balance, invoice.currency))

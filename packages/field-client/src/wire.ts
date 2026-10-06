@@ -57,6 +57,12 @@ export interface FieldVisit {
    * for a customer who is not a member.
    */
   member?: MemberTerms | null | undefined;
+  /**
+   * The sales tax a sale on this visit is charged today, worked out by the
+   * server from the company's rates. Absent from older servers, which
+   * charged none on recorded work.
+   */
+  tax?: VisitTax | undefined;
   /** Estimates to show the customer. Absent from older servers. */
   estimates?: FieldEstimate[] | undefined;
   /** Parts and charges on the job not yet billed. Absent from older servers. */
@@ -65,12 +71,26 @@ export interface FieldVisit {
   invoices?: FieldInvoice[] | undefined;
 }
 
+export interface VisitTax {
+  /** A fraction, "0.0825". "0" when nothing is charged. */
+  rate: string;
+  /** As typed on the builder: "8.25". */
+  percent: string;
+  /** "Travis County 8.25%", or null when it is none of the company's rates. */
+  label: string | null;
+  source: string;
+  /** Why, in a sentence. */
+  note: string;
+}
+
 export interface MemberTerms {
   planName: string;
   /** The discount as a fraction, "0.15". */
   rate: string;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+  /** The price book items the plan's discount leaves out. Absent from older servers. */
+  excludedItemIds?: string[] | undefined;
 }
 
 export interface FieldEstimateLine {
@@ -118,6 +138,8 @@ export interface BillableLine {
   taxable: boolean;
   itemKind: string | null;
   feeRole: string | null;
+  /** The price book item, for what the plan's discount leaves out. Absent from older servers. */
+  itemId?: string | null | undefined;
 }
 
 export interface FieldInvoice {
@@ -142,6 +164,20 @@ export interface FieldTask {
   checklistDone: number;
 }
 
+/** A toolbox talk this person is on the sheet for: their own line and nothing about anybody else's. */
+export interface FieldTalk {
+  meetingId: string;
+  topic: string;
+  /** What the talk covered, which the person reads before signing. */
+  notes: string | null;
+  heldAt: string;
+  location: string | null;
+  ledBy: string | null;
+  signedAt: string | null;
+  /** Why it cannot be signed now, in the server's words, or null when it can. */
+  cannotSign: string | null;
+}
+
 /** What this person may do on site, as the server said with the day. */
 export interface FieldAbilities {
   writeEstimates: boolean;
@@ -152,6 +188,21 @@ export interface FieldAbilities {
   tipping: { enabled: boolean; presets: number[] };
   financing: boolean;
   assistant: boolean;
+  /** Whether this person may record what they paid for the company. Absent from older servers, which is read as no. */
+  expenses?: boolean | undefined;
+}
+
+/** One of this person's own expenses and what the office said, as the server last said. */
+export interface FieldExpense {
+  id: string;
+  amount: string;
+  spentOn: string;
+  description: string;
+  jobNumber: number | null;
+  status: "pending" | "approved" | "refused";
+  /** Why it was refused, in the office's words. */
+  decisionReason: string | null;
+  receipts: number;
 }
 
 export interface FiledInspection {
@@ -234,8 +285,12 @@ export interface FieldSnapshot {
   locationSharing?: LocationSharing | undefined;
   /** The office queue. Absent from older servers. */
   tasks?: FieldTask[] | undefined;
+  /** Toolbox talks on this person's sheet. Absent from older servers. */
+  talks?: FieldTalk[] | undefined;
   /** What this person may do on site. Absent from older servers, which is read as nothing new. */
   abilities?: FieldAbilities | undefined;
+  /** This person's own expenses from the last sixty days. Absent from older servers. */
+  expenses?: FieldExpense[] | undefined;
 }
 
 export interface CodeRequestResult {

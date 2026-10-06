@@ -147,3 +147,39 @@ describe("the key a drive time is cached under", () => {
     expect(geo.coordinateKey({ lat: -0.00001, lng: 12 })).toBe("0.0000,12.0000");
   });
 });
+
+describe("the path taken today, and how much is kept", () => {
+  const point = (minute: number, lat: number, lng = -97.74) => ({ lat, lng, at: new Date(Date.UTC(2026, 9, 6, 14, minute)) });
+
+  it("draws a parked stretch as one point and still ends where they are", () => {
+    const trail = location.trailOf([
+      point(0, 30.2), point(1, 30.21), point(2, 30.21), point(3, 30.21), point(4, 30.21000001),
+    ]);
+    expect(trail.map((p) => p.at.getUTCMinutes())).toEqual([0, 1, 4]);
+  });
+
+  it("puts the points in time order whatever order they came in", () => {
+    const trail = location.trailOf([point(5, 30.25), point(0, 30.2), point(3, 30.22)]);
+    expect(trail.map((p) => p.at.getUTCMinutes())).toEqual([0, 3, 5]);
+  });
+
+  it("thins a long day evenly to the most a line carries, keeping the first and the last", () => {
+    const many = Array.from({ length: 2000 }, (_, i) => ({ lat: 30 + i * 0.001, lng: -97.74, at: new Date(Date.UTC(2026, 9, 6, 6, 0, i * 20)) }));
+    const trail = location.trailOf(many, 100);
+    expect(trail).toHaveLength(100);
+    expect(trail[0]).toBe(many[0]);
+    expect(trail.at(-1)).toBe(many.at(-1));
+  });
+
+  it("keeps no two positions closer than half the interval, and the same instant is not too soon", () => {
+    expect(location.minGapSeconds(60)).toBe(30);
+    expect(location.minGapSeconds(15)).toBe(7);
+    expect(location.minGapSeconds(4)).toBe(5);
+    expect(location.maxPerDay(60)).toBe(2880);
+    const kept = [new Date("2026-10-06T14:00:00Z")];
+    expect(location.tooSoon(new Date("2026-10-06T14:00:20Z"), kept, 30)).toBe(true);
+    expect(location.tooSoon(new Date("2026-10-06T13:59:40Z"), kept, 30)).toBe(true);
+    expect(location.tooSoon(new Date("2026-10-06T14:00:30Z"), kept, 30)).toBe(false);
+    expect(location.tooSoon(new Date("2026-10-06T14:00:00Z"), kept, 30)).toBe(false);
+  });
+});

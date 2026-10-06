@@ -50,6 +50,12 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
   ]);
   const hidden = { id };
   const scheduled = item.versions.some((v) => v.state === "scheduled");
+  /** A kit's parts by name and code, read one by one: a kit has a handful. */
+  const parts = await Promise.all(item.components.map(async (part) => {
+    const found = await priceBook.detail(ctx, { id: part.itemId }).catch(() => null);
+    return { ...part, code: found?.code ?? "", name: found?.name ?? "An item no longer in the book" };
+  }));
+  const PART_ROWS = Math.max(parts.length + 2, 4);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -117,6 +123,42 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
         </Table>
       </section>
 
+      {parts.length > 0 || writes ? (
+        <section aria-label="What is in the kit" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="text-sm font-semibold">What is in the kit</h2>
+          {parts.length > 0 ? (
+            <ul className="mt-2 space-y-0.5 text-sm">
+              {parts.map((part) => (
+                <li key={part.itemId}>
+                  {part.quantity} &times; <a href={`/pricebook/items/${part.itemId}`} className="hover:underline">
+                    <span className="font-mono text-ink-500">{part.code}</span> {part.name}</a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-sm text-ink-700">Nothing: this item is not a kit. Add the items it is made up of to make it one.</p>
+          )}
+          {writes ? (
+            <ActionForm action={actOnItem} submit="Save the parts as a new version" hidden={{ ...hidden, op: "components" }}
+                        className="mt-3 space-y-3">
+              <p className="text-sm text-ink-700">
+                By each item&apos;s code. Saved as a new version like a price change, so an estimate already written keeps
+                the kit it was written with. Leave a row empty to take a part off.
+              </p>
+              {Array.from({ length: PART_ROWS }, (_, i) => (
+                <div key={i} className="grid gap-3 sm:grid-cols-[1fr_8rem]">
+                  <TextField label={`Part ${i + 1} code`} name={`partCode${i}`} defaultValue={parts[i]?.code ?? ""} maxLength={60} />
+                  <TextField label={`Part ${i + 1} how many`} name={`partQuantity${i}`} inputMode="decimal"
+                             defaultValue={parts[i] ? String(parts[i]!.quantity) : ""} />
+                </div>
+              ))}
+              <TextField label="Takes effect (leave empty for now)" name="effectiveOn" type="date"
+                         min={todayIn(user.organizationTimezone)} className="block w-56" />
+            </ActionForm>
+          ) : null}
+        </section>
+      ) : null}
+
       {writes ? (
         <section aria-label="What it is" className="mt-8 rounded-md border border-steel-200 p-4">
           <h2 className="text-sm font-semibold">What it is</h2>
@@ -148,7 +190,20 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                   <Td>{link.vendorName}</Td>
                   <Td className="font-mono">{link.partNumber}</Td>
                   <Td className="text-ink-700">{link.description ?? ""}</Td>
-                  <Td className="text-right"><Money value={link.cost} muted /></Td>
+                  <Td className="text-right">
+                    <Money value={link.cost} muted />
+                    {Number(link.packQuantity) !== 1 ? (
+                      <div className="text-xs text-ink-500">
+                        a {link.purchaseUnit ?? "pack"} of {Number(link.packQuantity)}
+                        {link.eachCost ? <>, <Money value={link.eachCost} muted /> each</> : null}
+                      </div>
+                    ) : null}
+                    {link.priceBreaks.length > 0 ? (
+                      <div className="text-xs text-ink-500">
+                        {link.priceBreaks.map((b) => `${Number(b.minimum)}+ at ${Number(b.cost).toFixed(2)}`).join(", ")}
+                      </div>
+                    ) : null}
+                  </Td>
                   <Td>
                     {writesVendors ? (
                       <ActionForm action={actOnItem} submit="Forget" tone="quiet"
@@ -166,7 +221,12 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                 <TextField label="Their part number" name="partNumber" required maxLength={100} />
                 <TextField label="Their price for one" name="vendorCost" inputMode="decimal" />
                 <TextField label="Their description" name="vendorDescription" maxLength={500} />
+                <TextField label="How many come in one of theirs" name="packQuantity" inputMode="decimal" placeholder="1" />
+                <TextField label="What they call it" name="purchaseUnit" placeholder="box" maxLength={40} />
               </div>
+              <p className="text-xs text-ink-500">
+                When they sell it by the box, their price is for the box and orders to them go in whole boxes.
+              </p>
             </ActionForm>
           ) : null}
         </section>

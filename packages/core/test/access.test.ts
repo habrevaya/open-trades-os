@@ -48,6 +48,10 @@ describe("technicians never see money they should not", () => {
     expect(can(tech, "payment:collect")).toBe(true);
   });
 
+  it("cannot charge a customer's saved card, which is the office's to do and only with the customer's agreement", () => {
+    expect(can(tech, "payment:charge_saved")).toBe(false);
+  });
+
   it("is scoped to their own records", () => {
     expect(effectiveScope(tech, "job")).toBe("own");
     expect(effectiveScope(tech, "customer")).toBe("own");
@@ -199,11 +203,12 @@ describe("assertCan", () => {
 });
 
 describe("a read only actor (the public demo)", () => {
-  it("the readonly preset is reads and a person's own profile and pay, and read only keeps only the reads", () => {
+  it("the readonly preset is reads and a person's own profile, pay and expenses, and read only keeps only the reads", () => {
     const preset = ROLE_PRESETS.readonly.permissions;
-    // Every preset carries the self service pair; for the demo's shared user
-    // they would be editing a profile every visitor shares, so they go.
-    expect(preset.filter((p) => !isReadPermission(p)).sort()).toEqual(["payroll:own", "profile:own"]);
+    // Every preset carries the self service set; for the demo's shared user
+    // they would be editing a profile, or claiming expenses, every visitor
+    // shares, so they go.
+    expect(preset.filter((p) => !isReadPermission(p)).sort()).toEqual(["expense:own", "payroll:own", "profile:own"]);
     const demo = permissionsFor(actor(["readonly"], { readOnly: true }));
     expect([...demo].sort()).toEqual(preset.filter(isReadPermission).sort());
   });

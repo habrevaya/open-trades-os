@@ -37,12 +37,26 @@ export interface FakeIntent {
   currency: string;
   metadata: Record<string, string>;
   authorization: string | undefined;
+  /** Whether the server charged a saved card with nobody on the page. */
+  offSession: boolean;
+  /** The key the server sent, which is what makes a retried charge the same charge. */
+  idempotencyKey: string | undefined;
+}
+
+export interface FakeRefund {
+  id: string;
+  paymentIntent: string;
+  amount: number;
+  /** The key the server sent, which is what makes a retried refund the same refund. */
+  idempotencyKey: string | undefined;
 }
 
 export interface FakeStripe {
   /** What the server would use as Stripe's API root. */
   baseUrl: string;
   intents: FakeIntent[];
+  /** Refunds the server asked for, in order. */
+  refunds: FakeRefund[];
   /** Bank accounts and cards saved through a setup, by setup id. */
   setups: Map<string, { customer: string; kind: string }>;
   close(): Promise<void>;
@@ -50,6 +64,7 @@ export interface FakeStripe {
 
 export async function fakeStripeApi(): Promise<FakeStripe> {
   const intents: FakeIntent[] = [];
+  const refunds: FakeRefund[] = [];
   const setups = new Map<string, { customer: string; kind: string }>();
   const stamp = Date.now().toString(36);
   const json = (response: import("node:http").ServerResponse, value: unknown) => {
@@ -93,6 +108,28 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
         });
         return;
       }
+      /*
+        A refund against a charge: pending, as Stripe answers, and settled
+        only by the signed event the spec sends afterwards. The same key twice
+        is the same refund, as it is at Stripe.
+      */
+      if (request.method === "POST" && request.url === "/v1/refunds") {
+        const params = new URLSearchParams(body);
+        const key = request.headers["idempotency-key"];
+        const again = typeof key === "string" ? refunds.find((r) => r.idempotencyKey === key) : undefined;
+        const refund = again ?? {
+          id: `re_e2e_${stamp}_${refunds.length + 1}`,
+          paymentIntent: params.get("payment_intent") ?? "",
+          amount: Number(params.get("amount")),
+          idempotencyKey: typeof key === "string" ? key : undefined,
+        };
+        if (!again) refunds.push(refund);
+        json(response, {
+          id: refund.id, object: "refund", amount: refund.amount, currency: "usd",
+          payment_intent: refund.paymentIntent, status: "pending",
+        });
+        return;
+      }
       if (request.method !== "POST" || request.url !== "/v1/payment_intents") {
         response.writeHead(404, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: { message: `The fake has no ${request.method} ${request.url}` } }));
@@ -117,6 +154,8 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
         currency: params.get("currency") ?? "usd",
         metadata,
         authorization: request.headers.authorization,
+        offSession: params.get("off_session") === "true",
+        idempotencyKey: typeof request.headers["idempotency-key"] === "string" ? request.headers["idempotency-key"] : undefined,
       };
       intents.push(intent);
       /*
@@ -138,6 +177,7 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     intents,
+    refunds,
     setups,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
@@ -227,6 +267,25 @@ export function succeeded(intent: FakeIntent): { body: string; signature: string
         status: "succeeded", metadata: intent.metadata,
         // A string, as a webhook carries it: Stripe expands nothing it is not asked to.
         latest_charge: `ch_${intent.id}`,
+      },
+    },
+  });
+  const v1 = createHmac("sha256", E2E_STRIPE_ENV.STRIPE_WEBHOOK_SECRET).update(`${created}.${body}`).digest("hex");
+  return { body, signature: `t=${created},v1=${v1}` };
+}
+
+/** Stripe's `refund.updated` for a refund that has gone through, signed as Stripe signs it. */
+export function refundSucceeded(refund: FakeRefund): { body: string; signature: string } {
+  const created = Math.floor(Date.now() / 1000);
+  const body = JSON.stringify({
+    id: `evt_e2e_${refund.id}`,
+    object: "event",
+    type: "refund.updated",
+    created,
+    data: {
+      object: {
+        id: refund.id, object: "refund", amount: refund.amount, currency: "usd",
+        payment_intent: refund.paymentIntent, status: "succeeded", created,
       },
     },
   });

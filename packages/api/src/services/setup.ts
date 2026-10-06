@@ -267,6 +267,8 @@ export interface TaxRow {
   code: string;
   name: string;
   category: string | null;
+  categoryId: string | null;
+  categoryTaxable: boolean | null;
   taxable: boolean;
   taxClass: string | null;
 }
@@ -282,6 +284,8 @@ export async function taxTable(ctx: ServiceContext): Promise<TaxRow[]> {
       code: schema.priceBookItem.code,
       name: schema.priceBookItemVersion.name,
       category: schema.priceBookCategory.name,
+      categoryId: schema.priceBookCategory.id,
+      categoryTaxable: schema.priceBookCategory.taxable,
       taxable: schema.priceBookItemVersion.taxable,
       taxClass: schema.priceBookItemVersion.taxClass,
     }).from(schema.priceBookItem)
@@ -308,13 +312,17 @@ export async function taxTable(ctx: ServiceContext): Promise<TaxRow[]> {
  * are left alone, so this does not mint a version of every item in a
  * category to change three of them.
  *
- * No rate here, deliberately. A rate is set on the document it is charged on,
- * because rates are the jurisdiction's and determining them is a thing this
- * project has decided not to build (BUILD.md). What an item can say is
- * whether it is taxable at all and which kind of thing it is.
+ * No rate here. The rates are the company's own (`services/tax.ts`), charged
+ * on whatever this says is taxable; working out which rate the law applies
+ * is a thing this project has decided not to build (BUILD.md). What an item
+ * says is whether it is taxable at all and which kind of thing it is.
+ *
+ * A whole shelf set at once also writes the answer on the shelf, so an item
+ * added to it next month is taxed as its neighbours are without anybody
+ * remembering to say so.
  */
 export async function setItemTax(
-  ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null },
+  ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null; categoryId?: string | undefined },
 ): Promise<{ changed: number }> {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
     const seen = await replayed<{ changed: number }>(tx, ctx, "item_tax");
@@ -340,6 +348,20 @@ export async function setItemTax(
       if (row.version.taxable === input.taxable && (row.version.taxClass ?? null) === taxClass) continue;
       await reviseWithin(tx, ctx, row, { taxable: input.taxable, taxClass }, now);
       changed += 1;
+    }
+    if (input.categoryId) {
+      const [shelf] = await tx.select().from(schema.priceBookCategory)
+        .where(and(eq(schema.priceBookCategory.id, input.categoryId), isNull(schema.priceBookCategory.deletedAt))).limit(1);
+      if (!shelf) throw new NotFoundError("Price book category");
+      if (rows.some((r) => r.item.categoryId !== shelf.id)) {
+        throw new ConflictError(`Some of those items are not on ${shelf.name}.`);
+      }
+      if (shelf.taxable !== input.taxable) {
+        const [after] = await tx.update(schema.priceBookCategory).set({ taxable: input.taxable, updatedAt: now })
+          .where(eq(schema.priceBookCategory.id, shelf.id)).returning();
+        await audit(tx, ctx, "pricebook.category_tax_set", "price_book_category", shelf.id,
+          { taxable: shelf.taxable }, { taxable: after!.taxable });
+      }
     }
     const answer = { changed };
     await remember(tx, ctx, "item_tax", null, answer);
@@ -384,6 +406,8 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
     .where(and(eq(schema.businessHours.organizationId, org), eq(schema.businessHours.closed, false))));
   const windows = await count(tx.select({ n }).from(schema.arrivalWindow)
     .where(eq(schema.arrivalWindow.organizationId, org)));
+  const holidays = await count(tx.select({ n }).from(schema.companyHoliday)
+    .where(eq(schema.companyHoliday.organizationId, org)));
   const people = await count(tx.select({ n }).from(schema.membership)
     .where(and(eq(schema.membership.organizationId, org), eq(schema.membership.active, true))));
   const branches = await count(tx.select({ n }).from(schema.businessUnit)
@@ -403,6 +427,20 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
       isNull(schema.priceBookItem.deletedAt),
       eq(schema.priceBookItem.active, true),
     ));
+
+  /** The two rates by name, read off the items they point at. */
+  const [rates] = await tx.select({
+    afterHours: schema.afterHoursRate.afterHoursItemId,
+    holiday: schema.afterHoursRate.holidayItemId,
+  }).from(schema.afterHoursRate).where(eq(schema.afterHoursRate.organizationId, org)).limit(1);
+  const itemName = async (id: string | null | undefined) => {
+    if (!id) return null;
+    const [item] = await tx.select({ code: schema.priceBookItem.code }).from(schema.priceBookItem)
+      .where(eq(schema.priceBookItem.id, id)).limit(1);
+    return item?.code ?? null;
+  };
+  const afterHoursCode = await itemName(rates?.afterHours);
+  const holidayCode = await itemName(rates?.holiday);
 
   const connections = await tx.select({
     capability: schema.integrationConnection.capability,
@@ -434,6 +472,7 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
     hours: [
       hours > 0 ? `Open ${plural(hours, "day")} a week.` : "No opening hours set.",
       windows > 0 ? `${plural(windows, "arrival window")} offered.` : "No arrival windows yet.",
+      holidays > 0 ? `${plural(holidays, "holiday")} on the list.` : "No holidays on the list.",
     ],
     team: [
       `${plural(people, "person", "people")} can sign in.`,
@@ -449,6 +488,10 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
           ...((book?.unclassed ?? 0) > 0 ? [`${plural(book!.unclassed, "taxable item")} with no class.`] : []),
         ]
       : ["Nothing in the price book to tax yet."],
+    rates: [
+      afterHoursCode ? `After hours, ${afterHoursCode} is offered.` : "No after hours rate chosen.",
+      holidayCode ? `On a holiday, ${holidayCode} is offered.` : "No holiday rate chosen.",
+    ],
     payments: [connected("payments").length > 0 ? `${connected("payments").join(", ")} connected.` : "No card processor connected."],
     communications: [
       connected("messaging").length > 0 ? `Texting through ${connected("messaging").join(", ")}.` : "No texting provider connected.",
@@ -476,6 +519,6 @@ export const handlers = {
   getCompanyDetails: (ctx: ServiceContext) => details(ctx),
   updateCompanyDetails: (ctx: ServiceContext, input: CompanyDetailsInput) => updateDetails(ctx, input),
   listItemTax: async (ctx: ServiceContext) => ({ items: await taxTable(ctx) }),
-  setItemTax: (ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null }) =>
+  setItemTax: (ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null; categoryId?: string | undefined }) =>
     setItemTax(ctx, input),
 } as const;

@@ -20,6 +20,7 @@ export async function setTax(_previous: FormState, form: FormData): Promise<Form
         itemIds: fields(form, "itemId"),
         taxable: form.get("taxable") === "yes",
         taxClass: taxClass === "" ? null : taxClass,
+        ...(form.get("categoryId") ? { categoryId: String(form.get("categoryId")) } : {}),
       },
     );
     return {

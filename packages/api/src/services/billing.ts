@@ -1,12 +1,13 @@
 import { and, asc, eq, desc, lt, gte, lte, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { authorization as authz, coverage, history, ledger, membership, money as m, rates, splits, time } from "@opentradesos/core";
+import { authorization as authz, coverage, history, ledger, membership, money as m, rates, splits, tax, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
+import * as retainage from "./retainage";
 import { listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
@@ -19,7 +20,8 @@ import { claimNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
-import { memberPricingWithin } from "./agreements";
+import { exclusionTestWithin, memberPricingWithin } from "./agreements";
+import * as taxRates from "./tax";
 import type {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
   updateInvoice, issueInvoice, deleteInvoice,
@@ -85,6 +87,26 @@ export interface PreparedLine {
   note: string | null;
   rateCardId: string | null;
   rateCardLineId: string | null;
+  /**
+   * The tax the caller already worked out for this line: a job billed in
+   * parts shares the tax on the whole job between its payers so the invoices
+   * add up (`core/splits.taxAcross`). Still checked against the rate by
+   * `computeInvoice`, which refuses a stated tax a cent or more from it.
+   */
+  taxRate?: string | undefined;
+  taxAmount?: m.Money | undefined;
+  /** Which of the company's rates that is, and where it came from, as `invoice_line` records them. */
+  taxRateId?: string | null | undefined;
+  taxSource?: tax.TaxSource | null | undefined;
+  /**
+   * The member discount the caller already took off this payer's part: a job
+   * billed in parts prices the customer's own part for their plan before the
+   * tax is shared, so the invoices still add up to the work. Written onto
+   * the line as its member discount, naming the agreement, as a discount the
+   * plan gave rather than one somebody typed.
+   */
+  memberDiscountAmount?: m.Money | undefined;
+  memberAgreementId?: string | undefined;
 }
 
 /**
@@ -119,6 +141,13 @@ export async function createIn(
     tx, ctx, input, undefined,
     admitted.historical || input.externalRef || options.memberPricing === false ? null : issuedOn,
     options,
+    /**
+     * Taxed from the company's rates on the invoice's date, unless it is
+     * history: an invoice recorded from another system charged what it
+     * charged, and a rate worked out today would make it disagree with the
+     * customer's copy, exactly as member pricing would.
+     */
+    { on: issuedOn, fromTable: !(admitted.historical || input.externalRef) },
   );
 
   /**
@@ -247,6 +276,10 @@ export async function createIn(
       invoiceId: invoice!.id, customerId: input.customerId, jobId: input.jobId ?? null,
       totals: computed.totals, issuedOn, timeZone: admitted.timeZone, now,
       historical: admitted.historical, ceiling,
+      taxByRate: tax.byRate(resolved.map((r, i) => ({
+        taxable: r.taxable, taxRate: r.taxRate, taxRateId: r.taxRateId,
+        base: computed.lines[i]!.lineTotal, tax: computed.lines[i]!.taxAmount,
+      })), computed.totals.taxTotal),
     });
   }
 
@@ -312,6 +345,8 @@ async function writeLines(
     taxable: r.taxable,
     taxRate: r.taxRate,
     taxAmount: m.toString(computed.lines[i]!.taxAmount),
+    taxRateId: r.taxRateId,
+    taxSource: r.taxSource,
     lineTotal: m.toString(computed.lines[i]!.lineTotal),
     costCode: r.costCode,
     priceBookItemVersionId: r.versionId,
@@ -386,6 +421,8 @@ async function postIssue(
     totals: ledger.InvoiceTotals; issuedOn: string; timeZone: string; now: Date;
     historical: boolean;
     ceiling: Awaited<ReturnType<typeof commercial.ceilingFor>>;
+    /** The tax by rate, so sales tax payable is posted one entry per rate. */
+    taxByRate: readonly tax.RateTotal[];
   },
 ): Promise<void> {
   /**
@@ -400,6 +437,7 @@ async function postIssue(
     totals: input.totals,
     customerId: input.customerId,
     jobId: input.jobId ?? undefined,
+    taxByRate: input.taxByRate,
   }));
 
   if (input.jobId) {
@@ -480,6 +518,11 @@ export async function updateDraft(ctx: ServiceContext, input: z.infer<typeof upd
     if (input.lines?.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
       requireImport(ctx);
     }
+    if (input.taxRateId !== undefined && !input.lines) {
+      throw new UnprocessableError("A rate is charged on lines", [{
+        path: "taxRateId", message: "Send the draft's lines with the rate, so they are priced again at it.",
+      }]);
+    }
 
     let totals: ledger.InvoiceTotals | null = null;
     if (input.lines) {
@@ -519,17 +562,34 @@ async function pricedForDraft(
     customerId: draft.customerId,
     ...(draft.jobId ? { jobId: draft.jobId } : {}),
     lines: input.lines!,
+    ...(input.taxRateId !== undefined ? { taxRateId: input.taxRateId } : {}),
     ...(input.adjustment ? { adjustment: input.adjustment } : {}),
     ...(input.expectedTotals ? { expectedTotals: input.expectedTotals } : {}),
   };
   /**
-   * A draft is priced as of today, member pricing included, and the lines
-   * sent are what somebody typed: the edit screen shows the hand discount
-   * apart from the member one for exactly this reason, so saving a draft
-   * does not take the member rate off twice.
+   * A draft is priced as of today, member pricing and sales tax included,
+   * and the lines sent are what somebody typed: the edit screen shows the
+   * hand discount apart from the member one for exactly this reason, so
+   * saving a draft does not take the member rate off twice.
    */
-  return priceInvoice(tx, ctx, pricing, draft.id,
-    time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)));
+  const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+  return priceInvoice(tx, ctx, pricing, draft.id, today, {}, { on: today, fromTable: true });
+}
+
+/**
+ * Whose sale an invoice is, for its sales tax: on a job, the job's own
+ * customer and address decide the rate and the invoice's customer (who may
+ * be a landlord or a warranty company paying for it) decides any exemption.
+ * Standalone, the invoice's customer is both, with no address.
+ */
+async function saleOf(tx: Database, invoiceCustomerId: string, jobId: string | null) {
+  const [job] = jobId ? await tx.select({ customerId: schema.job.customerId, propertyId: schema.job.propertyId })
+    .from(schema.job).where(eq(schema.job.id, jobId)).limit(1) : [];
+  return {
+    customerId: job?.customerId ?? invoiceCustomerId,
+    payerId: invoiceCustomerId,
+    propertyId: job?.propertyId ?? null,
+  };
 }
 
 /** The address a job's work is at, which is what decides whose membership covers it. */
@@ -567,6 +627,10 @@ export async function issueIn(tx: Database, ctx: ServiceContext, input: z.infer<
       throw new ConflictError(`Invoice ${draft.number} totals less than nothing. A credit is not an invoice.`);
     }
 
+    const lines = await tx.select().from(schema.invoiceLine)
+      .where(eq(schema.invoiceLine.invoiceId, draft.id)).orderBy(asc(schema.invoiceLine.sortOrder));
+    if (!admitted.historical) await assertRatesInForce(tx, ctx, draft, lines, issuedOn);
+
     /** Checked again now: the authorisation may have been used since the draft was written. */
     const ceiling = draft.jobId ? await commercial.ceilingFor(tx, draft.jobId) : null;
     if (ceiling) {
@@ -592,11 +656,86 @@ export async function issueIn(tx: Database, ctx: ServiceContext, input: z.infer<
     await postIssue(tx, ctx, {
       invoiceId: draft.id, customerId: draft.customerId, jobId: draft.jobId,
       totals, issuedOn, timeZone: admitted.timeZone, now, historical: admitted.historical, ceiling,
+      taxByRate: taxByRateOf(lines, totals.taxTotal),
     });
 
     await audit(tx, ctx, "invoice.issued", "invoice", draft.id, { status: "draft" },
       admitted.historical ? { ...after!, historical: true } : after!);
     return loadInvoice(tx, ctx, draft.id);
+  }
+}
+
+/**
+ * An invoice's stored lines by rate, for posting it, voiding it, or anything
+ * else that moves its tax on the ledger one entry per rate.
+ */
+export function taxByRateOf(
+  lines: ReadonlyArray<Pick<typeof schema.invoiceLine.$inferSelect, "taxable" | "taxRate" | "taxRateId" | "taxAmount" | "lineTotal">>,
+  taxTotal: m.Money,
+): tax.RateTotal[] {
+  return tax.byRate(lines.map((l) => ({
+    taxable: l.taxable, taxRate: l.taxRate, taxRateId: l.taxRateId,
+    base: usd(l.lineTotal), tax: usd(l.taxAmount),
+  })), taxTotal);
+}
+
+/**
+ * The tax by rate an invoice's issue actually posted, read back from the
+ * ledger, or undefined when it posted its tax as one figure (anything issued
+ * before rates were recorded on the ledger). Whatever takes the tax back (a
+ * void, a credit note) mirrors this, so a rate's row in the filing report is
+ * never taken down by a reversal it was not put up by.
+ */
+export async function postedTaxByRate(
+  tx: Database, organizationId: string, invoiceId: string, sourceType: "invoice" | "credit_note" = "invoice",
+): Promise<tax.RateTotal[] | undefined> {
+  const entries = await tx.select({
+    amount: schema.ledgerEntry.amount, currency: schema.ledgerEntry.currency, metadata: schema.ledgerEntry.metadata,
+  }).from(schema.ledgerEntry).where(and(
+    eq(schema.ledgerEntry.organizationId, organizationId),
+    eq(schema.ledgerEntry.sourceType, sourceType),
+    eq(schema.ledgerEntry.sourceId, invoiceId),
+    eq(schema.ledgerEntry.accountCode, ledger.ACCOUNTS.TAX_PAYABLE),
+  ));
+  if (entries.length === 0 || entries.some((e) => typeof e.metadata["taxRate"] !== "string")) return undefined;
+  return entries.map((e) => ({
+    taxRateId: typeof e.metadata["taxRateId"] === "string" ? e.metadata["taxRateId"] : null,
+    rate: String(e.metadata["taxRate"]),
+    base: m.money(typeof e.metadata["taxableBase"] === "string" ? e.metadata["taxableBase"] : "0", e.currency),
+    tax: m.money(e.amount, e.currency),
+  }));
+}
+
+/**
+ * THE RATE ON EACH LINE IS THE ONE IN FORCE ON THE INVOICE'S DATE.
+ *
+ * A draft is priced on the day it is written and issued on another. Lines
+ * the company's rates decided (`tax.TABLE_SOURCES`) are worked out again for
+ * the issue date, and a difference refuses the issue in words rather than
+ * changing what the draft says behind the office's back or charging last
+ * month's rate: the county raised its rate on the first, a certificate ran
+ * out, somebody changed the usual rate. Saving the draft prices it again.
+ * A rate somebody chose, or one carried from a signed estimate, is theirs and
+ * is not second guessed.
+ */
+async function assertRatesInForce(
+  tx: Database, ctx: ServiceContext,
+  draft: typeof schema.invoice.$inferSelect,
+  lines: ReadonlyArray<typeof schema.invoiceLine.$inferSelect>,
+  issuedOn: string,
+): Promise<void> {
+  const decided = lines.filter((l) => l.taxable && tax.isTableSource(l.taxSource));
+  if (decided.length === 0) return;
+  const now = await taxRates.saleRateWithin(tx, ctx.actor.organizationId, {
+    ...await saleOf(tx, draft.customerId, draft.jobId), on: issuedOn,
+  });
+  const moved = decided.some((l) => !tax.sameRate(l.taxRate, now.rate) || (l.taxRateId ?? null) !== now.taxRateId);
+  if (moved) {
+    throw new ConflictError(
+      `The sales tax on draft invoice ${draft.number} has changed since it was written: on ${issuedOn} it is `
+      + `${now.taxRateId ? `${now.name} at ${tax.rateToPercent(now.rate)}%` : "none"}. `
+      + "Open the draft and save it to price it at today's rate, then issue it.",
+    );
   }
 }
 
@@ -626,7 +765,13 @@ export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof del
  * disagree about the same lines.
  */
 type PricingInput = Pick<z.infer<typeof createInvoice.input>,
-  "customerId" | "jobId" | "lines" | "adjustment" | "expectedTotals">;
+  "customerId" | "jobId" | "lines" | "adjustment" | "expectedTotals" | "taxRateId">;
+
+/**
+ * The day an invoice's sales tax is decided on, and whether the company's
+ * rates decide it: false for history, which charged what it charged.
+ */
+interface TaxDay { on: string; fromTable: boolean }
 
 async function priceInvoice(
   tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string,
@@ -638,6 +783,7 @@ async function priceInvoice(
    */
   memberOn: string | null = null,
   options: CreateOptions = {},
+  taxDay: TaxDay | null = null,
 ) {
   /**
    * Prices come from the price book VERSION, not from the request, whenever
@@ -765,6 +911,35 @@ async function priceInvoice(
     requireImport(ctx);
   }
 
+  /**
+   * SALES TAX, FROM THE COMPANY'S OWN RATES (`services/tax.ts`).
+   *
+   * One rate for the sale, worked out once: the address's, the customer's
+   * or the usual one, at the percentage in force on the invoice's date, or
+   * nothing for an exempt customer. The office may choose another for the
+   * whole invoice or for a line; either must be in force on that date. A
+   * line that is not taxable carries none of it.
+   */
+  const table = taxDay ? await taxRates.tableWithin(tx, ctx.actor.organizationId) : null;
+  const worked = table && taxDay?.fromTable
+    ? await taxRates.saleRateWithin(tx, ctx.actor.organizationId, {
+        ...await saleOf(tx, input.customerId, input.jobId ?? null), on: taxDay.on,
+      }, table)
+    : null;
+  const pick = (id: string, path: string): tax.Resolved => {
+    const found = table && taxDay ? tax.chosen(table, id, taxDay.on) : null;
+    if (!found) {
+      throw new UnprocessableError("That tax rate is not in force", [{
+        path, message: `Choose one of the company's sales tax rates in force on ${taxDay?.on ?? "the invoice's date"}.`,
+      }]);
+    }
+    return found;
+  };
+  const invoiceRate: tax.Resolved | null = input.taxRateId === undefined ? null
+    : input.taxRateId === null
+      ? { rate: "0", taxRateId: null, name: null, source: "chosen", note: "No sales tax on this invoice." }
+      : pick(input.taxRateId, "taxRateId");
+
   const resolved = input.lines.map((line, index) => {
     const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
     /**
@@ -775,6 +950,28 @@ async function priceInvoice(
     const version = line.priceAsGiven ? undefined : linked;
     const authority = authorities[index]!;
     const price = authority.unitPrice ?? usd(version?.price ?? line.unitPrice);
+    const prepared = options.prepared?.[index];
+    /**
+     * A job billed in parts already decided, per payer, whether their part
+     * is taxed (an exempt payer's is not), so its word stands over the
+     * item's tax class.
+     */
+    const taxable = prepared?.taxRate !== undefined ? line.taxable : (version?.taxable ?? line.taxable);
+    const lineRate: tax.LineRate = prepared?.taxRate !== undefined
+      ? { taxRate: prepared.taxRate, taxRateId: prepared.taxRateId ?? null, taxSource: prepared.taxSource ?? null }
+      : line.taxRate !== undefined
+        ? {
+            taxRate: line.taxRate,
+            taxRateId: table && taxDay ? tax.nameTyped(table, line.taxRate, taxDay.on) : null,
+            taxSource: taxable ? "given" : null,
+          }
+        : line.taxRateId !== undefined
+          ? tax.onLine(pick(line.taxRateId, `lines.${index}.taxRateId`), taxable)
+          : invoiceRate
+            ? tax.onLine(invoiceRate, taxable)
+            : worked
+              ? tax.onLine(worked, taxable)
+              : { taxRate: "0", taxRateId: null, taxSource: null };
     return {
       name: version?.name ?? line.name,
       description: line.description ?? null,
@@ -782,13 +979,13 @@ async function priceInvoice(
       unitPrice: price,
       unitCost: version?.cost ? usd(version.cost) : null,
       discountAmount: usd(line.discountAmount),
-      taxable: version?.taxable ?? line.taxable,
-      /**
-       * Resolved per jurisdiction in phase 5. Zero until then, honestly,
-       * unless the line is history and says what it was taxed at.
-       */
-      taxRate: line.taxRate ?? "0",
-      taxAmount: line.taxAmount === undefined ? undefined : usd(line.taxAmount),
+      taxable,
+      /** As decided above: never looked up again once it is on the line. */
+      taxRate: lineRate.taxRate,
+      taxRateId: lineRate.taxRateId,
+      taxSource: lineRate.taxSource as string | null,
+      taxAmount: prepared?.taxAmount
+        ?? (line.taxAmount === undefined ? undefined : usd(line.taxAmount)),
       costCode: line.costCode ?? null,
       versionId: linked?.versionId ?? null,
       coverageSource: line.coverageSource ?? null,
@@ -802,6 +999,8 @@ async function priceInvoice(
         }),
       /** The diagnostic fee or the after hours rate, which a plan may waive outright. */
       feeRole: line.priceAsGiven ? null : linked?.feeRole ?? null,
+      /** The price book item, which decides whether the plan's discount leaves the line out. */
+      itemId: line.priceAsGiven ? null : (linked?.itemId ?? null),
       memberDiscountAmount: usd("0"),
       memberAgreementId: null as string | null,
       authority: authority.authority as string,
@@ -835,12 +1034,15 @@ async function priceInvoice(
     on: memberOn,
   });
   if (member) {
+    /** What the plan's discount leaves out, by the line's item or its category. */
+    const leftOut = await exclusionTestWithin(tx, member.exclusions, resolved.map((r) => r.itemId));
     const off = membership.memberDiscounts(resolved.map((r) => ({
       quantity: r.quantity,
       unitPrice: r.unitPrice,
       discountAmount: r.discountAmount,
       eligible: r.memberEligible,
       feeRole: r.feeRole,
+      excluded: leftOut(r.itemId),
     })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
     for (const [i, r] of resolved.entries()) {
       const amount = off[i]!;
@@ -849,6 +1051,14 @@ async function priceInvoice(
       r.memberAgreementId = member.agreementId;
       r.discountAmount = m.add(r.discountAmount, amount);
     }
+  }
+
+  for (const [i, r] of resolved.entries()) {
+    const prepared = options.prepared?.[i];
+    if (!prepared?.memberDiscountAmount || !m.isPositive(prepared.memberDiscountAmount)) continue;
+    r.memberDiscountAmount = prepared.memberDiscountAmount;
+    r.memberAgreementId = prepared.memberAgreementId ?? null;
+    r.discountAmount = m.add(r.discountAmount, prepared.memberDiscountAmount);
   }
 
   /**
@@ -878,6 +1088,8 @@ async function priceInvoice(
       discountAmount: negative ? m.negate(amount) : usd("0"),
       taxable: false,
       taxRate: "0",
+      taxRateId: null,
+      taxSource: null,
       taxAmount: undefined,
       costCode: null,
       versionId: null,
@@ -886,6 +1098,7 @@ async function priceInvoice(
       jobLineId: null,
       memberEligible: false,
       feeRole: null,
+      itemId: null,
       memberDiscountAmount: usd("0"),
       memberAgreementId: null,
       authority: "entered",
@@ -1383,12 +1596,18 @@ async function assertAllocatable(
  * credit.
  */
 export function unappliedOf(
-  payment: { amount: string; refundedAmount: string },
+  payment: { amount: string; refundedAmount: string; paidOutAmount?: string | undefined },
   allocations: Array<{ amount: string }>,
 ): m.Money {
+  /**
+   * A credit note paid out through this payment's card went back through
+   * it without coming out of it: the invoices it paid stay paid and what it
+   * held is still held. So only the rest of what was refunded counts here.
+   */
+  const refunded = m.subtract(usd(payment.refundedAmount), usd(payment.paidOutAmount ?? "0"));
   const left = m.subtract(
     m.subtract(usd(payment.amount), m.sum(allocations.map((a) => usd(a.amount)), "USD")),
-    usd(payment.refundedAmount),
+    refunded,
   );
   return m.isNegative(left) ? usd("0") : left;
 }
@@ -1940,7 +2159,12 @@ export async function voidInvoice(
       },
       customerId: invoice.customerId,
       ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+      /** Each rate taken back exactly as it was posted, so tax by rate nets to nothing for a voided invoice. */
+      taxByRate: await postedTaxByRate(tx, ctx.actor.organizationId, invoice.id),
     }));
+
+    /** An application for payment's retainage goes back off with its invoice. */
+    await retainage.reverseOnVoid(tx, ctx, invoice.id);
 
     await tx.update(schema.invoice).set({
       status: "void",

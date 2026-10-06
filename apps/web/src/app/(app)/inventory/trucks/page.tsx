@@ -1,10 +1,11 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { stockUnits } from "@opentradesos/api/services";
+import { stockUnits, truckFills } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
-import { clearTruckMinimumAction, restockAction, setTruckMinimumAction } from "../actions";
+import { checkTruckFillsAction, clearTruckMinimumAction, confirmTruckFillAction, dismissTruckFillAction, restockAction, setTruckMinimumAction } from "../actions";
+import { formatDay } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,10 @@ export const dynamic = "force-dynamic";
  * its fill level. When the warehouse cannot cover it, the suggestion says how
  * short it is, and buying is the warehouse reorder point's decision on
  * Purchasing.
+ *
+ * Each night the worker writes the same suggestion down as a draft for each
+ * truck, and the drafts are listed first. Nothing moves until somebody
+ * presses the button on one.
  */
 export default async function TrucksPage() {
   const user = await requireSetupUser();
@@ -28,11 +33,12 @@ export default async function TrucksPage() {
       </div>
     );
   }
-  const [minimums, suggestions, items, places] = await Promise.all([
+  const [minimums, suggestions, items, places, drafts] = await Promise.all([
     stockUnits.truckMinimums(ctx),
     stockUnits.restockSuggestions(ctx),
     stockUnits.stockItems(ctx),
     stockUnits.stockLocations(ctx),
+    truckFills.list(ctx),
   ]);
   const adjusts = can(user.actor, "inventory:adjust");
   const trucks = places.filter((p) => !p.isWarehouse);
@@ -41,7 +47,48 @@ export default async function TrucksPage() {
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Truck stock" />
 
-      <h2 className="mt-6 text-base font-semibold">Trucks to fill</h2>
+      <section className="mt-6" aria-labelledby="overnight">
+        <h2 id="overnight" className="text-base font-semibold">Drafted overnight</h2>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          Each night the trucks under their minimums are looked at and a move is written down for each. Nothing
+          has moved until you press the button.
+        </p>
+        {drafts.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-700">No truck is waiting to be filled.</p>
+        ) : drafts.map((draft) => (
+          <div key={draft.id} className="mt-4 rounded border border-steel-300 p-4">
+            <h3 className="font-medium">{draft.truckName}</h3>
+            <p className="text-sm text-ink-500">Written down {formatDay(draft.proposedOn, user.organizationTimezone)}</p>
+            <Table label={`Fill for ${draft.truckName}`} head={<><Th>Part</Th><Th className="text-right">On the truck</Th><Th className="text-right">Move</Th><Th>From</Th></>}>
+              {draft.lines.map((line) => (
+                <tr key={line.id}>
+                  <Td>{line.itemName}</Td>
+                  <Td className="text-right tabular-nums">{line.onTruck}</Td>
+                  <Td className="text-right tabular-nums">{line.quantity}</Td>
+                  <Td>{line.fromLocationName}</Td>
+                </tr>
+              ))}
+            </Table>
+            {adjusts ? (
+              <>
+                <ActionForm action={confirmTruckFillAction} submit={`Move these onto ${draft.truckName}`} className="mt-3 space-y-3"
+                            hidden={{ id: draft.id }}>
+                  {draft.lines.filter((line) => line.tracking).map((line) => (
+                    <TextArea key={line.id} label={`Serial or lot numbers for ${line.itemName}`} name={`units:${line.itemId}`} rows={2} />
+                  ))}
+                </ActionForm>
+                <ActionForm action={dismissTruckFillAction} submit={`Not now, ${draft.truckName}`} tone="quiet" className="mt-2"
+                            hidden={{ id: draft.id }} />
+              </>
+            ) : null}
+          </div>
+        ))}
+        {adjusts ? (
+          <ActionForm action={checkTruckFillsAction} submit="Check the trucks now" tone="quiet" className="mt-4" />
+        ) : null}
+      </section>
+
+      <h2 className="mt-10 text-base font-semibold">Trucks to fill</h2>
       {suggestions.length === 0 ? (
         <p className="mt-2 text-sm text-ink-500">
           {minimums.length === 0 ? "No truck has a minimum yet. Set one below." : "Every truck is above its minimums."}

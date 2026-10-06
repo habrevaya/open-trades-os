@@ -159,3 +159,40 @@ test("a technician photographs the work and takes cash on /my-day, and the offic
   await owner.goto(`/customers/${customerId}`);
   await expect(owner.getByRole("region", { name: "Payments" })).toContainText("$85.00");
 });
+
+test("/my-day opens with no signal once it has been opened, and the sign in page forgets it", async ({ owner, tech }) => {
+  const customer = `Basement Bo ${run}`;
+  const customerId = await newCustomer(owner, {
+    name: customer, address: { street: `${run.slice(-4)} Cellar Ln`, city: "Austin", state: "TX", zip: "78727" },
+  });
+  const properties = await owner.request.get(`/api/v1/properties?customerId=${customerId}`);
+  const propertyId = (await properties.json() as { data: { id: string }[] }).data[0]!.id;
+  const people = await owner.request.get("/api/v1/technicians");
+  const ray = (await people.json() as { technicians: { id: string; displayName: string }[] }).technicians
+    .find((t) => t.displayName === "Ray Ortiz")!;
+  const start = new Date(Date.now() + 5 * 60_000);
+  const booked = await owner.request.post("/api/v1/jobs", {
+    data: {
+      customerId, propertyId, summary: `Sump pump ${run}`,
+      visit: { windowStart: start.toISOString(), windowEnd: new Date(start.getTime() + 2 * 3_600_000).toISOString(), technicianIds: [ray.id] },
+    },
+  });
+  expect(booked.ok(), await booked.text()).toBe(true);
+
+  /** Opened once with a signal: the day is kept on the phone and it says so. */
+  await tech.goto("/my-day");
+  await expect(tech.getByRole("status").filter({ hasText: "This day is saved on this phone" })).toBeVisible();
+
+  /** No signal at all, and the page still opens, with the day on it. */
+  await tech.context().setOffline(true);
+  await tech.goto("/my-day");
+  await expect(tech.getByRole("article").filter({ hasText: customer })).toBeVisible();
+  await expect(tech.getByRole("status").filter({ hasText: "No signal." })).toBeVisible();
+  /** Only this page is kept: another screen does not open. */
+  await expect(tech.goto("/schedule")).rejects.toThrow();
+  await tech.context().setOffline(false);
+
+  /** Signing out lands on the sign in page, which empties what was kept. */
+  await tech.goto("/login");
+  await expect.poll(() => tech.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith("ots-my-day")))).toEqual([]);
+});

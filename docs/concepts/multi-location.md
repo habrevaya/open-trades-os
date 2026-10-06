@@ -30,6 +30,7 @@ covers. It is not an organizational wall and it is not in scope here.
 |---|---|
 | `business_unit` and `location` tables | Yes |
 | `business_unit_id` on job, invoice, ledger entry, job type, crew, agreement plan, timeclock entry, business hours, on call rotation, bookable service | Yes |
+| The branch written on every ledger posting made from a branch's job or invoice, and on a journal line that names one; the trial balance and the journal filtered by it | Yes. Postings made before this have none and are not migrated, and the reports say how many (`docs/modules/m14-accounting-general-ledger.md`) |
 | `location_id` on visit and membership | Yes |
 | `Actor` carries `businessUnitId` and `locationId`, resolved with the session | Yes |
 | Scope ladder includes `business_unit` and `location` | Yes |

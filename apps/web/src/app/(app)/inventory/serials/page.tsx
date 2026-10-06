@@ -5,14 +5,14 @@ import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
-import { setTrackingAction, writeOffAction } from "../actions";
+import { numberUnitsAction, returnFromJobAction, setTrackingAction, writeOffAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 const STATE: Record<string, { label: string; tone: "success" | "info" | "neutral" }> = {
   in_stock: { label: "In stock", tone: "success" },
   used: { label: "Used on a job", tone: "info" },
-  gone: { label: "Written off", tone: "neutral" },
+  gone: { label: "Written off or sent back", tone: "neutral" },
 };
 
 /**
@@ -93,7 +93,7 @@ export default async function SerialsPage({ searchParams }: { searchParams: Prom
         </ul>
       )}
       {adjusts && items.length > 0 && (
-        <ActionForm action={setTrackingAction} submit="Save" className="mt-4 flex flex-wrap items-end gap-3" done="Saved.">
+        <ActionForm action={setTrackingAction} submit="Save" className="mt-4 flex flex-wrap items-end gap-3">
           <Select label="Part" name="itemId" className="w-72" options={items.map((i) => ({ value: i.id, label: `${i.name} (${i.code})` }))} />
           <Select label="Track it" name="mode" className="w-48" options={[
             { value: "serial", label: "By serial number" }, { value: "lot", label: "By lot" }, { value: "", label: "Count only" },
@@ -101,9 +101,40 @@ export default async function SerialsPage({ searchParams }: { searchParams: Prom
         </ActionForm>
       )}
       <p className="mt-2 max-w-prose text-xs text-ink-500">
-        Start tracking a part when its shelf is empty or before its next delivery: units already on hand have no
-        numbers, and every move of a tracked part has to say which ones.
+        Units already on hand have no numbers when tracking starts, and every move of a tracked part has to say which
+        ones. Read their labels into the box below, one place at a time, before they are moved.
       </p>
+
+      {adjusts && tracked.length > 0 && (
+        <section className="mt-10" aria-labelledby="number-shelf">
+          <h2 id="number-shelf" className="text-base font-semibold">Number what is on the shelf</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            Read every label at one place. A new number goes to a unit that has none; one already on file there is just
+            counted again. For a lot, write how many on its line: LOT-4471 x 10.
+          </p>
+          <ActionForm action={numberUnitsAction} submit="Record numbers" className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Select label="Part" name="itemId" options={tracked.map((t) => ({ value: t.itemId, label: t.itemName }))} />
+            <Select label="Where" name="locationId" options={places.map((p) => ({ value: p.id, label: p.name }))} />
+            <TextArea label="Numbers read off the shelf" name="units" rows={3} />
+          </ActionForm>
+        </section>
+      )}
+
+      {adjusts && tracked.some((t) => t.mode === "serial") && (
+        <section className="mt-10" aria-labelledby="back-from-job">
+          <h2 id="back-from-job" className="text-base font-semibold">Back from a job</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            A unit that went to a job and came back, by its serial number. It goes back on the shelf at what it cost when
+            it left, and comes off the job&apos;s cost.
+          </p>
+          <ActionForm action={returnFromJobAction} submit="Back in stock" className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Select label="Part" name="itemId" options={tracked.filter((t) => t.mode === "serial").map((t) => ({ value: t.itemId, label: t.itemName }))} />
+            <Select label="Put it at" name="locationId" options={places.map((p) => ({ value: p.id, label: p.name }))} />
+            <TextArea label="Serial numbers" name="units" rows={2} />
+            <TextField label="Why it came back" name="note" />
+          </ActionForm>
+        </section>
+      )}
 
       {adjusts && tracked.length > 0 && (
         <section className="mt-10">

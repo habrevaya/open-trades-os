@@ -4,7 +4,7 @@ import { field, PermissionError, type Actor } from "@opentradesos/core";
 import * as fieldOps from "../src/services/field";
 import * as dispatchSvc from "../src/services/dispatch";
 import { ConflictError, type ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId, testDb } from "./helpers";
+import { seedOrg, fixtureId, testDb, companyToday } from "./helpers";
 
 /**
  * A day in the field, against a real database.
@@ -833,7 +833,7 @@ run("every operation does something", () => {
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
     "service_report", "service_report_field", "field_upload", "portal_event", "payment",
-    "inspection", "estimate", "invoice", "task", "cash_tip",
+    "inspection", "estimate", "invoice", "task", "cash_tip", "expense",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -905,6 +905,11 @@ run("every operation does something", () => {
       { kind: "task.claim", subjectId: task!.id, payload: {} },
       { kind: "task.close", subjectId: task!.id, payload: { outcome: "Called them" } },
       { kind: "tip.record", subjectId: visitId, payload: { amount: "10.00" } },
+      /** Refused here, on a talk that is not there: the signing itself is proved in safety-talks. */
+      { kind: "safety.sign", subjectId: uuid(), payload: { signatureUploadId: uuid() } },
+      { kind: "expense.record", subjectId: uuid(), payload: {
+        amount: "42.50", spentOn: companyToday(), description: "Capacitor from the supply house",
+      } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -944,7 +949,7 @@ run("every operation does something", () => {
     const silent = inert.filter((k) => !logOnly.has(k));
 
     /** The selling and closing kinds really land here, so their effect is what is being watched. */
-    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record"]) {
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record", "expense.record"]) {
       expect(landed.get(kind), kind).toBe("applied");
     }
 

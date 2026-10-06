@@ -6,7 +6,7 @@ import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { Empty } from "@/components/Table";
-import { formatIn, todayIn } from "@/lib/dates";
+import { leaveSpan, todayIn } from "@/lib/dates";
 import { requestTimeOff, withdrawTimeOff } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -44,9 +44,6 @@ export default async function MyTimeOffPage() {
   }
   const asks = await timeOff.list(ctx, { includeDeclined: true });
   const today = todayIn(zone);
-  const day = (iso: string) => formatIn(iso, zone, { weekday: "short", month: "short", day: "numeric" });
-  /** Whole days end at the midnight starting the next, so the last day is the instant before. */
-  const lastDay = (iso: string) => day(new Date(new Date(iso).getTime() - 1).toISOString());
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -56,6 +53,13 @@ export default async function MyTimeOffPage() {
         <ActionForm action={requestTimeOff} submit="Ask for these days" className="mt-3 grid gap-3 sm:grid-cols-2">
           <TextField label="First day off" name="from" type="date" required min={today} />
           <TextField label="Last day off" name="to" type="date" min={today} />
+          <TextField label="Only part of the day: from" name="fromTime" type="time" />
+          <TextField label="Only part of the day: until" name="toTime" type="time" />
+          <p className="text-sm text-ink-700 sm:col-span-2">
+            Need just a few hours? Put the day in &ldquo;First day off&rdquo;, leave &ldquo;Last day
+            off&rdquo; empty, and fill in both times. The booking page keeps customers off those
+            hours, and the dispatch board shows you as off for that whole day.
+          </p>
           <TextField label="Why (optional)" name="reason" maxLength={500} className="block sm:col-span-2" />
         </ActionForm>
       </section>
@@ -73,7 +77,7 @@ export default async function MyTimeOffPage() {
                   : a.standing === "declined"
                     ? <Chip tone="neutral">Declined or taken back</Chip>
                     : <Chip tone="warning">Waiting for an answer</Chip>}
-                <span>{day(a.startsAt) === lastDay(a.endsAt) ? day(a.startsAt) : `${day(a.startsAt)} to ${lastDay(a.endsAt)}`}</span>
+                <span>{leaveSpan(a.startsAt, a.endsAt, zone)}</span>
                 {a.reason ? <span className="text-ink-500">{a.reason}</span> : null}
                 {a.standing === "requested" ? (
                   <ActionForm action={withdrawTimeOff} submit="Take it back" tone="quiet" className="inline-flex" hidden={{ id: a.id }} />

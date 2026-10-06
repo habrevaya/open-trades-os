@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { todayIn, formatDay } from "../src/lib/dates";
+import { todayIn, formatDay, leaveSpan } from "../src/lib/dates";
 
 /**
  * "Today" in the company's timezone.
@@ -63,5 +63,32 @@ describe("formatting a date-only value", () => {
     // A malformed date in one row must not replace the cell with a word that
     // looks like a system error to whoever is reading the column.
     expect(formatDay("not-a-date", "America/Chicago")).toBe("not-a-date");
+  });
+});
+
+/**
+ * Time off in words, whole days and part of a day, in the company's zone.
+ * Austin is five hours behind UTC in October, so a whole day runs from 05:00Z.
+ */
+describe("time off in words", () => {
+  const zone = "America/Chicago";
+
+  it("says a whole day as the day, and a run of them as first to last", () => {
+    expect(leaveSpan("2026-10-06T05:00:00Z", "2026-10-07T05:00:00Z", zone)).toBe("Tue, Oct 6");
+    expect(leaveSpan("2026-10-06T05:00:00Z", "2026-10-10T05:00:00Z", zone)).toBe("Tue, Oct 6 to Fri, Oct 9");
+  });
+
+  it("says part of a day with its hours, in the company's clock", () => {
+    // 13:00 to 17:00 in Chicago is 18:00Z to 22:00Z.
+    expect(leaveSpan("2026-10-06T18:00:00Z", "2026-10-06T22:00:00Z", zone)).toBe("Tue, Oct 6, 1:00 PM to 5:00 PM");
+  });
+
+  it("says a part day that runs to midnight as the end of the day", () => {
+    expect(leaveSpan("2026-10-06T18:00:00Z", "2026-10-07T05:00:00Z", zone)).toBe("Tue, Oct 6, 1:00 PM to the end of the day");
+  });
+
+  it("reads the day in the company's zone, not the server's", () => {
+    // 02:00Z on the 7th is 21:00 on the 6th in Chicago.
+    expect(leaveSpan("2026-10-07T01:00:00Z", "2026-10-07T03:00:00Z", zone)).toBe("Tue, Oct 6, 8:00 PM to 10:00 PM");
   });
 });

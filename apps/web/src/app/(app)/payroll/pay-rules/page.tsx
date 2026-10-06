@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { laborSettings } from "@opentradesos/api/services";
+import { laborSettings, payExtras } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -57,10 +57,11 @@ export default async function PayRulesPage() {
     );
   }
 
-  const [policies, scales, people] = await Promise.all([
+  const [policies, scales, people, extras] = await Promise.all([
     laborSettings.policies(ctx),
     laborSettings.scales(ctx, {}),
     laborSettings.crewRates(ctx),
+    payExtras.get(ctx),
   ]);
   const configures = can(user.actor, "payroll:configure");
   const current = policies.find((p) => p.active) ?? null;
@@ -162,12 +163,17 @@ export default async function PayRulesPage() {
           </Empty>
         ) : (
           <Table label="Wage scales"
-                 head={<><Th>Classification</Th><Th className="text-right">Rate</Th><Th className="text-right">Fringe</Th><Th>Set by</Th><Th>From</Th><Th>Until</Th><Th>{""}</Th></>}>
+                 head={<><Th>Classification</Th><Th className="text-right">Rate</Th><Th className="text-right">Fringe</Th><Th>Agreement terms</Th><Th>Set by</Th><Th>From</Th><Th>Until</Th><Th>{""}</Th></>}>
             {scales.map((scale) => (
               <tr key={scale.id}>
                 <Td className="font-medium">{scale.classification}</Td>
                 <Td className="text-right"><Money value={scale.baseRate} /></Td>
                 <Td className="text-right">{scale.fringeRate ? <Money value={scale.fringeRate} /> : ""}</Td>
+                <Td className="text-sm text-ink-700">
+                  {scale.overtimeMultiplier ? <span className="block">Overtime {scale.overtimeMultiplier} times</span> : null}
+                  {scale.doubleTimeMultiplier ? <span className="block">Double time {scale.doubleTimeMultiplier} times</span> : null}
+                  {scale.apprenticeRatio ? <span className="block">Apprentices {scale.apprenticeRatio}</span> : null}
+                </Td>
                 <Td>
                   {AUTHORITY[scale.authority] ?? scale.authority}
                   {scale.externalReference ? <span className="block text-xs text-ink-500">{scale.externalReference}</span> : null}
@@ -212,9 +218,48 @@ export default async function PayRulesPage() {
                 <TextField label="Reference (needed for a union agreement or a prevailing wage)" name="externalReference" />
                 <TextField label="Where it applies (optional)" name="jurisdiction" />
                 <TextField label="From (optional)" name="effectiveFrom" type="date" />
+                <TextField label="Overtime pays this many times, if the agreement says" name="overtimeMultiplier"
+                           inputMode="decimal" placeholder="1.5" />
+                <TextField label="Double time pays this many times, if the agreement says" name="doubleTimeMultiplier"
+                           inputMode="decimal" placeholder="2" />
+                <TextField label="Apprentices to journeymen, if the agreement says" name="apprenticeRatio"
+                           maxLength={50} placeholder="1:3" />
               </div>
+              <p className="mt-3 max-w-2xl text-sm text-ink-700">
+                The three agreement terms are kept with the scale so they are on file next to the rate.
+                They do not change what a week costs: overtime is still worked out from the company&rsquo;s
+                overtime rule above, and nothing checks the apprentice ratio against who is on a job.
+              </p>
             </ActionForm>
           </details>
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="extras-heading">
+        <h2 id="extras-heading" className="text-base font-semibold">Tips and days away</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          How a tip a customer leaves is shared between the people on the job, and what a day away from
+          home is worth. A change applies from the next tip and the next day recorded: tips already shared
+          and days already recorded keep what they were worked out at. The office records the days away on
+          Expenses.
+        </p>
+        <Facts>
+          <Fact label="Tips are shared">{extras.rules.find((r) => r.rule === extras.tipSplit)?.label ?? null}</Fact>
+          <Fact label="A day away is worth">{extras.perDiemRate ? <Money value={extras.perDiemRate} /> : "Not set, so none is paid"}</Fact>
+        </Facts>
+        {configures ? (
+          <ActionForm action={act} submit="Save" hidden={{ op: "extras" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+            <Select label="Share a tip" name="tipSplit" defaultValue={extras.tipSplit}
+                    options={extras.rules.map((r) => ({ value: r.rule, label: r.label }))} />
+            <TextField label="A day away is worth (dollars)" name="perDiemRate" inputMode="decimal"
+                       defaultValue={extras.perDiemRate ?? ""} placeholder="75.00" />
+            <p className="text-sm text-ink-700 sm:col-span-2">
+              By hours means the hours each person was clocked in on the job. If none are recorded, or no lead
+              is marked on the job, the tip is shared evenly and the tip says so. A day away is paid with no
+              tax taken from it, which is only right while it is within what the tax authority allows for the
+              place and the day. That check is yours. Leave the box empty to pay none.
+            </p>
+          </ActionForm>
         ) : null}
       </section>
 

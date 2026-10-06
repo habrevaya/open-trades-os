@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, priceBook, NotFoundError } from "@opentradesos/api/services";
+import { afterHours, customers, jobs, priceBook, taxRates, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can, money } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Composer, type ComposerLine } from "../Composer";
@@ -51,11 +51,18 @@ export default async function NewInvoicePage({
         taxable: line.taxable,
       }))
     : [];
-  const items = can(user.actor, "pricebook:read")
+  /** The after hours or holiday rate, when one of the job's visits was booked outside the hours. Offered, not added. */
+  const offers = job && can(user.actor, "pricebook:read") && can(user.actor, "job:read") ? await afterHours.offersForJob(ctx, { jobId: job.id }) : [];
+  const listed = can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
       .map((item) => ({ id: item.id, name: item.name, price: item.price, taxable: item.taxable }))
-      .sort((a, b) => a.name.localeCompare(b.name))
     : [];
+  const items = [...listed, ...offers.map((o) => o.item).filter((item) => !listed.some((l) => l.id === item.id))]
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const tax = await taxRates.picker(ctx, {
+    customerId, propertyId: (job?.propertyId as string | null | undefined) ?? null, permission: "invoice:read",
+  });
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -75,6 +82,8 @@ export default async function NewInvoicePage({
         lines={unbilled}
         items={items}
         submit="Create invoice"
+        offers={offers}
+        tax={{ worked: tax.worked?.note ?? "", choices: tax.choices, chosen: "" }}
       />
     </div>
   );

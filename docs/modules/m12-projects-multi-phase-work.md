@@ -110,6 +110,29 @@ retainage held this period, and a line for retainage released. Raised the same
 idempotent way a draw is. Once invoiced, the application's figures are frozen,
 because the next one reads its previous certificates from them.
 
+**Retainage is a receivable of its own, and the work is revenue when it is
+billed.** The retainage the customer holds back on an application is earned and
+billed, and owed when the job is done. So when an application is invoiced, the
+retainage it holds is posted to retainage receivable (account 1210) against
+revenue, beside the invoice's own posting for what is due now: the work is
+revenue in full in the period it was billed. Retainage receivable is not what the
+customer owes yet, so it is on neither their statement nor the aging. When
+retainage is released, the release line on that period's invoice puts it on what
+they owe, and a posting takes it off retainage receivable and back off revenue,
+because it was earned once already. Each application's posting is worked out
+from what the project's applications already have on that receivable, and voiding
+an application's invoice takes that application's retainage back off with it.
+The application page says which way its project books retainage.
+
+**Projects billed before retainage was booked are left as they were.** A project
+with any application invoiced before this existed booked its retainage the old
+way, as revenue when it was released and invoiced, and nothing is migrated: its
+retainage held so far was never put on a receivable, and starting one halfway
+through would take released retainage off a receivable it was never on. So such a
+project keeps booking retainage the old way on every later application, and says
+so on the application page. Every project whose first application is invoiced
+since books it to the receivable.
+
 **A project bills by draws or by applications, never both.** Two ways of billing
 the same work is how it gets billed twice.
 
@@ -260,9 +283,10 @@ association's form, numbering or name.
 
 Resource levelling: the schedule shows who is booked on each phase and does not
 move people to resolve a clash. The days a change order adds are printed, not
-applied to the schedule. Retainage held on an application is not posted to a
-retainage receivable account: the invoice carries what is due now, so revenue is
-booked net when billed and the retainage when it is released and invoiced. An
+applied to the schedule. A project billed before retainage was booked to a
+receivable stays on the old way for good; there is no switch that moves it across
+with a catching up posting. Retainage receivable is not sent to QuickBooks or Xero:
+the books there carry an application's invoice as billed, net (M14). An
 application whose invoice is voided stays invoiced; the correction is a credit
 note and the next application. No association's form or name is reproduced. No
 lien rules of any state are encoded: notices and waivers are records with dates

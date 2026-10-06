@@ -57,14 +57,24 @@ rating uses: the caveat is part of the answer rather than a footnote somebody
 can drop.
 
 **Two margins, never one instead of the other.** The direct (gross) margin is
-revenue less materials, hours at the loaded wage frozen on each punch, and card
-and financing fees. Beside it, the fully loaded margin takes off labour burden
+revenue less materials, hours at the loaded wage frozen on each punch, card
+and financing fees, and what people spent for the job that the company agreed to
+pay back (below). Beside it, the fully loaded margin takes off labour burden
 and overhead at rates the company sets itself. No rate is a default somebody did
 not choose: with none set the two margins are equal. An allocation is a choice
 and not a measurement, and the statement says what each basis does to it: by
 revenue every job keeps its margin percentage, by the hour a job that ran long
 is charged twice for the overrun, per job a quick call carries as much as an
 install.
+
+**What people spent for a job is a cost of it.** A receipt a person paid for the
+job that the office approved, and the company's rate for each day somebody was away
+on it, are `expenseCost` on the job's statement and the "Expenses and per diem"
+measure on the profitability dataset, subtracted in the gross margin and in the
+project roll up (M17: `GET /v1/jobs/{jobId}/expenses` lists them, `job.cost:read`).
+Read from the two tables rather than the ledger, because neither is posted to it.
+A receipt still waiting for the office is not counted, and the statement says so
+in words while there is one; a receipt for the shop, with no job, is on no job.
 
 **Rates are dated.** Payroll taxes, benefits, workers' compensation and overhead
 are each a history: the rate in effect on a day is the latest one on or before
@@ -79,8 +89,33 @@ Revenue, Materials, Labour, Overhead or one account, and the actual is the
 ledger grouped by month in the company's calendar, so it agrees with the trial
 balance. Revenue is the 4xxx accounts net of discounts, materials is 5000,
 labour the other 5xxx accounts, overhead 6xxx and above. This product posts no
-wages or materials itself, so those lines are only as complete as the journals
-an accountant posts (M14), and the report says so.
+wages itself, and posts to materials only freight or duty billed after a
+delivery (M16), so those lines are only as complete as the journals an
+accountant posts (M14), and the report says so.
+
+**Material cost is the job's lines plus the cost posted on the job.** A job's
+material cost is what its lines cost, and on top of that its cost of goods sold
+entries in the ledger: the share of a freight or duty bill that arrived after a
+delivery and landed on parts this job had already used (M16), less any taken
+back when a unit came back off the job, and any cost an accountant journalled to
+the job (M14). Using stock posts nothing to cost of goods sold, so late freight
+cannot count a line twice. The statement lists those entries beside the lines
+(`costEntries`), so the number still traces to its rows.
+
+**A journal line on a job is in its margin, once.** A line of a manual journal
+can name a job (M14), and a line that does is a ledger entry with that job on it,
+which is what job costing already reads by job. So there is no second query to
+count it a second time: revenue (4000, 4100, 4900) takes a journalled credit,
+materials (5000, cost of goods sold) take a journalled debit, which is where an
+accountant puts a subcontractor's bill, a disposal receipt or a supplier's
+invoice for the job's parts, and card fees (6100) take one too. A reversal puts
+the same job on its lines and nets them out. A journal line on the job in any
+other account is listed on the statement as booked to the job and not counted, and
+the one that matters is labour: hours come from the timeclock at the rate frozen
+on each punch, so a payroll journal to the same job would count the same hours
+twice. The commission expense stays out of margin, as it always has. The one
+way left to count a cost twice is to journal to a job a cost that is already on
+one of its lines, which the statement and the journal screen both say.
 
 **Revenue is read from the ledger, not from the invoice total.** That is what
 makes the job costing report agree with the trial balance to the cent, and it is
@@ -91,7 +126,10 @@ what the booked-to-paid browser test asserts.
 ### One job
 
 `GET /v1/profitability/jobs/{id}` is the statement. `/jobs/{id}` shows the same
-figures to whoever may read both sides.
+figures to whoever may read both sides, and under them lists "Booked to this job
+by journal": each journal line that names the job, with the journal's number, and
+whether it is counted in revenue, materials or card fees or not counted here. Over
+the API those are `journalLines`, and the ledger rows carry the journal's number.
 
 ### The roll up
 
@@ -189,4 +227,10 @@ job, for the reason above. Burden and overhead are applied in reporting only;
 nothing posts them to the ledger, which keeps them as the company's choice
 rather than an entry in its books. The budget has no per branch or per job type
 split and no forecast; labour and materials actuals depend on journals, because
-nothing here posts wages or supplier bills.
+nothing here posts wages or supplier bills. A journal can now put a supplier
+bill or a subcontractor's cost on a job, and the margin counts it, but nothing
+checks it against the job's own lines: a cost entered on a line and journalled to
+the job as well is counted twice, and only the bookkeeper can tell. Labour
+journalled to a job is listed and not counted, so a payroll run cannot double the
+hours. A subcontractor's labour is not hours on this company's clock, so it is
+booked to account 5000 to be counted.

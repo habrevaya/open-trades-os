@@ -179,6 +179,13 @@ function Summary({ invoice, returned }: { invoice: Invoice; returned: string | n
                 ? "Thank you. Your payment went through and will show here in a moment."
                 : "Your payment is processing. It will show here once your bank confirms it."}
             </p>
+          ) : invoice.paymentOnItsWay ? (
+            <p role="status" className="mt-3 text-sm text-ink-700">
+              <span className="font-medium text-ink-900">Payment on its way.</span>{" "}
+              Your bank payment of {money(invoice.paymentOnItsWay.amount, invoice.currency)} was
+              started {day(invoice.paymentOnItsWay.startedAt)}. Bank payments take a few business days;
+              this shows paid once your bank confirms it.
+            </p>
           ) : returned === "failed" ? (
             <p className="mt-3 rounded bg-red-tint px-3 py-2 text-sm text-red-600">
               That payment did not go through. You have not been charged.

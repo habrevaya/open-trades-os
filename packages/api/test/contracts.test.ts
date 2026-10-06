@@ -156,6 +156,9 @@ describe("permissions", () => {
       "POST /v1/portal/card-setup/confirm",
       "POST /v1/portal/cards/{cardId}/pay",
       "POST /v1/portal/cards/{cardId}/remove",
+      "POST /v1/portal/cards/{cardId}/agreement",
+      "POST /v1/portal/cards/{cardId}/agreement/withdraw",
+      "POST /v1/portal/cards/{cardId}/autopay",
       /**
        * The same sign in with a code instead of a password. Asking for a code
        * answers one sentence whether or not the address belongs to anybody,
@@ -174,6 +177,7 @@ describe("permissions", () => {
       "POST /v1/portal/invoice/pay",
       "POST /v1/portal/sign-out",
       "POST /v1/portal/visit-change",
+      "POST /v1/portal/visit-change/answer",
       "POST /v1/public/bookings",
       /**
        * A third party asking to be installed, and coming back for its

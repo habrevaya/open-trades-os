@@ -1,4 +1,5 @@
 import { LoginForm } from "./LoginForm";
+import { MyDayCache } from "@/components/MyDayCache";
 import { safeNext } from "@/lib/safe-next";
 
 /**
@@ -13,5 +14,11 @@ import { safeNext } from "@/lib/safe-next";
  */
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const { next } = await searchParams;
-  return <LoginForm next={safeNext(next)} />;
+  /** Signing out and an ended session both land here, so the day kept on this phone for no signal goes too. */
+  return (
+    <>
+      <MyDayCache person={null} />
+      <LoginForm next={safeNext(next)} />
+    </>
+  );
 }

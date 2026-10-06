@@ -32,6 +32,7 @@ export async function raiseInvoice(_previous: FormState, form: FormData): Promis
       memo: field(form, "memo"),
       purchaseOrderNumber: field(form, "purchaseOrderNumber"),
       lines: linesFromForm(form),
+      ...taxRateFrom(form),
       ...(adjustment ? { adjustment } : {}),
     });
     id = (await billing.create(await ctx(), input)).id;
@@ -48,6 +49,7 @@ export async function saveDraft(_previous: FormState, form: FormData): Promise<F
     const input = parsed(updateInvoice.input, {
       id,
       lines: linesFromForm(form),
+      ...taxRateFrom(form),
       ...(adjustment ? { adjustment } : {}),
       dueOn: field(form, "dueOn") ?? null,
       memo: field(form, "memo") ?? null,
@@ -57,6 +59,13 @@ export async function saveDraft(_previous: FormState, form: FormData): Promise<F
   });
   if (result?.error) return result;
   redirect(`/invoices/${id}`);
+}
+
+/** The composer's sales tax choice: worked out (nothing sent), none (null), or one of the company's rates. */
+function taxRateFrom(form: FormData): { taxRateId?: string | null } {
+  const chosen = field(form, "taxRateId");
+  if (!chosen) return {};
+  return { taxRateId: chosen === "none" ? null : chosen };
 }
 
 function adjustmentFrom(form: FormData): { name: string; amount: string } | undefined {

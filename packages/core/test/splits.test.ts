@@ -102,3 +102,74 @@ describe("shares", () => {
     expect(splits.shareTargets(usd("100.00"), [{}, {}]).ok).toBe(false);
   });
 });
+
+describe("tax on a split, following each line to whoever pays it", () => {
+  const cents = (x: m.Money) => m.toString(m.round(x, 2));
+
+  it("charges one cent of tax across two invoices when the whole job carries one cent", () => {
+    // Twenty cents at five per cent is one cent of tax. Half each is half a
+    // cent each, which two invoices rounding on their own would make two cents.
+    const result = splits.taxAcross(
+      [{ rate: "0.05", taxable: true }],
+      [[usd("0.10")], [usd("0.10")]],
+    );
+    expect(cents(result.total)).toBe("0.0100");
+    expect(result.payers.map(cents)).toEqual(["0.0100", "0.0000"]);
+    expect(cents(m.sum(result.payers, "USD"))).toBe("0.0100");
+  });
+
+  it("adds up to the tax on the whole job, to the cent, for a three way split", () => {
+    const lines = [usd("100.01"), usd("57.37"), usd("12.49")];
+    const parts = splits.allocateAcross(lines, [usd("56.63"), usd("56.62"), usd("56.62")]);
+    const taxed = [
+      { rate: "0.0825", taxable: true },
+      { rate: "0.0825", taxable: true },
+      { rate: "0.0625", taxable: true },
+    ];
+    const result = splits.taxAcross(taxed, parts);
+    // Billed whole: 100.01 and 57.37 at 8.25%, 12.49 at 6.25%, rounded once.
+    const whole = m.round(m.add(m.add(m.multiply(usd("100.01"), "0.0825"), m.multiply(usd("57.37"), "0.0825")),
+      m.multiply(usd("12.49"), "0.0625")), 2);
+    expect(cents(result.total)).toBe(m.toString(whole));
+    expect(m.toString(m.sum(result.payers, "USD"))).toBe(m.toString(whole));
+    // Each payer's lines add up to their tax, and every line is within a cent of its own rate.
+    for (const [p, row] of result.lines.entries()) {
+      expect(m.toString(m.sum(row, "USD"))).toBe(m.toString(result.payers[p]!));
+      for (const [i, tax] of row.entries()) {
+        const owed = m.multiply(parts[p]![i]!, taxed[i]!.rate);
+        expect(m.compare(m.abs(m.subtract(tax, owed)), usd("0.01"))).toBeLessThan(0);
+      }
+    }
+  });
+
+  it("taxes only the payer whose line is taxable, at that line's rate", () => {
+    // The warranty company pays the labour, which is not taxed here; the
+    // homeowner pays the part, which is.
+    const result = splits.taxAcross(
+      [{ rate: "0", taxable: false }, { rate: "0.08", taxable: true }],
+      [[usd("180.00"), usd("0")], [usd("0"), usd("64.99")]],
+    );
+    expect(result.payers.map(cents)).toEqual(["0.0000", "5.2000"]);
+    expect(cents(result.total)).toBe("5.2000");
+  });
+
+  it("charges an exempt payer nothing, and the others only on their own parts", () => {
+    const result = splits.taxAcross(
+      [{ rate: "0.0825", taxable: true }],
+      [[usd("300.00")], [usd("200.00")]],
+      [true, false],
+    );
+    expect(result.payers.map(cents)).toEqual(["0.0000", "16.5000"]);
+    expect(cents(result.total)).toBe("16.5000");
+  });
+
+  it("cuts the same split the same way every time", () => {
+    const run = () => splits.taxAcross(
+      [{ rate: "0.07", taxable: true }, { rate: "0.07", taxable: true }],
+      [[usd("0.07"), usd("0.07")], [usd("0.07"), usd("0.07")], [usd("0.07"), usd("0.07")]],
+    );
+    expect(run().lines.map((row) => row.map(cents))).toEqual(run().lines.map((row) => row.map(cents)));
+    // 0.42 at 7% is 0.0294: three cents in all, one per payer.
+    expect(run().payers.map(cents)).toEqual(["0.0100", "0.0100", "0.0100"]);
+  });
+});

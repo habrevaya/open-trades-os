@@ -9,7 +9,8 @@
  * sum the server does, line for line: the price times the quantity, less any
  * discount, less the member's discount where a plan gives one (per line,
  * rounded to the cent on each, off what is left), tax held at full precision
- * per line and the document rounded once at the bottom.
+ * per line and the document rounded once at the bottom, then shared back onto
+ * the lines by largest remainder so they add up to it (`tax.shareTax`).
  *
  * IMPORTS NOTHING, ON PURPOSE. The phone app bundles this one file
  * (`@opentradesos/core/field-pricing`), and the bundler that builds it does
@@ -64,6 +65,31 @@ function times(amount: bigint, factor: string): bigint {
 
 const toCents = (amount: bigint): bigint => divideHalfUp(amount, 100n) * 100n;
 
+/**
+ * A rounded total shared between exact parts by largest remainder, written
+ * out on bigints because this file imports nothing: `tax.shareTax` in core,
+ * which the parity test holds this to.
+ */
+function shareCents(exact: readonly bigint[], total: bigint): bigint[] {
+  const cent = 100n;
+  const floors = exact.map((x) => x - (((x % cent) + cent) % cent));
+  let left = total - floors.reduce((a, b) => a + b, 0n);
+  const order = exact
+    .map((x, i) => ({ i, rest: x - floors[i]! }))
+    .sort((a, b) => (b.rest > a.rest ? 1 : b.rest < a.rest ? -1 : a.i - b.i));
+  const out = [...floors];
+  const owing = order.filter((x) => x.rest > 0n);
+  for (let k = 0; left > 0n && owing.length > 0; k += 1) {
+    out[owing[k % owing.length]!.i]! += cent;
+    left -= cent;
+  }
+  for (let k = order.length - 1; left < 0n && k >= 0; k -= 1) {
+    out[order[k]!.i]! -= cent;
+    left += cent;
+  }
+  return out;
+}
+
 /** The same test as `membership.usableRate`: a fraction strictly between nothing and all of it. */
 function usableRate(rate: string | null | undefined): rate is string {
   if (rate === null || rate === undefined || rate.trim() === "") return false;
@@ -77,6 +103,12 @@ export interface OnSiteMember {
   rate: string;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+  /**
+   * The price book items the plan's discount leaves out, flattened by the
+   * server from the categories and items the plan names, because the phone
+   * carries the price book without its categories. Absent for none.
+   */
+  excludedItemIds?: readonly string[] | undefined;
 }
 
 export interface OnSiteLine {
@@ -98,6 +130,8 @@ export interface OnSiteLine {
   itemKind?: string | null | undefined;
   /** "diagnostic" or "after_hours" when the line is a fee a plan may waive. */
   feeRole?: string | null | undefined;
+  /** The price book item the line came from, which decides whether the plan leaves it out. Null for a typed line. */
+  itemId?: string | null | undefined;
   /**
    * The member's discount already on the line, for a document the office
    * priced. When given, the line is shown as priced and nothing is worked
@@ -162,8 +196,10 @@ export function priceOnSite(
       if (net > 0n) {
         const waived = (line.feeRole === "diagnostic" && member.waivesDiagnosticFee)
           || (line.feeRole === "after_hours" && member.waivesAfterHoursRate);
+        const excluded = line.itemId !== null && line.itemId !== undefined
+          && (member.excludedItemIds ?? []).includes(line.itemId);
         if (waived) memberOff = net;
-        else if (usableRate(member.rate)) {
+        else if (!excluded && usableRate(member.rate)) {
           const off = toCents(times(net, member.rate));
           memberOff = off > net ? net : off;
         }
@@ -183,14 +219,19 @@ export function priceOnSite(
   const discountTotal = toCents(counted.reduce((sum, w) => sum + w.discount, 0n));
   const taxTotal = toCents(counted.reduce((sum, w) => sum + w.tax, 0n));
   const total = toCents(subtotal - discountTotal + taxTotal);
+  /**
+   * Each line's tax as the server shows it: every line priced, the ones
+   * outside the total too, and their tax rounded once and shared back.
+   */
+  const lineTax = shareCents(worked.map((w) => w.tax), toCents(worked.reduce((sum, w) => sum + w.tax, 0n)));
 
   return {
-    lines: worked.map((w) => ({
+    lines: worked.map((w, i) => ({
       memberDiscount: show(w.memberOff),
       discountAmount: show(w.discount),
       gross: show(w.gross),
       lineTotal: show(toCents(w.net)),
-      taxAmount: show(toCents(w.tax)),
+      taxAmount: show(lineTax[i]!),
       included: w.included,
     })),
     totals: {

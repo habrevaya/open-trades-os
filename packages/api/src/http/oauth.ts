@@ -1,7 +1,7 @@
 import type { Database } from "@opentradesos/db";
 import { TooManyRequestsError } from "../services/context";
 import {
-  OAuthError, registerClient, exchange, revoke, introspect, authorizationServerMetadata, protectedResourceMetadata,
+  OAuthError, registerClient, exchange, revoke, introspect, rotateClientSecret, authorizationServerMetadata, protectedResourceMetadata,
 } from "../services/oauth";
 import { trimTrailingSlashes } from "@opentradesos/core";
 
@@ -153,6 +153,22 @@ export async function handleRevoke(request: Request, db: Database): Promise<Resp
   try {
     await revoke(db, form, addressOf(request), credentialsOf(request));
     return jsonResponse({});
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+/**
+ * A confidential client rotating its secret, proven with the current one. The
+ * new secret is in this answer and nowhere else; the old one keeps working for
+ * the overlap the client asked for.
+ */
+export async function handleRotateSecret(request: Request, db: Database): Promise<Response> {
+  if (request.method === "OPTIONS") return preflight();
+  const form = await readForm(request);
+  if (form instanceof Response) return form;
+  try {
+    return jsonResponse(await rotateClientSecret(db, form, addressOf(request), credentialsOf(request)));
   } catch (error) {
     return refusal(error);
   }

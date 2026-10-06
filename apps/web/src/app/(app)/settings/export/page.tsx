@@ -56,21 +56,49 @@ export default async function ExportPage() {
             arriving immediately rather than a request that times out while the
             server builds one in memory.
           */
-          <a
-            href="/settings/export/download"
-            className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white hover:bg-ink-700"
-          >
-            Download everything
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/settings/export/archive"
+              className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white hover:bg-ink-700"
+            >
+              Download as spreadsheets
+            </a>
+            <a
+              href="/settings/export/download"
+              className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
+            >
+              Download as one data file
+            </a>
+          </div>
         }
       />
 
       <p className="mt-4 max-w-2xl text-sm text-ink-700">
         {manifest.totalRows.toLocaleString("en-US")} rows across {withRows}{" "}
         {withRows === 1 ? "table" : "tables"} that hold something, of{" "}
-        {manifest.tables.length} that belong to this company. The file is newline delimited JSON:
-        the first line is this manifest and every line after it is one row, tagged with the table
-        it came from. Nothing here is a format anybody has to license to read.
+        {manifest.tables.length} that belong to this company, and{" "}
+        {manifest.files.count.toLocaleString("en-US")} {manifest.files.count === 1 ? "photo or document" : "photos and documents"}.
+        Nothing here is a format anybody has to license to read.
+      </p>
+
+      <ul className="mt-2 max-w-2xl list-disc space-y-1 pl-5 text-sm text-ink-700">
+        <li>
+          <span className="font-medium">Spreadsheets</span> is a zip with one CSV file per table, every photograph
+          and document, and a README saying what each column holds. It opens in Excel or Google Sheets, and each
+          file loads straight into a database.
+        </li>
+        <li>
+          <span className="font-medium">One data file</span> is newline delimited JSON: the first line is this
+          list, every line after it is one row tagged with its table, then the files. It keeps every value exactly
+          as it is, which is what another program wants.
+        </li>
+      </ul>
+
+      <p className="mt-2 max-w-2xl text-sm text-ink-700">
+        Either one restores into a new, empty company, here or on another copy of OpenTradesOS, from{" "}
+        <a href="/setup/restore" className="text-blue-600 underline underline-offset-4">Restore a copy</a>.
+        To have a copy written to a bucket of your own every night, set up{" "}
+        <a href="/settings/backups" className="text-blue-600 underline underline-offset-4">Backups</a>.
       </p>
 
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
@@ -86,12 +114,12 @@ export default async function ExportPage() {
           come back as an error status, because the status went out with the
           first byte, so the file has to carry its own proof.
         */}
-        The last line of a finished file reads <code className="font-mono text-xs">
-        {"{\"complete\": true, \"rows\": n}"}</code>, and nothing else does. If it is not there the
-        download stopped part way, whatever the browser said: start it again. The count on that
-        line is of rows actually written, so comparing it against the{" "}
-        {manifest.totalRows.toLocaleString("en-US")} above also tells you whether anybody was
-        working while it ran.
+        The last line of a finished data file reads <code className="font-mono text-xs">
+        {"{\"complete\": true, \"rows\": n}"}</code>, and the last thing in a finished zip is{" "}
+        <code className="font-mono text-xs">complete.json</code>; nothing else does. If it is not there the
+        download stopped part way, whatever the browser said: start it again. Every table is read at the same
+        moment, so the count there matches the{" "}
+        {manifest.totalRows.toLocaleString("en-US")} above, even with the office working while it runs.
       </p>
 
       <h2 className="mt-8 text-sm font-medium text-ink-700">

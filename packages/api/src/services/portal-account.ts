@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m } from "@opentradesos/core";
+import { membership, money as m } from "@opentradesos/core";
 import { ConflictError, InvalidGrantError, NotFoundError } from "./context";
 import * as payments from "./payments";
 import { consume, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
@@ -9,6 +9,7 @@ import { buildStatement } from "./statements";
 import * as tips from "./tips";
 import { accountExtras, customerPhotoBytes, type AccountExtras } from "./portal-blocks";
 import { pendingFor as pendingBookingsFor } from "./portal-booking";
+import { exclusionNamesWithin, percentOf } from "./agreements";
 
 /**
  * THE TWO PORTAL LINKS THAT HAD NO PAGE
@@ -71,7 +72,13 @@ export interface PortalAccount {
     tipping: tips.TipOffer;
   }[];
   estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null }[];
-  agreements: { id: string; planName: string; status: string; startedOn: string; endsOn: string | null }[];
+  agreements: {
+    id: string; planName: string; status: string; startedOn: string; endsOn: string | null;
+    /** "15%" when the agreement carries a discount, for the member to read. */
+    discount: string | null;
+    /** What the discount leaves out, by name, so the member is not surprised on an invoice. */
+    notDiscounted: string[];
+  }[];
   deposits: { id: string; status: string; amountRequested: string; amountReceived: string; currency: string }[];
   /** Whether a pay button would lead anywhere. */
   onlinePaymentAvailable: boolean;
@@ -165,6 +172,8 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       status: schema.agreement.status,
       startedOn: schema.agreement.startedOn,
       endsOn: schema.agreement.endsOn,
+      discountRate: schema.agreement.discountRate,
+      exclusions: schema.agreement.discountExclusions,
     })
       .from(schema.agreement)
       .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
@@ -250,7 +259,12 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       estimates: estimateRows
         .filter((e) => e.status !== "draft")
         .map((e) => ({ ...e, sentAt: e.sentAt?.toISOString() ?? null })),
-      agreements: agreementRows,
+      agreements: await Promise.all(agreementRows.map(async ({ discountRate, exclusions, ...a }) => ({
+        ...a,
+        discount: membership.usableRate(discountRate) ? percentOf(discountRate) : null,
+        notDiscounted: membership.usableRate(discountRate)
+          ? await exclusionNamesWithin(tx, membership.readExclusions(exclusions)) : [],
+      }))),
       deposits: depositRows,
       onlinePaymentAvailable: invoices.some((i) => i.payable) && await processorConnected(tx),
       bankPayments: bank.map(({ invoiceIds, ...payment }) => ({

@@ -9,6 +9,10 @@ export interface ChartView {
   chart?: string | undefined;
   /** Which measure the chart draws. */
   measure?: string | undefined;
+  /** The second grouping the chart is cut by. */
+  split?: string | undefined;
+  /** `stacked` or `grouped`, for a chart that is cut. */
+  arrange?: string | undefined;
 }
 
 /**
@@ -65,8 +69,11 @@ export async function RunView({
   const current = withParams(here ?? back, {
     ...(view.chart ? { chart: view.chart } : {}),
     ...(view.measure ? { measure: view.measure } : {}),
+    ...(view.split ? { split: view.split } : {}),
+    ...(view.arrange ? { arrange: view.arrange } : {}),
   });
   const toggle = (kind: string) => withParams(current, { chart: kind });
+  const arrange = view.arrange === "grouped" ? "grouped" as const : view.arrange === "stacked" ? "stacked" as const : undefined;
   /** The company's own catalogue, so a report on a custom field or a kind of record finds its labels. */
   const dataset = (await reports.datasetFor(ctx, definition.dataset)) ?? undefined;
 
@@ -110,6 +117,8 @@ export async function RunView({
             </label>
           ) : null}
           {view.chart ? <input type="hidden" name="chart" value={view.chart} /> : null}
+          {view.split ? <input type="hidden" name="split" value={view.split} /> : null}
+          {view.arrange ? <input type="hidden" name="arrange" value={view.arrange} /> : null}
           <button
             type="submit"
             className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
@@ -135,11 +144,15 @@ export async function RunView({
               result={result!}
               measure={view.measure}
               prefer={prefer}
+              split={view.split}
+              arrange={arrange}
               additive={additivityFor(dataset)}
-              drill={(row) => drillHref(definition, row, { title, back })}
+              drill={(row, pin) => drillHref(definition, row, { title, back }, pin)}
               title={title}
               toggle={toggle}
               pick={(key) => withParams(current, { measure: key })}
+              splitHref={(dimension) => dimension === null ? withoutParams(current, ["split", "arrange"]) : withParams(current, { split: dimension })}
+              arrangeHref={(arrangement) => withParams(current, { arrange: arrangement })}
             />
           ) : null}
           <ReportTable
@@ -150,6 +163,15 @@ export async function RunView({
       )}
     </div>
   );
+}
+
+/** An address with some query parameters taken off, keeping the rest. */
+export function withoutParams(address: string, keys: string[]): string {
+  const [path, query = ""] = address.split("?");
+  const params = new URLSearchParams(query);
+  for (const key of keys) params.delete(key);
+  const text = params.toString();
+  return text ? `${path}?${text}` : path!;
 }
 
 /** An address with some query parameters set, keeping the rest. */
@@ -173,6 +195,8 @@ export function printHref(query: string, title: string, view: ChartView = {}, ba
   if (back) params.set("back", back);
   if (view.chart) params.set("chart", view.chart);
   if (view.measure) params.set("measure", view.measure);
+  if (view.split) params.set("split", view.split);
+  if (view.arrange) params.set("arrange", view.arrange);
   return `/reports/print?${params.toString()}`;
 }
 

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, customFields, jobs, properties, acquisition, NotFoundError } from "@opentradesos/api/services";
+import { booking, customers, customFields, jobs, properties, acquisition, NotFoundError } from "@opentradesos/api/services";
 import { assertCan } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -57,13 +57,14 @@ export default async function BookJobPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
-  const [addresses, types, technicians, sources, settings, jobFields] = await Promise.all([
+  const [addresses, types, technicians, sources, settings, jobFields, memberHold] = await Promise.all([
     properties.list(ctx, { limit: 50, customerId }),
     jobs.listTypes(ctx, { includeInactive: false }),
     technicianChoices(ctx, user.organizationTimezone),
     acquisition.channelOptions(ctx),
     acquisition.getSettings(ctx),
     customFields.formFields(ctx, "job"),
+    booking.memberHoldInForce(ctx),
   ]);
 
   return (
@@ -115,7 +116,7 @@ export default async function BookJobPage({
           <TextArea label="Description" name="description" maxLength={5000} />
           <CustomFieldInputs definitions={jobFields} legend="Your fields" />
           <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
-                       optional legend="First visit" />
+                       optional legend="First visit" memberHold={memberHold} />
         </ActionForm>
       )}
     </div>

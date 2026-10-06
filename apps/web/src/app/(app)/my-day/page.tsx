@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -6,6 +7,8 @@ import { dispatch, fieldOps, safety } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Day } from "./Day";
 import { SafetyTalks } from "./SafetyTalks";
+import { OfflineReady } from "./OfflineReady";
+import { CACHE_FILL_HEADER } from "@/lib/my-day-offline";
 
 export const dynamic = "force-dynamic";
 
@@ -62,10 +65,15 @@ export default async function MyDayPage({
    * the registration is keyed on a stable installation id so it is a lookup
    * rather than a new device every morning.
    */
-  const device = await fieldOps.register(ctx, {
-    installationId: `web:${user.userId}`,
-    label: "Browser",
-  });
+  /**
+   * The page fetching itself to keep a copy for no signal (`OfflineReady`)
+   * only looks the device up. Registering also lifts a revocation, and a fetch
+   * the person never made must not undo the office taking this browser away.
+   */
+  const installationId = `web:${user.userId}`;
+  const fillingCache = (await headers()).get(CACHE_FILL_HEADER) === "1";
+  const device = (fillingCache ? await fieldOps.registered(ctx, installationId) : null)
+    ?? await fieldOps.register(ctx, { installationId, label: "Browser" });
 
   const snapshot = await dispatch.snapshot(ctx, {
     deviceId: device.deviceId,
@@ -82,6 +90,7 @@ export default async function MyDayPage({
 
   return (
     <>
+    <div className="mx-4 mt-2"><OfflineReady person={user.userId} /></div>
     <SafetyTalks talks={talks} timezone={user.organizationTimezone} />
     {can(user.actor, "safety:report") ? (
       <p className="mx-4 mt-3 text-sm">
@@ -102,6 +111,8 @@ export default async function MyDayPage({
       priceBook={snapshot.priceBook}
       abilities={snapshot.abilities}
       tasks={snapshot.tasks}
+      expenses={snapshot.expenses}
+      today={todayIn(user.organizationTimezone)}
     />
     </>
   );

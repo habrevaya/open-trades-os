@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { coverage, money as m, rates, splits, time } from "@opentradesos/core";
+import { coverage, membership, money as m, rates, splits, tax, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -10,6 +10,8 @@ import * as commercial from "./commercial";
 import * as entitlements from "./entitlements";
 import * as contractClocks from "./contract-clocks";
 import { remember, replayed } from "./once";
+import { exclusionTestWithin, memberPricingWithin } from "./agreements";
+import * as taxRates from "./tax";
 
 /**
  * BILLING A JOB, BY WHOEVER PAYS FOR IT
@@ -68,15 +70,62 @@ export interface PlanLine {
   rateCardLineId: string | null;
   outOfScope: boolean;
   taxable: boolean;
+  /** The rate the line is taxed at, as applied: its own rate when it is taxable, nought when not. */
+  taxRate: string;
+  /** Which of the company's rates that is, when it is one. */
+  taxRateId: string | null;
+  /** Where the rate came from: the company's rates for the job's address, or chosen on the preview. */
+  taxSource: tax.TaxSource | null;
+  /** The rate as a person reads it, "Travis County 8.25%", or null when nothing is charged. */
+  taxLabel: string | null;
+}
+
+/**
+ * EACH LINE AT ITS OWN RATE.
+ *
+ * A job's taxable lines used to be taxed at one figure typed on the preview.
+ * Now each line carries a rate: the one the company's rates give the job's
+ * address and customer on the day (`tax.resolve`, with the exemption left
+ * to each payer, below), or one chosen for that line on the preview, so a
+ * job with parts owing two districts' rates is billed in parts at each.
+ * A figure typed for the whole job still charges every taxable line at it.
+ */
+export interface TaxChoices {
+  /** A fraction for every taxable line: "0.0825". */
+  taxRate?: string | undefined;
+  /** Per line key, the company's rate it is charged, or "none" for no tax on that line. */
+  lineRates?: readonly string[] | undefined;
+}
+
+/** "line:<id>=<rate id>" or "trip=none", as the preview's form and the API send them. */
+export function parseLineRates(pairs: readonly string[] | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const pair of pairs ?? []) {
+    const at = pair.lastIndexOf("=");
+    if (at <= 0) continue;
+    out.set(pair.slice(0, at), pair.slice(at + 1));
+  }
+  return out;
 }
 
 export interface PayerPart {
   customerId: string;
   name: string;
   role: "third_party" | "customer" | "share";
+  /** Before tax. */
   total: string;
-  /** Each line this payer pays any of, with how much. */
-  lines: Array<{ key: string; amount: string; whole: boolean }>;
+  /** The tax on this payer's parts. Nothing for a payer who is tax exempt. */
+  taxTotal: string;
+  totalWithTax: string;
+  taxExempt: boolean;
+  /**
+   * Each line this payer pays any of, with how much, and the tax their
+   * invoice states on it. `memberDiscount` is what the customer's plan takes
+   * off their own part; `amount` is before it.
+   */
+  lines: Array<{ key: string; amount: string; whole: boolean; tax: string; memberDiscount: string }>;
+  /** What the customer's plan takes off their own part, in all. Nothing for anybody else. */
+  memberDiscount: string;
   /** What the client's limit says about this payer's invoice. */
   ceiling: { state: "within" | "over"; held: boolean; message: string | null } | null;
 }
@@ -91,8 +140,16 @@ export interface BillingPlan {
   pricedTotal: string;
   invoicedTotal: string;
   absorbed: string;
+  /** The plan the customer's own part was priced for, when they are a member. */
+  member: { agreementId: string; planName: string } | null;
+  /** What that plan took off the customer's part. The invoices, this and what was absorbed come to the priced work. */
+  memberDiscount: string;
   reconciles: boolean;
+  /** The tax on everything invoiced, worked out whole; the payers' tax adds up to it exactly. */
+  taxTotal: string;
   outOfScope: number;
+  /** The rate the company's rates give this job, and the rates a line may be charged instead. */
+  tax: { worked: string; source: tax.TaxSource; choices: Array<{ id: string; label: string }> };
   /** Why the job cannot be billed this way yet, in words somebody can act on. */
   problems: string[];
   /** The live invoices already on the job, so a second run is not a surprise. */
@@ -112,11 +169,53 @@ async function nameOf(tx: Database, customerId: string): Promise<string> {
  *
  * Inside a caller's transaction, so `bill` acts on exactly the plan it read.
  */
-export async function planIn(tx: Database, organizationId: string, jobId: string): Promise<BillingPlan> {
+export async function planIn(
+  tx: Database, organizationId: string, jobId: string, options: TaxChoices = {},
+): Promise<BillingPlan> {
   const [job] = await tx.select().from(schema.job)
     .where(and(eq(schema.job.id, jobId), isNull(schema.job.deletedAt))).limit(1);
   if (!job) throw new NotFoundError("Job");
   const problems: string[] = [];
+  /**
+   * A figure typed for the whole job is checked once, so a typo (8.25 for
+   * eight and a quarter per cent) is a sentence, not a bill.
+   */
+  if (options.taxRate !== undefined && !(Number(options.taxRate) >= 0 && Number(options.taxRate) < 1)) {
+    throw new ConflictError(`A tax rate of ${options.taxRate} is not a fraction. Write 0.0825 for eight and a quarter per cent.`);
+  }
+  /**
+   * The job's own rate from the company's rates: its address's, its
+   * customer's, or the usual one, on today's date. Each payer's exemption is
+   * theirs and is applied to their part below, so the job's customer being
+   * exempt does not untax the warranty company's part.
+   */
+  const taxDay = await rateCards.todayFor(tx, organizationId);
+  const table = await taxRates.tableWithin(tx, organizationId);
+  const worked = await taxRates.saleRateWithin(tx, organizationId, {
+    customerId: job.customerId, propertyId: job.propertyId, on: taxDay.on,
+  }, table, { ignoreExemption: true });
+  const asked = parseLineRates(options.lineRates);
+  const rateOf = (key: string, taxable: boolean): Pick<PlanLine, "taxRate" | "taxRateId" | "taxSource" | "taxLabel"> => {
+    const labelled = (r: tax.LineRate) => ({
+      ...r,
+      taxLabel: !taxable || Number(r.taxRate) === 0 ? null
+        : r.taxRateId ? tax.describe(table.rates.find((x) => x.id === r.taxRateId)?.name ?? "Rate", r.taxRate)
+          : `${tax.rateToPercent(r.taxRate)}%`,
+    });
+    if (options.taxRate !== undefined) {
+      return labelled(tax.onLine({
+        rate: options.taxRate, taxRateId: tax.nameTyped(table, options.taxRate, taxDay.on, worked.taxRateId), source: "chosen",
+      }, taxable));
+    }
+    const choice = asked.get(key);
+    if (choice === "none") return labelled(tax.onLine({ rate: "0", taxRateId: null, source: "chosen" }, taxable));
+    if (choice) {
+      const found = tax.chosen(table, choice, taxDay.on);
+      if (found) return labelled(tax.onLine(found, taxable));
+      problems.push("A line is set to a sales tax rate that is not in force today. Choose another.");
+    }
+    return labelled(tax.onLine(worked, taxable));
+  };
 
   const parties = await tx.select().from(schema.jobParty).where(eq(schema.jobParty.jobId, jobId));
   const billTo = parties.find((p) => p.role === "bill_to" && p.customerId)?.customerId ?? null;
@@ -183,9 +282,12 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
   const pricerFor = (kind: coverage.ChargeKind) => (thirdParty && covered(kind) ? thirdParty : primary);
 
   const lines: PlanLine[] = [];
+  /** Whose cards priced each line, by index: the customer's own work, or a third party's schedule. */
+  const pricedBy: string[] = [];
   for (const row of unbilled) {
     const facts = recorded.get(row.id)!;
     const kind = chargeKind(facts.kind, row.name);
+    pricedBy.push(pricerFor(kind));
     const cards = await cardsFor(pricerFor(kind));
     const priced = rates.priceWork(cards, {
       kind: facts.kind,
@@ -198,7 +300,8 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
       at: facts.at,
       jobTypeId: job.jobTypeId,
     });
-    lines.push(lineOf(`line:${row.id}`, row.id, facts.itemId, row.name, facts.kind, kind, priced, row.taxable));
+    lines.push(lineOf(`line:${row.id}`, row.id, facts.itemId, row.name, facts.kind, kind, priced, row.taxable,
+      rateOf(`line:${row.id}`, row.taxable)));
   }
 
   /**
@@ -227,7 +330,8 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
       kind: "trip", name: "Trip charge", priceBookItemId: null, quantity: String(visits),
       ourPrice: trip.amount, ourPriceIsBook: false, unitCost: null, at: new Date(), jobTypeId: job.jobTypeId,
     });
-    lines.push(lineOf("trip", null, null, "Trip charge", "trip", "trip", priced, false));
+    lines.push(lineOf("trip", null, null, "Trip charge", "trip", "trip", priced, false, rateOf("trip", false)));
+    pricedBy.push(pricerFor("trip"));
   }
 
   const amounts = lines.map((l) => usd(l.amount));
@@ -282,14 +386,105 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
   }
 
   const absorbed = basis === "absorbed" ? m.sum(parts[0] ?? [], "USD") : ZERO;
+
+  /**
+   * MEMBER PRICING ON THE CUSTOMER'S OWN PART (M08), and only there.
+   *
+   * A third party's part is priced by its own authority, a warranty
+   * company's schedule or a manufacturer's allowance, and a plan the
+   * homeowner bought from us is nothing to do with what that payer owes.
+   * The customer's own part is work they pay us for at our price, so their
+   * plan takes its discount off it exactly as it would on an invoice raised
+   * the ordinary way: per line, off what they pay, by the same core
+   * arithmetic, with what the plan leaves out left out.
+   *
+   * Only a part priced at our own price, never one priced by somebody
+   * else's card: the deductible on covered work is a figure the third
+   * party's terms set. And only for the job's own customer: a property
+   * manager billed for a tenant's job is not the member.
+   *
+   * Taken before the tax is shared, so each payer is taxed on what they
+   * actually pay and the tax across the invoices still adds up.
+   */
+  const ownIndex = payers.findIndex((p) => p.role === "customer" && p.customerId === job.customerId);
+  const memberOff: m.Money[] = lines.map(() => ZERO);
+  let member: membership.MemberPricing | null = null;
+  if (ownIndex >= 0 && lines.length > 0 && problems.length === 0) {
+    member = await memberPricingWithin(tx, { customerId: job.customerId, propertyId: job.propertyId, on: today.on });
+  }
+  if (member) {
+    const ids = lines.map((l) => l.priceBookItemId).filter((x): x is string => x !== null);
+    const items = ids.length === 0 ? [] : await tx.select({
+      id: schema.priceBookItem.id, kind: schema.priceBookItem.kind, feeRole: schema.priceBookItem.feeRole,
+    }).from(schema.priceBookItem).where(inArray(schema.priceBookItem.id, ids));
+    const itemOf = new Map(items.map((i) => [i.id, i]));
+    const leftOut = await exclusionTestWithin(tx, member.exclusions, ids);
+    const mine = parts[ownIndex] ?? [];
+    const off = membership.memberDiscounts(lines.map((line, i) => {
+      const part = mine[i] ?? ZERO;
+      const whole = m.equals(part, amounts[i]!);
+      const item = line.priceBookItemId ? itemOf.get(line.priceBookItemId) : undefined;
+      const unitPrice = whole ? usd(line.unitPrice) : part;
+      return {
+        quantity: whole ? line.quantity : "1",
+        unitPrice,
+        eligible: m.isPositive(part) && pricedBy[i] === job.customerId
+          && membership.eligibleForMemberPricing({ unitPrice, itemKind: item?.kind ?? null }),
+        feeRole: item?.feeRole ?? null,
+        excluded: leftOut(line.priceBookItemId),
+      };
+    }), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
+    for (const [i, amount] of off.entries()) memberOff[i] = amount;
+  }
+  const memberTotal = m.sum(memberOff, "USD");
+
+  /**
+   * TAX, PER PAYER, ON WHAT EACH ONE PAYS (`core/splits.taxAcross`).
+   *
+   * Worked out on exactly the amount each invoice line will compute its own
+   * tax on: the whole line's price times its quantity where a payer takes
+   * the whole line, and their part where they share it. A payer the customer
+   * record marks tax exempt pays none on their part, and nobody is taxed on
+   * what a plan or our own warranty absorbs, because nobody is invoiced for it.
+   */
+  const exemptOf = new Map<string, boolean>();
+  for (const payer of payers) {
+    if (!payer.customerId || exemptOf.has(payer.customerId)) continue;
+    const [row] = await tx.select({
+      taxExempt: schema.customer.taxExempt,
+      certificate: schema.customer.taxExemptCertificate,
+      expiresOn: schema.customer.taxExemptExpiresOn,
+    }).from(schema.customer).where(eq(schema.customer.id, payer.customerId)).limit(1);
+    /** Exempt on a certificate still in force: a lapsed one is taxed, as `tax.exemptOn` says why. */
+    exemptOf.set(payer.customerId, tax.exemptOn({
+      exempt: row?.taxExempt ?? false, certificate: row?.certificate ?? null, expiresOn: row?.expiresOn ?? null,
+    }, taxDay.on).exempt);
+  }
+  const wholeNet = lines.map((line) => m.multiply(usd(line.unitPrice), line.quantity));
+  const taxBasis = payers.map((_, p) => lines.map((line, i) => {
+    const part = parts[p]?.[i] ?? ZERO;
+    const gross = m.equals(part, amounts[i]!) ? wholeNet[i]! : part;
+    return p === ownIndex ? m.subtract(gross, memberOff[i]!) : gross;
+  }));
+  const shared = splits.taxAcross(
+    lines.map((line) => ({ rate: line.taxRate, taxable: line.taxable })),
+    taxBasis,
+    payers.map((payer) => !payer.customerId || (exemptOf.get(payer.customerId) ?? false)),
+  );
+
   const ceiling = await commercial.ceilingFor(tx, jobId);
   const result: PayerPart[] = [];
   for (const [p, payer] of payers.entries()) {
     if (!payer.customerId) continue;
     const mine = parts[p] ?? [];
-    const total = m.sum(mine, "USD");
+    const own = p === ownIndex;
+    const discount = own ? memberTotal : ZERO;
+    /** Before tax, after their plan's discount: what their invoice's lines come to. */
+    const total = m.subtract(m.sum(mine, "USD"), discount);
+    const taxed = shared.payers[p] ?? ZERO;
+    /** Against what the invoice will carry, tax included, as raising it checks. */
     const verdict = await ceilingOf(tx, organizationId, {
-      jobId, customerId: payer.customerId, amount: total, authorization: ceiling,
+      jobId, customerId: payer.customerId, amount: m.add(total, taxed), authorization: ceiling,
       governs: payer.role === "third_party" || basis !== "coverage",
     });
     result.push({
@@ -297,6 +492,9 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
       name: await nameOf(tx, payer.customerId),
       role: payer.role,
       total: m.toString(total),
+      taxTotal: m.toString(taxed),
+      totalWithTax: m.toString(m.add(total, taxed)),
+      taxExempt: exemptOf.get(payer.customerId) ?? false,
       lines: lines.flatMap((line, i) => {
         const amount = mine[i] ?? ZERO;
         /**
@@ -306,8 +504,13 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
          */
         const keepAtZero = basis === "absorbed" && payer.role === "customer" && m.isZero(amount);
         if (m.isZero(amount) && !keepAtZero) return [];
-        return [{ key: line.key, amount: m.toString(amount), whole: m.equals(amount, amounts[i]!) }];
+        return [{
+          key: line.key, amount: m.toString(amount), whole: m.equals(amount, amounts[i]!),
+          tax: m.toString(shared.lines[p]?.[i] ?? ZERO),
+          memberDiscount: m.toString(own ? memberOff[i]! : ZERO),
+        }];
       }),
+      memberDiscount: m.toString(discount),
       ceiling: verdict,
     });
     if (verdict?.held && verdict.message) problems.push(verdict.message);
@@ -333,8 +536,16 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
     pricedTotal: m.toString(pricedTotal),
     invoicedTotal: m.toString(invoicedTotal),
     absorbed: m.toString(absorbed),
-    reconciles: splits.reconciles(pricedTotal, [invoicedTotal, absorbed]).ok,
+    member: member && m.isPositive(memberTotal) ? { agreementId: member.agreementId, planName: member.planName } : null,
+    memberDiscount: m.toString(memberTotal),
+    reconciles: splits.reconciles(pricedTotal, [invoicedTotal, absorbed, memberTotal]).ok,
+    taxTotal: m.toString(shared.total),
     outOfScope: lines.filter((l) => l.outOfScope).length,
+    tax: {
+      worked: worked.note,
+      source: worked.source,
+      choices: taxRates.choicesOn(table, taxDay.on).map((c) => ({ id: c.id, label: c.label })),
+    },
     problems,
     existing,
   };
@@ -343,6 +554,7 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
 function lineOf(
   key: string, jobLineId: string | null, itemId: string | null, name: string,
   kind: rates.WorkKind, chargeKind: coverage.ChargeKind, priced: rates.PricedLine, taxable: boolean,
+  rate: Pick<PlanLine, "taxRate" | "taxRateId" | "taxSource" | "taxLabel">,
 ): PlanLine {
   return {
     key,
@@ -362,6 +574,7 @@ function lineOf(
     rateCardLineId: priced.rateCardLineId,
     outOfScope: priced.outOfScope,
     taxable,
+    ...rate,
   };
 }
 
@@ -397,8 +610,11 @@ async function ceilingOf(
   return { state: verdict.state === "over" ? "over" : "within", held: verdict.held, message: verdict.message };
 }
 
-export async function preview(ctx: ServiceContext, input: { jobId: string }): Promise<BillingPlan> {
-  return guardedRead(ctx, "invoice:read", (tx) => planIn(tx, ctx.actor.organizationId, input.jobId));
+export async function preview(
+  ctx: ServiceContext, input: { jobId: string } & TaxChoices,
+): Promise<BillingPlan> {
+  return guardedRead(ctx, "invoice:read", (tx) =>
+    planIn(tx, ctx.actor.organizationId, input.jobId, { taxRate: input.taxRate, lineRates: input.lineRates }));
 }
 
 /* ------------------------------------------------------------- billing */
@@ -410,6 +626,7 @@ export interface BillResult {
   pricedTotal: string;
   invoicedTotal: string;
   absorbed: string;
+  taxTotal: string;
 }
 
 /**
@@ -421,13 +638,13 @@ export interface BillResult {
  * raise their limit.
  */
 export async function bill(
-  ctx: ServiceContext, input: { jobId: string; draft?: boolean | undefined },
+  ctx: ServiceContext, input: { jobId: string; draft?: boolean | undefined } & TaxChoices,
 ): Promise<BillResult> {
   return guardedWrite(ctx, "invoice:write", async (tx) => {
     const seen = await replayed<BillResult>(tx, ctx, "job_billing");
     if (seen) return seen;
 
-    const plan = await planIn(tx, ctx.actor.organizationId, input.jobId);
+    const plan = await planIn(tx, ctx.actor.organizationId, input.jobId, { taxRate: input.taxRate, lineRates: input.lineRates });
     if (plan.problems.length > 0) throw new ConflictError(plan.problems.join(" "));
 
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1);
@@ -471,7 +688,7 @@ export async function bill(
             quantity: share ? "1" : line.quantity,
             unitPrice: share ? part.amount : line.unitPrice,
             discountAmount: "0",
-            taxable: line.taxable,
+            taxable: line.taxable && !payer.taxExempt,
             ...(source ? { coverageSource: source } : {}),
             ...(line.jobLineId && owner.get(line.jobLineId) === payer.customerId ? { jobLineId: line.jobLineId } : {}),
           },
@@ -485,6 +702,20 @@ export async function bill(
               : line.note,
             rateCardId: line.rateCardId,
             rateCardLineId: line.rateCardLineId,
+            /**
+             * The tax this payer's part of the line carries, as the plan
+             * shared it, so the invoices add up to the tax on the whole job
+             * rather than each rounding its own way.
+             */
+            taxRate: line.taxable && !payer.taxExempt ? line.taxRate : "0",
+            taxAmount: usd(part.tax),
+            taxRateId: line.taxable && !payer.taxExempt ? line.taxRateId : null,
+            taxSource: !line.taxable ? null : payer.taxExempt ? "exempt" as const : line.taxSource,
+            /** The customer's plan, on their own part, as the preview showed it. */
+            ...(m.isPositive(usd(part.memberDiscount)) && plan.member ? {
+              memberDiscountAmount: usd(part.memberDiscount),
+              memberAgreementId: plan.member.agreementId,
+            } : {}),
           } satisfies billing.PreparedLine,
         };
       });
@@ -524,10 +755,19 @@ export async function bill(
     const subtotals = await tx.select({ subtotal: schema.invoice.subtotal, discount: schema.invoice.discountTotal })
       .from(schema.invoice).where(inArray(schema.invoice.id, created.map((c) => c.id)));
     const written = m.sum(subtotals.map((s) => m.subtract(usd(s.subtotal), usd(s.discount))), "USD");
-    const check = splits.reconciles(usd(plan.pricedTotal), [written, usd(plan.absorbed)]);
+    const check = splits.reconciles(usd(plan.pricedTotal), [written, usd(plan.absorbed), usd(plan.memberDiscount)]);
     if (!check.ok) {
       throw new ConflictError(
         `The invoices come to ${m.edit(written)} and the work to ${m.edit(usd(plan.pricedTotal))}. Nothing was billed.`,
+      );
+    }
+    /** And their tax to the tax on the whole, the same way. */
+    const taxes = await tx.select({ tax: schema.invoice.taxTotal })
+      .from(schema.invoice).where(inArray(schema.invoice.id, created.map((c) => c.id)));
+    const taxWritten = m.sum(taxes.map((t) => usd(t.tax)), "USD");
+    if (!m.equals(taxWritten, usd(plan.taxTotal))) {
+      throw new ConflictError(
+        `The invoices charge ${m.edit(taxWritten)} in tax and the work carries ${m.edit(usd(plan.taxTotal))}. Nothing was billed.`,
       );
     }
 
@@ -539,6 +779,7 @@ export async function bill(
       pricedTotal: plan.pricedTotal,
       invoicedTotal: m.toString(written),
       absorbed: plan.absorbed,
+      taxTotal: plan.taxTotal,
     };
     await audit(tx, ctx, "job.billed", "job", input.jobId, null, result);
     await remember(tx, ctx, "job_billing", input.jobId, result);
@@ -694,9 +935,11 @@ export async function coverageFromEquipment(
 type PartyRole = Parameters<typeof commercial.setParties>[1]["parties"][number]["role"];
 
 export const handlers = {
-  previewJobBilling: (ctx: ServiceContext, input: { id: string }) => preview(ctx, { jobId: input.id }),
-  billJob: (ctx: ServiceContext, input: { id: string; draft?: boolean | undefined }) =>
-    bill(ctx, { jobId: input.id, draft: input.draft }),
+  previewJobBilling: (ctx: ServiceContext, input: { id: string; taxRate?: string | undefined; lineRates?: string[] | undefined }) =>
+    preview(ctx, { jobId: input.id, taxRate: input.taxRate, lineRates: input.lineRates }),
+  billJob: (ctx: ServiceContext, input: {
+    id: string; draft?: boolean | undefined; taxRate?: string | undefined; lineRates?: string[] | undefined;
+  }) => bill(ctx, { jobId: input.id, draft: input.draft, taxRate: input.taxRate, lineRates: input.lineRates }),
   setJobContract: (ctx: ServiceContext, input: { id: string; contractId: string | null }) =>
     setContract(ctx, { jobId: input.id, contractId: input.contractId }),
   listJobClocks: (ctx: ServiceContext, input: { id: string }) => clocks(ctx, { jobId: input.id }),

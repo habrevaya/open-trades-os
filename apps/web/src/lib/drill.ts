@@ -27,9 +27,11 @@ export function drillHref(
   definition: reporting.ReportDefinition,
   row: Record<string, string | number | null>,
   context: DrillContext,
+  /** Pin only these groupings: a chart that folded one away leaves it open. */
+  only?: readonly string[],
 ): string {
   const query = new URLSearchParams(queryFor(definition));
-  for (const [key, value] of Object.entries(reporting.matchFor(definition, row))) {
+  for (const [key, value] of Object.entries(reporting.matchFor(definition, row, only))) {
     query.append("pin", value === null ? key : `${key}:${value}`);
   }
   query.set("title", context.title);

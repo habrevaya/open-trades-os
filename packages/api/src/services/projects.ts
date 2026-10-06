@@ -1078,6 +1078,8 @@ export interface ProjectProfitability {
   materialCost: string;
   labourCost: string;
   processingFees: string;
+  /** What people spent for the project's jobs that the company agreed to pay back, and per diem for days away on them. */
+  expenseCost: string;
   grossMargin: string;
   /** Null, never zero, when there is nothing budgeted to be a variance against. */
   costVariance: string | null;
@@ -1143,7 +1145,7 @@ export async function profitability(
 
     const [totals] = await tx.execute<{
       jobs: string; revenue: string; material_cost: string; labour_cost: string;
-      processing_fees: string; gross_margin: string;
+      processing_fees: string; expense_cost: string; gross_margin: string;
       scheduled_hours: string; actual_hours: string;
       open_entries: string; uncosted_lines: string; unbilled_cost: string;
       in_progress: string;
@@ -1154,6 +1156,7 @@ export async function profitability(
         ${money(JOB_COSTING_SQL.materialCost, "material_cost")},
         ${money(JOB_COSTING_SQL.labourCost, "labour_cost")},
         ${money(JOB_COSTING_SQL.processingFees, "processing_fees")},
+        ${money(JOB_COSTING_SQL.expenseCost, "expense_cost")},
         ${money(GROSS_MARGIN_SQL, "gross_margin")},
         ${hours(JOB_COSTING_SQL.scheduledHours, "scheduled_hours")},
         ${hours(JOB_COSTING_SQL.actualHours, "actual_hours")},
@@ -1215,7 +1218,8 @@ export async function profitability(
 
     const actualCost = Number(totals?.material_cost ?? 0)
       + Number(totals?.labour_cost ?? 0)
-      + Number(totals?.processing_fees ?? 0);
+      + Number(totals?.processing_fees ?? 0)
+      + Number(totals?.expense_cost ?? 0);
 
     return {
       projectId: project.id,
@@ -1227,6 +1231,7 @@ export async function profitability(
       materialCost: totals?.material_cost ?? "0.0000",
       labourCost: totals?.labour_cost ?? "0.0000",
       processingFees: totals?.processing_fees ?? "0.0000",
+      expenseCost: totals?.expense_cost ?? "0.0000",
       grossMargin: totals?.gross_margin ?? "0.0000",
       /**
        * Positive means under budget. Null rather than zero when nothing was

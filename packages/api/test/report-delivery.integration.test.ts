@@ -13,7 +13,7 @@ import { composeReportEmail } from "../src/services/report-delivery";
 import { drainOrganization, runPass } from "../src/services/workflow-worker";
 import type { EmailProvider, OutboundEmail } from "../src/email/provider";
 import { ConflictError, type ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, holdWholePassLock, WHOLE_PASS_WAIT_MS } from "./helpers";
 
 /**
  * REPORTS THAT ARRIVE ON THEIR OWN
@@ -90,6 +90,13 @@ const messagesTo = (address: string) => raw<{ id: string; subject: string; body:
 
 /** A Monday at seven in the morning in Chicago, two weeks back. */
 const MONDAY = new Date("2026-09-14T12:00:00Z");
+
+/** This file runs the worker's pass over every company: see `holdWholePassLock`. */
+let releaseWholePass: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (url) releaseWholePass = await holdWholePassLock(url);
+}, WHOLE_PASS_WAIT_MS);
+afterAll(async () => { await releaseWholePass?.(); });
 
 beforeAll(async () => {
   if (!url) return;

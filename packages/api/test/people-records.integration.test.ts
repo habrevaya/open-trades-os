@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { time, type Actor } from "@opentradesos/core";
 import * as records from "../src/services/people-records";
 import * as people from "../src/services/people";
+import * as taskRules from "../src/services/task-rules";
 import * as dispatch from "../src/services/dispatch";
 import * as jobs from "../src/services/jobs";
 import * as customers from "../src/services/customers";
@@ -64,6 +65,30 @@ beforeAll(async () => {
 });
 
 afterAll(async () => { if (raw) await raw.end(); });
+
+run("who a person reports to", () => {
+  it("is on their record, from the line the escalation screen sets, and is empty when nobody is", async () => {
+    expect((await records.person(owner(), { membershipId: danaMember })).reportsTo).toBeNull();
+
+    // Sam's own login, as a manager for Dana.
+    const samUser = fixtureId("pr:tech:sam");
+    const [samMember] = await raw<{ id: string }[]>`
+      select id from public.membership where organization_id = ${ORG} and user_id = ${samUser}`;
+    const danaUser = fixtureId("pr:tech:dana");
+    await taskRules.setReportsTo(owner(), { userId: danaUser, reportsToUserId: samUser });
+    expect((await records.person(owner(), { membershipId: danaMember })).reportsTo)
+      .toEqual({ membershipId: samMember!.id, name: "Sam Lee", email: "pr-sam@test.local", active: true });
+
+    // A manager who has left is still named, and said to have left.
+    await raw`update public.membership set active = false where id = ${samMember!.id}`;
+    expect((await records.person(owner(), { membershipId: danaMember })).reportsTo)
+      .toMatchObject({ name: "Sam Lee", active: false });
+    await raw`update public.membership set active = true where id = ${samMember!.id}`;
+
+    await taskRules.setReportsTo(owner(), { userId: danaUser, reportsToUserId: null });
+    expect((await records.person(owner(), { membershipId: danaMember })).reportsTo).toBeNull();
+  });
+});
 
 run("onboarding against the role's checklist", () => {
   it("copies the checklist once, ticks lines with who and what, and is done only when every required line is", async () => {

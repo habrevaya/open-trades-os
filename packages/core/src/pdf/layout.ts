@@ -32,6 +32,8 @@ export interface Header {
   contact?: string[] | undefined;
   /** The company's colour, for the band at the top. Ink when it has none. */
   accent: Rgb | null;
+  /** The company's logo, at the top left of every page, with the name beside it. */
+  logo?: PdfImage | null | undefined;
   title: string;
   /** Under the title: a date, a number, a period. */
   subtitle?: string | undefined;
@@ -64,7 +66,21 @@ export class Flow {
     this.page = page;
     const accent = this.header.accent ?? INK;
     page.rect(0, 0, LETTER.width, 6, { fill: accent });
-    page.text(this.left, MARGIN, fit(this.header.company, "bold", 14, this.width * 0.55), { font: "bold", size: 14, color: INK });
+    /**
+     * The logo, kept to its shape inside a box at most 44 points high and 120
+     * wide, and the name and contact lines beside it rather than under it, so
+     * a page with a logo is no longer before its first line than one without.
+     */
+    let nameLeft = this.left;
+    let logoBottom = 0;
+    if (this.header.logo) {
+      const size = fitWithin(this.header.logo, 120, 44);
+      page.image(this.header.logo, this.left, MARGIN - 14, size.width, size.height);
+      nameLeft = this.left + size.width + 12;
+      logoBottom = MARGIN - 14 + size.height;
+    }
+    const nameWidth = this.width * 0.55 - (nameLeft - this.left);
+    page.text(nameLeft, MARGIN, fit(this.header.company, "bold", 14, nameWidth), { font: "bold", size: 14, color: INK });
     page.text(this.right, MARGIN, this.header.title, { font: "bold", size: 14, color: INK, align: "right" });
     /**
      * The contact lines sit under the name on the left and the subtitle under
@@ -75,8 +91,9 @@ export class Flow {
     let left = MARGIN;
     for (const line of this.header.contact ?? []) {
       left += 12;
-      page.text(this.left, left, fit(line, "regular", 9, this.width * 0.55), { size: 9, color: MUTED });
+      page.text(nameLeft, left, fit(line, "regular", 9, nameWidth), { size: 9, color: MUTED });
     }
+    left = Math.max(left, logoBottom);
     let y = MARGIN;
     if (this.header.subtitle) {
       y += 15;

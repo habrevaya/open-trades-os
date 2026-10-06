@@ -94,6 +94,8 @@ export const getRecordHistory = defineRoute({
 /* ---------------------------------------------------------- the ledger */
 
 const AccountClass = z.enum(["asset", "liability", "equity", "revenue", "expense"]);
+/** A branch's id, or "none" for the entries that carry no branch. */
+const LedgerBranch = z.union([Uuid, z.literal("none")]);
 const Direction = z.enum(["debit", "credit"]);
 
 export const getTrialBalance = defineRoute({
@@ -101,12 +103,13 @@ export const getTrialBalance = defineRoute({
   path: "/v1/ledger/trial-balance",
   summary: "Every account, both sides, and its balance",
   description:
-    "Covers the whole company: there is no business unit filter, because nothing writes ledger_entry.business_unit_id on any posting path and a filter matching nothing is better than one matching a branch's revenue and none of its payments. Balances are signed towards each account's own normal side, so a positive number always means more of what that account holds and a contra revenue account comes back negative. Total debits and credits are reported rather than asserted: a trigger already refuses an unbalanced posting, and printing both is how a reader confirms that instead of taking the schema's word for it.",
+    "The whole company, or one branch with businessUnitId (an id, or \"none\" for the entries that carry no branch). Every posting made since branches were carried on postings has the branch of the invoice or job it came from; older ones have none, and so do the postings that belong to the company (payroll, the release of deferred revenue) or to two branches at once. `branch` says how many entries in the window carry no branch, what their debits add up to, and the first day any entry carries one, so a branch's figures are never read as the whole of its books. Balances are signed towards each account's own normal side, so a positive number always means more of what that account holds and a contra revenue account comes back negative. Total debits and credits are reported rather than asserted: a trigger already refuses an unbalanced posting, and printing both is how a reader confirms that instead of taking the schema's word for it. That is the whole company's claim: one branch's totals need not be equal, because a journal can give each of its lines a branch of its own.",
   module: "M14",
   permissions: ["ledger:read"],
   input: z.object({
     from: z.string().datetime().optional(),
     to: z.string().datetime().optional(),
+    businessUnitId: LedgerBranch.optional(),
   }),
   output: z.object({
     rows: z.array(z.object({
@@ -123,6 +126,13 @@ export const getTrialBalance = defineRoute({
     balanced: z.boolean(),
     from: z.string().nullable(),
     to: z.string().nullable(),
+    branch: z.object({
+      filter: z.string().nullable(),
+      entries: z.number().int(),
+      withoutBranch: z.number().int(),
+      withoutBranchDebits: MoneyString,
+      firstBranchedOn: z.string().nullable(),
+    }),
   }),
 });
 
@@ -140,6 +150,7 @@ export const listJournal = defineRoute({
     jobId: Uuid.optional(),
     customerId: Uuid.optional(),
     accountCode: z.string().max(20).optional(),
+    businessUnitId: LedgerBranch.optional(),
     limit: z.number().int().min(1).max(200).optional(),
   }),
   output: z.object({
@@ -157,6 +168,7 @@ export const listJournal = defineRoute({
         memo: z.string().nullable(),
         jobId: Uuid.nullable(),
         customerId: Uuid.nullable(),
+        businessUnitId: Uuid.nullable(),
         reversesEntryId: Uuid.nullable(),
       })),
       totalDebits: MoneyString,

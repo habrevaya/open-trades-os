@@ -100,6 +100,8 @@ export function DayScreen({ nav }: { nav: Navigate }) {
 
       <TimeClock />
 
+      <TalksToSign nav={nav} />
+
       <OnSiteTools nav={nav} />
 
       {view === null ? null : visits.length === 0 ? (
@@ -122,6 +124,24 @@ export function DayScreen({ nav }: { nav: Navigate }) {
 }
 
 /**
+ * Toolbox talks waiting for this person's signature, at the top of the day,
+ * because a sheet nobody signs is a talk nobody can show was held.
+ */
+function TalksToSign({ nav }: { nav: Navigate }) {
+  const field = useField();
+  const waiting = (field.view?.day.talks ?? []).filter((t) => !t.signedAt && !t.signedHere && !t.cannotSign);
+  if (waiting.length === 0) return null;
+  return (
+    <View style={styles.tools}>
+      <View style={{ flex: 1 }}>
+        <Button label={waiting.length === 1 ? "A toolbox talk to sign" : `${waiting.length} toolbox talks to sign`}
+                onPress={() => nav.push({ name: "talks" })} />
+      </View>
+    </View>
+  );
+}
+
+/**
  * The office's queue and the assistant, from the day: the tasks waiting for
  * this person or for anybody, and a question that is not about one visit.
  * Each shown only when the server says this person may use it.
@@ -130,9 +150,16 @@ function OnSiteTools({ nav }: { nav: Navigate }) {
   const field = useField();
   const abilities = field.view?.abilities;
   const open = (field.view?.day.tasks ?? []).filter((t) => !t.done);
-  if (!abilities?.tasks && !abilities?.assistant) return null;
+  const refused = (field.view?.day.expenses ?? []).filter((e) => e.status === "refused").length;
+  if (!abilities?.tasks && !abilities?.assistant && !abilities?.expenses) return null;
   return (
     <View style={styles.tools}>
+      {abilities.expenses ? (
+        <View style={{ flex: 1 }}>
+          <Button label={refused > 0 ? `Money I spent (${refused} not approved)` : "Money I spent"} kind="secondary"
+                  onPress={() => nav.push({ name: "expenses" })} />
+        </View>
+      ) : null}
       {abilities.tasks ? (
         <View style={{ flex: 1 }}>
           <Button label={open.length > 0 ? `Tasks (${open.length})` : "Tasks"} kind="secondary" onPress={() => nav.push({ name: "tasks" })} />

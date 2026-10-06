@@ -1230,13 +1230,24 @@ async function replay(
         .limit(budget));
 
     let failed = false;
+    let stopped = false;
     let reached = request.position;
     for (const event of queue) {
+      /**
+       * Read again before every event, because somebody may have pressed
+       * Stop since this pass read the list. A cancel is a promise that
+       * nothing more goes, and the next event is "more".
+       */
+      const [now] = await guardedRead(ctx, "integration:read", (tx) =>
+        tx.select({ status: schema.webhookReplay.status }).from(schema.webhookReplay)
+          .where(eq(schema.webhookReplay.id, request.id)).limit(1));
+      if (now?.status !== "pending") { stopped = true; break; }
       budget -= 1;
       const sent = await sendOne(ctx.actor.organizationId, endpoint, event, send, clock, request.id);
       await guardedWrite(ctx, "integration:write", async (tx) => {
         await recordAttempt(tx, ctx.actor.organizationId, endpoint.id, { event, sent, replayId: request.id });
         if (sent.ok) {
+          /** The position moves even on a cancelled replay: it went, and the record says how far. */
           await tx.update(schema.webhookReplay).set({
             position: sql`greatest(${schema.webhookReplay.position}, ${event.sequence})`,
             failureCount: 0, lastAttemptAt: sent.at, lastError: null, updatedAt: sent.at,
@@ -1244,13 +1255,14 @@ async function replay(
           return;
         }
         const failures = request.failureCount + 1;
+        /** Only a waiting replay can fail: a cancel that raced this send stays a cancel. */
         await tx.update(schema.webhookReplay).set({
           failureCount: failures,
           lastAttemptAt: sent.at,
           lastError: sent.error ?? `HTTP ${sent.status}`,
           ...(failures >= FAILURE_LIMIT ? { status: "failed" as const, finishedAt: sent.at } : {}),
           updatedAt: sent.at,
-        }).where(eq(schema.webhookReplay.id, request.id));
+        }).where(and(eq(schema.webhookReplay.id, request.id), eq(schema.webhookReplay.status, "pending")));
       });
 
       attempts.push({
@@ -1272,7 +1284,7 @@ async function replay(
      * event went, or the events left in the range are ones this endpoint no
      * longer subscribes to, which are not anybody's to send.
      */
-    if (!failed) {
+    if (!failed && !stopped) {
       await guardedWrite(ctx, "integration:write", async (tx) => {
         const [left] = await tx.select({ n: sql<number>`count(*)::int` })
           .from(schema.domainEvent)
@@ -1623,7 +1635,7 @@ export interface Replay {
   fromSequence: number;
   throughSequence: number;
   position: number;
-  status: "pending" | "done" | "failed";
+  status: "pending" | "done" | "failed" | "cancelled";
   failureCount: number;
   lastError: string | null;
   createdAt: string;
@@ -1767,6 +1779,37 @@ export async function requestReplay(ctx: ServiceContext, input: ReplayInput): Pr
   });
 }
 
+/**
+ * Stop a replay before it runs, or before the rest of it does.
+ *
+ * Only a waiting one: a replay that finished or gave up has nothing left to
+ * stop, and is answered as it stands so a second press is not an error. What
+ * was already sent stays sent, which is the only honest thing a cancel can
+ * promise about a receiver that has already been called; `position` says how
+ * far it got. The worker reads the status again before every event, so a
+ * cancel that lands mid pass stops it at the next one.
+ */
+export async function cancelReplay(ctx: ServiceContext, input: { id: string; replayId: string }): Promise<Replay> {
+  return guardedWrite(ctx, "integration:write", async (tx) => {
+    const endpoint = await load(tx, ctx.actor.organizationId, input.id);
+    const [before] = await tx.select().from(schema.webhookReplay)
+      .where(and(eq(schema.webhookReplay.id, input.replayId), eq(schema.webhookReplay.endpointId, endpoint.id)))
+      .for("update").limit(1);
+    if (!before) throw new NotFoundError("Replay");
+    if (before.status !== "pending") return shapeReplay(before);
+    const now = new Date();
+    const [after] = await tx.update(schema.webhookReplay).set({
+      status: "cancelled",
+      cancelledByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId,
+      finishedAt: now,
+      updatedAt: now,
+    }).where(and(eq(schema.webhookReplay.id, before.id), eq(schema.webhookReplay.status, "pending"))).returning();
+    await audit(tx, ctx, "webhook.replay_cancelled", "webhook_endpoint", endpoint.id,
+      shapeReplay(before) as unknown as Record<string, unknown>, shapeReplay(after!) as unknown as Record<string, unknown>);
+    return shapeReplay(after!);
+  });
+}
+
 /** The replays asked for on one endpoint, newest first. */
 export async function replays(ctx: ServiceContext, input: { id: string }): Promise<Replay[]> {
   return guardedRead(ctx, "integration:read", async (tx) => {
@@ -1842,4 +1885,6 @@ export const handlers = {
 
   listWebhookReplays: async (ctx: ServiceContext, input: { id: string }): Promise<{ replays: Replay[] }> =>
     ({ replays: await replays(ctx, input) }),
+
+  cancelWebhookReplay: (ctx: ServiceContext, input: { id: string; replayId: string }) => cancelReplay(ctx, input),
 } as const;

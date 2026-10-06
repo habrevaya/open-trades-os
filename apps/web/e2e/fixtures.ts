@@ -1,4 +1,6 @@
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
+import { sql } from "drizzle-orm";
+import { createClient } from "@opentradesos/db";
 import { readSeed, type Seed } from "./seed";
 
 /**
@@ -60,13 +62,18 @@ export const test = base.extend<Fixtures & { errors: string[] }>({
     await use(await open(context, errors));
     await context.close();
   },
-  tech: async ({ browser, baseURL, seed, errors }, use) => {
-    const context = await signedIn(browser, baseURL!, seed.tech, {
-      viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
-    });
-    await use(await open(context, errors));
-    await context.close();
-  },
+  tech: [async ({ browser, baseURL, seed, errors }, use) => {
+    const release = await holdTheTechnician();
+    try {
+      const context = await signedIn(browser, baseURL!, seed.tech, {
+        viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
+      });
+      await use(await open(context, errors));
+      await context.close();
+    } finally {
+      await release();
+    }
+  }, { timeout: 600_000 }],
   stranger: async ({ browser, baseURL, errors }, use) => {
     const context = await browser.newContext({ baseURL });
     await use(await open(context, errors));
@@ -75,6 +82,37 @@ export const test = base.extend<Fixtures & { errors: string[] }>({
 });
 
 export { expect };
+
+/**
+ * ONE TECHNICIAN, ONE PHONE AT A TIME
+ *
+ * The seed has one technician, and their day is one thing on the server:
+ * opening `/my-day` registers the browser as their device, which also lifts a
+ * revocation, and a punch in one window is the clock in another. Specs run in
+ * parallel, so a test that revokes the phone and waits to be told so could
+ * have it lifted by another file opening the same day a moment later. Every
+ * test that signs in as the technician holds this lock for its length, on one
+ * connection inside a transaction, so those tests take turns and everything
+ * else runs beside them.
+ */
+async function holdTheTechnician(): Promise<() => Promise<void>> {
+  const db = createClient();
+  let release!: () => void;
+  const finished = new Promise<void>((resolve) => { release = resolve; });
+  let locked!: () => void;
+  const held = new Promise<void>((resolve) => { locked = resolve; });
+  const done = db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(7101002)`);
+    locked();
+    await finished;
+  });
+  await Promise.race([held, done]);
+  return async () => {
+    release();
+    await done;
+    await db.$close();
+  };
+}
 
 /** A suffix that makes this run's rows distinguishable from the last run's. */
 export const run = Date.now().toString(36);

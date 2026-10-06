@@ -15,6 +15,8 @@ import { emit } from "./events";
 import { resolveIn } from "./entitlements";
 import { within } from "./workflow-schedule";
 import * as once from "./once";
+import { inForceAt } from "./pricebook";
+import * as notices from "./agreement-notices";
 
 /**
  * MAINTENANCE AGREEMENTS
@@ -188,6 +190,10 @@ export interface PlanInput {
   autoRenews?: boolean | undefined;
   /** Days before the end of a term that the member is told. Zero for no notice. */
   renewalNoticeDays?: number | undefined;
+  /** Price book categories and items the discount leaves out. */
+  discountExclusions?: { categoryIds: string[]; itemIds: string[] } | undefined;
+  /** The share of each window held for this plan's members, a whole per cent. Null for the company's figure. */
+  memberHoldPercent?: number | null | undefined;
 }
 
 /**
@@ -223,6 +229,10 @@ function checkPlan(input: PlanPatch): void {
   if ((input.visitAnchorMonths ?? []).some((month) => !Number.isInteger(month) || month < 1 || month > 12)) {
     throw new ConflictError("Visit months are numbered 1 for January to 12 for December.");
   }
+  if (input.memberHoldPercent !== undefined && input.memberHoldPercent !== null
+      && (!Number.isInteger(input.memberHoldPercent) || input.memberHoldPercent < 0 || input.memberHoldPercent > 90)) {
+    throw new ConflictError("Hold between none and ninety per cent of each window for this plan's members, or leave it blank for the company's figure.");
+  }
   if (input.discountRate !== undefined && input.discountRate !== ""
       && Number(input.discountRate) !== 0 && !membership.usableRate(input.discountRate)) {
     /**
@@ -237,12 +247,42 @@ function checkPlan(input: PlanPatch): void {
   }
 }
 
+/**
+ * The exclusions as stored, every one checked to be this company's own.
+ *
+ * Read under row level security, so another company's category is simply not
+ * found, and refused in words: a plan that silently ignored an id it could
+ * not find would be a plan whose owner believes equipment is left out when
+ * nothing is.
+ */
+async function checkedExclusions(
+  tx: Database, value: { categoryIds: string[]; itemIds: string[] },
+): Promise<{ categoryIds: string[]; itemIds: string[] }> {
+  const exclusions = membership.readExclusions(value);
+  if (exclusions.categoryIds.length > 0) {
+    const found = await tx.select({ id: schema.priceBookCategory.id }).from(schema.priceBookCategory)
+      .where(and(inArray(schema.priceBookCategory.id, [...exclusions.categoryIds]), isNull(schema.priceBookCategory.deletedAt)));
+    if (found.length !== exclusions.categoryIds.length) {
+      throw new ConflictError("A price book category the discount leaves out is not in your price book. Choose again from the list.");
+    }
+  }
+  if (exclusions.itemIds.length > 0) {
+    const found = await tx.select({ id: schema.priceBookItem.id }).from(schema.priceBookItem)
+      .where(inArray(schema.priceBookItem.id, [...exclusions.itemIds]));
+    if (found.length !== exclusions.itemIds.length) {
+      throw new ConflictError("A price book item the discount leaves out is not in your price book. Choose again from the list.");
+    }
+  }
+  return { categoryIds: [...exclusions.categoryIds], itemIds: [...exclusions.itemIds] };
+}
+
 const rateOrNull = (rate: string | undefined): string | null =>
   rate === undefined || rate.trim() === "" || Number(rate) === 0 ? null : rate.trim();
 
 export async function createPlan(ctx: ServiceContext, input: PlanInput) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
     checkPlan(input);
+    const exclusions = await checkedExclusions(tx, input.discountExclusions ?? { categoryIds: [], itemIds: [] });
 
     /**
      * The plan code is unique per company and is a thing somebody types. A
@@ -272,6 +312,8 @@ export async function createPlan(ctx: ServiceContext, input: PlanInput) {
         waivesDiagnosticFee: input.waivesDiagnosticFee ?? false,
         waivesAfterHoursRate: input.waivesAfterHoursRate ?? false,
         benefits: (input.benefits ?? []).map((b) => b.trim()).filter(Boolean),
+        discountExclusions: exclusions,
+        memberHoldPercent: input.memberHoldPercent ?? null,
       }).returning(),
     );
 
@@ -304,7 +346,8 @@ export async function getPlan(ctx: ServiceContext, input: { id: string }) {
  * different per field and deliberate:
  *
  *   THE PRICE AND THE DISCOUNT are frozen on each agreement at sale, so an
- *   edit reaches the next sale and nobody already on the plan. A price rise
+ *   edit reaches the next sale and nobody already on the plan. What the
+ *   discount leaves out is part of the discount and is frozen with it. A price rise
  *   for existing members is a renewal with a new price, which is a
  *   conversation, not a form.
  *
@@ -312,7 +355,8 @@ export async function getPlan(ctx: ServiceContext, input: { id: string }) {
  *   so they reach new sales and each existing member's NEXT term when it
  *   renews. A term already written owes what it owed when it was written.
  *
- *   THE PERKS (priority, the waived fees, the benefit list) are the
+ *   THE PERKS (priority and the share of each window it holds, the waived
+ *   fees, the benefit list) are the
  *   company's standing promise to everybody on the plan and are read from
  *   the plan when they are used, so turning one off takes it from existing
  *   members from that moment. The screen says so beside the boxes.
@@ -347,6 +391,8 @@ export async function updatePlan(ctx: ServiceContext, input: { id: string; activ
     if (input.benefits !== undefined) set.benefits = input.benefits.map((b) => b.trim()).filter(Boolean);
     if (input.autoRenews !== undefined) set.autoRenews = input.autoRenews;
     if (input.renewalNoticeDays !== undefined) set.renewalNoticeDays = input.renewalNoticeDays;
+    if (input.discountExclusions !== undefined) set.discountExclusions = await checkedExclusions(tx, input.discountExclusions);
+    if (input.memberHoldPercent !== undefined) set.memberHoldPercent = input.memberHoldPercent;
     if (input.active !== undefined) set.active = input.active;
 
     const [after] = await refusingDuplicate(
@@ -438,6 +484,8 @@ export async function sell(ctx: ServiceContext, input: SellInput) {
       price: m.toString(price),
       /** Frozen at sale as well, for the same reason. See the column. */
       discountRate: plan.discountRate,
+      /** And what it leaves out, which is part of what the discount is. */
+      discountExclusions: membership.readExclusions(plan.discountExclusions) as { categoryIds: string[]; itemIds: string[] },
       billingFrequency: plan.billingFrequency,
       autoRenews: plan.autoRenews,
       visitsIncludedThisTerm: plan.includedVisitsPerTerm,
@@ -499,6 +547,15 @@ async function writeTerm(
   },
 ): Promise<{ visits: number; instalments: number }> {
   const { plan, startedOn, endsOn, price } = input;
+
+  /** The term itself, with its dates, which is what its breakage is released against when it ends. */
+  await tx.insert(schema.agreementTerm).values({
+    organizationId: ctx.actor.organizationId,
+    agreementId: input.agreementId,
+    term: input.term,
+    startsOn: startedOn,
+    endsOn,
+  }).onConflictDoNothing();
 
   const [counts] = await tx.execute<{ visits: number; billing: number }>(sql`
     select
@@ -618,7 +675,7 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       .where(eq(schema.agreement.id, input.id)).limit(1);
     if (!row) throw new NotFoundError("Agreement");
 
-    const [visits, billing, deferred] = await Promise.all([
+    const [visits, billing, deferred, terms] = await Promise.all([
       tx.select().from(schema.agreementVisit)
         .where(eq(schema.agreementVisit.agreementId, input.id))
         .orderBy(asc(schema.agreementVisit.sequence)),
@@ -627,6 +684,9 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
         .orderBy(asc(schema.agreementBilling.sequence)),
       tx.select().from(schema.deferredRevenueEntry)
         .where(eq(schema.deferredRevenueEntry.agreementId, input.id)),
+      tx.select().from(schema.agreementTerm)
+        .where(eq(schema.agreementTerm.agreementId, input.id))
+        .orderBy(asc(schema.agreementTerm.term)),
     ]);
 
     /**
@@ -640,7 +700,9 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       .reduce((total: m.Money, d: typeof schema.deferredRevenueEntry.$inferSelect) =>
         m.add(total, usd(d.amount)), m.zero("USD"));
 
-    return { ...row, visits, billing, unearned: m.toString(unearned) };
+    /** What the discount leaves out, by name, for the screen that explains the discount. */
+    const leavesOut = await exclusionNamesWithin(tx, membership.readExclusions(row.agreement.discountExclusions));
+    return { ...row, visits, billing, terms, leavesOut, unearned: m.toString(unearned) };
   });
 }
 
@@ -831,15 +893,22 @@ async function deliverWithin(tx: Database, ctx: ServiceContext, input: { agreeme
     updatedAt: new Date(),
   }).where(eq(schema.agreement.id, row.agreement.id));
 
-  const amount = usd(row.visit.recognitionAmount ?? "0");
+  /**
+   * ONLY A SLICE STILL DEFERRED. A visit delivered after its term ended was
+   * released to revenue with that term's breakage, so it is already earned:
+   * delivering it now is the company keeping its word, and recognising it a
+   * second time would be revenue out of thin air.
+   */
+  const open = await tx.update(schema.deferredRevenueEntry)
+    .set({ recognizedOn: on, updatedAt: new Date() })
+    .where(and(
+      eq(schema.deferredRevenueEntry.agreementVisitId, input.agreementVisitId),
+      isNull(schema.deferredRevenueEntry.recognizedOn),
+      isNull(schema.deferredRevenueEntry.releasedOn),
+    ))
+    .returning({ amount: schema.deferredRevenueEntry.amount });
+  const amount = open.length > 0 ? usd(row.visit.recognitionAmount ?? "0") : m.zero("USD");
   if (m.isPositive(amount)) {
-    await tx.update(schema.deferredRevenueEntry)
-      .set({ recognizedOn: on, updatedAt: new Date() })
-      .where(and(
-        eq(schema.deferredRevenueEntry.agreementVisitId, input.agreementVisitId),
-        isNull(schema.deferredRevenueEntry.recognizedOn),
-      ));
-
     await writePosting(tx, ctx, ledger.postAgreementRecognition({
       agreementVisitId: input.agreementVisitId,
       occurredAt: new Date(),
@@ -1229,6 +1298,117 @@ export async function unearned(ctx: ServiceContext) {
 
 
 // ---------------------------------------------------------------------------
+// Breakage: what a term owed and the member never took
+// ---------------------------------------------------------------------------
+
+/**
+ * The current term's row, for an agreement sold before terms were recorded.
+ *
+ * Its end is the agreement's own end date, which is exact; its start is
+ * known only for a first term. Earlier terms of such an agreement get no row
+ * and so are never released by the pass: their end dates were never written
+ * down, and a release on a guessed date is the one thing this must not do.
+ */
+async function ensureCurrentTerm(tx: Database, ctx: ServiceContext, agreement: typeof schema.agreement.$inferSelect) {
+  if (!agreement.endsOn || agreement.status === "pending") return;
+  const term = agreement.renewalCount + 1;
+  await tx.insert(schema.agreementTerm).values({
+    organizationId: ctx.actor.organizationId,
+    agreementId: agreement.id,
+    term,
+    startsOn: term === 1 ? agreement.startedOn : null,
+    endsOn: agreement.endsOn,
+  }).onConflictDoNothing();
+}
+
+/**
+ * RELEASE WHAT AN ENDED TERM STILL HOLDS DEFERRED, ONCE.
+ *
+ * ON THE DAY THE TERM ENDS, NEVER EARLIER. That is the accounting treatment,
+ * and a deliberate one: a visit skipped in March can be put back in June, so
+ * releasing its slice in March would be revenue that has to be reversed
+ * against a closed month. By the end of the term the member has had the year
+ * of cover they paid for and the company has stood ready all of it, so what
+ * the visits never taken were worth is earned then. Not pro rata, not on a
+ * guess about who will not call.
+ *
+ * WHAT IS RELEASED is every slice of this term still deferred: a visit owed
+ * and never booked, one booked and not delivered, one skipped, and for a plan
+ * with no visits the whole of the term's price. A slice already recognised or
+ * already released (a cancellation) is left alone.
+ *
+ * CLAIMED FIRST, per term, by a conditional update, so two passes or a pass
+ * and a renewal reaching the same term release it once; the ledger posting is
+ * sourced to the term, and the term's row says what was released and when,
+ * which is what the agreement's screen shows. A term with nothing left is
+ * marked released at nothing, so the pass does not read it again.
+ *
+ * THE VISIT STAYS OWED. Releasing the revenue is a statement about the books,
+ * not about the member: the visit is still on the agreement, and delivering
+ * it later recognises nothing more, because it is already earned.
+ */
+export async function releaseEndedTerms(
+  tx: Database, ctx: ServiceContext, input: { today: string; agreementId?: string | undefined },
+): Promise<{ termId: string; agreementId: string; term: number; amount: string; visits: number }[]> {
+  const ended = await tx.select({ term: schema.agreementTerm, customerId: schema.agreement.customerId })
+    .from(schema.agreementTerm)
+    .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementTerm.agreementId))
+    .where(and(
+      isNull(schema.agreementTerm.breakageReleasedOn),
+      lte(schema.agreementTerm.endsOn, input.today),
+      input.agreementId ? eq(schema.agreementTerm.agreementId, input.agreementId) : undefined,
+    ))
+    .orderBy(asc(schema.agreementTerm.endsOn), asc(schema.agreementTerm.term));
+
+  const released: { termId: string; agreementId: string; term: number; amount: string; visits: number }[] = [];
+  for (const { term, customerId } of ended) {
+    const claimed = await tx.update(schema.agreementTerm)
+      .set({ breakageReleasedOn: input.today, updatedAt: new Date() })
+      .where(and(eq(schema.agreementTerm.id, term.id), isNull(schema.agreementTerm.breakageReleasedOn)))
+      .returning({ id: schema.agreementTerm.id });
+    if (claimed.length === 0) continue;
+
+    /** This term's slices still deferred: its visits', and a plan with no visits' single entry dated its end. */
+    const open = await tx.select({
+      id: schema.deferredRevenueEntry.id,
+      amount: schema.deferredRevenueEntry.amount,
+      visitId: schema.deferredRevenueEntry.agreementVisitId,
+    }).from(schema.deferredRevenueEntry)
+      .leftJoin(schema.agreementVisit, eq(schema.agreementVisit.id, schema.deferredRevenueEntry.agreementVisitId))
+      .where(and(
+        eq(schema.deferredRevenueEntry.agreementId, term.agreementId),
+        isNull(schema.deferredRevenueEntry.recognizedOn),
+        isNull(schema.deferredRevenueEntry.releasedOn),
+        sql`(${schema.agreementVisit.term} = ${term.term}
+          or (${schema.deferredRevenueEntry.agreementVisitId} is null and ${schema.deferredRevenueEntry.scheduledFor} = ${term.endsOn}))`,
+      ));
+    const amount = open.reduce((total: m.Money, e) => m.add(total, usd(e.amount)), m.zero("USD"));
+    const visits = open.filter((e) => e.visitId !== null).length;
+
+    if (open.length > 0) {
+      await tx.update(schema.deferredRevenueEntry).set({
+        releasedOn: input.today,
+        releaseReason: `Term ${term.term} ended on ${term.endsOn} with this not taken.`,
+        updatedAt: new Date(),
+      }).where(inArray(schema.deferredRevenueEntry.id, open.map((e) => e.id)));
+    }
+    if (m.isPositive(amount)) {
+      await writePosting(tx, ctx, ledger.postAgreementBreakage({
+        agreementTermId: term.id, occurredAt: new Date(), amount, customerId,
+      }));
+    }
+    const after = { breakageAmount: m.toString(amount), breakageVisits: visits };
+    await tx.update(schema.agreementTerm).set({ ...after, updatedAt: new Date() })
+      .where(eq(schema.agreementTerm.id, term.id));
+    await audit(tx, ctx, "agreement.breakage_released", "agreement", term.agreementId, null, {
+      term: term.term, endsOn: term.endsOn, releasedOn: input.today, ...after,
+    });
+    released.push({ termId: term.id, agreementId: term.agreementId, term: term.term, amount: m.toString(amount), visits });
+  }
+  return released;
+}
+
+// ---------------------------------------------------------------------------
 // Renewing it
 // ---------------------------------------------------------------------------
 
@@ -1325,6 +1505,8 @@ export async function renewWithin(
 
   const term = membership.nextTerm(before.endsOn, plan.termMonths);
   const termNumber = before.renewalCount + 2;
+  /** The term this renewal follows, written down if it predates terms being recorded, so its breakage has a row. */
+  await ensureCurrentTerm(tx, ctx, before);
 
   const [after] = await tx.update(schema.agreement).set({
     status: "active",
@@ -1349,6 +1531,15 @@ export async function renewWithin(
     agreementId: before.id, plan, startedOn: term.startsOn, endsOn: term.endsOn, price, term: termNumber,
     billingFrequency: before.billingFrequency,
   });
+
+  /**
+   * ON RENEWAL, the term that has ended gives up what it still holds. A
+   * renewal on or after the end date is the end of that term; one made early
+   * leaves it alone, and the pass releases it on the day it actually ends.
+   */
+  if (before.endsOn <= input.today) {
+    await releaseEndedTerms(tx, ctx, { today: input.today, agreementId: before.id });
+  }
 
   await emit(tx, ctx, {
     name: "agreement.renewed",
@@ -1515,13 +1706,82 @@ async function memberCandidates(tx: Database, customerIds: string[]): Promise<(m
     waivesDiagnosticFee: schema.agreementPlan.waivesDiagnosticFee,
     waivesAfterHoursRate: schema.agreementPlan.waivesAfterHoursRate,
     priorityDispatch: schema.agreementPlan.priorityDispatch,
+    exclusions: schema.agreement.discountExclusions,
+    holdPercent: schema.agreementPlan.memberHoldPercent,
   })
     .from(schema.agreement)
     .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
     .where(and(
       inArray(schema.agreement.customerId, [...new Set(customerIds)]),
       eq(schema.agreement.status, "active"),
-    ));
+    ))
+    .then((rows) => rows.map(({ exclusions, holdPercent, ...row }) => ({
+      ...row,
+      exclusions: membership.readExclusions(exclusions),
+      holdShare: holdPercent === null ? null : holdPercent / 100,
+    })));
+}
+
+/**
+ * Which lines of a document the member's discount leaves out, read inside
+ * the caller's transaction: by the line's price book item, or any category
+ * that item is filed under. One read of the categories and one of the items
+ * named, and none at all when the plan leaves nothing out.
+ */
+export async function exclusionTestWithin(
+  tx: Database,
+  exclusions: membership.DiscountExclusions | null | undefined,
+  itemIds: readonly (string | null | undefined)[],
+): Promise<(itemId: string | null | undefined) => boolean> {
+  if (!membership.hasExclusions(exclusions)) return () => false;
+  const ids = [...new Set(itemIds.filter((id): id is string => typeof id === "string"))];
+  const [categories, items] = await Promise.all([
+    tx.select({ id: schema.priceBookCategory.id, parentId: schema.priceBookCategory.parentId }).from(schema.priceBookCategory),
+    ids.length === 0 ? [] : tx.select({ id: schema.priceBookItem.id, categoryId: schema.priceBookItem.categoryId })
+      .from(schema.priceBookItem).where(inArray(schema.priceBookItem.id, ids)),
+  ]);
+  const parentOf = new Map(categories.map((c) => [c.id, c.parentId] as const));
+  const categoryOf = new Map(items.map((i) => [i.id, i.categoryId] as const));
+  return (itemId) => (itemId ? membership.excludedFromDiscount(
+    { itemId, categoryId: categoryOf.get(itemId) ?? null }, exclusions!, parentOf,
+  ) : false);
+}
+
+/**
+ * Every price book item the discount leaves out, as one list, for the phone,
+ * which carries the price book without its categories.
+ */
+export async function excludedItemsWithin(
+  tx: Database, exclusions: membership.DiscountExclusions | null | undefined,
+): Promise<string[]> {
+  if (!membership.hasExclusions(exclusions)) return [];
+  const [categories, items] = await Promise.all([
+    tx.select({ id: schema.priceBookCategory.id, parentId: schema.priceBookCategory.parentId }).from(schema.priceBookCategory),
+    tx.select({ id: schema.priceBookItem.id, categoryId: schema.priceBookItem.categoryId }).from(schema.priceBookItem),
+  ]);
+  return membership.excludedItemIds(items, exclusions!, new Map(categories.map((c) => [c.id, c.parentId] as const)));
+}
+
+/**
+ * What the discount leaves out, by name, for a sentence: "Equipment" and
+ * "Permit fee". A category or item since removed from the price book is
+ * still named, because the agreement still leaves it out.
+ */
+export async function exclusionNamesWithin(
+  tx: Database, exclusions: membership.DiscountExclusions | null | undefined,
+): Promise<string[]> {
+  if (!membership.hasExclusions(exclusions)) return [];
+  const [categories, items] = await Promise.all([
+    exclusions!.categoryIds.length === 0 ? [] : tx.select({ name: schema.priceBookCategory.name })
+      .from(schema.priceBookCategory).where(inArray(schema.priceBookCategory.id, [...exclusions!.categoryIds])),
+    exclusions!.itemIds.length === 0 ? [] : tx.select({ name: schema.priceBookItemVersion.name })
+      .from(schema.priceBookItemVersion)
+      .where(and(
+        inArray(schema.priceBookItemVersion.itemId, [...exclusions!.itemIds]),
+        inForceAt(),
+      )),
+  ]);
+  return [...categories.map((c) => c.name).sort(), ...[...new Set(items.map((i) => i.name))].sort()];
 }
 
 /**
@@ -1562,12 +1822,18 @@ export async function memberPricing(
   return guardedRead(ctx, "customer:read", async (tx) => {
     const today = time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
     const found = await memberPricingWithin(tx, { customerId: input.customerId, propertyId: input.propertyId, on: today });
-    return found
-      ? { applies: true as const, ...found, percent: percentOf(found.rate) }
-      : {
+    if (!found) {
+      return {
         applies: false as const, agreementId: null, planName: null, rate: null, percent: null,
-        waivesDiagnosticFee: false, waivesAfterHoursRate: false,
+        waivesDiagnosticFee: false, waivesAfterHoursRate: false, leavesOut: [] as string[],
       };
+    }
+    const { exclusions, ...rest } = found;
+    return {
+      applies: true as const, ...rest, percent: percentOf(found.rate),
+      /** What the discount does not touch, by name, so the screen can say so before the save. */
+      leavesOut: await exclusionNamesWithin(tx, exclusions),
+    };
   });
 }
 
@@ -1621,34 +1887,13 @@ const longDay = (iso: string): string =>
     month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
   });
 
-/**
- * The notice the plan owes, in words a member reads.
- *
- * Says the last covered day rather than the exclusive end date, the price and
- * what to do about it, and nothing else. A renewal notice is a legal notice in
- * a number of states for an automatically renewing contract, and the parts
- * that matter there are the date, the price and how to stop it.
- */
-export function renewalNoticeText(input: {
-  customerName: string; organizationName: string; planName: string;
-  endsOn: string; price: string; termMonths: number; renewsAutomatically: boolean;
-}): string {
-  const first = input.customerName.split(" ")[0] || input.customerName;
-  const price = m.format(usd(input.price));
-  if (input.renewsAutomatically) {
-    return `Hi ${first}, your ${input.planName} with ${input.organizationName} renews on `
-      + `${longDay(input.endsOn)} for another ${input.termMonths} months at ${price}. `
-      + "Reply to this message if you would like to change or cancel it.";
-  }
-  return `Hi ${first}, your ${input.planName} with ${input.organizationName} covers you until `
-    + `${longDay(membership.lastCoveredDay(input.endsOn))}. Reply to this message if you would like to renew it.`;
-}
-
 export interface RenewalPassResult {
   organizationId: string;
   renewed: string[];
   lapsed: string[];
   noticed: { agreementId: string; outcome: string }[];
+  /** Terms that ended and gave up what they still held deferred, at what amount. */
+  released: { agreementId: string; term: number; amount: string }[];
   failed: { agreementId: string; reason: string }[];
 }
 
@@ -1665,7 +1910,7 @@ export async function renewalsFor(
   now: Date = new Date(),
 ): Promise<RenewalPassResult> {
   const ctx: ServiceContext = { actor: renewalActor(organizationId), db };
-  const result: RenewalPassResult = { organizationId, renewed: [], lapsed: [], noticed: [], failed: [] };
+  const result: RenewalPassResult = { organizationId, renewed: [], lapsed: [], noticed: [], released: [], failed: [] };
 
   const { today, candidates } = await inTenant(ctx, async (tx) => {
     const zone = await organizationTimezone(tx, organizationId);
@@ -1735,6 +1980,38 @@ export async function renewalsFor(
     }
   }
 
+  /**
+   * BREAKAGE, on every term that has ended and not been released: lapsed
+   * ones, ones renewed early whose old term has now run out, cancelled ones
+   * (with nothing left, because cancelling released it). Agreements sold
+   * before terms were recorded have their current term written down first.
+   * Each term in its own transaction, like each agreement above.
+   */
+  try {
+    const ended = await inTenant(ctx, async (tx) => {
+      const legacy = await tx.select().from(schema.agreement)
+        .where(and(
+          sql`${schema.agreement.endsOn} is not null`,
+          lte(schema.agreement.endsOn, today),
+          sql`not exists (select 1 from public.agreement_term t
+                where t.agreement_id = ${schema.agreement.id} and t.term = ${schema.agreement.renewalCount} + 1)`,
+        ));
+      for (const row of legacy) await ensureCurrentTerm(tx, ctx, row);
+      return tx.select({ agreementId: schema.agreementTerm.agreementId }).from(schema.agreementTerm)
+        .where(and(isNull(schema.agreementTerm.breakageReleasedOn), lte(schema.agreementTerm.endsOn, today)));
+    });
+    for (const agreementId of [...new Set(ended.map((e) => e.agreementId))]) {
+      try {
+        const done = await inTenant(ctx, (tx) => releaseEndedTerms(tx, ctx, { today, agreementId }));
+        result.released.push(...done.map((d) => ({ agreementId: d.agreementId, term: d.term, amount: d.amount })));
+      } catch (error) {
+        result.failed.push({ agreementId, reason: (error as Error).message });
+      }
+    }
+  } catch (error) {
+    result.failed.push({ agreementId: "", reason: (error as Error).message });
+  }
+
   return result;
 }
 
@@ -1781,48 +2058,70 @@ async function sendRenewalNotice(
   const [org] = await tx.select({ name: schema.organization.name })
     .from(schema.organization).where(eq(schema.organization.id, agreement.organizationId)).limit(1);
 
-  const body = renewalNoticeText({
+  /**
+   * THE COMPANY'S WORDS, BY THE COMPANY'S CHOICE OF HOW. The text and the
+   * email are its message templates (`agreement-notices.ts`), and whether it
+   * goes by text first, email first or both is its setting. Whichever is
+   * tried first, the other is tried when the first cannot go, because a
+   * notice owed and not delivered is the complaint and in some states the
+   * refund; "both" tries both.
+   */
+  const situation = input.renewsAutomatically ? "renews" as const : "ends" as const;
+  const words = await notices.renderNotice(tx, agreement.organizationId, situation, notices.noticeScope({
     customerName: customer?.name ?? "",
     organizationName: org?.name ?? "",
     planName: plan.name,
     endsOn: agreement.endsOn!,
     price: agreement.price,
     termMonths: plan.termMonths,
-    renewsAutomatically: input.renewsAutomatically,
-  });
+  }));
+  const channel = await notices.channelWithin(tx, agreement.organizationId);
 
-  let outcome = "No phone number or email address on the customer, so there is nowhere to send it.";
-  let sent = false;
-  if (customer?.phone) {
+  const byText = async (): Promise<{ sent: boolean; why: string }> => {
+    if (!customer?.phone) return { sent: false, why: "Not texted: no mobile number on the customer." };
     const text = await sendTransactional(tx, {
       organizationId: agreement.organizationId,
       address: customer.phone,
-      body,
+      body: words.text,
       customerId: customer.id,
     });
-    if (text.sent) {
-      sent = true;
-      outcome = "queued";
-    } else {
-      outcome = `Not texted: ${text.explanation}`;
-    }
-  }
-  if (!sent && customer?.email) {
+    return text.sent ? { sent: true, why: "" } : { sent: false, why: `Not texted: ${text.explanation}` };
+  };
+  const byEmail = async (): Promise<{ sent: boolean; why: string }> => {
+    if (!customer?.email) return { sent: false, why: "Not emailed: no email address on the customer." };
     const mail = await email.queue({ ...ctx, db: tx }, {
       to: customer.email,
-      subject: input.renewsAutomatically
-        ? `Your ${plan.name} renews on ${longDay(agreement.endsOn!)}`
-        : `Your ${plan.name} is coming to an end`,
-      text: body,
+      subject: words.email.subject,
+      text: words.email.body,
       customerId: customer.id,
     });
-    if (mail.queued) {
+    return mail.queued ? { sent: true, why: "" } : { sent: false, why: `Not emailed: ${mail.explanation}` };
+  };
+
+  let outcome: string;
+  let sent: boolean;
+  if (!customer?.phone && !customer?.email) {
+    sent = false;
+    outcome = "No phone number or email address on the customer, so there is nowhere to send it.";
+  } else if (channel === "both") {
+    const [text, mail] = [await byText(), await byEmail()];
+    sent = text.sent || mail.sent;
+    outcome = text.sent && mail.sent ? "queued"
+      : sent ? `Sent by ${text.sent ? "text" : "email"}. ${text.sent ? mail.why : text.why}`
+        : `${text.why} ${mail.why}`;
+  } else {
+    const [first, second] = channel === "email_first" ? [byEmail, byText] : [byText, byEmail];
+    const tried = await first();
+    if (tried.sent) {
       sent = true;
       outcome = "queued";
     } else {
-      outcome = `${outcome === "queued" ? "" : `${outcome} `}Not emailed: ${mail.explanation}`.trim();
+      const fallback = await second();
+      sent = fallback.sent;
+      outcome = fallback.sent ? `Sent by ${channel === "email_first" ? "text" : "email"}. ${tried.why}` : `${tried.why} ${fallback.why}`;
     }
   }
+  outcome = outcome.trim();
 
   await tx.update(schema.agreement)
     .set({ renewalNoticeOutcome: outcome, updatedAt: new Date() })
@@ -1883,7 +2182,7 @@ export async function renewalsPass(
       results.push(await renewalsFor(db, row.organization_id, options.now));
     } catch (error) {
       results.push({
-        organizationId: row.organization_id, renewed: [], lapsed: [], noticed: [],
+        organizationId: row.organization_id, renewed: [], lapsed: [], noticed: [], released: [],
         failed: [{ agreementId: "", reason: (error as Error).message }],
       });
     }
@@ -1913,6 +2212,8 @@ const planView = (row: typeof schema.agreementPlan.$inferSelect) => ({
   waivesDiagnosticFee: row.waivesDiagnosticFee,
   waivesAfterHoursRate: row.waivesAfterHoursRate,
   benefits: row.benefits ?? [],
+  discountExclusions: membership.readExclusions(row.discountExclusions) as { categoryIds: string[]; itemIds: string[] },
+  memberHoldPercent: row.memberHoldPercent,
   active: row.active,
 });
 
@@ -1926,6 +2227,7 @@ const agreementView = (row: typeof schema.agreement.$inferSelect) => ({
   endsOn: row.endsOn,
   price: row.price,
   discountRate: row.discountRate,
+  discountExclusions: membership.readExclusions(row.discountExclusions) as { categoryIds: string[]; itemIds: string[] },
   billingFrequency: row.billingFrequency,
   autoRenews: row.autoRenews,
   renewalCount: row.renewalCount,
@@ -2067,6 +2369,10 @@ export const handlers = {
       unearned: found.unearned,
       visits: found.visits.map(visitView),
       instalments: found.billing.map(instalmentView),
+      terms: found.terms.map((t) => ({
+        term: t.term, startsOn: t.startsOn, endsOn: t.endsOn, breakageReleasedOn: t.breakageReleasedOn,
+        breakageAmount: t.breakageAmount, breakageVisits: t.breakageVisits,
+      })),
     };
   },
 

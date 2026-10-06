@@ -1,7 +1,7 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
 import type {
-  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTask, FieldVisit, MemberTerms, ReportField,
+  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTalk, FieldTask, FieldVisit, MemberTerms, ReportField, VisitTax,
 } from "./wire";
 import { addAmounts, estimateFromPayload } from "./sales";
 
@@ -164,10 +164,35 @@ export interface DayCashTip {
   waiting: boolean;
 }
 
+/**
+ * What the technician paid for the company, with the office's answer when it
+ * has one. `waiting` is true until the server has the record itself.
+ */
+export interface DayExpense {
+  id: string;
+  amount: string;
+  spentOn: string;
+  description: string;
+  jobNumber: number | null;
+  /** What the server last said, or pending for one still on this phone. */
+  status: "pending" | "approved" | "refused";
+  decisionReason: string | null;
+  /** Photographs kept with it on the server plus any still waiting to be sent from this phone. */
+  receipts: number;
+  waiting: boolean;
+}
+
 /** A task from the office queue, with what this phone did to it laid over. */
 export interface DayTask extends FieldTask {
   /** Finished on this phone; it leaves the list once the server has it. */
   done: boolean;
+  waiting: boolean;
+}
+
+/** A toolbox talk on this person's sheet, with a signature drawn on this phone laid over. */
+export interface DayTalk extends FieldTalk {
+  /** Signed on this phone and not sent yet, or sent and not yet in a fetched day. */
+  signedHere: boolean;
   waiting: boolean;
 }
 
@@ -179,10 +204,15 @@ export interface DayInspection {
   waiting: boolean;
 }
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "estimates" | "billable" | "invoices"> {
+/** What an older server's day means for tax: none on recorded work, as it charged. */
+const NO_TAX: VisitTax = { rate: "0", percent: "0", label: null, source: "none", note: "No rate applies." };
+
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices"> {
   checklist: DayChecklistItem[];
   /** The plan the customer is a member on here, which prices what the phone shows. */
   member: MemberTerms | null;
+  /** The visit's sales tax, as the server will charge it. None from a server too old to say. */
+  tax: VisitTax;
   estimates: DayEstimate[];
   billable: DayBillable[];
   invoices: DayInvoice[];
@@ -212,6 +242,10 @@ export interface DayView {
   clock: { open: boolean; since: string | null; waiting: boolean };
   /** The office queue: this person's tasks and the ones nobody has taken. */
   tasks: DayTask[];
+  /** Toolbox talks on this person's sheet. */
+  talks: DayTalk[];
+  /** What this person paid for the company, newest first: the server's, with this phone's laid over. */
+  expenses: DayExpense[];
 }
 
 /**
@@ -247,6 +281,7 @@ export function projectDay(input: {
       parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
       amountDue: visit.amountDue ?? null,
       member: visit.member ?? null,
+      tax: visit.tax ?? NO_TAX,
       estimates: (visit.estimates ?? []).map((e) => ({ ...e, waiting: false })),
       billable: (visit.billable ?? []).map((b) => ({ ...b, waiting: false })),
       invoices: (visit.invoices ?? []).map((i) => ({ ...i, waiting: false })),
@@ -266,6 +301,8 @@ export function projectDay(input: {
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
   const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
+  const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
+  const expenses: DayExpense[] = (input.snapshot?.expenses ?? []).map((e) => ({ ...e, waiting: false }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -286,6 +323,23 @@ export function projectDay(input: {
       clock.waiting = waiting;
       continue;
     }
+    if (op.kind === "expense.record") {
+      /** The server's copy wins once it has one: it carries the answer. */
+      if (!op.subjectId || expenses.some((e) => e.id === op.subjectId)) continue;
+      const jobNumber = typeof op.payload["jobNumber"] === "number" ? op.payload["jobNumber"] : null;
+      expenses.unshift({
+        id: op.subjectId,
+        amount: typeof op.payload["amount"] === "string" ? op.payload["amount"] : "0",
+        spentOn: typeof op.payload["spentOn"] === "string" ? op.payload["spentOn"] : "",
+        description: typeof op.payload["description"] === "string" ? op.payload["description"] : "",
+        jobNumber,
+        status: "pending",
+        decisionReason: null,
+        receipts: 0,
+        waiting,
+      });
+      continue;
+    }
     if (op.kind === "task.claim" || op.kind === "task.close") {
       const task = tasks.find((t) => t.id === op.subjectId);
       if (!task) continue;
@@ -297,6 +351,13 @@ export function projectDay(input: {
         task.status = "done";
       }
       task.waiting = waiting;
+      continue;
+    }
+    if (op.kind === "safety.sign") {
+      const talk = talks.find((t) => t.meetingId === op.subjectId);
+      if (!talk) continue;
+      talk.signedHere = true;
+      talk.waiting = waiting;
       continue;
     }
 
@@ -316,6 +377,11 @@ export function projectDay(input: {
   }
 
   for (const upload of input.uploads ?? []) {
+    if (upload.kind === "receipt") {
+      const expense = expenses.find((e) => e.id === upload.visitId);
+      if (expense && upload.status === "waiting") expense.receipts += 1;
+      continue;
+    }
     const visit = visits.get(upload.visitId);
     if (!visit) continue;
     if (upload.kind === "signature") {
@@ -329,6 +395,8 @@ export function projectDay(input: {
     visits: [...visits.values()].sort(byRoute),
     clock,
     tasks,
+    talks,
+    expenses,
   };
 }
 
@@ -344,8 +412,10 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
-  /** A task is the office's, not a visit's. */
-  if (op.kind === "task.claim" || op.kind === "task.close") return undefined;
+  /** A task is the office's, not a visit's, a toolbox talk is nobody's visit, and an expense is the person's. */
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
+  /** A receipt photograph is kept with its expense. */
+  if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return undefined;
   return op.subjectId;
 }
 
@@ -408,7 +478,8 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
           name: typeof p["name"] === "string" ? p["name"] : "Part",
           quantity: typeof p["quantity"] === "string" ? p["quantity"] : "1",
           unitPrice: typeof p["unitPrice"] === "string" ? p["unitPrice"] : "0",
-          taxable: p["taxable"] !== false,
+          /** As the server records it: as said, or a part taxed and labour not. */
+          taxable: typeof p["taxable"] === "boolean" ? p["taxable"] : p["kind"] !== "labor",
           itemKind: typeof p["itemKind"] === "string" ? p["itemKind"] : null,
           feeRole: typeof p["feeRole"] === "string" ? p["feeRole"] : null,
           waiting,

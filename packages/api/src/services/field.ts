@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, field, money as m } from "@opentradesos/core";
+import { can, field, money as m, tax } from "@opentradesos/core";
 import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
@@ -12,6 +12,7 @@ import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
+import * as safetyTalks from "./safety-talks";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -30,6 +31,25 @@ import type {
  * one that does not land at all, because the technician has no way to tell
  * which half and will either redo work or not redo it, and both are wrong.
  */
+
+/**
+ * The device already registered under an installation id, read and nothing
+ * else: no `last_seen_at`, no token bound, no revocation lifted. For a read
+ * that is not the person opening their day, such as the page fetching itself
+ * to keep a copy for no signal, which must not undo the office revoking it.
+ * Null when it has never been registered.
+ */
+export async function registered(ctx: ServiceContext, installationId: string) {
+  return guardedRead(ctx, "field:sync", async (tx) => {
+    const [existing] = await tx.select({ id: schema.device.id, lastSequence: schema.device.lastSequence })
+      .from(schema.device)
+      .where(and(
+        eq(schema.device.organizationId, ctx.actor.organizationId),
+        eq(schema.device.installationId, installationId),
+      )).limit(1);
+    return existing ? { deviceId: existing.id, lastSequence: existing.lastSequence } : null;
+  });
+}
 
 export async function register(ctx: ServiceContext, input: z.infer<typeof registerDevice.input>) {
   return guardedWrite(ctx, "field:sync", async (tx) => {
@@ -896,12 +916,28 @@ async function effect(
        * following behind, rather than appearing to have none until the last
        * upload finishes over a cellular connection in a van.
        */
+      /**
+       * A receipt names its expense, and only the person who recorded the
+       * expense may add a photograph to it. Every other attachment is a visit's.
+       */
+      const forExpense = op.kind === "attachment.attach" && op.payload["entityType"] === "expense";
+      if (forExpense && !(await fieldSales.ownsExpense(tx, op))) {
+        return "That receipt is for an expense that is not yours, or that has not arrived. It was not kept.";
+      }
       await tx.insert(schema.fieldUpload).values({
         organizationId: org,
         deviceId: op.deviceId,
         operationId,
         clientId: String(op.payload["uploadId"] ?? op.clientId),
-        subjectType: op.kind === "signature.capture" ? "signature" : "visit",
+        /**
+         * A signature drawn for a toolbox talk waits, unattached, for the
+         * `safety.sign` operation after it to point it at the person's line
+         * on the sheet: the talk is not the line, and a signature that was
+         * refused must not end up on anything.
+         */
+        subjectType: op.kind === "signature.capture"
+          ? (op.payload["for"] === "safety_meeting" ? "talk_signature" : "signature")
+          : forExpense ? "expense" : "visit",
         subjectId: op.subjectId || null,
         contentType: String(op.payload["contentType"] ?? "image/jpeg"),
         byteSize: (op.payload["byteSize"] as number) ?? null,
@@ -1013,7 +1049,12 @@ async function effect(
         quantity: String(op.payload["quantity"] ?? "1"),
         unitPrice: String(op.payload["unitPrice"] ?? "0"),
         unitCost: (op.payload["unitCost"] as string) ?? null,
-        taxable: op.payload["taxable"] !== false,
+        /**
+         * As the phone said; when it said nothing, a part is taxed and labour
+         * is not (`tax.defaultTaxable`), as a line typed by hand in the office is.
+         */
+        taxable: typeof op.payload["taxable"] === "boolean"
+          ? op.payload["taxable"] : tax.defaultTaxable(op.payload["kind"] as string | undefined),
         technicianId,
         nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
         occurredAt: op.occurredAt,
@@ -1106,6 +1147,11 @@ async function effect(
 
     case "tip.record":
       return fieldSales.recordCashTip(tx, ctx, op);
+
+    case "safety.sign":
+      return safetyTalks.signOperation(tx, ctx, op);
+    case "expense.record":
+      return fieldSales.recordExpense(tx, ctx, op);
 
     default:
       /**

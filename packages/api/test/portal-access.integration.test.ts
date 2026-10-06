@@ -459,8 +459,13 @@ run("what a customer sees of the work", () => {
       (organization_id, report_id, property_id, key, label, kind, value_numeric, customer_visible)
       values (${ORG}, ${report!.id}, ${danaProperty}, 'stations_serviced', 'Stations serviced', 'numeric', '6.0000', true),
              (${ORG}, ${report!.id}, ${danaProperty}, 'internal_margin', 'Internal margin', 'numeric', '42.0000', false)`;
-    await raw`insert into public.equipment (organization_id, property_id, category, tag, manufacturer, attributes)
-      values (${ORG}, ${danaProperty}, 'furnace', 'Hall closet', 'Carrier', ${raw.json({ filter_size: "16x25x1", afue: 96 } as never)})`;
+    const [unit] = await raw<{ id: string }[]>`insert into public.equipment (organization_id, property_id, category, tag, manufacturer, attributes)
+      values (${ORG}, ${danaProperty}, 'furnace', 'Hall closet', 'Carrier', ${raw.json({ filter_size: "16x25x1", afue: 96 } as never)})
+      returning id`;
+    // The same reading taken on one unit is its own series, never mixed into the home's.
+    await raw`insert into public.service_report_field
+      (organization_id, report_id, property_id, equipment_id, key, label, kind, value_numeric, customer_visible)
+      values (${ORG}, ${report!.id}, ${danaProperty}, ${unit!.id}, 'stations_serviced', 'Stations serviced', 'numeric', '3.0000', true)`;
 
     const token = await signIn(DANA);
     const { extras } = await portalAccount.viewAccount(db(), { token });
@@ -482,7 +487,11 @@ run("what a customer sees of the work", () => {
     expect(shown).not.toContain("internal_margin");
 
     // Readings the pack asks to trend, the ones the customer may see.
-    expect(extras.readings.find((r) => r.key === "stations_serviced")!.points.map((p) => p.value)).toEqual(["6.0000"]);
+    const stations = extras.readings.filter((r) => r.key === "stations_serviced");
+    expect(stations.map((r) => [r.equipment, r.points.map((p) => p.value)])).toEqual(expect.arrayContaining([
+      [null, ["6.0000"]], ["Hall closet, Furnace", ["3.0000"]],
+    ]));
+    expect(stations).toHaveLength(2);
 
     expect(extras.equipment[0]).toMatchObject({ name: "Furnace", tag: "Hall closet", manufacturer: "Carrier" });
     expect(extras.equipment[0]!.details).toEqual(expect.arrayContaining([{ label: "Filter size", value: "16x25x1" }]));

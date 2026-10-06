@@ -144,7 +144,7 @@ with their `externalRef` on `GET /v1/jobs/{id}`.
 
 | Role | Access |
 |---|---|
-| owner | Everything here, including `data:import` and `data:export` |
+| owner | Everything here, including `data:import` and `data:export`: taking a copy, Backups, and restoring one |
 | admin | Everything except `data:import` and `data:export`, both deliberately left out |
 | others | Ordinary creates, and dates up to a week back; never history |
 
@@ -243,49 +243,197 @@ export cannot reach them.
 
 The one worth stating plainly is `credential`. Password hashes are unreachable
 from here, which is why no part of this export has to be trusted not to include
-them. The people who work here are exported through `membership`, with their
-name and address.
+them. The people who work here are in the manifest's `people`, each with their
+name and address, beside their `membership` rows; the company's own row is its
+`company`.
 
-### One file, from the screen
+### Every table at one moment
 
-`Settings > Take a copy` shows the manifest first and then downloads the whole
-thing as one newline delimited JSON file. The first line is the manifest and
-every line after it is `{"table": ..., "row": {...}}`.
+A copy read page by page in separate transactions is not one company: a
+customer and their first job booked while the export was between the
+`customer` table and the `job` table left a job in the file pointing at a
+customer who was not, and the copy could not be loaded back. A download and a
+scheduled copy now read every table inside one `repeatable read` transaction,
+so a copy is always one the database could have held, and the manifest's
+counts are exactly what follows them. The API's pages stay one transaction
+each, because a program walking them is a sequence of calls.
 
-**Not CSV, and not a zip of one file per table.** A CSV per table loses the type
-of every column and cannot represent a `jsonb` field at all, which is where the
-custom fields live. A zip has to be finished before its first byte can be sent,
-so a company with real history gets a request that times out rather than a file
-that starts arriving. NDJSON streams, and `grep` pulls one table out of it with
-nothing installed.
+### What the manifest carries besides the tables
 
-**A finished file ends with `{"complete": true, "rows": n, "expected": m}` and
-nothing else does.** That terminator is how a truncated download is detectable
-from the file alone, and `rows` is a count of what the writer actually emitted
-rather than the manifest's total restated, so the two differing tells you
-somebody was working while it ran.
+Each table's columns, in order, with Postgres's name for the type and the table
+a foreign key points at. The company's own row (name, address, timezone,
+currency, settings), which is outside the tenant like every company's row and
+which a restore needs to bring the business back as itself. The people: every
+membership's name and address, read through the same function the team screen
+uses, never anything about how they sign in. And the number of stored files and
+their bytes.
 
-There is no line saying WHY a failed export stopped, and the first version had
-one. A test showed it never arrives: enqueueing a chunk and then erroring a
-`ReadableStream` discards the queued chunk, by specification. So the broken
-transfer and the missing terminator are the signal, and the reason goes to the
-server log. Closing the stream cleanly instead would have delivered the reason
-and handed back a 200 with a successful-looking download, which is the one
-outcome worth avoiding.
+### Values that survive the trip
+
+A timestamp is ISO 8601 in UTC with every digit Postgres holds (a JavaScript
+date keeps milliseconds and Postgres keeps microseconds); a `date` is
+`2026-10-04`, not midnight in the server's zone; bytes are `\x` and hex rather
+than an array of numbers; jsonb, booleans and integers are themselves; anything
+else is Postgres's own text for it. That is what lets a restore load each value
+back through Postgres's own input functions and get the same value.
+
+### Files beside the rows
+
+A stored file's bytes are held apart from `stored_file`'s rows, named in the
+manifest under `apart`: a page of a thousand photographs inside one JSON answer
+was gigabytes. Through the API each file is fetched by its id from
+`GET /v1/export-files/{id}`, base64 with the `sha256` it was stored under, the one
+place this product hands bytes back inside JSON.
+
+### Two files, from the screen
+
+`Settings > Take a copy` shows the manifest and offers two downloads of the same
+moment.
+
+**Spreadsheets** is a zip: `tables/` with one CSV per table (every table, with
+its header even when empty), `files/` with every photograph and document under
+its storage key, `manifest.json`, a `README.md` written from the manifest that
+says what every column holds, and `complete.json` last. The CSVs are Postgres's
+own COPY format, so each loads with `\copy table from 'table.csv' with (format
+csv, header)`: an empty cell is NULL, `""` is an empty string, every other value
+is quoted, and the file is UTF-8 with a byte order mark so a spreadsheet shows
+accented names correctly.
+
+**One data file** is newline delimited JSON: the manifest, one line per row
+tagged with its table, one line per file with its bytes in base64, and last
+`{"complete": true, "rows": n, "expected": m, "files": f, "expectedFiles": g}`.
+It keeps every type and nested value exactly and is the better input to a
+program.
+
+The earlier version of this page said a zip "has to be finished before its first
+byte can be sent". That is true of how most libraries write one and not of the
+format: each entry can carry its sizes after its data, and the directory goes at
+the end by design. The archive is written that way, compressed a table at a time
+as rows arrive, ZIP64 where a company passes four gigabytes or sixty five
+thousand files, with Node's own zlib and no library.
+
+**How a cut short download shows.** A finished data file ends with its
+terminator and nothing else does; a finished zip has its directory and
+`complete.json`, and a zip without a directory will not open. A failure mid
+file cannot be a status code, because the headers went out with the first byte
+and said 200, so the stream errors: curl exits non zero, a browser marks the
+download failed. There is no line saying why: enqueueing a chunk and then
+erroring a `ReadableStream` discards the chunk, by specification, so the reason
+goes to the server log. The stream also waits for its reader, so a slow
+connection slows the copy rather than piling the company up in the server's
+memory.
 
 The screen is `data:export`, like the API. It is shown in the rail under
-Settings, which only needs `settings:read`, and that is the single place in this
-product where a navigation item is visible to somebody the page itself will
-refuse. The alternative was a top level item most roles cannot open.
+Settings, which only needs `settings:read`, and that is one of two places in
+this product where a navigation item is visible to somebody the page itself
+will refuse; `Settings > Backups` is the other, for the same reason. The
+alternative was a top level item most roles cannot open.
 
 ### The audit trail
 
-Every page writes an audit line with the table, the row count and whether it
-was a resumption. "When did somebody take a copy of our entire customer list,
-and how much of it" is the question an export has to be able to answer, and it
-is the single most sensitive read in this product. Per page rather than per
-export, because an export is a sequence of calls and there is no moment it
-finishes.
+Every API page writes an audit line with the table, the row count and whether it
+was a resumption, and every file fetched writes one too. "When did somebody take
+a copy of our entire customer list, and how much of it" is the question an export
+has to be able to answer, and it is the single most sensitive read in this
+product. A download and a scheduled copy write `data.export.started` before the
+first row is read and `data.export.finished`, or `data.export.stopped` with how
+many rows of each table were read, after the last, each in a transaction of its
+own, so a download that broke halfway is on the record too.
+
+## Copies on a clock
+
+`Settings > Backups` writes the spreadsheets zip to an S3 compatible bucket the
+owner controls (Amazon S3, R2, B2, Wasabi, a MinIO on their own server) every
+night or every week at an hour on the company's own clock, and keeps the newest
+N. The bucket is named the way every connection is: the access key id in the
+clear and the secret key as the NAME it is kept under in the company's own secrets,
+never the key; a value that looks like a key is refused. Saving checks the bucket
+by writing a small object, reading it back and deleting it, and the screen says
+what the bucket answered until a check passes.
+
+The worker writes the copy straight into a multipart upload, a part at a time,
+so the company is never in memory or on the server's disk. Every attempt is a
+row: where it went, its size and row count, why it failed in the bucket's own
+words, and when it was deleted to keep newer ones. Only copies this company
+wrote are ever deleted, from its own record of them, never from a listing of
+the bucket. A failed copy is tried again within the hour and put in the
+office's queue as a task the first time.
+
+`GET /v1/backups/destination`, `PUT /v1/backups/destination` and
+`DELETE /v1/backups/destination` read, set and remove where copies go;
+`GET /v1/backups` lists every attempt and `POST /v1/backups` queues a copy now.
+All `data:export`.
+
+## Putting a copy back
+
+`/setup/restore` loads either file into a new, empty company, uploaded from a
+computer or read from a bucket; `POST /v1/restores` does the second through the
+API, and `POST /v1/restores/available` lists the copies in a bucket. Each needs
+`data:import`, because a restore writes years of history into the books. A
+company signing up is sent to setup, which links to it.
+
+**Only into an empty company.** A company with any record (beyond its audit
+trail, the person restoring and the starter automations every new company is
+given) is refused with what it holds. A merge would decide, record by record,
+which of two versions of the truth to keep, and each of those decisions would be
+somebody's invoice.
+
+**All or nothing, and a check that is the restore.** One transaction. A check
+does everything a restore does, including the ledger's balance check, which is
+asked for before the end rather than at commit, and then rolls back, so the
+counts and refusals it reports are what would happen. A check and a refusal
+leave their report in `restore_run`, written after the rollback;
+`GET /v1/restores` lists them.
+
+**In load order, off the catalogue.** Tables load after the tables they point at,
+worked out from the foreign keys in `pg_constraint` rather than from a list; a
+table pointing at itself (a customer referred by another) loads that column
+empty and fills it in once every row is there. Rows go in through
+`jsonb_populate_recordset`, so each value is read by Postgres's own input
+function from the text or JSON the export wrote. A column the copy does not hold
+takes its default, so a copy from an older version loads into a newer one; a
+copy holding a table or a column with values this version does not have is
+refused as coming from a newer version. A trigger that changes a row as it is
+inserted (a job's branch filled from whoever is signed in) has the copy's values
+put back.
+
+**Ids kept when they can be.** On another deployment every id is kept, which is
+what lets a connected app's mapping, a link in an email or a migration's record
+of what it loaded keep working after a move. When the company the copy came from
+is still on this deployment it holds every one of those ids, so every record gets
+a new one, and every reference is rewritten BY VALUE: any uuid anywhere in a row,
+in a uuid column, a storage key or a jsonb blob, that is the id of something in
+the copy is replaced. A list of the columns that hold ids would be the hand
+maintained list this export refuses to have, and the first one it missed would
+point the restored company at the original.
+
+**The people.** Each person in the copy comes back by address: a new account
+with no password, sent a first-password link from Settings, Team; the person
+restoring, who keeps their own membership and stays owner; or an existing
+account that works for a company the person restoring runs, which is the case
+of restoring beside the original. An address that already has an account with
+anybody else is refused, for the reason an invitation refuses it: a file is not
+allowed to add somebody's existing account to a company. A reference to a person
+not in the copy is cleared.
+
+**What was held back comes back as something to set up.** Every redacted column
+with rows is on the report with its reason. One the database requires is filled
+with a fresh random value that matches nothing, so the record comes back and the
+old link or token stays dead. Rows pointing at something outside the company (a
+franchise group) are not restored and the report says how many. The names of
+the secrets the company's connections read are listed, to put in the new
+company's own secrets; a stored secret's sealed value never travels.
+
+**Nothing sends until somebody has looked.** Every connected service is set to
+need checking and every webhook is switched off, unless the person restoring
+says otherwise. Otherwise a company restored beside its original would text the
+same customers through the same carrier account the moment the worker noticed a
+queued message.
+
+**Files** are checked against their checksum and put wherever this deployment
+keeps files, so a copy taken from a Postgres deployment restores into a bucket
+deployment and the other way round.
+
 
 ## Common questions
 
@@ -309,7 +457,16 @@ with a connected app's token, and what is here is the half that has to be right:
 an API that takes history faithfully and refuses what it should.
 
 An estimate's history carries its outcome but not the day it was sent or
-converted. The export writes one newline delimited
-JSON stream and nothing else: no per table CSV, no archive, and no object storage
-path, so a company exporting a large instance streams it to their own disk.
-Nothing imports an export back, which is the obvious symmetry and is not built.
+converted.
+
+The zip of spreadsheets is a download from the screen and a scheduled copy; the
+API has no route that streams it, because the API answers in JSON, so a program
+walks the pages and fetches each file. A restore runs while its request waits:
+a company too large to upload through a browser, or to restore inside a proxy's
+time limit, is put in a bucket and restored from there. A restore cannot merge
+into a company with records, cannot add somebody's existing account from
+another company, and does not bring back anything a copy never carries: live
+tokens and signing secrets, a franchise group's grants, sign ins. Scheduled
+copies need the long running worker; a serverless tick starts one and may cut it
+off. Only S3 compatible buckets are taken, not Google Cloud Storage's or Azure's
+own protocols.

@@ -84,6 +84,37 @@ export async function addContact(_previous: unknown, form: FormData) {
   return { done: true };
 }
 
+/**
+ * Change somebody's details, through `contacts.edit`, which is what `PATCH
+ * /v1/contacts/{id}` runs. Not `update`: the route leaves out who they belong
+ * to and whether they are primary, and a screen that went round it could
+ * move a contact to another customer or demote a primary on a form that
+ * says "save details". A box left empty clears that detail, as a null does
+ * on the route; the service refuses the result when it leaves them with no
+ * way to be reached, or preferring a way they have none of.
+ */
+export async function editContact(_previous: unknown, form: FormData) {
+  const customerId = String(form.get("customerId") ?? "");
+  try {
+    await contacts.edit(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      name: String(form.get("name") ?? ""),
+      title: String(form.get("title") ?? "").trim() || null,
+      phone: String(form.get("phone") ?? "").trim() || null,
+      email: String(form.get("email") ?? "").trim() || null,
+      propertyId: String(form.get("propertyId") ?? "") || null,
+      preferredChannel: String(form.get("preferredChannel") ?? "sms") as "sms",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return refused(form, error.message);
+    }
+    throw error;
+  }
+  revalidatePath(`/customers/${customerId}`);
+  return { done: true };
+}
+
 export async function removeContact(_previous: unknown, form: FormData) {
   const customerId = String(form.get("customerId") ?? "");
   try {
