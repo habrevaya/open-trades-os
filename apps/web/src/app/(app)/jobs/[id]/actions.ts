@@ -275,7 +275,10 @@ export async function billThisJob(_previous: FormState, form: FormData): Promise
   const jobId = field(form, "jobId") ?? "";
   const result = await attempt(form, async () => {
     const taxRate = field(form, "taxRate");
-    const billed = await jobBilling.bill(await ctx(), { jobId, ...(taxRate ? { taxRate } : {}) });
+    const lineRates = (field(form, "lineRates") ?? "").split(",").filter(Boolean);
+    const billed = await jobBilling.bill(await ctx(), {
+      jobId, ...(taxRate ? { taxRate } : {}), ...(lineRates.length > 0 ? { lineRates } : {}),
+    });
     return {
       message: billed.invoices.length === 1
         ? `Invoice ${billed.invoices[0]!.number} raised.`

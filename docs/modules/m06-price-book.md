@@ -96,6 +96,14 @@ written keeps the kit it was written with, and every later revision carries the
 parts forward. A part is an item still sold, named once, and never the kit itself
 or a kit that already contains it, however deep.
 
+**Whether it is taxed.** An item says whether a sales tax rate is charged on it
+(M13 has the rates). Which items are taxed is set on `/pricebook/tax`, item by item
+or a whole shelf at once (`POST /v1/item-tax`, a new version of each item that
+changes); setting a whole shelf also writes the answer on the shelf, and an item
+added to that shelf later without saying takes it. An item created without saying,
+on a shelf that says nothing, is taxed unless it is labour, because most states
+that tax parts do not tax labour.
+
 `POST /v1/pricebook/items` creates one. `GET /v1/pricebook/items/{id}` is the
 item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
 changes: it writes a new version rather than editing the old one, and carries
@@ -239,5 +247,6 @@ An item with a revision already scheduled is left out of a bulk change, dated
 ahead or not, rather than given a version beside it. A bulk change reaches at most
 two thousand items at a time. The item screen does not edit an image or a
 commission rate; those carry forward through a revision unchanged. A kit's price is
-its own and is not worked out from its parts. A revision dated ahead is staged from the start of that day
+its own and is not worked out from its parts. Whether an item is taxed is a yes or
+a no: an item taxed at a reduced rate has that rate chosen on the line by the office. A revision dated ahead is staged from the start of that day
 in the company's calendar; a time of day is an API call.

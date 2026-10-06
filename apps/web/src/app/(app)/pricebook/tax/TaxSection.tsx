@@ -43,10 +43,10 @@ function Controls() {
  * taxed in this state), or the items ticked. Each change is a new version of
  * the item, so an invoice that charged tax last month still says it did.
  *
- * No rates. A rate belongs to the jurisdiction and is set on the document it
- * is charged on; working one out is something this product has decided not
- * to do (BUILD.md). The class is what an accountant or a tax service maps to
- * a rate.
+ * No rates here: the company's rates are on Settings, Sales tax, and are
+ * charged on whatever this says is taxable. Setting a whole shelf also
+ * writes the answer on the shelf, so an item added to it later is taxed as
+ * its neighbours are. The class is what an accountant maps to a rate.
  */
 export async function TaxSection({ ctx }: { ctx: ServiceContext }) {
   const rows = await setup.taxTable(ctx);
@@ -74,14 +74,22 @@ export async function TaxSection({ ctx }: { ctx: ServiceContext }) {
           <ul className="mt-3 space-y-3">
             {shelves.map((shelf) => {
               const on = rows.filter((r) => (r.category ?? "No category") === shelf);
+              const categoryId = on[0]?.categoryId ?? null;
+              const said = on[0]?.categoryTaxable ?? null;
               return (
                 <li key={shelf} className="rounded-md border border-steel-200 bg-canvas p-3">
                   <ActionForm action={setTax} tone="quiet" submit={`Set every item in ${shelf}`}
+                              hidden={categoryId ? { categoryId } : {}}
                               className="flex flex-wrap items-end gap-3">
                     {on.map((r) => <input key={r.id} type="hidden" name="itemId" value={r.id} />)}
                     <span className="min-w-40 pb-2 text-sm">
                       <span className="font-medium">{shelf}</span>
                       <span className="text-ink-500"> ({on.length}, {on.filter((r) => r.taxable).length} taxable)</span>
+                      {categoryId ? (
+                        <span className="block text-xs text-ink-500">
+                          {said === null ? "New items here: taxed unless labour." : said ? "New items here: taxed." : "New items here: not taxed."}
+                        </span>
+                      ) : null}
                     </span>
                     <Controls />
                   </ActionForm>

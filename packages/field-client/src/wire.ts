@@ -57,12 +57,30 @@ export interface FieldVisit {
    * for a customer who is not a member.
    */
   member?: MemberTerms | null | undefined;
+  /**
+   * The sales tax a sale on this visit is charged today, worked out by the
+   * server from the company's rates. Absent from older servers, which
+   * charged none on recorded work.
+   */
+  tax?: VisitTax | undefined;
   /** Estimates to show the customer. Absent from older servers. */
   estimates?: FieldEstimate[] | undefined;
   /** Parts and charges on the job not yet billed. Absent from older servers. */
   billable?: BillableLine[] | undefined;
   /** The job's invoices, other than void ones. Absent from older servers. */
   invoices?: FieldInvoice[] | undefined;
+}
+
+export interface VisitTax {
+  /** A fraction, "0.0825". "0" when nothing is charged. */
+  rate: string;
+  /** As typed on the builder: "8.25". */
+  percent: string;
+  /** "Travis County 8.25%", or null when it is none of the company's rates. */
+  label: string | null;
+  source: string;
+  /** Why, in a sentence. */
+  note: string;
 }
 
 export interface MemberTerms {

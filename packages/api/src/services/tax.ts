@@ -163,7 +163,11 @@ export async function pickerWithin(
 
 /** The same, for a screen: the rates and this sale's rate, under the document's own read permission. */
 export async function picker(
-  ctx: ServiceContext, input: { customerId: string | null; propertyId: string | null; permission: "invoice:read" | "estimate:read" },
+  ctx: ServiceContext,
+  input: {
+    customerId: string | null; propertyId: string | null;
+    permission: "invoice:read" | "estimate:read" | "customer:read" | "property:read";
+  },
 ) {
   return guardedRead(ctx, input.permission, (tx) => pickerWithin(tx, ctx.actor.organizationId,
     input.customerId ? { customerId: input.customerId, propertyId: input.propertyId } : null));

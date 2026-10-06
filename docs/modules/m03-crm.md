@@ -102,6 +102,13 @@ old system said, marked `imported`.
 the invoices, the balance for whoever may read it, and the message thread with
 them. `GET /v1/customers/{id}` is the same data.
 
+The account page also says what an invoice to them is charged in sales tax today
+and why, and takes whether they are exempt, the exemption certificate's number and
+last day, and a rate of their own (`PATCH /v1/customers/{id}`, `customer:write`).
+After the certificate's last day they are taxed again. An address's own rate is
+set on `/properties/{id}` (`PATCH /v1/properties/{id}`, `property:write`), and wins
+over the customer's because the rate follows where the work is done (M13).
+
 ### Tag customers and find them by tag
 
 A customer's page has its tags, each a link to the customer list filtered by

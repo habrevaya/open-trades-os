@@ -5,7 +5,7 @@ import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
   claims as claimService, entitlements, financing, customFields, fieldSales,
 } from "@opentradesos/api/services";
-import { can, claims, rates, work } from "@opentradesos/core";
+import { can, claims, rates, tax, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -140,7 +140,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           <tr key={line.id}>
             <Td>
               <span className="font-medium">{line.name}</span>
-              {line.taxable ? <span className="ml-2 text-xs text-ink-500">taxable</span> : null}
+              {line.taxable ? (
+                <span className="ml-2 text-xs text-ink-500">
+                  {Number(line.taxRate) > 0
+                    ? <>tax {tax.rateToPercent(line.taxRate)}%: <Money value={line.taxAmount} /></>
+                    : line.taxSource === "exempt" ? "taxable, customer exempt" : "taxable, no tax charged"}
+                </span>
+              ) : null}
               {line.description ? <p className="mt-0.5 text-ink-700">{line.description}</p> : null}
               {/* Never silently: the plan that took money off this line, and how much. */}
               {Number(line.memberDiscountAmount ?? "0") > 0 ? (

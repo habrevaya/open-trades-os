@@ -594,18 +594,18 @@ the price book is typed with its price. An invoice raised on site bills the
 option signed for or the work recorded, never both; recorded parts left off
 stay unbilled for the office. An invoice raised on site is taxed exactly as one the
 office raises. An invoice made from the option the customer signed for carries the
-tax that estimate was written with (the percentage typed on the phone's estimate
-builder, or on the office's estimate form), each line at the rate it was charged,
-because the phone runs the same conversion the office's "Convert to job" does and a
-test raises both from the same estimate and compares the tax to the cent. An invoice
-made from work recorded on the visit carries no sales tax, as the office's ordinary
-invoice for the same work carries none: a job's recorded parts and charges have no
-rate of their own, and nothing in the product holds a company's sales tax rate, so
-a rate is only ever one somebody typed. The office can type one when it bills a
-job (`/jobs/{id}`, "Bill this job"), and the phone has no box for one on that kind
-of invoice, so a taxable part billed on site is untaxed where the same part billed
-from the job's page with a rate typed is taxed; a company that charges tax on
-parts sells them from an estimate, which carries the rate. A signature for an invoice the customer was not
+tax that estimate was written with, each line at the rate it was charged, because the
+phone runs the same conversion the office's "Convert to job" does and a test raises
+both from the same estimate and compares the tax to the cent. An invoice made from
+work recorded on the visit is taxed from the company's own rates (M13): the day the
+phone carries (`GET /v1/field/snapshot`) says each visit's rate, the one the server
+works out for that customer at that address today, and the phone taxes the taxable
+lines at it, so the figure the customer signs is the one `billing.createIn` writes.
+The phone's estimate builder starts its percentage at the same rate, with the reason
+beside it, and the technician can change it. A part recorded without saying whether
+it is taxed is taxed, and labour is not. If the rate changes between the day being
+fetched and the invoice landing, the invoice is kept as a draft for the office with
+the difference in words, as any other disagreement is. A signature for an invoice the customer was not
 there for can be skipped, and the invoice is raised unsigned. A task with a
 checklist is finished on its own page in a browser, not on the phone. The
 lender's link and the field assistant need a signal; nothing about them is

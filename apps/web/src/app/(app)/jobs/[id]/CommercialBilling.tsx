@@ -89,14 +89,17 @@ export function CoverageFromUnit({ jobId }: { jobId: string }) {
  * button is exactly this, so the screen is the preview rather than a guess.
  * The problems are the decisions that have to be made first, in words.
  */
-export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
+export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate, lineRates }: {
   jobId: string; plan: Plan; canBill: boolean;
   /** The sales tax percentage as typed, shown back in the box. */
   typedTax: string;
+  /** Each line's own rate as chosen on the preview, `line:<id>=<rate id>`. */
+  lineRates: string[];
   /** The rate it became, or null when nothing usable was typed. */
   taxRate: string | null;
 }) {
   const taxable = plan.lines.some((line) => line.taxable);
+  const askedFor = new Map(lineRates.map((pair) => [pair.slice(0, pair.lastIndexOf("=")), pair]));
   const byKey = new Map(plan.lines.map((line) => [line.key, line]));
   const nothing = plan.lines.length === 0;
   return (
@@ -108,7 +111,7 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
         <>
           <p className="mt-2 text-sm text-ink-700">{BASIS_SENTENCE[plan.basis]}</p>
           <Table label="Priced work" head={<>
-            <Th>Work</Th><Th>Priced by</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit</Th><Th className="text-right">Amount</Th>
+            <Th>Work</Th><Th>Priced by</Th><Th>Sales tax</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit</Th><Th className="text-right">Amount</Th>
           </>}>
             {plan.lines.map((line) => (
               <tr key={line.key}>
@@ -120,6 +123,7 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
                   {line.authorityLabel}
                   {line.outOfScope && <> <Chip tone="warning">Not on their card</Chip></>}
                 </Td>
+                <Td className="text-sm text-ink-700">{!line.taxable ? "Not taxed" : line.taxLabel ?? "None"}</Td>
                 <Td className="text-right font-mono tabular-nums">{Number(line.quantity)}</Td>
                 <Td className="text-right"><Money value={line.unitPrice} /></Td>
                 <Td className="text-right"><Money value={line.amount} /></Td>
@@ -130,8 +134,20 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
 
           {taxable && (
             <form method="get" className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+              <p className="w-full text-ink-700">Sales tax: {plan.tax.worked} Each taxable line can be charged its own rate.</p>
+              {plan.lines.filter((line) => line.taxable).map((line) => (
+                <label key={line.key} className="flex flex-col gap-1">
+                  <span className="text-ink-700">Rate for {line.name}</span>
+                  <select name="lineRate" defaultValue={askedFor.get(line.key) ?? ""}
+                          className="h-8 rounded border border-steel-300 px-2">
+                    <option value="">As worked out</option>
+                    {plan.tax.choices.map((c) => <option key={c.id} value={`${line.key}=${c.id}`}>{c.label}</option>)}
+                    <option value={`${line.key}=none`}>No sales tax</option>
+                  </select>
+                </label>
+              ))}
               <label className="flex flex-col gap-1">
-                <span className="text-ink-700">Sales tax on the taxable lines, per cent</span>
+                <span className="text-ink-700">Or one rate for every taxable line, per cent</span>
                 <input name="taxRate" inputMode="decimal" defaultValue={typedTax} placeholder="8.25"
                        className="h-8 w-28 rounded border border-steel-300 px-2" />
               </label>
@@ -196,7 +212,7 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
       )}
 
       {canBill && !nothing && (
-        <ActionForm action={billThisJob} hidden={{ jobId, taxRate: taxRate ?? "" }}
+        <ActionForm action={billThisJob} hidden={{ jobId, taxRate: taxRate ?? "", lineRates: lineRates.join(",") }}
                     submit={plan.payers.length > 1 ? `Bill in ${plan.payers.length} parts` : "Bill this job"}
                     className="mt-3 flex flex-wrap items-center gap-3" />
       )}

@@ -290,19 +290,22 @@ export function approvalPayload(input: {
 
 /* ---------------------------------------------------------------- invoices */
 
-/** The work an invoice raised on site can bill, priced as the customer will see it. */
-export function invoiceFromWork(lines: readonly BillableLine[], member: MemberTerms | null | undefined) {
+/**
+ * The work an invoice raised on site can bill, priced as the customer will see it, at the
+ * visit's sales tax (`visit.tax.rate`): the rate the server's `billing.createIn` charges the
+ * same work, from the company's rates, on the lines that are taxable. A server too old to send
+ * one charged none. An invoice from a signed option carries the estimate's rate instead.
+ */
+export function invoiceFromWork(lines: readonly BillableLine[], member: MemberTerms | null | undefined, taxRate = "0") {
   const priced = priceOnSite(lines.map((l) => ({
     quantity: l.quantity, unitPrice: l.unitPrice,
-    /**
-     * No rate, as on the server: recorded work has none of its own and no company rate is stored, so
-     * `billing.createIn` charges none for it. An invoice from a signed option carries the estimate's rate.
-     */
-    taxable: l.taxable, taxRate: "0",
+    taxable: l.taxable, taxRate,
     itemKind: l.itemKind, feeRole: l.feeRole, itemId: l.itemId ?? null,
   })), memberTerms(member));
   return {
-    lines: lines.map((l, i) => ({ ...l, memberDiscount: priced.lines[i]!.memberDiscount, lineTotal: priced.lines[i]!.lineTotal })),
+    lines: lines.map((l, i) => ({
+      ...l, memberDiscount: priced.lines[i]!.memberDiscount, lineTotal: priced.lines[i]!.lineTotal, taxAmount: priced.lines[i]!.taxAmount,
+    })),
     totals: priced.totals,
   };
 }

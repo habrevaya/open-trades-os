@@ -321,6 +321,8 @@ export const NAV: NavGroup[] = [
         children: [
           { href: "/books", label: "Journal entries" },
           { href: "/books/budget", label: "Budget" },
+          /** Tax collected by rate, read from the ledger, for filing. Needs `report.financial:read`. */
+          { href: "/books/sales-tax", label: "Sales tax collected" },
         ],
       },
       {
@@ -508,6 +510,8 @@ export const NAV: NavGroup[] = [
            * `job.cost:read` and changes with `finance:configure`.
            */
           { href: "/settings/costing", label: "Costing" },
+          /** The sales tax rates the company charges, and its usual one. */
+          { href: "/settings/tax", label: "Sales tax" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
            * The agents that run on the model connected above: on or off, who

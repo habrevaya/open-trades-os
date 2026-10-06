@@ -101,7 +101,7 @@ Ten steps, in this order. The four marked essential are what stops a booking.
 | Hours and availability | Yes | `settings:write` |
 | Your team | No | `user:invite` |
 | Price book | Yes | `pricebook:write` |
-| Sales tax | Yes | `settings:write` |
+| Sales tax | Yes | `pricebook:write`, and `settings:write` for the rates |
 | Payments | Yes, and start early | `integration:write` |
 | Phone and email | No, and start early | `integration:write` |
 | Accounting | No | `integration:write` |
@@ -114,7 +114,9 @@ company by, the time zone, the logo and colour), `/setup/trade`,
 may be booked online), `/setup/team` (inviting people, who are emailed a link
 to choose a password, and branches for a company with more than one shop), `/setup/pricebook` (every price, or one
 shelf, moved up or down by a percentage, previewed first and undoable from
-`/pricebook/changes`), `/setup/tax`, `/setup/payments`,
+`/pricebook/changes`), `/setup/tax` (the sales tax rates the company charges and
+its usual one, the same form as `/settings/tax`, and which items are taxed),
+`/setup/payments`,
 `/setup/communications` (texting and email providers, and the A2P 10DLC brand
 and campaigns written down) and `/setup/integrations`. Each page says what is
 already in place, read from the data, and where the same setting lives after
@@ -215,9 +217,10 @@ header of every page a customer opens from a link. Each is optional and
 printed only when set. The phone is kept in E.164 however it was typed, an
 email address that is not one is refused, and an address needs at least a
 street and a town; a field left out of `PATCH /v1/company` keeps what it had
-and an empty one clears it. Which items are taxed is set on
-`/pricebook/tax` (`POST /v1/item-tax`, a new version of each item that
-changes, so old invoices keep what they charged), and who works here on
+and an empty one clears it. The sales tax rates the company charges, its usual
+one, and whether it charges any are set on `/settings/tax` (M13). Which items are
+taxed is set on `/pricebook/tax` (`POST /v1/item-tax`, a new version of each item
+that changes, so old invoices keep what they charged), and who works here on
 `/settings/team`.
 
 The time zone is not cosmetic. Every date boundary in the product is computed

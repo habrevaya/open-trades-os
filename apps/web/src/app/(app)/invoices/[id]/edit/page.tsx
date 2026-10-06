@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, jobs, priceBook, NotFoundError } from "@opentradesos/api/services";
+import { billing, jobs, priceBook, taxRates, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can, money } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Composer, type ComposerLine } from "../../Composer";
@@ -81,6 +81,19 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
       taxable: line.taxable,
     }));
 
+  /**
+   * The draft's sales tax as it was priced: a rate somebody chose for every
+   * taxable line (or none) is shown chosen, so saving the draft keeps it;
+   * anything else is worked out again for today when it is saved.
+   */
+  const jobProperty = invoice.jobId ? ((await jobs.get(ctx, { id: invoice.jobId })).propertyId as string | null) : null;
+  const tax = await taxRates.picker(ctx, { customerId: invoice.customerId, propertyId: jobProperty, permission: "invoice:read" });
+  const taxed = invoice.lines.filter((l) => l.taxable && l.origin !== "manual");
+  const chosenIds = new Set(taxed.map((l) => (l.taxSource === "chosen" ? l.taxRateId ?? "none"
+    : l.taxSource === "estimate" && l.taxRateId ? l.taxRateId : "")));
+  const only = chosenIds.size === 1 ? [...chosenIds][0]! : "";
+  const chosen = only === "none" || tax.choices.some((c) => c.id === only) ? only : "";
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <Crumb href={`/invoices/${id}`}>Invoice {invoice.number}</Crumb>
@@ -96,6 +109,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
         memo={invoice.memo ?? undefined}
         dueOn={invoice.dueOn ?? undefined}
         purchaseOrderNumber={invoice.purchaseOrderNumber ?? undefined}
+        tax={{ worked: tax.worked?.note ?? "", choices: tax.choices, chosen }}
       />
     </div>
   );

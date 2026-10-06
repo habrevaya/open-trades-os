@@ -1,7 +1,7 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
 import type {
-  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTask, FieldVisit, MemberTerms, ReportField,
+  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTask, FieldVisit, MemberTerms, ReportField, VisitTax,
 } from "./wire";
 import { addAmounts, estimateFromPayload } from "./sales";
 
@@ -179,10 +179,15 @@ export interface DayInspection {
   waiting: boolean;
 }
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "estimates" | "billable" | "invoices"> {
+/** What an older server's day means for tax: none on recorded work, as it charged. */
+const NO_TAX: VisitTax = { rate: "0", percent: "0", label: null, source: "none", note: "No rate applies." };
+
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices"> {
   checklist: DayChecklistItem[];
   /** The plan the customer is a member on here, which prices what the phone shows. */
   member: MemberTerms | null;
+  /** The visit's sales tax, as the server will charge it. None from a server too old to say. */
+  tax: VisitTax;
   estimates: DayEstimate[];
   billable: DayBillable[];
   invoices: DayInvoice[];
@@ -247,6 +252,7 @@ export function projectDay(input: {
       parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
       amountDue: visit.amountDue ?? null,
       member: visit.member ?? null,
+      tax: visit.tax ?? NO_TAX,
       estimates: (visit.estimates ?? []).map((e) => ({ ...e, waiting: false })),
       billable: (visit.billable ?? []).map((b) => ({ ...b, waiting: false })),
       invoices: (visit.invoices ?? []).map((i) => ({ ...i, waiting: false })),
@@ -408,7 +414,8 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
           name: typeof p["name"] === "string" ? p["name"] : "Part",
           quantity: typeof p["quantity"] === "string" ? p["quantity"] : "1",
           unitPrice: typeof p["unitPrice"] === "string" ? p["unitPrice"] : "0",
-          taxable: p["taxable"] !== false,
+          /** As the server records it: as said, or a part taxed and labour not. */
+          taxable: typeof p["taxable"] === "boolean" ? p["taxable"] : p["kind"] !== "labor",
           itemKind: typeof p["itemKind"] === "string" ? p["itemKind"] : null,
           feeRole: typeof p["feeRole"] === "string" ? p["feeRole"] : null,
           waiting,

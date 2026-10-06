@@ -45,7 +45,7 @@ export function InvoiceScreen({ visitId, nav }: { visitId: string; nav: Navigate
     .map((e) => ({ estimate: e, invoice: invoiceFromEstimate(e) }))
     .filter((x) => x.invoice !== null);
   const work = visit.billable.filter((b) => !leftOut.includes(b.id));
-  const priced = invoiceFromWork(work, visit.member);
+  const priced = invoiceFromWork(work, visit.member, visit.tax.rate);
   const chosenEstimate = signedFor.find((x) => x.estimate.id === source) ?? null;
   const total = chosenEstimate ? chosenEstimate.invoice!.total : priced.totals.total;
   const nothing = signedFor.length === 0 && visit.billable.length === 0;

@@ -27,7 +27,11 @@ export async function writeEstimate(_previous: FormState, form: FormData): Promi
       jobId: field(form, "jobId"),
       title: field(form, "title"),
       expiresOn: field(form, "expiresOn"),
-      taxRate: rateFromPercent(field(form, "taxPercent")),
+      /**
+       * Blank leaves it to the company's rates for this customer and address;
+       * a figure typed, nought included, is charged as typed.
+       */
+      ...(field(form, "taxPercent") ? { taxRate: rateFromPercent(field(form, "taxPercent")) } : {}),
       options: optionsFromForm(form),
     });
     id = (await estimates.create(await ctx(), input)).id as string;
