@@ -114,6 +114,7 @@ describe("the checks a run can ask again", () => {
     expect(isCheck("drop table")).toBe(false);
     expect(Object.keys(CHECKS)).toEqual([
       "estimate_undecided", "caller_not_reached", "invoice_unpaid", "visit_still_booked", "job_not_done",
+      "agreement_active", "agreement_not_renewed", "agreement_renewed", "task_open", "record_field_unchanged",
     ]);
   });
 

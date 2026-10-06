@@ -346,6 +346,15 @@ export const VisitForField = z.object({
     total: MoneyString,
     balance: MoneyString,
   })),
+  /**
+   * The company's own records (a permit, a warranty registration) pointing at this visit's job or at a unit
+   * recorded on it, of the kinds the technician may read, each with every field holding a value. Read only.
+   * Absent from older servers.
+   */
+  records: z.array(z.object({
+    id: Uuid, kind: z.string(), title: z.string(),
+    fields: z.array(z.object({ label: z.string(), value: z.string() })),
+  })).optional(),
 });
 
 /**

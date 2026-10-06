@@ -69,6 +69,8 @@ export const CustomFieldDefinition = z.object({
   options: z.array(z.string()),
   required: z.boolean(),
   sortOrder: z.number().int(),
+  /** On a kind of record's field only: shown to the customer on their portal, when the kind is shown at all. */
+  customerVisible: z.boolean(),
 });
 
 /**
@@ -116,6 +118,8 @@ export const defineCustomField = defineRoute({
     options: Options.optional(),
     required: z.boolean().optional(),
     sortOrder: z.number().int().min(-1000).max(1000).optional(),
+    /** On a field of a company's own kind of record (`object:<key>`) only: shown to the customer on their portal. */
+    customerVisible: z.boolean().optional(),
   }),
   output: WithBacklog,
 });
@@ -150,6 +154,8 @@ export const updateCustomField = defineRoute({
     options: Options.optional(),
     required: z.boolean().optional(),
     sortOrder: z.number().int().min(-1000).max(1000).optional(),
+    /** On a field of a company's own kind of record (`object:<key>`) only: shown to the customer on their portal. */
+    customerVisible: z.boolean().optional(),
   }),
   output: WithBacklog,
 });

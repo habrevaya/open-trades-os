@@ -213,6 +213,15 @@ export const customFieldDefinition = pgTable("custom_field_definition", {
   options: jsonb("options").$type<string[]>().notNull().default([]),
   required: boolean("required").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
+  /**
+   * For a field on a company's own kind of record (`object:<key>`) only:
+   * whether a customer is shown it, on their portal, when the kind is shown
+   * to customers at all. Off unless somebody marks it. On the definition
+   * rather than in a list on the kind, so a field retired and defined again
+   * under the same key starts unmarked: the new one may mean something the
+   * customer was never meant to read.
+   */
+  customerVisible: boolean("customer_visible").notNull().default(false),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("custom_field_definition_org_idx").on(t.organizationId, t.entityType),

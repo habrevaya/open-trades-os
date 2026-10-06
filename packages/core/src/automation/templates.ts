@@ -1,4 +1,6 @@
-import type { PlanNode } from "./index.js";
+import {
+  STEP_PERMISSIONS, checkBranches, checkSettingsProblem, explainBranch, flattenPlan, isCheck, type PlanNode,
+} from "./index.js";
 
 /**
  * RECOMMENDED AUTOMATIONS
@@ -334,4 +336,226 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
   }
 
   return { ok: false, reason: `There is no recommended automation called ${key}.` };
+}
+
+/* ------------------------------------------------- from a trade pack */
+
+/**
+ * RECOMMENDED AUTOMATIONS A TRADE PACK DECLARES
+ *
+ * The four above are code, because each needs something from the company
+ * the service has to look up (a review site, a number cleared to text). A
+ * trade knows automations of its own that need nothing of the kind: ring a
+ * new plan member to book their first tune up, chase a permit that has sat
+ * at "submitted". Those are DATA in the pack, in the same shape as the four
+ * (a key, what it does, what it needs, its number settings, and the
+ * workflow it installs), so anybody who has run a shop in the trade can
+ * write one without writing TypeScript.
+ *
+ * Checked when the pack is loaded, by `checkPackAutomation`, against what
+ * this build can actually run: steps it knows, events something emits, a
+ * question `stop_unless` can ask, branches whose arms add up, and every
+ * setting a step names declared with bounds its default sits inside. A pack
+ * that fails is a pack that fails to load, which is a build that fails,
+ * rather than a company finding out on the day it presses "Turn on".
+ *
+ * Installing one goes through exactly the path the four do: the same check
+ * as a workflow drawn on the canvas, the same permission rule, switched on,
+ * labelled with its key so the list knows it is on.
+ *
+ * A SETTING IS NAMED, NEVER WRITTEN IN. A step's config says
+ * `{ "$param": "days" }` where the company's number goes, and building the
+ * workflow puts the number there. Only declared settings can be named, and
+ * only whole numbers within their bounds can be put in.
+ *
+ * Event triggers only. The one dwell trigger the four use waits on a shape
+ * the service owns, and a pack cannot be checked against it from here.
+ */
+
+export interface PackAutomationParameter {
+  key: string;
+  label: string;
+  help: string;
+  kind: "number";
+  default: number;
+  min: number;
+  max: number;
+}
+
+export interface PackAutomation {
+  /** `<pack id>.<its own key>`, so two packs cannot claim one key and none can claim a built in one. */
+  key: string;
+  packId: string;
+  name: string;
+  summary: string;
+  needs: string;
+  parameters: PackAutomationParameter[];
+  definition: {
+    description: string;
+    triggerKind: "event";
+    triggerEvents: string[];
+    steps: PlanNode[];
+  };
+}
+
+export type PackAutomationCheck =
+  | { ok: true; template: PackAutomation }
+  | { ok: false; problems: string[] };
+
+const LOCAL_KEY = /^[a-z][a-z0-9_]{0,39}$/;
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+
+/** Every `{ "$param": ... }` inside a config, however deep. */
+function paramRefs(value: unknown, out: string[] = []): string[] {
+  if (Array.isArray(value)) { for (const item of value) paramRefs(item, out); return out; }
+  if (!isRecord(value)) return out;
+  if (Object.prototype.hasOwnProperty.call(value, "$param")) { out.push(String(value["$param"])); return out; }
+  for (const inner of Object.values(value)) paramRefs(inner, out);
+  return out;
+}
+
+/** The same config with each named setting replaced by its number. */
+function fillParams(value: unknown, values: Record<string, number>): unknown {
+  if (Array.isArray(value)) return value.map((item) => fillParams(item, values));
+  if (!isRecord(value)) return value;
+  if (Object.prototype.hasOwnProperty.call(value, "$param")) return values[String(value["$param"])];
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillParams(v, values)]));
+}
+
+function readNodes(raw: unknown, where: string, problems: string[]): PlanNode[] {
+  if (!Array.isArray(raw)) { problems.push(`${where} has to be a list of steps.`); return []; }
+  return raw.map((node, index) => {
+    const at = `${where}, step ${index + 1}`;
+    if (!isRecord(node) || typeof node["kind"] !== "string") {
+      problems.push(`${at} has no kind.`);
+      return { kind: "" };
+    }
+    const config = node["config"] === undefined ? undefined : node["config"];
+    if (config !== undefined && !isRecord(config)) problems.push(`${at}: its config has to be an object.`);
+    const out: PlanNode = { kind: node["kind"], ...(isRecord(config) ? { config } : {}) };
+    if (node["kind"] === "branch") {
+      out.then = readNodes(node["then"] ?? [], `${at}, then`, problems);
+      out.otherwise = readNodes(node["otherwise"] ?? [], `${at}, otherwise`, problems);
+    }
+    return out;
+  });
+}
+
+/**
+ * WHETHER A PACK'S AUTOMATION CAN BE LOADED, AND WHAT IT IS ONCE IT CAN.
+ *
+ * Every problem at once, each naming the automation, because the person
+ * reading them is a pack author with a file open, and a list fixed one line
+ * per build is a slow way to write a pack. `subscribable` is the events a
+ * workflow may subscribe to, passed in so this module does not reach into
+ * the event catalogue's own.
+ */
+export function checkPackAutomation(
+  packId: string, raw: unknown, subscribable: readonly string[],
+): PackAutomationCheck {
+  const problems: string[] = [];
+  if (!isRecord(raw)) return { ok: false, problems: [`An automation in ${packId} is not an object.`] };
+  const localKey = text(raw["key"]);
+  const name = text(raw["name"]);
+  const label = `${packId} automation "${localKey || name || "with no key"}"`;
+  const say = (message: string) => problems.push(`${label}: ${message}`);
+
+  if (!LOCAL_KEY.test(localKey)) say("its key is lowercase letters, digits and underscores, starting with a letter.");
+  if (name === "" || name.length > 120) say("it needs a name of up to 120 characters.");
+  const summary = text(raw["summary"]);
+  const needs = text(raw["needs"]);
+  if (summary === "" || summary.length > 500) say("it needs a summary of up to 500 characters.");
+  if (needs.length > 500) say("what it needs is longer than 500 characters.");
+
+  const parameters: PackAutomationParameter[] = [];
+  const rawParams = raw["parameters"] ?? [];
+  if (!Array.isArray(rawParams)) say("its settings have to be a list.");
+  for (const p of Array.isArray(rawParams) ? rawParams : []) {
+    if (!isRecord(p)) { say("a setting is not an object."); continue; }
+    const key = text(p["key"]);
+    const kind = p["kind"] ?? "number";
+    const [def, min, max] = [p["default"], p["min"], p["max"]];
+    if (!LOCAL_KEY.test(key)) { say(`setting "${key}" needs a lowercase key.`); continue; }
+    if (parameters.some((q) => q.key === key)) { say(`setting "${key}" is declared twice.`); continue; }
+    if (kind !== "number") { say(`setting "${key}" is a ${String(kind)}; a pack's settings are whole numbers.`); continue; }
+    if (![def, min, max].every((n) => Number.isInteger(n))) {
+      say(`setting "${key}" needs a whole number default, min and max.`); continue;
+    }
+    if (!((min as number) <= (def as number) && (def as number) <= (max as number))) {
+      say(`setting "${key}" has a default outside its own bounds.`); continue;
+    }
+    if (text(p["label"]) === "") say(`setting "${key}" needs a label.`);
+    parameters.push({
+      key, kind: "number", label: text(p["label"]), help: text(p["help"]),
+      default: def as number, min: min as number, max: max as number,
+    });
+  }
+
+  const definition = isRecord(raw["definition"]) ? raw["definition"] : null;
+  if (!definition) say("it needs a definition: the trigger and the steps it installs.");
+  const triggerKind = definition?.["triggerKind"] ?? "event";
+  if (triggerKind !== "event") say("a pack's automation starts on an event; waiting on a record is for the built in ones.");
+  const triggerEvents = Array.isArray(definition?.["triggerEvents"]) ? (definition["triggerEvents"] as unknown[]).map(String) : [];
+  if (triggerEvents.length === 0) say("it needs at least one event to start on.");
+  for (const event of triggerEvents) {
+    if (!subscribable.includes(event)) say(`nothing emits ${event} for an automation to start on.`);
+  }
+  const steps = readNodes(definition?.["steps"] ?? [], "the definition", problems);
+  const flat = flattenPlan(steps);
+  if (flat.length === 0) say("it needs at least one step.");
+  for (const [index, step] of flat.entries()) {
+    if (!(step.kind in STEP_PERMISSIONS)) say(`step ${index + 1} is ${step.kind || "nothing"}, which this build cannot run.`);
+    if (step.kind === "stop_unless") {
+      if (!isCheck(step.config?.["check"])) say(`step ${index + 1} asks ${String(step.config?.["check"])}, which this build cannot ask.`);
+      const settings = checkSettingsProblem(step.config);
+      if (settings) say(`step ${index + 1}: ${settings}`);
+    }
+    for (const ref of paramRefs(step.config)) {
+      if (!parameters.some((p) => p.key === ref)) say(`step ${index + 1} names a setting "${ref}" it does not declare.`);
+    }
+  }
+  const arms = checkBranches(flat);
+  if (arms.length > 0) say(explainBranch(arms[0]!));
+
+  const description = text(definition?.["description"]) || summary;
+  if (problems.length > 0) return { ok: false, problems };
+  return {
+    ok: true,
+    template: {
+      key: `${packId}.${localKey}`, packId, name, summary, needs, parameters,
+      definition: { description, triggerKind: "event", triggerEvents, steps },
+    },
+  };
+}
+
+/**
+ * The workflow a pack's automation installs, with the company's numbers in
+ * it. Refused, never clamped, outside a setting's bounds, for the reason
+ * `numberOf` gives.
+ */
+export function buildPackTemplate(template: PackAutomation, values: Record<string, unknown>): TemplateBuild {
+  const filled: Record<string, number> = {};
+  for (const parameter of template.parameters) {
+    const given = numberOf(parameter, values[parameter.key]);
+    if (typeof given === "string") return { ok: false, reason: given };
+    filled[parameter.key] = given;
+  }
+  const fill = (nodes: readonly PlanNode[]): PlanNode[] => nodes.map((node) => ({
+    kind: node.kind,
+    ...(node.config ? { config: fillParams(node.config, filled) as Record<string, unknown> } : {}),
+    ...(node.then ? { then: fill(node.then) } : {}),
+    ...(node.otherwise ? { otherwise: fill(node.otherwise) } : {}),
+  }));
+  return {
+    ok: true,
+    definition: {
+      name: template.name,
+      description: `Installed from the recommended list, from the ${template.packId} trade pack. ${template.definition.description}`,
+      triggerKind: "event",
+      triggerEvents: [...template.definition.triggerEvents],
+      steps: fill(template.definition.steps),
+    },
+  };
 }

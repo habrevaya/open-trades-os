@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { attempt, field, fields, type FormState } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customObjects } from "@opentradesos/api/services";
+import { customFields, customObjects } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
 
@@ -23,6 +23,8 @@ function definitionFrom(form: FormData) {
     links: fields(form, "links"),
     readPermission: field(form, "readPermission"),
     writePermission: field(form, "writePermission"),
+    recordKind: fields(form, "links").includes("record") ? field(form, "recordKind") ?? null : null,
+    customerVisible: form.get("customerVisible") === "yes",
   };
 }
 
@@ -45,6 +47,21 @@ export async function updateKind(_previous: FormState, form: FormData): Promise<
   });
   revalidatePath("/settings", "layout");
   revalidatePath("/records", "layout");
+  return result;
+}
+
+/**
+ * Mark one of a kind's fields as shown to the customer, or take the mark
+ * off. Only ever one field at a time, so what the customer sees changes by
+ * a deliberate press rather than as a side effect of saving something else.
+ */
+export async function setFieldForCustomer(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    await customFields.update(await ctx(), {
+      id: String(form.get("id") ?? ""), customerVisible: form.get("customerVisible") === "1",
+    });
+  });
+  revalidatePath("/settings/records", "layout");
   return result;
 }
 

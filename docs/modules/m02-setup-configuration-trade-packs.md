@@ -47,7 +47,8 @@ types that trade actually runs, the checklists a technician fills in, the
 readings they capture, the equipment categories those readings hang off,
 statutory inspection programmes, the submissions those produce, the retention
 rules that govern the records, the customer portal blocks that make sense for
-the trade, and the KPIs an owner in that trade manages to.
+the trade, the KPIs an owner in that trade manages to, and recommended
+automations offered on `/automations` to a company that applied it (M29).
 
 Anyone who has run a shop in a trade can contribute one, and that is the point.
 The contributions this project most needs are not pull requests full of

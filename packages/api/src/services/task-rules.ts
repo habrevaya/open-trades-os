@@ -169,6 +169,12 @@ export interface TemplateInput {
   frequency: taskRules.TaskFrequency;
   weekday?: number | null | undefined;
   monthDay?: number | null | undefined;
+  /** For the given weekday of the month: 1 is the first, 4 the fourth. */
+  monthWeek?: number | null | undefined;
+  /** For every so many weeks: 2 to 52. */
+  intervalWeeks?: number | null | undefined;
+  /** For chosen weekdays: the days, 0 for Sunday. */
+  daysOfWeek?: number[] | null | undefined;
   /** Minutes after the company's midnight. Five in the afternoon when not said. */
   dueMinutes?: number | undefined;
   checklist?: string[] | undefined;
@@ -188,6 +194,9 @@ export interface TemplateView {
   frequency: taskRules.TaskFrequency;
   weekday: number | null;
   monthDay: number | null;
+  monthWeek: number | null;
+  intervalWeeks: number | null;
+  daysOfWeek: number[] | null;
   dueMinutes: number;
   checklist: string[];
   startsOn: string;
@@ -203,7 +212,7 @@ export interface TemplateView {
 function viewOf(
   row: typeof schema.taskTemplate.$inferSelect, people: Map<string, Person>, today: string,
 ): TemplateView {
-  const schedule = { frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, startsOn: row.startsOn };
+  const schedule = scheduleOf(row);
   const raisedToday = row.lastRaisedOn !== null && row.lastRaisedOn >= today;
   const dueToday = taskRules.occurrenceOnOrBefore(schedule, today) === today;
   return {
@@ -217,6 +226,9 @@ function viewOf(
     frequency: row.frequency,
     weekday: row.weekday,
     monthDay: row.monthDay,
+    monthWeek: row.monthWeek,
+    intervalWeeks: row.intervalWeeks,
+    daysOfWeek: row.daysOfWeek,
     dueMinutes: row.dueMinutes,
     checklist: row.checklist,
     startsOn: row.startsOn,
@@ -230,10 +242,33 @@ function viewOf(
   };
 }
 
+/** A stored template as the schedule core counts. */
+const scheduleOf = (row: Pick<typeof schema.taskTemplate.$inferSelect,
+  "frequency" | "weekday" | "monthDay" | "monthWeek" | "intervalWeeks" | "daysOfWeek" | "startsOn">): taskRules.TaskSchedule => ({
+  frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, monthWeek: row.monthWeek,
+  intervalWeeks: row.intervalWeeks, daysOfWeek: row.daysOfWeek, startsOn: row.startsOn,
+});
+
+/**
+ * The schedule columns as they are stored: each one only for the frequency
+ * that reads it, so a template changed from monthly to weekly does not keep
+ * a day of the month nothing reads and a screen might one day show.
+ */
+const scheduleColumns = (input: TemplateInput) => ({
+  frequency: input.frequency,
+  weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null,
+  monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
+  monthWeek: input.frequency === "nth_weekday_of_month" ? input.monthWeek ?? null : null,
+  intervalWeeks: input.frequency === "every_n_weeks" ? input.intervalWeeks ?? null : null,
+  daysOfWeek: input.frequency === "chosen_weekdays" ? taskRules.cleanDays(input.daysOfWeek) : null,
+});
+
 function checkTemplate(input: TemplateInput & { startsOn: string }): void {
   if (input.title.trim() === "") throw new ConflictError("A recurring task needs a title.");
   const verdict = taskRules.checkSchedule({
-    frequency: input.frequency, weekday: input.weekday ?? null, monthDay: input.monthDay ?? null, startsOn: input.startsOn,
+    frequency: input.frequency, weekday: input.weekday ?? null, monthDay: input.monthDay ?? null,
+    monthWeek: input.monthWeek ?? null, intervalWeeks: input.intervalWeeks ?? null, daysOfWeek: input.daysOfWeek ?? null,
+    startsOn: input.startsOn,
   });
   if (!verdict.ok) throw new ConflictError(verdict.message);
   const due = input.dueMinutes ?? 17 * 60;
@@ -275,9 +310,7 @@ export async function createTemplate(ctx: ServiceContext, input: TemplateInput):
       priority: input.priority ?? "normal",
       assigneeUserId: input.assigneeUserId ?? null,
       queue: input.queue?.trim() || null,
-      frequency: input.frequency,
-      weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null,
-      monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
+      ...scheduleColumns(input),
       dueMinutes: input.dueMinutes ?? 17 * 60,
       checklist: (input.checklist ?? []).map((l) => l.trim()).filter((l) => l !== ""),
       startsOn,
@@ -313,6 +346,9 @@ export async function updateTemplate(
       frequency: input.frequency ?? before.frequency,
       weekday: input.weekday !== undefined ? input.weekday : before.weekday,
       monthDay: input.monthDay !== undefined ? input.monthDay : before.monthDay,
+      monthWeek: input.monthWeek !== undefined ? input.monthWeek : before.monthWeek,
+      intervalWeeks: input.intervalWeeks !== undefined ? input.intervalWeeks : before.intervalWeeks,
+      daysOfWeek: input.daysOfWeek !== undefined ? input.daysOfWeek : before.daysOfWeek,
       dueMinutes: input.dueMinutes ?? before.dueMinutes,
       checklist: input.checklist ?? before.checklist,
       startsOn: input.startsOn ?? before.startsOn,
@@ -327,9 +363,7 @@ export async function updateTemplate(
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
       ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}),
       ...(input.queue !== undefined ? { queue: input.queue.trim() || null } : {}),
-      frequency: merged.frequency,
-      weekday: taskRules.NEEDS_WEEKDAY.includes(merged.frequency) ? merged.weekday ?? null : null,
-      monthDay: merged.frequency === "monthly" ? merged.monthDay ?? null : null,
+      ...scheduleColumns(merged),
       dueMinutes: merged.dueMinutes ?? before.dueMinutes,
       checklist: (merged.checklist ?? []).map((l) => l.trim()).filter((l) => l !== ""),
       startsOn: merged.startsOn,
@@ -561,7 +595,7 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
 
     for (const template of templates) {
       const day = taskRules.occurrenceToRaise(
-        { frequency: template.frequency, weekday: template.weekday, monthDay: template.monthDay, startsOn: template.startsOn },
+        scheduleOf(template),
         today, template.lastRaisedOn,
       );
       if (!day) continue;

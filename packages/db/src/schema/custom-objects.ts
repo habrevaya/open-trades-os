@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, jsonb, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, integer, boolean, index, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { pk, timestamps } from "./_shared";
-import { organization, user } from "./tenancy";
+import { organization, user, membership } from "./tenancy";
 import { customer, property, equipment } from "./crm";
 import { job } from "./work";
+import { invoice } from "./billing";
 
 /**
  * A COMPANY'S OWN KIND OF RECORD
@@ -60,6 +61,19 @@ export const customObjectType = pgTable("custom_object_type", {
   readPermission: text("read_permission").notNull().default("record:read"),
   writePermission: text("write_permission").notNull().default("record:write"),
   sortOrder: integer("sort_order").notNull().default(0),
+  /**
+   * The kind a `record` link points at, by its key: the truck an inspection
+   * is of. By key rather than id, like everything else that names a kind,
+   * so a kind retired and defined again is the same kind.
+   */
+  recordKind: text("record_kind"),
+  /**
+   * Whether a customer is shown these records on their portal: the ones
+   * about them, with only the fields marked for the customer. Off unless
+   * somebody turns it on, because what a company writes down about a job
+   * is not, by default, the customer's to read.
+   */
+  customerVisible: boolean("customer_visible").notNull().default(false),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
@@ -93,6 +107,11 @@ export const customObjectRecord = pgTable("custom_object_record", {
   propertyId: uuid("property_id").references(() => property.id, { onDelete: "set null" }),
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
   equipmentId: uuid("equipment_id").references(() => equipment.id, { onDelete: "set null" }),
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
+  /** A person in the company, by membership, so somebody who has left is still who it was about. */
+  membershipId: uuid("membership_id").references(() => membership.id, { onDelete: "set null" }),
+  /** One record of the kind this kind's `record_kind` names. */
+  linkedRecordId: uuid("linked_record_id").references((): AnyPgColumn => customObjectRecord.id, { onDelete: "set null" }),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
@@ -101,4 +120,7 @@ export const customObjectRecord = pgTable("custom_object_record", {
   customerIdx: index("custom_object_record_customer_idx").on(t.customerId),
   propertyIdx: index("custom_object_record_property_idx").on(t.propertyId),
   equipmentIdx: index("custom_object_record_equipment_idx").on(t.equipmentId),
+  invoiceIdx: index("custom_object_record_invoice_idx").on(t.invoiceId),
+  membershipIdx: index("custom_object_record_membership_idx").on(t.membershipId),
+  linkedIdx: index("custom_object_record_linked_idx").on(t.linkedRecordId),
 }));

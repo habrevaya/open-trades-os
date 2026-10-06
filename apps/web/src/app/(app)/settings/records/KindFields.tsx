@@ -10,6 +10,9 @@ export const LINKS = [
   { value: "property", label: "An address" },
   { value: "job", label: "A job" },
   { value: "equipment", label: "A unit of equipment" },
+  { value: "invoice", label: "An invoice" },
+  { value: "membership", label: "A person on your team" },
+  { value: "record", label: "One of another kind of record" },
 ] as const;
 
 /**
@@ -34,11 +37,14 @@ export const WRITERS = [
 const withCurrent = (options: { value: string; label: string }[], current: string | undefined) =>
   current && !options.some((o) => o.value === current) ? [...options, { value: current, label: current }] : options;
 
-export function KindFields({ kind }: {
+export function KindFields({ kind, others }: {
   kind?: {
     label: string; pluralLabel: string; titleLabel: string; description: string | null;
     links: string[]; readPermission: string; writePermission: string;
+    recordKind: string | null; customerVisible: boolean;
   };
+  /** The company's kinds, for "one of another kind of record". */
+  others: { key: string; label: string }[];
 }) {
   const box = "mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm";
   return (
@@ -60,7 +66,21 @@ export function KindFields({ kind }: {
           ))}
         </div>
         <p className="mt-1 text-xs text-ink-500">One put on a job is put on that job&apos;s customer and address too.</p>
+        <label className="mt-2 block max-w-sm">
+          <span className="text-sm text-ink-700">Which kind of record (if it points at one)</span>
+          <select name="recordKind" defaultValue={kind?.recordKind ?? ""} className={box}>
+            <option value="">None</option>
+            {others.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+        </label>
       </fieldset>
+      <label className="flex items-start gap-2 text-sm sm:col-span-2">
+        <input type="checkbox" name="customerVisible" value="yes" defaultChecked={kind?.customerVisible ?? false} className="mt-0.5 h-4 w-4" />
+        <span>
+          The customer may see these. Ones about them show on their portal, read only, with only the fields you mark
+          for the customer below. Off unless you tick it.
+        </span>
+      </label>
       <label className="block">
         <span className="text-sm font-medium text-ink-700">Who can see them</span>
         <select name="readPermission" defaultValue={kind?.readPermission ?? "record:read"} className={box}>

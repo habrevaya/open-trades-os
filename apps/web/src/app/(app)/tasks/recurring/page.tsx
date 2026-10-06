@@ -8,7 +8,7 @@ import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm
 import { Crumb } from "@/components/Detail";
 import { TASK_PRIORITY, label } from "@/lib/labels";
 import { formatDay, todayIn } from "@/lib/dates";
-import { addTemplate, setTemplateActive } from "../rule-actions";
+import { addTemplate, setTemplateActive, setTemplateSkipHolidays } from "../rule-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,8 @@ export const dynamic = "force-dynamic";
  * stop reading.
  */
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Monday first on the form, because a working week starts on a Monday. */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const minutes = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 export default async function RecurringTasksPage() {
@@ -39,7 +41,7 @@ export default async function RecurringTasksPage() {
       <div className="mt-1"><PageHeader title="Recurring tasks" count={templates.length} /></div>
 
       {templates.length === 0 ? (
-        <Empty title="Nothing recurs yet">Add the work that comes round every day, week or month, or every other week or on the last Friday of the month, and it lands in the queue on the day.</Empty>
+        <Empty title="Nothing recurs yet">Add the work that comes round every day, week or month, every few weeks, on the days you choose, or on the first or last Friday of the month, and it lands in the queue on the day.</Empty>
       ) : (
         <Table label="Recurring tasks" head={<><Th>Task</Th><Th>When</Th><Th>For</Th><Th>Next</Th><Th /></>}>
           {templates.map((t) => (
@@ -54,8 +56,14 @@ export default async function RecurringTasksPage() {
               <Td className="text-ink-700">{t.nextOn ? formatDay(t.nextOn, tz) : <Chip tone="neutral">Paused</Chip>}</Td>
               <Td>
                 {writes ? (
-                  <ActionForm action={setTemplateActive} submit={t.active ? "Pause" : "Resume"} tone="quiet"
-                              hidden={{ id: t.id, active: t.active ? "0" : "1" }} className="flex items-center gap-2" />
+                  <div className="flex flex-col items-start gap-1">
+                    <ActionForm action={setTemplateActive} submit={t.active ? "Pause" : "Resume"} tone="quiet"
+                                hidden={{ id: t.id, active: t.active ? "0" : "1" }} className="flex items-center gap-2" />
+                    <ActionForm action={setTemplateSkipHolidays}
+                                submit={t.skipHolidays ? "Raise on holidays too" : "Skip holidays"}
+                                tone="quiet" hidden={{ id: t.id, skipHolidays: t.skipHolidays ? "0" : "1" }}
+                                className="flex items-center gap-2" />
+                  </div>
                 ) : null}
               </Td>
             </tr>
@@ -75,12 +83,35 @@ export default async function RecurringTasksPage() {
                 { value: "weekdays", label: "Every weekday, Monday to Friday" },
                 { value: "weekly", label: "Every week" },
                 { value: "every_other_week", label: "Every other week" },
+                { value: "every_n_weeks", label: "Every few weeks" },
+                { value: "chosen_weekdays", label: "On the days I tick" },
                 { value: "monthly", label: "Every month, on a date" },
+                { value: "nth_weekday_of_month", label: "The first, second, third or fourth one of every month" },
                 { value: "last_weekday_of_month", label: "The last one of every month" },
               ]} />
-              <Select label="Day of the week (weekly, every other week, last of the month)" name="weekday" defaultValue="1"
-                      options={WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))} />
+              <Select label="Day of the week (weekly, every few weeks, one of the month)" name="weekday" defaultValue="1"
+                      options={WEEK_ORDER.map((i) => ({ value: String(i), label: WEEKDAYS[i]! }))} />
               <TextField label="Date of the month (every month, on a date)" name="monthDay" type="number" min={1} max={31} defaultValue="1" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Select label="Which one in the month (first to fourth)" name="monthWeek" defaultValue="1" options={[
+                { value: "1", label: "The first" },
+                { value: "2", label: "The second" },
+                { value: "3", label: "The third" },
+                { value: "4", label: "The fourth" },
+              ]} />
+              <TextField label="How many weeks apart (every few weeks)" name="intervalWeeks" type="number" min={2} max={52} defaultValue="3" />
+              <fieldset className="text-sm">
+                <legend className="text-ink-700">Which days (on the days I tick)</legend>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  {WEEK_ORDER.map((i) => (
+                    <label key={i} className="flex items-center gap-1">
+                      <input type="checkbox" name="daysOfWeek" value={String(i)} />
+                      {WEEKDAYS[i]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <TextField label="Due at" name="dueTime" type="time" defaultValue="17:00" />
@@ -89,9 +120,9 @@ export default async function RecurringTasksPage() {
                       options={Object.entries(TASK_PRIORITY).map(([value, l]) => ({ value, label: l }))} />
             </div>
             <p className="text-xs text-ink-500">
-              Every other week starts with the first of that day of the week on or after the starting day,
-              then every second one after it. The last one of every month is the last Friday, say, whether
-              that is the fourth or the fifth.
+              Every other week and every few weeks start with the first of that day of the week on or after
+              the starting day, then every second (or third, or however many) one after it. The last one of
+              every month is the last Friday, say, whether that is the fourth or the fifth.
             </p>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="skipHolidays" value="yes" />

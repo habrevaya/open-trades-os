@@ -16,7 +16,7 @@ const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
  */
 async function linksFrom(form: FormData) {
   const links: Record<string, string> = {};
-  for (const name of ["customerId", "propertyId", "jobId", "equipmentId"]) {
+  for (const name of ["customerId", "propertyId", "jobId", "equipmentId", "invoiceId", "membershipId", "linkedRecordId"]) {
     const value = field(form, name);
     if (value) links[name] = value;
   }

@@ -757,6 +757,13 @@
       "when": 1791323142412,
       "tag": "0107_spotty_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1791328032061,
+      "tag": "0108_chunky_lockheed",
+      "breakpoints": true
     }
   ]
 }

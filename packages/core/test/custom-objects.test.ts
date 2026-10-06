@@ -25,6 +25,8 @@ describe("a definition", () => {
         // In the product's order, whatever order they were ticked in.
         links: ["property", "job"],
         readPermission: "record:read", writePermission: "record:write", sortOrder: 0,
+        // Pointing at no other kind, and not shown to customers until somebody says so.
+        recordKind: null, customerVisible: false,
       },
     });
   });
@@ -41,7 +43,8 @@ describe("a definition", () => {
 
   it("refuses every problem at once, each in words", () => {
     const decision = co.checkType({
-      key: "Permit Number", label: " ", links: ["invoice", "job", "job"],
+      // An invoice became something a record can point at, so the link nothing offers is a vendor.
+      key: "Permit Number", label: " ", links: ["vendor", "job", "job"],
       readPermission: "permits:see", writePermission: "record:write",
     });
     expect(decision.ok).toBe(false);
@@ -49,7 +52,7 @@ describe("a definition", () => {
     expect(decision.problems).toEqual([
       expect.stringContaining('"Permit Number" is not a usable key'),
       "Say what one of these is called, like Permit.",
-      expect.stringContaining('"invoice" is not something a record can point at'),
+      expect.stringContaining('"vendor" is not something a record can point at'),
       "Job is listed twice.",
       '"permits:see" is not a permission anybody can hold.',
     ]);

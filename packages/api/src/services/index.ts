@@ -96,6 +96,7 @@ export * as payerDelivery from "./payer-delivery";
 export * as webhooks from "./webhooks";
 export * as customFields from "./custom-fields";
 export * as customObjects from "./custom-objects";
+export * as search from "./search";
 export * as proposalTemplates from "./proposal-templates";
 export * as sandbox from "./sandbox";
 export * as payments from "./payments";

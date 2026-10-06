@@ -763,6 +763,27 @@ function VisitCard({
             </div>
           )}
 
+          {/*
+            The company's own records on this job or a unit on this visit: the
+            permit, the warranty registration. Read only here; they are
+            changed on their own page in the office.
+          */}
+          {(visit.records ?? []).length > 0 && (
+            <section aria-label="Records on this job" className="text-sm">
+              <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Records on this job</p>
+              <ul className="mt-1 space-y-2">
+                {(visit.records ?? []).map((record) => (
+                  <li key={record.id}>
+                    <span className="font-medium">{record.kind}: {record.title}</span>
+                    {record.fields.map((f) => (
+                      <span key={f.label} className="block text-ink-700">{f.label}: {f.value}</span>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <div className="flex flex-wrap gap-2">
             {visit.customer.phone && (
               <a href={`tel:${visit.customer.phone}`}

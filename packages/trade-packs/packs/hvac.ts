@@ -198,4 +198,36 @@ export const hvac: TradePackInput = {
     { kind: "plan_status" },
     { kind: "invoices" },
   ],
+
+  /**
+   * One small example, so the shape has a real user. A new plan member who
+   * is not booked in the first weeks is the member who does not renew.
+   */
+  automations: [
+    {
+      key: "book_first_tune_up",
+      name: "Ring a new plan member to book their first tune up",
+      summary:
+        "Some days after a maintenance plan is sold, if the plan is still active, put a call in the office "
+        + "queue to book the member's first tune up.",
+      needs: "Plans sold through Memberships. Nothing is sent to the customer; it is a call for the office.",
+      parameters: [{
+        key: "days", label: "Days to wait after the sale",
+        help: "Seven gives the member time to settle in before you ring.",
+        default: 7, min: 1, max: 60,
+      }],
+      definition: {
+        description: "Some days after a plan is sold, if it is still active, raise a call to book the first tune up.",
+        triggerEvents: ["agreement.sold"],
+        steps: [
+          { kind: "wait", config: { days: { $param: "days" }, hours: 0 } },
+          { kind: "stop_unless", config: { check: "agreement_active" } },
+          {
+            kind: "create_task",
+            config: { title: "Book the first tune up on a new {{ agreement.planName }} plan", queue: "office", dueInHours: 48 },
+          },
+        ],
+      },
+    },
+  ],
 };

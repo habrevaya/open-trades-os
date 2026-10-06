@@ -2609,6 +2609,9 @@ export interface CreateCustomRecordInput {
   propertyId?: string | null;
   jobId?: string | null;
   equipmentId?: string | null;
+  invoiceId?: string | null;
+  membershipId?: string | null;
+  linkedRecordId?: string | null;
 }
 
 export interface CreateCustomRecordOutput {
@@ -2632,6 +2635,19 @@ export interface CreateCustomRecordOutput {
   equipment: {
     id: string;
     name: string;
+  } | null;
+  invoice: {
+    id: string;
+    name: string;
+  } | null;
+  membership: {
+    id: string;
+    name: string;
+  } | null;
+  record: {
+    id: string;
+    name: string;
+    type: string | null;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -4050,9 +4066,12 @@ export interface CreateTaskTemplateInput {
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
   queue?: string;
-  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
   weekday?: number | null;
   monthDay?: number | null;
+  monthWeek?: number | null;
+  intervalWeeks?: number | null;
+  daysOfWeek?: number[] | null;
   dueMinutes?: number;
   checklist?: string[];
   startsOn?: string;
@@ -4067,9 +4086,12 @@ export interface CreateTaskTemplateOutput {
   assigneeUserId: string | null;
   assigneeName: string | null;
   queue: string | null;
-  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
   weekday: number | null;
   monthDay: number | null;
+  monthWeek: number | null;
+  intervalWeeks: number | null;
+  daysOfWeek: number[] | null;
   dueMinutes: number;
   checklist: string[];
   startsOn: string;
@@ -4689,6 +4711,7 @@ export interface DefineCustomFieldInput {
   options?: string[];
   required?: boolean;
   sortOrder?: number;
+  customerVisible?: boolean;
 }
 
 export interface DefineCustomFieldOutput {
@@ -4700,6 +4723,7 @@ export interface DefineCustomFieldOutput {
   options: string[];
   required: boolean;
   sortOrder: number;
+  customerVisible: boolean;
   rowsWithValue: number;
   rowsMissingValue: number;
 }
@@ -4710,7 +4734,9 @@ export interface DefineCustomObjectInput {
   pluralLabel?: string;
   description?: string | null;
   titleLabel?: string;
-  links?: Array<"customer" | "property" | "job" | "equipment">;
+  links?: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
+  recordKind?: string | null;
+  customerVisible?: boolean;
   readPermission?: string;
   writePermission?: string;
   sortOrder?: number;
@@ -4723,10 +4749,12 @@ export interface DefineCustomObjectOutput {
   pluralLabel: string;
   description: string | null;
   titleLabel: string;
-  links: Array<"customer" | "property" | "job" | "equipment">;
+  links: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
   readPermission: string;
   writePermission: string;
   sortOrder: number;
+  recordKind: string | null;
+  customerVisible: boolean;
 }
 
 export interface DefineMessageTemplateInput {
@@ -6381,6 +6409,7 @@ export interface GetCustomFieldUsageOutput {
       options: string[];
       required: boolean;
       sortOrder: number;
+      customerVisible: boolean;
       rowsWithValue: number;
       rowsMissingValue: number;
     }>;
@@ -6398,10 +6427,12 @@ export interface GetCustomObjectOutput {
   pluralLabel: string;
   description: string | null;
   titleLabel: string;
-  links: Array<"customer" | "property" | "job" | "equipment">;
+  links: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
   readPermission: string;
   writePermission: string;
   sortOrder: number;
+  recordKind: string | null;
+  customerVisible: boolean;
   fields: Array<{
     id: string;
     entityType: string;
@@ -6411,6 +6442,7 @@ export interface GetCustomObjectOutput {
     options: string[];
     required: boolean;
     sortOrder: number;
+    customerVisible: boolean;
   }>;
   canRead: boolean;
   canWrite: boolean;
@@ -6438,6 +6470,19 @@ export interface GetCustomRecordOutput {
     id: string;
     name: string;
   } | null;
+  invoice: {
+    id: string;
+    name: string;
+  } | null;
+  membership: {
+    id: string;
+    name: string;
+  } | null;
+  record: {
+    id: string;
+    name: string;
+    type: string | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
   kind: {
@@ -6447,10 +6492,12 @@ export interface GetCustomRecordOutput {
     pluralLabel: string;
     description: string | null;
     titleLabel: string;
-    links: Array<"customer" | "property" | "job" | "equipment">;
+    links: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
     readPermission: string;
     writePermission: string;
     sortOrder: number;
+    recordKind: string | null;
+    customerVisible: boolean;
   };
   fields: Array<{
     id: string;
@@ -6461,6 +6508,7 @@ export interface GetCustomRecordOutput {
     options: string[];
     required: boolean;
     sortOrder: number;
+    customerVisible: boolean;
   }>;
   canWrite: boolean;
 }
@@ -7289,6 +7337,15 @@ export interface GetFieldSnapshotOutput {
       status: string;
       total: string;
       balance: string;
+    }>;
+    records?: Array<{
+      id: string;
+      kind: string;
+      title: string;
+      fields: Array<{
+        label: string;
+        value: string;
+      }>;
     }>;
   }>;
   priceBook: Array<{
@@ -12015,6 +12072,7 @@ export interface ListCustomFieldsOutput {
     options: string[];
     required: boolean;
     sortOrder: number;
+    customerVisible: boolean;
   }>;
 }
 
@@ -12026,10 +12084,12 @@ export interface ListCustomObjectsOutput {
     pluralLabel: string;
     description: string | null;
     titleLabel: string;
-    links: Array<"customer" | "property" | "job" | "equipment">;
+    links: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
     readPermission: string;
     writePermission: string;
     sortOrder: number;
+    recordKind: string | null;
+    customerVisible: boolean;
     fields: Array<{
       id: string;
       entityType: string;
@@ -12039,6 +12099,7 @@ export interface ListCustomObjectsOutput {
       options: string[];
       required: boolean;
       sortOrder: number;
+      customerVisible: boolean;
     }>;
     canRead: boolean;
     canWrite: boolean;
@@ -12067,6 +12128,19 @@ export interface ListCustomRecordsOutput {
     equipment: {
       id: string;
       name: string;
+    } | null;
+    invoice: {
+      id: string;
+      name: string;
+    } | null;
+    membership: {
+      id: string;
+      name: string;
+    } | null;
+    record: {
+      id: string;
+      name: string;
+      type: string | null;
     } | null;
     createdAt: string;
     updatedAt: string;
@@ -14639,9 +14713,12 @@ export interface ListTaskTemplatesOutput {
     assigneeUserId: string | null;
     assigneeName: string | null;
     queue: string | null;
-    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
     weekday: number | null;
     monthDay: number | null;
+    monthWeek: number | null;
+    intervalWeeks: number | null;
+    daysOfWeek: number[] | null;
     dueMinutes: number;
     checklist: string[];
     startsOn: string;
@@ -15268,6 +15345,10 @@ export interface ListWorkflowTemplatesOutput {
       displayName: string;
     }>;
     onForNewCompanies: boolean;
+    pack: {
+      id: string;
+      name: string;
+    } | null;
   }>;
 }
 
@@ -19407,6 +19488,20 @@ export interface SearchAvailableNumbersOutput {
   }>;
 }
 
+export interface SearchEverythingOutput {
+  q: string;
+  groups: Array<{
+    key: string;
+    label: string;
+    hits: Array<{
+      id: string;
+      title: string;
+      detail: string | null;
+      href: string;
+    }>;
+  }>;
+}
+
 export interface SellAgreementInput {
   planId: string;
   customerId: string;
@@ -22195,6 +22290,7 @@ export interface UpdateCustomFieldInput {
   options?: string[];
   required?: boolean;
   sortOrder?: number;
+  customerVisible?: boolean;
 }
 
 export interface UpdateCustomFieldOutput {
@@ -22206,6 +22302,7 @@ export interface UpdateCustomFieldOutput {
   options: string[];
   required: boolean;
   sortOrder: number;
+  customerVisible: boolean;
   rowsWithValue: number;
   rowsMissingValue: number;
 }
@@ -22215,7 +22312,9 @@ export interface UpdateCustomObjectInput {
   pluralLabel?: string;
   description?: string | null;
   titleLabel?: string;
-  links?: Array<"customer" | "property" | "job" | "equipment">;
+  links?: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
+  recordKind?: string | null;
+  customerVisible?: boolean;
   readPermission?: string;
   writePermission?: string;
   sortOrder?: number;
@@ -22228,10 +22327,12 @@ export interface UpdateCustomObjectOutput {
   pluralLabel: string;
   description: string | null;
   titleLabel: string;
-  links: Array<"customer" | "property" | "job" | "equipment">;
+  links: Array<"customer" | "property" | "job" | "equipment" | "invoice" | "membership" | "record">;
   readPermission: string;
   writePermission: string;
   sortOrder: number;
+  recordKind: string | null;
+  customerVisible: boolean;
 }
 
 export interface UpdateCustomRecordInput {
@@ -22241,6 +22342,9 @@ export interface UpdateCustomRecordInput {
   propertyId?: string | null;
   jobId?: string | null;
   equipmentId?: string | null;
+  invoiceId?: string | null;
+  membershipId?: string | null;
+  linkedRecordId?: string | null;
 }
 
 export interface UpdateCustomRecordOutput {
@@ -22264,6 +22368,19 @@ export interface UpdateCustomRecordOutput {
   equipment: {
     id: string;
     name: string;
+  } | null;
+  invoice: {
+    id: string;
+    name: string;
+  } | null;
+  membership: {
+    id: string;
+    name: string;
+  } | null;
+  record: {
+    id: string;
+    name: string;
+    type: string | null;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -23274,9 +23391,12 @@ export interface UpdateTaskTemplateInput {
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
   queue?: string;
-  frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
   weekday?: number | null;
   monthDay?: number | null;
+  monthWeek?: number | null;
+  intervalWeeks?: number | null;
+  daysOfWeek?: number[] | null;
   dueMinutes?: number;
   checklist?: string[];
   startsOn?: string;
@@ -23292,9 +23412,12 @@ export interface UpdateTaskTemplateOutput {
   assigneeUserId: string | null;
   assigneeName: string | null;
   queue: string | null;
-  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
   weekday: number | null;
   monthDay: number | null;
+  monthWeek: number | null;
+  intervalWeeks: number | null;
+  daysOfWeek: number[] | null;
   dueMinutes: number;
   checklist: string[];
   startsOn: string;
@@ -23777,6 +23900,18 @@ export interface ViewPortalAccountOutput {
       technicians: string[];
     };
   };
+  records: Array<{
+    heading: string;
+    type: string;
+    records: Array<{
+      id: string;
+      title: string;
+      fields: Array<{
+        label: string;
+        value: string;
+      }>;
+    }>;
+  }>;
 }
 
 export interface ViewPortalChangeOrderOutput {
@@ -25665,6 +25800,9 @@ export interface ListCustomRecordsInput {
   propertyId?: string;
   jobId?: string;
   equipmentId?: string;
+  invoiceId?: string;
+  membershipId?: string;
+  linkedRecordId?: string;
   cursor?: string;
   limit?: number;
 }
@@ -26901,6 +27039,10 @@ export interface SearchAvailableNumbersInput {
   areaCode?: string;
   locality?: string;
   region?: string;
+}
+
+export interface SearchEverythingInput {
+  q: string;
 }
 
 export interface SendArrivalNoticeParams {
@@ -28322,6 +28464,7 @@ export interface OperationTypes {
   scheduleRentalCollections: { input: ScheduleRentalCollectionsInput; output: ScheduleRentalCollectionsOutput };
   scheduleVisit: { input: ScheduleVisitParams & ScheduleVisitInput; output: ScheduleVisitOutput };
   searchAvailableNumbers: { input: SearchAvailableNumbersInput; output: SearchAvailableNumbersOutput };
+  searchEverything: { input: SearchEverythingInput; output: SearchEverythingOutput };
   sellAgreement: { input: SellAgreementInput; output: SellAgreementOutput };
   sendArrivalNotice: { input: SendArrivalNoticeParams & SendArrivalNoticeInput; output: SendArrivalNoticeOutput };
   sendCampaign: { input: SendCampaignParams & SendCampaignInput; output: SendCampaignOutput };
@@ -28995,7 +29138,7 @@ export const OPERATIONS = {
   listCrewsForJob: { method: "GET", path: "/v1/crews/for-job", pathParams: [], queryParams: ["jobId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listCustomFields: { method: "GET", path: "/v1/custom-fields", pathParams: [], queryParams: ["entityType"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCustomObjects: { method: "GET", path: "/v1/custom-objects", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read"] },
-  listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","fields","customerId","propertyId","jobId","equipmentId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
+  listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","fields","customerId","propertyId","jobId","equipmentId","invoiceId","membershipId","linkedRecordId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
   listCustomerContacts: { method: "GET", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
@@ -29356,6 +29499,7 @@ export const OPERATIONS = {
   scheduleRentalCollections: { method: "POST", path: "/v1/rental-collections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write","job:write"] },
   scheduleVisit: { method: "POST", path: "/v1/jobs/{id}/visits", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   searchAvailableNumbers: { method: "GET", path: "/v1/marketing/available-numbers", pathParams: [], queryParams: ["areaCode","locality","region"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  searchEverything: { method: "GET", path: "/v1/search", pathParams: [], queryParams: ["q"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
   sellAgreement: { method: "POST", path: "/v1/agreements", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   sendArrivalNotice: { method: "POST", path: "/v1/visits/{id}/on-my-way", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendCampaign: { method: "POST", path: "/v1/campaigns/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
@@ -36968,6 +37112,15 @@ export abstract class GeneratedOperations {
    */
   searchAvailableNumbers(input: SearchAvailableNumbersInput = {} as SearchAvailableNumbersInput, options?: CallOptions): Promise<SearchAvailableNumbersOutput> {
     return this.call("searchAvailableNumbers", input, options);
+  }
+
+  /**
+   * Find a customer, a job or one of the company's own records.
+   *
+   * GET /v1/search.
+   */
+  searchEverything(input: SearchEverythingInput, options?: CallOptions): Promise<SearchEverythingOutput> {
+    return this.call("searchEverything", input, options);
   }
 
   /**

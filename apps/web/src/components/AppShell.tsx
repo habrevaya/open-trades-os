@@ -114,6 +114,19 @@ export async function AppShell({
           )}
         </a>
 
+        {/*
+          ONE BOX THAT FINDS THINGS: a customer, a job by its number, one of the
+          company's own records. A plain GET to /search, so it works before
+          any JavaScript has loaded. Collapsed, the rail has no room for a box
+          and the page has one.
+        */}
+        {collapsed ? null : (
+          <form action="/search" role="search" className="px-3 pt-3">
+            <input type="search" name="q" aria-label="Find anything" placeholder="Find anything"
+                   className="h-8 w-full rounded border border-steel-300 bg-canvas px-2 text-sm" />
+          </form>
+        )}
+
         <nav className={`flex-1 overflow-y-auto py-4 ${collapsed ? "px-2" : "px-3"}`}>
           {groups.map((group, index) => (
             <div key={group.label ?? "top"} className="mb-5 last:mb-0">
@@ -229,6 +242,10 @@ export async function AppShell({
             </summary>
 
             <nav className="border-t border-steel-200 px-3 py-3">
+              <form action="/search" role="search" className="mb-4 px-2">
+                <input type="search" name="q" aria-label="Find anything" placeholder="Find anything"
+                       className="h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm" />
+              </form>
               {groups.map((group) => (
                 <div key={group.label ?? "top"} className="mb-4 last:mb-0">
                   {group.label && (

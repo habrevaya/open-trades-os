@@ -7,6 +7,7 @@ import {
 } from "@opentradesos/api/services";
 import { can, claims, rates, tax, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
@@ -445,6 +446,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         canWrite={can(user.actor, "invoice:write")}
         back={`/invoices/${id}`}
       />
+      <RecordsPanel ctx={ctx} link="invoice" id={id} back={`/invoices/${id}`} />
     </div>
   );
 }

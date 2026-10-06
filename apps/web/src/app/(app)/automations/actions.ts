@@ -96,7 +96,10 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
       };
     }
     case "stop_unless":
-      return { check: text("check") };
+      /** The field is kept only for the check that reads one, so a changed check drops it. */
+      return automation.checkNeedsField(text("check"))
+        ? { check: text("check"), field: text("field") }
+        : { check: text("check") };
     case "send_estimate":
     case "send_review_request": {
       /**
@@ -261,9 +264,8 @@ export async function deleteAutomation(_previous: unknown, form: FormData) {
  */
 export async function installRecommended(_previous: FormState, form: FormData): Promise<FormState> {
   const key = field(form, "key") ?? "";
-  const template = automation.templateByKey(key);
   const values: Record<string, string> = {};
-  for (const parameter of template?.parameters ?? []) {
+  for (const parameter of workflows.templateParameters(key)) {
     const value = field(form, `value.${parameter.key}`);
     if (value !== undefined) values[parameter.key] = value;
   }

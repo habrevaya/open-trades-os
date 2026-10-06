@@ -60,6 +60,8 @@ function view(row: TypeRow) {
     readPermission: row.readPermission,
     writePermission: row.writePermission,
     sortOrder: row.sortOrder,
+    recordKind: row.recordKind,
+    customerVisible: row.customerVisible,
   };
 }
 export type KindView = ReturnType<typeof view>;
@@ -156,6 +158,7 @@ export async function defineKind(ctx: ServiceContext, input: rules.TypeInput) {
     const again = await replayed<KindView>(tx, ctx, "custom_object_type");
     if (again) return again;
     const definition = decided(input);
+    await mustExistToPointAt(tx, definition, input.key.trim());
     const [row] = await refusingDuplicate(
       "custom_object_type_key_idx",
       `There is already a kind of record called "${definition.key}". Open that one, or give this one a different key.`,
@@ -203,7 +206,25 @@ export async function updateKind(
       readPermission: input.readPermission ?? before.readPermission,
       writePermission: input.writePermission ?? before.writePermission,
       sortOrder: input.sortOrder ?? before.sortOrder,
+      recordKind: input.recordKind === undefined ? before.recordKind : input.recordKind,
+      customerVisible: input.customerVisible ?? before.customerVisible,
     });
+    if (definition.recordKind !== before.recordKind) await mustExistToPointAt(tx, definition, before.key);
+    /**
+     * Pointing at a different kind is refused while records point at one of
+     * the old kind, for the reason taking a link away is: those records
+     * would point at a truck from a kind whose records are now permits.
+     */
+    if (before.recordKind && definition.recordKind && definition.recordKind !== before.recordKind) {
+      const [row] = await tx.execute<{ n: number }>(sql`
+        select count(*)::int as n from public.custom_object_record t
+        where t.object_type_id = ${before.id} and t.deleted_at is null and t.linked_record_id is not null`);
+      if (Number(row?.n ?? 0) > 0) {
+        throw new ConflictError(
+          `${Number(row?.n)} still point at a ${before.recordKind}. Take those off first, or keep pointing at that kind.`,
+        );
+      }
+    }
 
     const dropped = (before.links as rules.Link[]).filter((link) => !definition.links.includes(link));
     for (const link of dropped) {
@@ -229,6 +250,8 @@ export async function updateKind(
       readPermission: definition.readPermission,
       writePermission: definition.writePermission,
       sortOrder: definition.sortOrder,
+      recordKind: definition.recordKind,
+      customerVisible: definition.customerVisible,
       updatedAt: new Date(),
     }).where(eq(schema.customObjectType.id, before.id)).returning();
     await audit(tx, ctx, "custom_object_type.updated", "custom_object_type", before.id, before, after!);
@@ -263,10 +286,26 @@ export async function removeKind(ctx: ServiceContext, input: { id: string; force
   });
 }
 
+/**
+ * The kind a `record` link names has to be one the company keeps, or one
+ * this definition is defining (a permit can point at an earlier permit).
+ */
+async function mustExistToPointAt(tx: Database, definition: rules.TypeDefinition, ownKey: string) {
+  if (!definition.recordKind || definition.recordKind === ownKey) return;
+  const [found] = await tx.select({ id: schema.customObjectType.id }).from(schema.customObjectType)
+    .where(and(eq(schema.customObjectType.key, definition.recordKind), isNull(schema.customObjectType.deletedAt))).limit(1);
+  if (!found) {
+    throw new UnprocessableError("That kind of record needs changing", [{
+      path: "definition", message: `There is no kind of record called "${definition.recordKind}" to point at. Define that one first.`,
+    }]);
+  }
+}
+
 /* ---------------------------------------------------------------- records */
 
 const LINK_COLUMN: Record<rules.Link, string> = {
   customer: "customer_id", property: "property_id", job: "job_id", equipment: "equipment_id",
+  invoice: "invoice_id", membership: "membership_id", record: "linked_record_id",
 };
 
 export interface Links {
@@ -274,7 +313,16 @@ export interface Links {
   propertyId?: string | null | undefined;
   jobId?: string | null | undefined;
   equipmentId?: string | null | undefined;
+  invoiceId?: string | null | undefined;
+  membershipId?: string | null | undefined;
+  linkedRecordId?: string | null | undefined;
 }
+
+/** Each link and the input key that carries it. */
+const LINK_KEY: [rules.Link, keyof Links][] = [
+  ["customer", "customerId"], ["property", "propertyId"], ["job", "jobId"], ["equipment", "equipmentId"],
+  ["invoice", "invoiceId"], ["membership", "membershipId"], ["record", "linkedRecordId"],
+];
 
 /**
  * The records the caller may see, as a condition on `custom_object_record`.
@@ -290,18 +338,30 @@ function visibility(ctx: ServiceContext): SQL | undefined {
   const jobs = scopeOf(ctx, "job");
   if (customers === "all" && jobs === "all") return undefined;
   const onVisibleJob = jobVisibility(jobs, ctx.actor, sql`${schema.customObjectRecord.jobId}`) ?? sql`false`;
+  /**
+   * A UNIT ON A VISIT THEY MAY SEE. The unit somebody is standing in front
+   * of on their own visit, so the permit or the registration on it is on
+   * their phone. Not every unit at the address, and not the customer's
+   * other units: a callout is not the customer's whole history.
+   */
+  const unitOnVisibleVisit = sql`exists (
+    select 1 from public.visit_asset va join public.visit v on v.id = va.visit_id
+    where va.equipment_id = ${schema.customObjectRecord.equipmentId}
+      and ${jobVisibility(jobs, ctx.actor, sql`v.job_id`) ?? sql`false`})`;
   return or(
     eq(schema.customObjectRecord.createdByUserId, ctx.actor.userId),
     and(
       isNull(schema.customObjectRecord.customerId), isNull(schema.customObjectRecord.propertyId),
       isNull(schema.customObjectRecord.jobId), isNull(schema.customObjectRecord.equipmentId),
+      isNull(schema.customObjectRecord.invoiceId),
     ),
     and(sql`${schema.customObjectRecord.jobId} is not null`, onVisibleJob),
+    and(sql`${schema.customObjectRecord.equipmentId} is not null`, unitOnVisibleVisit),
   );
 }
 
 /** What a record looks like to a screen, an export and an automation: its kind, its name, its values, what it points at. */
-async function shapeRecords(tx: Database, kind: TypeRow, rows: RecordRow[]) {
+async function shapeRecords(tx: Database, ctx: ServiceContext, kind: TypeRow, rows: RecordRow[]) {
   const ids = <K extends keyof RecordRow>(key: K) =>
     [...new Set(rows.map((row) => row[key]).filter((v): v is NonNullable<RecordRow[K]> => Boolean(v)))] as string[];
   const customers = ids("customerId");
@@ -333,6 +393,40 @@ async function shapeRecords(tx: Database, kind: TypeRow, rows: RecordRow[]) {
       names.set(e.id, [e.tag, e.manufacturer, e.model].filter(Boolean).join(" ") || e.category);
     }
   }
+  const invoices = ids("invoiceId");
+  if (invoices.length > 0) {
+    for (const i of await tx.select({ id: schema.invoice.id, number: schema.invoice.number })
+      .from(schema.invoice).where(inArray(schema.invoice.id, invoices))) names.set(i.id, `Invoice ${i.number}`);
+  }
+  const members = ids("membershipId");
+  if (members.length > 0) {
+    const people = new Map([...(await tx.execute<{ user_id: string; name: string | null; email: string }>(
+      sql`select user_id, name, email from app.organization_people()`))].map((p) => [p.user_id, p.name ?? p.email]));
+    for (const m of await tx.select({ id: schema.membership.id, userId: schema.membership.userId })
+      .from(schema.membership).where(inArray(schema.membership.id, members))) {
+      names.set(m.id, people.get(m.userId) ?? "Somebody who has left");
+    }
+  }
+  /**
+   * A linked record is named only when the caller may open it: the kind
+   * readable and the record visible to them. Otherwise it is still there,
+   * unnamed, rather than a link that seems to point at nothing.
+   */
+  const linked = ids("linkedRecordId");
+  const linkedKinds = new Map<string, string>();
+  if (linked.length > 0) {
+    for (const r of await tx.select({
+      id: schema.customObjectRecord.id, title: schema.customObjectRecord.title,
+      kind: schema.customObjectType,
+    }).from(schema.customObjectRecord)
+      .innerJoin(schema.customObjectType, eq(schema.customObjectType.id, schema.customObjectRecord.objectTypeId))
+      .where(and(inArray(schema.customObjectRecord.id, linked), isNull(schema.customObjectRecord.deletedAt),
+        isNull(schema.customObjectType.deletedAt), visibility(ctx)))) {
+      if (!canRead(ctx, r.kind)) continue;
+      names.set(r.id, r.title);
+      linkedKinds.set(r.id, r.kind.key);
+    }
+  }
   const named = (id: string | null) => (id ? { id, name: names.get(id) ?? "" } : null);
   return rows.map((row) => ({
     id: row.id,
@@ -344,6 +438,12 @@ async function shapeRecords(tx: Database, kind: TypeRow, rows: RecordRow[]) {
     property: named(row.propertyId),
     job: named(row.jobId),
     equipment: named(row.equipmentId),
+    invoice: named(row.invoiceId),
+    membership: named(row.membershipId),
+    /** The record of another kind, with that kind's key when the caller may open it. */
+    record: row.linkedRecordId
+      ? { id: row.linkedRecordId, name: names.get(row.linkedRecordId) ?? "", type: linkedKinds.get(row.linkedRecordId) ?? null }
+      : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
@@ -366,6 +466,9 @@ function eventShape(kind: TypeRow, row: RecordRow) {
     propertyId: row.propertyId,
     jobId: row.jobId,
     equipmentId: row.equipmentId,
+    invoiceId: row.invoiceId,
+    membershipId: row.membershipId,
+    linkedRecordId: row.linkedRecordId,
   };
 }
 
@@ -399,12 +502,12 @@ async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wa
     propertyId: previous?.propertyId ?? null,
     jobId: previous?.jobId ?? null,
     equipmentId: previous?.equipmentId ?? null,
+    invoiceId: previous?.invoiceId ?? null,
+    membershipId: previous?.membershipId ?? null,
+    linkedRecordId: previous?.linkedRecordId ?? null,
   };
   const issues: { path: string; message: string }[] = [];
-  const pairs: [rules.Link, keyof Links][] = [
-    ["customer", "customerId"], ["property", "propertyId"], ["job", "jobId"], ["equipment", "equipmentId"],
-  ];
-  for (const [link, key] of pairs) {
+  for (const [link, key] of LINK_KEY) {
     const value = wanted[key];
     if (value === undefined) continue;
     if (value !== null && !offered.includes(link)) {
@@ -425,6 +528,19 @@ async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wa
       if (offered.includes("property") && wanted.propertyId === undefined && job.propertyId) next.propertyId = job.propertyId;
     }
   }
+  /**
+   * AN INVOICE is money, so pointing at one needs `invoice:read`: a record
+   * must not be the way somebody who may not see invoices finds out which
+   * ones exist. It carries its customer, as a job does.
+   */
+  if (next.invoiceId && wanted.invoiceId !== undefined) {
+    const [found] = can(ctx.actor, "invoice:read")
+      ? await tx.select({ id: schema.invoice.id, customerId: schema.invoice.customerId })
+        .from(schema.invoice).where(eq(schema.invoice.id, next.invoiceId)).limit(1)
+      : [];
+    if (!found) issues.push({ path: "invoiceId", message: "That invoice is not one you can see." });
+    else if (offered.includes("customer") && wanted.customerId === undefined && !next.customerId) next.customerId = found.customerId;
+  }
   if (next.customerId && wanted.customerId !== undefined) {
     const [found] = await tx.select({ id: schema.customer.id }).from(schema.customer)
       .where(and(eq(schema.customer.id, next.customerId), isNull(schema.customer.deletedAt))).limit(1);
@@ -440,6 +556,30 @@ async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wa
       .where(and(eq(schema.equipment.id, next.equipmentId), isNull(schema.equipment.deletedAt))).limit(1);
     if (!found) issues.push({ path: "equipmentId", message: "There is no such unit." });
   }
+  if (next.membershipId && wanted.membershipId !== undefined) {
+    const [found] = await tx.select({ id: schema.membership.id }).from(schema.membership)
+      .where(and(eq(schema.membership.id, next.membershipId),
+        eq(schema.membership.organizationId, ctx.actor.organizationId))).limit(1);
+    if (!found) issues.push({ path: "membershipId", message: "That is not somebody in this company." });
+  }
+  /**
+   * ANOTHER RECORD has to be one of the kind this kind names, on file, and
+   * one the caller may open: pointing at a record you cannot see would be a
+   * way to learn that it exists.
+   */
+  if (next.linkedRecordId && wanted.linkedRecordId !== undefined) {
+    const [found] = await tx.select({ id: schema.customObjectRecord.id, kind: schema.customObjectType })
+      .from(schema.customObjectRecord)
+      .innerJoin(schema.customObjectType, eq(schema.customObjectType.id, schema.customObjectRecord.objectTypeId))
+      .where(and(eq(schema.customObjectRecord.id, next.linkedRecordId), isNull(schema.customObjectRecord.deletedAt),
+        isNull(schema.customObjectType.deletedAt), visibility(ctx))).limit(1);
+    if (!found || !canRead(ctx, found.kind) || found.kind.key !== kind.recordKind) {
+      issues.push({
+        path: "linkedRecordId",
+        message: `That is not a ${kind.recordKind ?? "record"} you can see.`,
+      });
+    }
+  }
   return { links: next, issues };
 }
 
@@ -454,6 +594,9 @@ export interface ListRecordsInput {
   propertyId?: string | undefined;
   jobId?: string | undefined;
   equipmentId?: string | undefined;
+  invoiceId?: string | undefined;
+  membershipId?: string | undefined;
+  linkedRecordId?: string | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
 }
@@ -490,12 +633,15 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
         input.propertyId ? eq(schema.customObjectRecord.propertyId, input.propertyId) : undefined,
         input.jobId ? eq(schema.customObjectRecord.jobId, input.jobId) : undefined,
         input.equipmentId ? eq(schema.customObjectRecord.equipmentId, input.equipmentId) : undefined,
+        input.invoiceId ? eq(schema.customObjectRecord.invoiceId, input.invoiceId) : undefined,
+        input.membershipId ? eq(schema.customObjectRecord.membershipId, input.membershipId) : undefined,
+        input.linkedRecordId ? eq(schema.customObjectRecord.linkedRecordId, input.linkedRecordId) : undefined,
         cursor ? lt(schema.customObjectRecord.createdAt, new Date(cursor)) : undefined,
       ))
       .orderBy(desc(schema.customObjectRecord.createdAt))
       .limit(limit + 1);
     const page = paginate(rows, limit, (row) => row.createdAt.toISOString());
-    return { ...page, data: await shapeRecords(tx, kind, page.data) };
+    return { ...page, data: await shapeRecords(tx, ctx, kind, page.data) };
   });
 }
 
@@ -508,13 +654,29 @@ export async function recordsFor(ctx: ServiceContext, input: { link: rules.Link;
   /** Nothing to show rather than a refusal: the panel sits on a page the caller may already read. */
   if (!can(ctx.actor, "record:read")) return [];
   return inTenant(ctx, async (tx) => {
+    /**
+     * For a record of another kind, only the kinds that point at THAT kind:
+     * a truck's page lists its inspections, not every kind with a record
+     * link.
+     */
+    let pointedAtKind: string | null = null;
+    if (input.link === "record") {
+      const [target] = await tx.select({ key: schema.customObjectType.key }).from(schema.customObjectRecord)
+        .innerJoin(schema.customObjectType, eq(schema.customObjectType.id, schema.customObjectRecord.objectTypeId))
+        .where(eq(schema.customObjectRecord.id, input.id)).limit(1);
+      if (!target) return [];
+      pointedAtKind = target.key;
+    }
     const kinds = (await tx.select().from(schema.customObjectType)
       .where(isNull(schema.customObjectType.deletedAt))
       .orderBy(asc(schema.customObjectType.sortOrder), asc(schema.customObjectType.label)))
-      .filter((kind) => (kind.links as string[]).includes(input.link) && canRead(ctx, kind));
+      .filter((kind) => (kind.links as string[]).includes(input.link) && canRead(ctx, kind)
+        && (pointedAtKind === null || kind.recordKind === pointedAtKind));
     const column = {
       customer: schema.customObjectRecord.customerId, property: schema.customObjectRecord.propertyId,
       job: schema.customObjectRecord.jobId, equipment: schema.customObjectRecord.equipmentId,
+      invoice: schema.customObjectRecord.invoiceId, membership: schema.customObjectRecord.membershipId,
+      record: schema.customObjectRecord.linkedRecordId,
     }[input.link];
     const out = [];
     for (const kind of kinds) {
@@ -528,7 +690,7 @@ export async function recordsFor(ctx: ServiceContext, input: { link: rules.Link;
         kind: view(kind),
         canWrite: canWrite(ctx, kind),
         fields: await definitionsWithin(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key)),
-        records: await shapeRecords(tx, kind, rows),
+        records: await shapeRecords(tx, ctx, kind, rows),
       });
     }
     return out;
@@ -548,7 +710,7 @@ export async function getRecord(ctx: ServiceContext, input: { id: string }) {
   return inTenant(ctx, async (tx) => {
     const { row, kind } = await loadRecord(tx, ctx, input.id);
     assertCan(ctx.actor, kind.readPermission as Permission);
-    const [shaped] = await shapeRecords(tx, kind, [row]);
+    const [shaped] = await shapeRecords(tx, ctx, kind, [row]);
     return {
       ...shaped!,
       kind: view(kind),
@@ -591,6 +753,9 @@ async function createWithin(tx: Database, ctx: ServiceContext, kind: TypeRow, in
     propertyId: resolved.links.propertyId,
     jobId: resolved.links.jobId,
     equipmentId: resolved.links.equipmentId,
+    invoiceId: resolved.links.invoiceId,
+    membershipId: resolved.links.membershipId,
+    linkedRecordId: resolved.links.linkedRecordId,
     createdByUserId: ctx.actor.userId,
   }).returning();
   await emit(tx, ctx, {
@@ -608,7 +773,7 @@ export async function createRecord(ctx: ServiceContext, input: RecordInput) {
     const again = await replayed<RecordView>(tx, ctx, "custom_object_record");
     if (again) return again;
     const row = await createWithin(tx, ctx, kind, input);
-    const [shaped] = await shapeRecords(tx, kind, [row]);
+    const [shaped] = await shapeRecords(tx, ctx, kind, [row]);
     await remember(tx, ctx, "custom_object_record", row.id, shaped!);
     return shaped!;
   });
@@ -637,6 +802,9 @@ export async function updateRecord(
     }
     const resolved = await resolveLinks(tx, ctx, kind, input, before);
     issues.push(...resolved.issues);
+    if (resolved.links.linkedRecordId === before.id) {
+      issues.push({ path: "linkedRecordId", message: `A ${kind.label.toLowerCase()} cannot point at itself.` });
+    }
     const values = input.customFields ?? before.customFields;
     try {
       await enforceWithin(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key), values, before.customFields);
@@ -655,6 +823,9 @@ export async function updateRecord(
       propertyId: resolved.links.propertyId,
       jobId: resolved.links.jobId,
       equipmentId: resolved.links.equipmentId,
+      invoiceId: resolved.links.invoiceId,
+      membershipId: resolved.links.membershipId,
+      linkedRecordId: resolved.links.linkedRecordId,
       updatedAt: new Date(),
     }).where(eq(schema.customObjectRecord.id, before.id)).returning();
     await emit(tx, ctx, {
@@ -662,7 +833,7 @@ export async function updateRecord(
       payload: { record: eventShape(kind, after!) }, previous: { record: eventShape(kind, before) },
     });
     await audit(tx, ctx, "custom_object_record.updated", "custom_object_record", before.id, before, after!);
-    const [shaped] = await shapeRecords(tx, kind, [after!]);
+    const [shaped] = await shapeRecords(tx, ctx, kind, [after!]);
     return shaped!;
   });
 }
@@ -701,7 +872,7 @@ export async function exportCsv(ctx: ServiceContext, input: { type: string }) {
     const rows = await tx.select().from(schema.customObjectRecord)
       .where(and(eq(schema.customObjectRecord.objectTypeId, kind.id), isNull(schema.customObjectRecord.deletedAt), visibility(ctx)))
       .orderBy(asc(schema.customObjectRecord.createdAt));
-    const shaped = await shapeRecords(tx, kind, rows);
+    const shaped = await shapeRecords(tx, ctx, kind, rows);
     const links = kind.links as rules.Link[];
     const columns: reporting.CsvColumn[] = [
       { key: "title", label: kind.titleLabel, type: "text" },
@@ -778,9 +949,9 @@ export async function importCsv(ctx: ServiceContext, input: { type: string; csv:
         if (value !== undefined) values[field.key] = value;
       }
       const links: Links = {};
-      for (const link of rules.LINKS) {
+      for (const [link, key] of LINK_KEY) {
         const value = cell(columns.links[link]);
-        if (value) (links as Record<string, string>)[`${link}Id`] = value;
+        if (value) (links as Record<string, string>)[key] = value;
       }
       const number = cell(columns.links.job_number);
       if (number) {
@@ -828,6 +999,159 @@ export async function jobByNumber(ctx: ServiceContext, input: { number: number }
         jobVisibility(scopeOf(ctx, "job"), ctx.actor, sql`${schema.job.id}`))).limit(1);
     return job?.id ?? null;
   });
+}
+
+/**
+ * The company's people a record can point at, by membership, for the form.
+ * Under `user:read`, which is what the people list needs: a record's form
+ * must not be the way somebody who may not see the team reads its names.
+ */
+export async function peopleToLink(ctx: ServiceContext): Promise<{ membershipId: string; name: string }[]> {
+  return guardedRead(ctx, "user:read", async (tx) => {
+    const names = new Map([...(await tx.execute<{ user_id: string; name: string | null; email: string }>(
+      sql`select user_id, name, email from app.organization_people()`))].map((p) => [p.user_id, p.name ?? p.email]));
+    const rows = await tx.select({ id: schema.membership.id, userId: schema.membership.userId })
+      .from(schema.membership)
+      .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), eq(schema.membership.active, true)));
+    return rows.map((r) => ({ membershipId: r.id, name: names.get(r.userId) ?? "Somebody" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+}
+
+/* ------------------------------------------------------------- the field */
+
+export interface FieldRecord {
+  id: string;
+  /** The kind, as one of them is called: "Permit". */
+  kind: string;
+  title: string;
+  fields: { label: string; value: string }[];
+}
+
+/**
+ * THE COMPANY'S OWN RECORDS ON A TECHNICIAN'S VISITS, read only.
+ *
+ * For each visit, the records pointing at its job or at a unit recorded on
+ * the visit, of every kind this person may read, under the same visibility
+ * rule as the records list, so the phone is never the way round it. Every
+ * field holding a value, as text, because a technician reading a permit on
+ * a doorstep needs the permit number and the inspector, not a form.
+ *
+ * Inside the caller's transaction, because the day is one read.
+ */
+export async function forVisits(
+  tx: Database, ctx: ServiceContext, visits: { visitId: string; jobId: string }[],
+): Promise<Map<string, FieldRecord[]>> {
+  const out = new Map<string, FieldRecord[]>(visits.map((v) => [v.visitId, []]));
+  if (visits.length === 0 || !can(ctx.actor, "record:read")) return out;
+  const kinds = (await tx.select().from(schema.customObjectType)
+    .where(isNull(schema.customObjectType.deletedAt))
+    .orderBy(asc(schema.customObjectType.sortOrder), asc(schema.customObjectType.label)))
+    .filter((kind) => canRead(ctx, kind)
+      && ((kind.links as string[]).includes("job") || (kind.links as string[]).includes("equipment")));
+  if (kinds.length === 0) return out;
+
+  const jobIds = [...new Set(visits.map((v) => v.jobId))];
+  const units = await tx.select({ visitId: schema.visitAsset.visitId, equipmentId: schema.visitAsset.equipmentId })
+    .from(schema.visitAsset).where(inArray(schema.visitAsset.visitId, visits.map((v) => v.visitId)));
+  const unitIds = [...new Set(units.map((u) => u.equipmentId))];
+
+  const rows = await tx.select().from(schema.customObjectRecord)
+    .where(and(
+      inArray(schema.customObjectRecord.objectTypeId, kinds.map((k) => k.id)),
+      isNull(schema.customObjectRecord.deletedAt),
+      or(
+        inArray(schema.customObjectRecord.jobId, jobIds),
+        unitIds.length > 0 ? inArray(schema.customObjectRecord.equipmentId, unitIds) : undefined,
+      ),
+      visibility(ctx),
+    ))
+    .orderBy(desc(schema.customObjectRecord.createdAt))
+    .limit(500);
+
+  const definitions = new Map<string, Awaited<ReturnType<typeof definitionsWithin>>>();
+  for (const kind of kinds) {
+    definitions.set(kind.id, await definitionsWithin(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key)));
+  }
+  for (const visit of visits) {
+    const mine = new Set(units.filter((u) => u.visitId === visit.visitId).map((u) => u.equipmentId));
+    out.set(visit.visitId, rows
+      .filter((row) => row.jobId === visit.jobId || (row.equipmentId !== null && mine.has(row.equipmentId)))
+      .map((row) => {
+        const kind = kinds.find((k) => k.id === row.objectTypeId)!;
+        const fields = (definitions.get(kind.id) ?? [])
+          .map((d) => ({ label: d.label, value: rules.cellText(d, row.customFields[d.key]) }))
+          .filter((f) => f.value.trim() !== "");
+        return { id: row.id, kind: kind.label, title: row.title, fields };
+      }));
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------ the portal */
+
+export interface PortalRecords {
+  /** The kind's plural, as the block's heading: "Permits". */
+  heading: string;
+  type: string;
+  records: { id: string; title: string; fields: { label: string; value: string }[] }[];
+}
+
+/**
+ * A CUSTOMER'S OWN RECORDS, AS THEIR PORTAL SHOWS THEM.
+ *
+ * Read inside the grant's tenant, for the customer the grant names and
+ * nobody else. Only kinds the office turned on for customers, only records
+ * about this customer, and of each only its name and the fields marked for
+ * the customer, through core's `portalView`, which reads the definitions and
+ * never the stored values' keys.
+ *
+ * ABOUT THIS CUSTOMER means every customer the record names agrees: its
+ * customer, its job's customer and its invoice's customer, whichever it
+ * carries, are all this one, and it carries at least one. A record that
+ * names this customer and somebody else's job is shown to neither, because
+ * a record that disagrees with itself is a mistake to fix in the office,
+ * not something to guess about on a portal. An address or a unit alone is
+ * not enough: a house changes hands.
+ */
+export async function forPortal(tx: Database, customerId: string): Promise<PortalRecords[]> {
+  const kinds = await tx.select().from(schema.customObjectType)
+    .where(and(isNull(schema.customObjectType.deletedAt), eq(schema.customObjectType.customerVisible, true)))
+    .orderBy(asc(schema.customObjectType.sortOrder), asc(schema.customObjectType.label));
+  const out: PortalRecords[] = [];
+  for (const kind of kinds) {
+    const offered = kind.links as rules.Link[];
+    if (!offered.some((link) => rules.PORTAL_LINKS.includes(link))) continue;
+    const definitions = await definitionsWithin(tx, kind.organizationId, rules.entityTypeFor(kind.key));
+    const rows = await tx.select({
+      id: schema.customObjectRecord.id,
+      title: schema.customObjectRecord.title,
+      customFields: schema.customObjectRecord.customFields,
+    }).from(schema.customObjectRecord)
+      .where(and(
+        eq(schema.customObjectRecord.objectTypeId, kind.id),
+        isNull(schema.customObjectRecord.deletedAt),
+        sql`(${schema.customObjectRecord.customerId} is not null
+          or ${schema.customObjectRecord.jobId} is not null
+          or ${schema.customObjectRecord.invoiceId} is not null)`,
+        sql`(${schema.customObjectRecord.customerId} is null or ${schema.customObjectRecord.customerId} = ${customerId})`,
+        sql`(${schema.customObjectRecord.jobId} is null or exists (
+          select 1 from public.job j where j.id = ${schema.customObjectRecord.jobId}
+            and j.customer_id = ${customerId} and j.deleted_at is null))`,
+        sql`(${schema.customObjectRecord.invoiceId} is null or exists (
+          select 1 from public.invoice i where i.id = ${schema.customObjectRecord.invoiceId}
+            and i.customer_id = ${customerId} and i.status <> 'draft'))`,
+      ))
+      .orderBy(desc(schema.customObjectRecord.createdAt))
+      .limit(100);
+    if (rows.length === 0) continue;
+    out.push({
+      heading: kind.pluralLabel,
+      type: kind.key,
+      records: rows.map((row) => ({ id: row.id, ...rules.portalView(row, definitions) })),
+    });
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------ the routes */

@@ -19,7 +19,7 @@ import { CustomFieldDefinition, FieldFilters } from "./custom-fields";
  */
 
 const Key = z.string().min(1).max(48);
-const Link = z.enum(["customer", "property", "job", "equipment"]);
+const Link = z.enum(["customer", "property", "job", "equipment", "invoice", "membership", "record"]);
 
 const KindView = z.object({
   id: Uuid,
@@ -34,6 +34,10 @@ const KindView = z.object({
   readPermission: z.string(),
   writePermission: z.string(),
   sortOrder: z.number().int(),
+  /** The kind a `record` link points at, by its key. Null unless the kind links to a record. */
+  recordKind: z.string().nullable(),
+  /** Whether a customer sees these records, with the fields marked for them, on their portal. */
+  customerVisible: z.boolean(),
 });
 
 const KindWithFields = KindView.extend({
@@ -47,7 +51,14 @@ const KindInput = {
   pluralLabel: z.string().max(60).optional(),
   description: z.string().max(500).nullable().optional(),
   titleLabel: z.string().max(60).optional(),
-  links: z.array(Link).max(4).optional(),
+  links: z.array(Link).max(7).optional(),
+  /** With a `record` link: the key of the kind it points at. */
+  recordKind: Key.nullable().optional(),
+  /**
+   * Show these records to the customer they are about, on their portal, with only the fields marked
+   * `customerVisible`. Off by default. Only a kind that points at a customer, a job or an invoice can be shown.
+   */
+  customerVisible: z.boolean().optional(),
   /** Any permission from the catalogue. Defaults to the gate itself, `record:read`. */
   readPermission: z.string().max(80).optional(),
   /** Any permission from the catalogue. Defaults to the gate itself, `record:write`. */
@@ -68,6 +79,11 @@ const RecordView = z.object({
   property: Named,
   job: Named,
   equipment: Named,
+  invoice: Named,
+  /** A person in the company, by membership. */
+  membership: Named,
+  /** A record of the kind `recordKind` names. Its name is empty, and `type` null, when the caller may not open it. */
+  record: z.object({ id: Uuid, name: z.string(), type: z.string().nullable() }).nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -78,6 +94,12 @@ const LinkIds = {
   /** A job carries its customer and address onto the record when the kind offers those links. */
   jobId: Uuid.nullable().optional(),
   equipmentId: Uuid.nullable().optional(),
+  /** Needs `invoice:read`. Carries its customer when the kind offers that link. */
+  invoiceId: Uuid.nullable().optional(),
+  /** A person in the company, by their membership id. */
+  membershipId: Uuid.nullable().optional(),
+  /** A record of the kind this kind's `recordKind` names, which the caller may open. */
+  linkedRecordId: Uuid.nullable().optional(),
 };
 
 export const listCustomObjects = defineRoute({
@@ -107,7 +129,7 @@ export const defineCustomObject = defineRoute({
   path: "/v1/custom-objects",
   summary: "Define a kind of record the company keeps",
   description:
-    "Its name, the plural, what each one's name is called, what it may point at and who may see and change one. Add its fields afterwards with `POST /v1/custom-fields` on entity type `object:<key>`. The key cannot be changed later. Every problem with the definition is returned at once.",
+    "Its name, the plural, what each one's name is called, what it may point at (a customer, an address, a job, a unit, an invoice, a person, or a record of the kind `recordKind` names), who may see and change one, and whether the customer is shown them on their portal (`customerVisible`, off unless sent). Add its fields afterwards with `POST /v1/custom-fields` on entity type `object:<key>`. The key cannot be changed later. Every problem with the definition is returned at once.",
   module: "M29",
   permissions: ["customfield:write"],
   idempotent: true,
@@ -149,7 +171,7 @@ export const listCustomRecords = defineRoute({
   path: "/v1/custom-records",
   summary: "One kind's records, searched and filtered",
   description:
-    "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job or unit.",
+    "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job, unit, invoice, person or record.",
   module: "M29",
   permissions: ["record:read"],
   input: z.object({
@@ -162,6 +184,9 @@ export const listCustomRecords = defineRoute({
     propertyId: Uuid.optional(),
     jobId: Uuid.optional(),
     equipmentId: Uuid.optional(),
+    invoiceId: Uuid.optional(),
+    membershipId: Uuid.optional(),
+    linkedRecordId: Uuid.optional(),
     cursor: z.string().optional(),
     limit: z.number().int().min(1).max(200).optional(),
   }),

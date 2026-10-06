@@ -222,6 +222,17 @@ export const viewPortalAccount = defineRoute({
       startedAt: z.string().datetime(), failedAt: z.string().datetime().nullable(), reason: z.string().nullable(),
     })),
     extras: AccountExtras,
+    /**
+     * The company's own records about this customer (a permit, a warranty registration) for each kind the
+     * office turned on for customers, each with its name and only the fields marked for the customer.
+     */
+    records: z.array(z.object({
+      heading: z.string(),
+      type: z.string(),
+      records: z.array(z.object({
+        id: Uuid, title: z.string(), fields: z.array(z.object({ label: z.string(), value: z.string() })),
+      })),
+    })),
   }),
 });
 

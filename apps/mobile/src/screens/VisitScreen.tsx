@@ -106,6 +106,24 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
           </Section>
         ) : null}
 
+        {/*
+          The company's own records on this job or a unit on this visit (the
+          permit, the warranty registration), read only: changed in the
+          office, on their own page.
+        */}
+        {(visit.records ?? []).length > 0 ? (
+          <Section title="Records on this job">
+            {(visit.records ?? []).map((record) => (
+              <View key={record.id} style={{ marginBottom: space.sm }}>
+                <Text style={[type.body, { fontWeight: "600" }]}>{record.kind}: {record.title}</Text>
+                {record.fields.map((f) => (
+                  <Text key={f.label} style={type.body}>{f.label}: {f.value}</Text>
+                ))}
+              </View>
+            ))}
+          </Section>
+        ) : null}
+
         {visit.stage === "upcoming" ? (
           <Section title="Tell the customer you are coming">
             <View style={styles.etaRow}>

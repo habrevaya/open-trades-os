@@ -31,7 +31,7 @@ import {
   safety, retention, holidays, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
-  customObjects, proposalTemplates, sandbox,
+  customObjects, proposalTemplates, sandbox, search,
   me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
 } from "../services/index";
 
@@ -394,6 +394,7 @@ export const handlers = {
   setEquipmentCustomFields: customFields.handlers.setEquipmentCustomFields,
   setTechnicianCustomFields: customFields.handlers.setTechnicianCustomFields,
   ...customObjects.handlers,
+  ...search.handlers,
   ...proposalTemplates.handlers,
   ...sandbox.handlers,
 
