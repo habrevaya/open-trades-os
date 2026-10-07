@@ -1,6 +1,6 @@
 {
-  "id": "256213a8-2f21-436c-b324-dd70e5c0ee3f",
-  "prevId": "b6f5b51b-dacf-4908-8da5-15370f308a98",
+  "id": "48acb15f-6c4b-4384-8c58-7ead1620907c",
+  "prevId": "abbc4d0d-2273-4bdf-93cb-fe726cbdd55a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1050,6 +1050,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "demo_user_id": {
+          "name": "demo_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1133,6 +1139,19 @@
           "tableTo": "organization",
           "columnsFrom": [
             "sandbox_organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "organization_demo_user_id_user_id_fk": {
+          "name": "organization_demo_user_id_user_id_fk",
+          "tableFrom": "organization",
+          "tableTo": "user",
+          "columnsFrom": [
+            "demo_user_id"
           ],
           "columnsTo": [
             "id"
@@ -10332,383 +10351,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.contract_billing_period": {
-      "name": "contract_billing_period",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contract_id": {
-          "name": "contract_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "schedule_id": {
-          "name": "schedule_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period_end": {
-          "name": "period_end",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bill_on": {
-          "name": "bill_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(14, 4)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "prorated": {
-          "name": "prorated",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "days": {
-          "name": "days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "full_days": {
-          "name": "full_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "contract_billing_period_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "invoice_id": {
-          "name": "invoice_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "contract_billing_period_idx": {
-          "name": "contract_billing_period_idx",
-          "columns": [
-            {
-              "expression": "contract_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "period_start",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "contract_billing_period_schedule_idx": {
-          "name": "contract_billing_period_schedule_idx",
-          "columns": [
-            {
-              "expression": "schedule_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "period_start",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "contract_billing_period_organization_id_organization_id_fk": {
-          "name": "contract_billing_period_organization_id_organization_id_fk",
-          "tableFrom": "contract_billing_period",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "contract_billing_period_contract_id_service_contract_id_fk": {
-          "name": "contract_billing_period_contract_id_service_contract_id_fk",
-          "tableFrom": "contract_billing_period",
-          "tableTo": "service_contract",
-          "columnsFrom": [
-            "contract_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "contract_billing_period_schedule_id_contract_billing_schedule_id_fk": {
-          "name": "contract_billing_period_schedule_id_contract_billing_schedule_id_fk",
-          "tableFrom": "contract_billing_period",
-          "tableTo": "contract_billing_schedule",
-          "columnsFrom": [
-            "schedule_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "contract_billing_period_invoice_id_invoice_id_fk": {
-          "name": "contract_billing_period_invoice_id_invoice_id_fk",
-          "tableFrom": "contract_billing_period",
-          "tableTo": "invoice",
-          "columnsFrom": [
-            "invoice_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.contract_billing_schedule": {
-      "name": "contract_billing_schedule",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contract_id": {
-          "name": "contract_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(14, 4)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "frequency": {
-          "name": "frequency",
-          "type": "contract_billing_frequency",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'monthly'"
-        },
-        "billing_day": {
-          "name": "billing_day",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "starts_on": {
-          "name": "starts_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "prorate": {
-          "name": "prorate",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "taxable": {
-          "name": "taxable",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "contract_billing_state",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "paused_on": {
-          "name": "paused_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ended_on": {
-          "name": "ended_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "contract_billing_schedule_contract_idx": {
-          "name": "contract_billing_schedule_contract_idx",
-          "columns": [
-            {
-              "expression": "contract_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "contract_billing_schedule_organization_id_organization_id_fk": {
-          "name": "contract_billing_schedule_organization_id_organization_id_fk",
-          "tableFrom": "contract_billing_schedule",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "contract_billing_schedule_contract_id_service_contract_id_fk": {
-          "name": "contract_billing_schedule_contract_id_service_contract_id_fk",
-          "tableFrom": "contract_billing_schedule",
-          "tableTo": "service_contract",
-          "columnsFrom": [
-            "contract_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -21045,13 +20687,6 @@
         "cancellation_reason": {
           "name": "cancellation_reason",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancellation_code": {
-          "name": "cancellation_code",
-          "type": "agreement_cancellation_code",
-          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
         },
@@ -56255,6 +55890,182 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
+    },
+    "public.integration_secret": {
+      "name": "integration_secret",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sealed_secret": {
+          "name": "sealed_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_id": {
+          "name": "key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secret_last4": {
+          "name": "secret_last4",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "integration_secret_org_name_idx": {
+          "name": "integration_secret_org_name_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "integration_secret_key_idx": {
+          "name": "integration_secret_key_idx",
+          "columns": [
+            {
+              "expression": "key_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "integration_secret_organization_id_organization_id_fk": {
+          "name": "integration_secret_organization_id_organization_id_fk",
+          "tableFrom": "integration_secret",
+          "tableTo": "organization",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.demo_visit": {
+      "name": "demo_visit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ip_hash": {
+          "name": "ip_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "demo_visit_ip_idx": {
+          "name": "demo_visit_ip_idx",
+          "columns": [
+            {
+              "expression": "ip_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -56517,32 +56328,6 @@
         "paid",
         "short_paid",
         "denied"
-      ]
-    },
-    "public.contract_billing_frequency": {
-      "name": "contract_billing_frequency",
-      "schema": "public",
-      "values": [
-        "monthly",
-        "quarterly",
-        "yearly"
-      ]
-    },
-    "public.contract_billing_period_status": {
-      "name": "contract_billing_period_status",
-      "schema": "public",
-      "values": [
-        "invoiced",
-        "skipped"
-      ]
-    },
-    "public.contract_billing_state": {
-      "name": "contract_billing_state",
-      "schema": "public",
-      "values": [
-        "active",
-        "paused",
-        "ended"
       ]
     },
     "public.external_work_order_state": {
@@ -56875,19 +56660,6 @@
         "change_order",
         "invoice",
         "staff_document"
-      ]
-    },
-    "public.agreement_cancellation_code": {
-      "name": "agreement_cancellation_code",
-      "schema": "public",
-      "values": [
-        "moved",
-        "sold",
-        "price",
-        "service",
-        "switched",
-        "not_needed",
-        "other"
       ]
     },
     "public.agreement_status": {

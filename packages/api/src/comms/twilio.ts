@@ -46,9 +46,7 @@ export function twilioSignature(authToken: string, url: string, params: Record<s
 }
 
 function formToObject(body: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of new URLSearchParams(body)) out[key] = value;
-  return out;
+  return Object.fromEntries(new URLSearchParams(body));
 }
 
 function constantTimeEquals(a: string, b: string): boolean {

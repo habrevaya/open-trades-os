@@ -24,6 +24,9 @@ export default async function globalSetup(): Promise<void> {
 
   run(["--filter", "@opentradesos/db", "migrate"]);
   const output = run(["--filter", "@opentradesos/api", "seed"]);
+  // The public demo, as a second company. Idempotent and deletes nothing, so
+  // a rerun finds it in place; demo.spec.ts asserts nothing it does is kept.
+  run(["--filter", "@opentradesos/api", "demo:seed"]);
 
   /**
    * The public routes count their callers per address and per hour (codes to

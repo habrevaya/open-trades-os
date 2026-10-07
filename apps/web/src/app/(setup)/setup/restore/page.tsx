@@ -90,8 +90,8 @@ export default async function RestorePage({ searchParams }: { searchParams: Prom
             <h2 id="from-bucket" className="text-base font-semibold">From a bucket</h2>
             <p className="mt-1 text-sm text-ink-500">
               Where Backups wrote its copies, or anywhere you put a copy too large to upload. Leave Copy empty to see
-              the copies that are there. The secret key is named, not typed: it is kept in this deployment&apos;s
-              secret store.
+              the copies that are there. The secret key is named, not typed: it is kept in this company&apos;s own
+              secrets (Settings, Integrations), and no other company&apos;s or the server&apos;s.
             </p>
             <ActionForm action={fromBucket} submit="Look in the bucket, or check the copy">
               <TextField label="Service address" name="endpoint" required placeholder="https://s3.us-east-1.amazonaws.com" />
@@ -189,7 +189,7 @@ function Report({ run, zone }: { run: restore.RestoreRunView; zone: string }) {
             ) : null}
             {report.secretNames.length > 0 ? (
               <li>
-                This deployment needs these secrets in its store, under the same names:{" "}
+                This company needs these secrets in its own secrets (Settings, Integrations), under the same names:{" "}
                 {report.secretNames.map((name) => <code key={name} className="mr-1 font-mono text-xs">{name}</code>)}
               </li>
             ) : null}

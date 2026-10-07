@@ -15,6 +15,7 @@ import * as telephony from "./telephony";
 import {
   createTranscriptionProvider, TranscriptionNotConfiguredError, type TranscriptionProvider,
 } from "../voice/index";
+import { readerFor } from "../secrets/store";
 
 /**
  * WRITING OUT A CALL'S AUDIO
@@ -61,12 +62,6 @@ export interface TranscriptionDeps {
   provider?: TranscriptionProvider | undefined;
   readSecret?: ReadSecret | undefined;
 }
-
-const envSecret: ReadSecret = async (ref) => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
 
 async function connectionOf(tx: Database, organizationId: string) {
   const [row] = await tx.select().from(schema.integrationConnection)
@@ -117,7 +112,10 @@ async function providerFor(db: Database, organizationId: string, deps: Transcrip
   const ctx: ServiceContext = { actor: transcriberActor(organizationId), db };
   const row = await inTenant(ctx, (tx) => connectionOf(tx, organizationId));
   if (!row) return null;
-  const secret = row.credentialRef ? await (deps.readSecret ?? envSecret)(row.credentialRef) : "";
+  // The company's own secret, never a variable with the bare name.
+  const secret = row.credentialRef
+    ? await (deps.readSecret ?? readerFor(db, organizationId))(row.credentialRef)
+    : "";
   return createTranscriptionProvider(row.provider, (row.settings ?? {}) as Record<string, unknown>, secret);
 }
 

@@ -274,4 +274,16 @@ run("a call placed from the browser", () => {
     expect(no!.recording_refusal).not.toBeNull();
     await raw`update public.phone_number set record_calls = false where id = ${mainId}`;
   });
+
+  it("takes a carrier field named __proto__ or constructor as a field, not as a way into the prototype", async () => {
+    const form: Record<string, string> = Object.fromEntries([
+      ["CallSid", "CAproto1"], ["From", CSR_PHONE], ["To", MAIN],
+      ["__proto__", "polluted"], ["constructor", "polluted"], ["toString", "polluted"],
+    ]);
+    const reply = await webhook("incoming", form);
+    expect(reply.status).toBe(200);
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+    expect(typeof ({} as object).toString).toBe("function");
+  });
 });

@@ -79,8 +79,8 @@ export default async function BackupsPage() {
       <section className="mt-8 max-w-2xl" aria-labelledby="where">
         <h2 id="where" className="text-base font-semibold">{destination ? "Where copies go" : "Set where copies go"}</h2>
         <p className="mt-1 text-sm text-ink-500">
-          The secret key is never typed here. Whoever runs this deployment keeps it in its secret store; you type the
-          name it is kept under, the same way every other connection works.
+          The secret key is never typed here. It is kept in this company&apos;s own secrets (Settings, Integrations);
+          you type the name it is kept under, the same way every other connection works.
         </p>
         <ActionForm action={saveDestination} submit="Save and check the bucket">
           <TextField label="Service address" name="endpoint" required placeholder="https://s3.us-east-1.amazonaws.com"

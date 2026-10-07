@@ -1,5 +1,6 @@
 import { firstNameOf } from "../campaign/index.js";
 import * as m from "../money/index.js";
+import { trimTrailingSlashes } from "../url.js";
 
 /**
  * DIRECT MAIL: A POSTCARD TO THE LIST YOU ALREADY OWN, AND KNOWING WHAT IT DID
@@ -221,7 +222,7 @@ export function codeFrom(bytes: Uint8Array): string | null {
 }
 
 /** The personal address a piece prints: the deployment's own public address and the code. */
-export const mailUrl = (base: string, code: string): string => `${base.replace(/\/+$/, "")}/m/${code}`;
+export const mailUrl = (base: string, code: string): string => `${trimTrailingSlashes(base)}/m/${code}`;
 
 /* -------------------------------------------------------------------- cost */
 

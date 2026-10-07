@@ -6,6 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
   audit, contactOf, type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError, InvalidGrantError,
+  DemoReadOnlyError,
 } from "./context";
 
 /** Re-exported so existing importers of this module keep working. */
@@ -81,7 +82,19 @@ export async function consume(db: Database, token: string, ip?: string): Promise
     sql`select * from app.consume_portal_grant(${hash(token)}, ${ip ?? null})`,
   );
   const row = (rows as unknown as Array<Record<string, unknown>>)[0];
-  if (!row) throw new InvalidGrantError();
+  if (!row) {
+    /**
+     * The demo company's links open and act on nothing: the SQL above
+     * refuses to spend them, so no approval, decline or payment can start.
+     * Asked only after that refusal, so a real customer's link pays nothing
+     * for the question, and answered in words rather than as a dead link.
+     */
+    const [demo] = await db.execute<{ demo: boolean }>(
+      sql`select app.portal_grant_is_demo(${hash(token)}) as demo`,
+    );
+    if (demo?.demo) throw new DemoReadOnlyError();
+    throw new InvalidGrantError();
+  }
   return normalize(row);
 }
 

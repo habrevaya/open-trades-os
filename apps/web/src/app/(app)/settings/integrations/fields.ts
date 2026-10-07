@@ -7,10 +7,14 @@
  *
  * `credential` is the NAME of a secret in the deployment's secret store,
  * never its value, and so is every `...Ref` field: a provider with a second
- * secret (a webhook signing secret) takes a second name. There is no field
- * kind for a secret's value, so this screen cannot accept one, and the
- * service refuses a settings key it does not declare
- * (`connectors.CONNECTOR_SETTINGS` in core) whatever posts it.
+ * secret (a webhook signing secret) takes a second name. No SETTING can hold
+ * a secret's value, and the service refuses a settings key it does not
+ * declare (`connectors.CONNECTOR_SETTINGS` in core) whatever posts it.
+ *
+ * With the database store (a shared deployment) the company pastes the value
+ * instead, into a password box that is never filled back in. It goes to the
+ * secrets service, encrypted, under `connectors.defaultSecretName`, and the
+ * setting holds that name, exactly as it would hold a name typed here.
  */
 export type FieldKind = "text" | "secret_name" | "number" | "select" | "list" | "yesno";
 
@@ -21,11 +25,15 @@ export interface Field {
   placeholder?: string;
   options?: readonly string[];
   hint?: string;
+  /** For a `secret_name` field, what the box asks for when the value is pasted (database store). */
+  secretLabel?: string;
 }
 
 export interface ProviderForm {
   /** Label for the secret-name field, or null when the provider takes none. */
   credential: string | null;
+  /** The same, for pasting the value itself when the deployment stores secrets in its database. */
+  credentialSecret?: string;
   fields: readonly Field[];
   /** Connected through a dedicated service rather than the generic one. */
   via?: "ai" | "call_tracking";
@@ -51,25 +59,28 @@ const SEND_CONVERSIONS: Field = {
 };
 const OAUTH_CLIENT: Field = {
   key: "oauthClientRef", label: "OAuth client, as the name of the secret holding clientId and clientSecret as one JSON value",
-  kind: "secret_name", placeholder: "GOOGLE_OAUTH_CLIENT",
+  kind: "secret_name", secretLabel: "OAuth client: clientId and clientSecret as one JSON value", placeholder: "GOOGLE_OAUTH_CLIENT",
 };
 const OWN_TOKEN = "A refresh token kept in your own secret store, as its name (leave empty and sign in below instead)";
 
 export const FORMS: Record<string, ProviderForm> = {
   stripe: {
     credential: "Restricted secret key, as the name of the secret holding it",
+    credentialSecret: "Restricted secret key",
     fields: [
       { key: "publishableKey", label: "Publishable key", kind: "text", placeholder: "pk_live_…",
         hint: "Sent to the customer's browser to show the card form. Without it the invoice page cannot take a card." },
       { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name",
+        secretLabel: "Webhook signing secret",
         hint: "Without it cards are taken and no payment is ever recorded." },
     ],
   },
   wisetack: {
     credential: "API token, as the name of the secret holding it",
+    credentialSecret: "API token",
     fields: [
       { key: "merchantId", label: "Merchant id", kind: "text", hint: "From your Wisetack merchant account." },
-      { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name",
+      { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name", secretLabel: "Webhook signing secret",
         hint: "Without it no application's status is ever heard, and a funded loan never reaches the invoice." },
       { key: "plans", label: "Plans on your Wisetack agreement, as months@APR, comma separated", kind: "list",
         placeholder: "12@0, 60@17.9",
@@ -82,14 +93,17 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   quickbooks: {
     credential: "Name of the secret holding refreshToken, clientId and clientSecret as one JSON value",
+    credentialSecret: "refreshToken, clientId and clientSecret, as one JSON value",
     fields: [{ key: "realmId", label: "Company id (realm id)", kind: "text" }],
   },
   xero: {
     credential: "Name of the secret holding refreshToken, clientId and clientSecret as one JSON value",
+    credentialSecret: "refreshToken, clientId and clientSecret, as one JSON value",
     fields: [{ key: "tenantId", label: "Organisation id (tenant id)", kind: "text" }],
   },
   twilio: {
     credential: "Auth token, as the name of the secret holding it",
+    credentialSecret: "Auth token",
     fields: [
       { key: "accountSid", label: "Account SID", kind: "text", placeholder: "AC…" },
       { key: "messagingServiceSid", label: "Messaging service SID (optional)", kind: "text", placeholder: "MG…",
@@ -98,6 +112,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   justcall: {
     credential: "Name of the secret holding key:secret",
+    credentialSecret: "API key and secret, as key:secret",
     fields: [
       { key: "webhookUrl", label: "The webhook URL you entered in JustCall", kind: "text",
         hint: "Compared against what each signed webhook claims, so it must match exactly." },
@@ -105,12 +120,13 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   resend: {
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [
       { key: "fromAddress", label: "Send from", kind: "text", placeholder: "office@yourcompany.com" },
       { key: "fromName", label: "Sender name", kind: "text" },
       { key: "verifiedDomains", label: "Domains verified with Resend, comma separated", kind: "list" },
       { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it",
-        kind: "secret_name", placeholder: "RESEND_WEBHOOK_SECRET",
+        kind: "secret_name", placeholder: "RESEND_WEBHOOK_SECRET", secretLabel: "Webhook signing secret",
         hint: "Without it bounces, complaints and replies are never heard." },
       { key: "replyDomain", label: "Domain Resend receives replies on (optional)", kind: "text",
         placeholder: "replies.yourcompany.com",
@@ -118,17 +134,16 @@ export const FORMS: Record<string, ProviderForm> = {
     ],
   },
   whisper: {
-    credential: "API key, as the name of the secret holding it (leave empty for your own server)",
+    credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [
-      { key: "endpoint", label: "Server address, up to /v1 (leave empty for OpenAI)", kind: "text",
-        placeholder: "https://api.openai.com/v1",
-        hint: "A Whisper server you run yourself keeps your customers' calls on your own network." },
       { key: "model", label: "Model (optional)", kind: "text", placeholder: "whisper-1" },
       { key: "language", label: "Language spoken, two letters (optional)", kind: "text", placeholder: "en" },
     ],
   },
   smtp: {
     credential: "Password, as the name of the secret holding it",
+    credentialSecret: "Password",
     fields: [
       { key: "host", label: "Server", kind: "text", placeholder: "smtp.gmail.com" },
       { key: "port", label: "Port", kind: "number", placeholder: "587" },
@@ -142,16 +157,19 @@ export const FORMS: Record<string, ProviderForm> = {
   anthropic: {
     via: "ai",
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [{ key: "defaultModel", label: "Default model (optional)", kind: "text" }],
   },
   openai: {
     via: "ai",
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [{ key: "defaultModel", label: "Default model", kind: "text" }],
   },
   google: {
     via: "ai",
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [{ key: "defaultModel", label: "Default model", kind: "text" }],
   },
   callrail: {
@@ -168,14 +186,12 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "contactEmail", label: "Contact email for the OpenStreetMap volunteers", kind: "text",
         placeholder: "office@yourcompany.com",
         hint: "Sent with every lookup, as the public server's usage policy asks, so they can reach you rather than block you." },
-      { key: "endpoint", label: "Your own Nominatim server (optional)", kind: "text",
-        placeholder: "https://nominatim.openstreetmap.org",
-        hint: "Leave blank for the public server, which is asked one address a second at most." },
       { key: "countryCodes", label: "Countries you work in, comma separated (optional)", kind: "list", placeholder: "us" },
     ],
   },
   mapbox: {
     credential: "Access token, as the name of the secret holding it",
+    credentialSecret: "Access token",
     fields: [
       { key: "countryCodes", label: "Countries you work in, comma separated (optional)", kind: "list", placeholder: "us" },
     ],
@@ -183,14 +199,12 @@ export const FORMS: Record<string, ProviderForm> = {
   osrm: {
     credential: null,
     fields: [
-      { key: "endpoint", label: "Your OSRM server's address", kind: "text",
-        placeholder: "https://osrm.yourcompany.com",
-        hint: "Where your own OSRM server answers. There is no public one to fall back on." },
       { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving" },
     ],
   },
   mapbox_directions: {
     credential: "Access token, as the name of the secret holding it",
+    credentialSecret: "Access token",
     fields: [
       { key: "profile", label: "Profile", kind: "select", options: ["driving", "driving-traffic"],
         hint: "With traffic is ten points a request rather than twenty five, so a big day costs more requests." },
@@ -198,10 +212,8 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   openrouteservice: {
     credential: "API key, as the name of the secret holding it (not needed for your own server)",
+    credentialSecret: "API key",
     fields: [
-      { key: "endpoint", label: "Your own server (optional)", kind: "text",
-        placeholder: "https://api.openrouteservice.org",
-        hint: "Leave blank for the hosted service, which needs a key." },
       { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving-car" },
     ],
   },
@@ -212,13 +224,14 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   google_ads: {
     credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
     signIn: "Google",
     fields: [
       { key: "customerId", label: "Customer id", kind: "text", placeholder: "123-456-7890",
         hint: "The ten digits at the top of the Google Ads screen." },
       { key: "loginCustomerId", label: "Manager account id (optional)", kind: "text",
         hint: "Only when the account is reached through a manager account." },
-      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name",
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name", secretLabel: "Developer token",
         placeholder: "GOOGLE_ADS_DEVELOPER_TOKEN", hint: "An application to Google from a manager account. Until it is approved it works on test accounts only." },
       OAUTH_CLIENT,
       { key: "conversionActionId", label: "Conversion action id for booked jobs", kind: "text",
@@ -229,17 +242,19 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   google_lsa: {
     credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
     signIn: "Google",
     fields: [
       { key: "customerId", label: "Local Services customer id", kind: "text", placeholder: "123-456-7890" },
       { key: "loginCustomerId", label: "Manager account id (optional)", kind: "text" },
-      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name",
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name", secretLabel: "Developer token",
         placeholder: "GOOGLE_ADS_DEVELOPER_TOKEN" },
       OAUTH_CLIENT,
     ],
   },
   meta_ads: {
     credential: "A system user token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "System user token",
     signIn: "Meta",
     fields: [
       { key: "adAccountId", label: "Ad account id", kind: "text", placeholder: "act_1234567890" },
@@ -253,6 +268,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   ga4: {
     credential: "Measurement Protocol API secret, as the name of the secret holding it",
+    credentialSecret: "Measurement Protocol API secret",
     fields: [
       { key: "measurementId", label: "Measurement id of the website's data stream", kind: "text", placeholder: "G-XXXXXXX" },
       { ...PERSONAL_DATA, hint: "Only decides what Google Analytics is told about consent. No email or phone is ever sent to it." },
@@ -272,6 +288,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   facebook_page: {
     credential: "A Page access token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "Page access token",
     signIn: "Meta",
     fields: [
       { key: "pageId", label: "Facebook Page id", kind: "text", hint: "From the Page's About section, or Meta Business Suite's settings." },
@@ -283,11 +300,12 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   bing_ads: {
     credential: "A refresh token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "Refresh token",
     signIn: "Microsoft",
     fields: [
       { key: "customerId", label: "Customer id", kind: "text", hint: "From the top of the Microsoft Advertising screen, or the cid in its address." },
       { key: "accountId", label: "Account id", kind: "text", hint: "The account the campaigns are in: the aid in the address." },
-      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name",
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name", secretLabel: "Developer token",
         placeholder: "MICROSOFT_ADS_DEVELOPER_TOKEN", hint: "From the Microsoft Advertising Developer Portal." },
       { ...OAUTH_CLIENT, label: "App registered in Microsoft Entra, as the name of the secret holding clientId and clientSecret as one JSON value", placeholder: "MICROSOFT_OAUTH_CLIENT" },
       { key: "conversionName", label: "Offline conversion goal for booked jobs", kind: "text",
@@ -297,6 +315,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   meta_lead_ads: {
     credential: "A Page access token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "Page access token",
     signIn: "Meta",
     fields: [
       { key: "pageId", label: "Facebook Page id", kind: "text", hint: "The Page your instant forms run on, from its About section." },
@@ -306,6 +325,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   search_console: {
     credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
     signIn: "Google",
     fields: [
       { key: "siteUrl", label: "Search Console property", kind: "text", placeholder: "sc-domain:yourcompany.com",
@@ -315,6 +335,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   ga4_data: {
     credential: OWN_TOKEN,
+    credentialSecret: "Refresh token",
     signIn: "Google",
     fields: [
       { key: "propertyId", label: "Property id", kind: "text", placeholder: "123456789",
@@ -324,6 +345,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   lob: {
     credential: "Lob secret API key, as the name of the secret holding it",
+    credentialSecret: "Lob secret API key",
     fields: [],
   },
   angi: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address and password are made." },

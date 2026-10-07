@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   can, canAll, permissionsFor, redact, effectiveScope, assertCan, canDefineRole,
   PermissionError, ROLE_PRESETS, ALL_PERMISSIONS, SENSITIVE_PERMISSIONS, SCOPED_RESOURCES, presetDefinition,
-  type Actor,
+  isReadPermission, type Actor,
 } from "../src/access/index.js";
 
 const actor = (roles: Actor["roles"], extra: Partial<Actor> = {}): Actor => ({
@@ -199,5 +199,29 @@ describe("assertCan", () => {
     } catch (e) {
       expect((e as PermissionError).permission).toBe("ledger:post");
     }
+  });
+});
+
+describe("a read only actor (the public demo)", () => {
+  it("the readonly preset is reads and a person's own profile, pay and expenses, and read only keeps only the reads", () => {
+    const preset = ROLE_PRESETS.readonly.permissions;
+    // Every preset carries the self service set; for the demo's shared user
+    // they would be editing a profile, or claiming expenses, every visitor
+    // shares, so they go.
+    expect(preset.filter((p) => !isReadPermission(p)).sort()).toEqual(["expense:own", "payroll:own", "profile:own"]);
+    const demo = permissionsFor(actor(["readonly"], { readOnly: true }));
+    expect([...demo].sort()).toEqual(preset.filter(isReadPermission).sort());
+  });
+
+  it("keeps only reads, whatever its roles and grants say", () => {
+    const demo = actor(["owner"], { grants: ["user:invite"], readOnly: true });
+    const held = [...permissionsFor(demo)];
+    expect(held.length).toBeGreaterThan(0);
+    expect(held.every(isReadPermission)).toBe(true);
+    for (const p of ["user:invite", "settings:write", "invoice:send", "payment:collect", "message:send"] as const) {
+      expect(can(demo, p), p).toBe(false);
+      expect(() => assertCan(demo, p)).toThrow(PermissionError);
+    }
+    expect(can(demo, "customer:read")).toBe(true);
   });
 });

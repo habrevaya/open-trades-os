@@ -1,0 +1,151 @@
+name: Deploy
+
+# develop -> the development site, main -> production, for the hosted
+# deployment of this repository. The database is migrated first and Netlify
+# is asked to build only once that has succeeded, so no deploy ever runs
+# against a schema older than its code. Netlify does not build on git pushes
+# for that site (see `ignore` in apps/web/netlify.toml): this workflow, through
+# each environment's build hook, is the only way a hosted deploy starts.
+#
+# THIS IS A PUBLIC REPOSITORY THAT PEOPLE FORK. Everything below is inert
+# anywhere but habrevaya/open-trades-os, and inert there too until the
+# environment's secrets exist: a fork, a contributor's push or a repository
+# nobody has configured gets a green run that did nothing, never a red one.
+# Self-hosters deploy their own way (deploy/templates/netlify/README.md); this
+# file is not that way and never touches their database.
+#
+# Setup (GitHub environments, secrets, the production reviewer, Netlify):
+# deploy/templates/netlify/README.md, "Hosted release".
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which environment to migrate and deploy (from the head of develop or main respectively)
+        type: choice
+        options: [development, production]
+        required: true
+
+# One release at a time per environment, and never cancelled part way: a
+# migration stopped half way is worse than one that waits its turn. A newer
+# push waiting behind a running release replaces any older one still waiting,
+# which is fine because it contains everything the older one did.
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'development') }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    # Forks and copies of this repository skip the whole workflow here, before
+    # an environment is even named, so nothing waits for a reviewer and no
+    # environment is created in somebody else's repository.
+    if: github.repository == 'habrevaya/open-trades-os'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'development') }}
+    env:
+      BRANCH: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'development')) == 'production' && 'main' || 'develop' }}
+    outputs:
+      configured: ${{ steps.secrets.outputs.configured }}
+      branch: ${{ env.BRANCH }}
+      sha: ${{ steps.head.outputs.sha }}
+    steps:
+      # Job level `if` cannot read secrets, so the check is the first step,
+      # and every later step is conditional on it. Unset is a notice and a
+      # green run, because an unconfigured environment is a choice (nobody has
+      # set up hosting yet), not a failure.
+      - name: Is this environment configured
+        id: secrets
+        env:
+          DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+        run: |
+          if [ -z "$DATABASE_URL_DIRECT" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DATABASE_URL_DIRECT is not set in this GitHub environment; nothing was migrated or deployed."
+            exit 0
+          fi
+          # The transaction pooler hands consecutive statements to whichever
+          # server connection is free, and a migration is many statements on
+          # one session. Refused here rather than discovered half way through.
+          case "$DATABASE_URL_DIRECT" in
+            *:6543/*|*:6543)
+              echo "::error::DATABASE_URL_DIRECT points at port 6543, the transaction pooler. Use the session pooler (port 5432)."
+              exit 1 ;;
+          esac
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      # A push migrates exactly the commit pushed. A manual run migrates the
+      # head of the environment's branch, whatever branch it was started from,
+      # because that is what the build hook will build.
+      - uses: actions/checkout@v5
+        if: steps.secrets.outputs.configured == 'true'
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && env.BRANCH || github.sha }}
+      - id: head
+        if: steps.secrets.outputs.configured == 'true'
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+        if: steps.secrets.outputs.configured == 'true'
+      - uses: actions/setup-node@v5
+        if: steps.secrets.outputs.configured == 'true'
+        with: { node-version: 22, cache: pnpm }
+      - if: steps.secrets.outputs.configured == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # before.sql, the generated table migrations, then after.sql (row level
+      # security on every table, the ledger guards, the coverage assertion).
+      # The migration script reads DATABASE_URL; here that is the session
+      # connection, never the pooler the site itself uses.
+      - name: Migrate
+        if: steps.secrets.outputs.configured == 'true'
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
+
+  deploy:
+    needs: migrate
+    if: needs.migrate.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'development') }}
+    steps:
+      # The hook builds the branch head at the moment Netlify starts, not a
+      # particular commit. If the branch has moved on since this run
+      # migrated, the newer commit may need a migration that has not run yet;
+      # its own run (queued behind this one) migrates and deploys it, so this
+      # one stands down rather than build it early.
+      - name: The branch still points at what was migrated
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ needs.migrate.outputs.branch }}
+          MIGRATED: ${{ needs.migrate.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          head=$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
+          if [ "$head" = "$MIGRATED" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$BRANCH moved from $MIGRATED to $head after this run migrated; the run for $head deploys it."
+          fi
+      - name: Ask Netlify to build
+        if: steps.current.outputs.build == 'true'
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+          SHA: ${{ needs.migrate.outputs.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK" ]; then
+            echo "::notice::NETLIFY_BUILD_HOOK is not set in this GitHub environment; the database is migrated and nothing was deployed."
+            exit 0
+          fi
+          title="deploy ${SHA:0:7} (GitHub run $RUN_NUMBER)"
+          enc=$(jq -rn --arg t "$title" '$t|@uri')
+          curl --fail-with-body -sS -X POST -d '{}' "$NETLIFY_BUILD_HOOK?trigger_title=$enc"
+          echo "Netlify build requested for ${SHA:0:7}."

@@ -108,6 +108,21 @@ export const organization = pgTable("organization", {
   /** Why, in the operator's words. Shown to nobody but the operator. */
   suspendedReason: text("suspended_reason"),
   /**
+   * Set on the one company a deployment offers as its public, read-only demo
+   * (docs/self-hosting/demo.md), naming the user every visitor is signed in
+   * as. Null on every real company.
+   *
+   * It is the whole definition of "demo" in the database, and the things
+   * that depend on it are in SQL so a caller cannot forget them: every
+   * session of that user resolves read only, its portal links approve and
+   * pay nothing, the worker finds no work for it, and its visitors are not
+   * counted as active users. Written by `demo:setup` with the deployment's
+   * own connection, and refused to tenants by the trigger that guards the
+   * operator's columns, because a company that could mark itself a demo
+   * could also unmark the demo.
+   */
+  demoUserId: uuid("demo_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
+  /**
    * A SANDBOX: a practice copy of a company's configuration, set on the copy
    * and naming the company it was copied from.
    *
@@ -344,6 +359,24 @@ export const session = pgTable("session", {
   tokenIdx: uniqueIndex("session_token_idx").on(t.tokenHash),
   userIdx: index("session_user_idx").on(t.userId, t.expiresAt),
 }));
+
+/**
+ * ONE ROW PER DEMO SESSION HANDED OUT, FOR THE RATE LIMIT
+ *
+ * `/demo` creates a session for anybody who asks, so it is limited per
+ * address, and the count has to live somewhere every instance of the app can
+ * see: a serverless host runs dozens and a counter in memory would be one per
+ * instance. Only a hash of the address is kept, and rows older than the
+ * window are deleted by the function that writes them. Read and written only
+ * through `app.create_demo_session`; no organization, and closed to the
+ * application role like `credential`.
+ */
+export const demoVisit = pgTable("demo_visit", {
+  id: pk(),
+  /** SHA-256 of the client address. Never the address itself. */
+  ipHash: text("ip_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ ipIdx: index("demo_visit_ip_idx").on(t.ipHash, t.createdAt) }));
 
 /** Password credentials, separate from the user so SSO users simply have none. */
 export const credential = pgTable("credential", {

@@ -9,6 +9,7 @@ import { writeChecklist } from "./tasks";
 import * as email from "./email";
 import { publicBaseUrl } from "./setup-tokens";
 import { remember, replayed } from "./once";
+import { within } from "./workflow-schedule";
 import { loadHolidays } from "./holidays";
 
 /**
@@ -792,11 +793,11 @@ export async function escalateFor(
  * escalated.
  */
 export async function taskPass(
-  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<TaskPassResult[]> {
-  const rows = await db.execute<{ organization_id: string }>(
+  const rows = within(options.only, await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.task_rule_organizations(${options.limit ?? 200})`,
-  );
+  ));
   const results: TaskPassResult[] = [];
   for (const row of rows) {
     if (options.shouldStop?.()) break;

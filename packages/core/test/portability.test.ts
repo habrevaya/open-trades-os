@@ -33,7 +33,7 @@ describe("the CSV the archive writes", () => {
       ["\"", ",", "\n"],
       ["ünïcödé 🔧", "  spaced  ", null],
     ];
-    const text = `﻿${p.csvHeader(["x", "y", "z"])}${rows.map((row) => p.csvLine(row)).join("")}`;
+    const text = `\uFEFF${p.csvHeader(["x", "y", "z"])}${rows.map((row) => p.csvLine(row)).join("")}`;
     for (const size of [1, 2, 3, 7, 64, 100_000]) {
       const read = readAll(text, size);
       expect(read[0]).toEqual(["x", "y", "z"]);
@@ -42,7 +42,7 @@ describe("the CSV the archive writes", () => {
   });
 
   it("drops the byte order mark from the first column's name", () => {
-    expect(readAll("﻿id,name\r\n\"1\",\"a\"\r\n", 4)[0]).toEqual(["id", "name"]);
+    expect(readAll("\uFEFFid,name\r\n\"1\",\"a\"\r\n", 4)[0]).toEqual(["id", "name"]);
   });
 
   it("takes plain line feeds and a last line with no line break", () => {

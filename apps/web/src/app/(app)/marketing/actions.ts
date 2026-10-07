@@ -202,7 +202,15 @@ export async function createConnector(_previous: FormState, form: FormData): Pro
     });
     const made = await leadConnectors.create(await ctx(), input);
     return {
-      message: `Set up. Give the sender the address ending ${made.webhookPath} and put the secret below in your secret store as ${made.secretRef}.`,
+      /**
+       * Where the secret goes depends on the deployment's store. With the
+       * database store it is already kept, encrypted, as it was minted; with
+       * the environment store it goes in this company's own variable, never
+       * one with the bare name, which the server does not read.
+       */
+      message: made.secretEnvironmentVariable
+        ? `Set up. Give the sender the address ending ${made.webhookPath}, and set the environment variable ${made.secretEnvironmentVariable} on the server to the secret below.`
+        : `Set up. Give the sender the address ending ${made.webhookPath} and the secret below. It is already kept, encrypted, as ${made.secretRef}.`,
       secret: { value: made.secret, caption: "The signing secret. It is shown once: copy it now." },
     };
   });

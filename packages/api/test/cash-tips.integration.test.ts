@@ -10,7 +10,7 @@ import * as portalSettings from "../src/services/portal-settings";
 import * as customers from "../src/services/customers";
 import { routes } from "../src/contracts";
 import type { ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId, testDb } from "./helpers";
+import { seedOrg, fixtureId, testDb, companyToday } from "./helpers";
 
 /**
  * TIPS: THE OFFICE'S HAND IN A CASH TIP, AND HOW A TIP IS SHARED
@@ -61,7 +61,8 @@ let customerId = "";
 let propertyId = "";
 
 const uuid = () => crypto.randomUUID();
-const today = () => new Date().toISOString().slice(0, 10);
+/** The company's day: an evening in Austin is already tomorrow in UTC. */
+const today = () => companyToday();
 
 async function person(userId: string, name: string, role: string, businessUnitId: string | null): Promise<string | null> {
   const email = `${name.split(" ")[0]!.toLowerCase()}@cash-tips.test`;

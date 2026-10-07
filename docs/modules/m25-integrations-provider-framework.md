@@ -64,7 +64,12 @@ oldest connected one wins deterministically.
 
 **A geocoder runs in the background, never in a request.** The `maps`
 capability has two adapters: OpenStreetMap's Nominatim, public or self hosted,
-which needs no key, and Mapbox on its permanent tier by secret name. The worker
+which needs no key, and Mapbox on its permanent tier by secret name, read from
+the company's own secrets like every other credential. A self hosted Nominatim
+is the deployment's `NOMINATIM_URL`, never a setting on a company's connection:
+like every provider's address it is refused on connect and ignored if stored,
+because the server would send the company's addresses, from inside its own
+network, wherever a connection pointed it. The worker
 looks addresses up a few at a time on its own time budget, so a slow geocoder
 never holds up saving a customer and a backfill never holds up a text. Against
 the public OpenStreetMap server it asks one address a second at most, says who

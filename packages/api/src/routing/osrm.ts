@@ -2,6 +2,7 @@ import {
   registerRouter, tableFrom, failureFrom, USER_AGENT, DAY_SECONDS,
   type RouterOptions, type RoutingProvider,
 } from "./provider";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * OSRM: THE ROUTING ENGINE A COMPANY CAN RUN ITSELF
@@ -22,7 +23,12 @@ import {
 
 export function osrmRouter(options: RouterOptions): RoutingProvider {
   const settings = options.settings;
-  const endpoint = typeof settings["endpoint"] === "string" ? settings["endpoint"].trim().replace(/\/+$/, "") : "";
+  /**
+   * The deployment's OSRM server (`OSRM_URL`). A connection's `endpoint`
+   * reaches here only where endpoint overrides are allowed, the test suites.
+   */
+  const configured = typeof settings["endpoint"] === "string" ? settings["endpoint"] : process.env["OSRM_URL"] ?? "";
+  const endpoint = trimTrailingSlashes(configured.trim());
   const profile = typeof settings["profile"] === "string" && /^[a-z_-]+$/.test(settings["profile"]) ? settings["profile"] : "driving";
   const doFetch = options.fetch ?? fetch;
 
@@ -33,7 +39,7 @@ export function osrmRouter(options: RouterOptions): RoutingProvider {
     maxPoints: 100,
     async matrix(request) {
       if (!endpoint) {
-        return { kind: "failed", retryable: false, reason: "No OSRM server address. Enter the address of your OSRM server on the integrations screen." };
+        return { kind: "failed", retryable: false, reason: "No OSRM server address. Whoever runs this installation sets OSRM_URL to the OSRM server's address." };
       }
       const points = [...request.sources, ...request.destinations];
       const coordinates = points.map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(";");

@@ -117,8 +117,9 @@ it would expect it to mean.
 ## Setup
 
 `/settings/integrations` connects Twilio or JustCall for SMS, and Resend or any
-SMTP server for email, by the names of the secrets rather than by pasting
-secrets. The same Twilio connection, with the same credential and the same
+SMTP server for email, by the names of the company's own secrets
+(`OTS_SECRET__<company>__<name>`), or with the database store by pasting each
+one write only, never read back (`docs/self-hosting/secrets.md`). The same Twilio connection, with the same credential and the same
 webhook token, answers calls to tracking numbers bought on `/settings` (M19):
 it forwards, whispers the channel and campaign to whoever answers, routes by
 business hours, takes voicemail, and records only when the caller presses 1 and

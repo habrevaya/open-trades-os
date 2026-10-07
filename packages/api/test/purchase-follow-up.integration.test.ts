@@ -5,7 +5,7 @@ import * as inventory from "../src/services/inventory";
 import * as acks from "../src/services/purchase-acknowledgements";
 import { routes } from "../src/contracts";
 import type { ServiceContext } from "../src/services/context";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
 /**
  * WHAT THE VENDOR SAID BACK, AND WHICH ORDERS NEED A CALL
@@ -39,7 +39,8 @@ const owner = (key?: string) => as(OWNER, ["owner"], key);
 const clerk = (key?: string) => as(CLERK, ["office_manager"], key);
 const reader = () => as(CLERK, ["accountant"]);
 
-const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+/** A day counted from the company's own today, never UTC's. */
+const day = (offset: number) => companyToday(offset);
 
 /** A sent order, sent `daysAgo` days ago. */
 async function sentOrder(daysAgo = 0, quantity = "10") {

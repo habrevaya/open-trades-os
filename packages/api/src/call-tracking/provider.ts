@@ -1,3 +1,5 @@
+import { adapterSettings } from "../secrets/endpoints";
+
 /**
  * THE CALL TRACKING SEAM
  *
@@ -159,7 +161,8 @@ export function createCallTrackingProvider(
 ): CallTrackingProvider {
   const factory = registry.get(name);
   if (!factory) throw new CallTrackingProviderNotConfiguredError(name);
-  return factory(settings, secret);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory(adapterSettings(name, settings), secret);
 }
 
 export const registeredCallTrackingProviders = (): string[] => [...registry.keys()];

@@ -6,6 +6,7 @@ import { ConflictError } from "./context";
  * whatever reaches this file.
  */
 import { createVoiceProvider, voiceCapableProviders, type NumberWebhooks, type VoiceProvider } from "../voice/index";
+import { readerFor } from "../secrets/store";
 
 /**
  * THE COMPANY'S CARRIER ACCOUNT, FOR CALLS
@@ -21,7 +22,14 @@ import { createVoiceProvider, voiceCapableProviders, type NumberWebhooks, type V
 export type ReadSecret = (ref: string) => Promise<string>;
 
 export interface VoiceDeps {
-  readSecret: ReadSecret;
+  /**
+   * For a test. Left out, the carrier's auth token is read from the secrets
+   * of the company the connection belongs to (`readerFor`), never from a
+   * variable named by the connection: a bare name would let anybody holding
+   * `integration:write` name AUTH_SECRET and have it sent to Twilio, or to
+   * wherever a `baseUrl` pointed.
+   */
+  readSecret?: ReadSecret | undefined;
   /** Injected so no test reaches Twilio and no deployment fakes one. */
   provider?: VoiceProvider | undefined;
   /** The deployment's public address, which every webhook URL is built from. */
@@ -37,17 +45,7 @@ export interface VoiceDeps {
 export const relayBaseOf = (deps: VoiceDeps): string | undefined =>
   deps.relayBase ?? (process.env["VOICE_RELAY_URL"] || undefined);
 
-const secretFromEnvironment: ReadSecret = async (ref) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No carrier credential in the environment under "${ref}". The Twilio connection names that secret and nothing is set there.`,
-    );
-  }
-  return value;
-};
-
-export const DEFAULT_DEPS: VoiceDeps = { readSecret: secretFromEnvironment };
+export const DEFAULT_DEPS: VoiceDeps = {};
 
 export function baseOf(deps: VoiceDeps): string {
   const base = deps.publicBase ?? process.env["PUBLIC_URL"];
@@ -104,7 +102,10 @@ export async function carrierFor(tx: Database, organizationId: string, deps: Voi
   const token = typeof settings["webhookToken"] === "string" ? settings["webhookToken"] : "";
   if (token.length < 32) throw new ConflictError("The Twilio connection has no webhook address yet. Reconnect it.");
   const provider = deps.provider
-    ?? createVoiceProvider(row.provider, settings, row.credentialRef ? await deps.readSecret(row.credentialRef) : "");
+    ?? createVoiceProvider(
+      row.provider, settings,
+      row.credentialRef ? await (deps.readSecret ?? readerFor(tx, organizationId))(row.credentialRef) : "",
+    );
   return { connectionId: row.id, token, provider, settings };
 }
 

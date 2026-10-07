@@ -6,6 +6,7 @@ import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, decodeCursor, encodeCursor,
   type ServiceContext,
 } from "./context";
+import { within } from "./workflow-schedule";
 
 /**
  * OUTBOUND WEBHOOKS, WHICH THE SCHEMA HAS PROMISED SINCE THE FIRST MIGRATION
@@ -1018,11 +1019,11 @@ export async function deliver(
  */
 export async function deliverOwed(
   db: Database,
-  options: DeliveryOptions & { skip?: ReadonlySet<string>; shouldStop?: () => boolean } = {},
+  options: DeliveryOptions & { skip?: ReadonlySet<string>; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<DeliveryPass[]> {
-  const rows = await db.execute<{ organization_id: string }>(
+  const rows = within(options.only, await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.webhook_work_organizations(100)`,
-  );
+  ));
   const passes: DeliveryPass[] = [];
   for (const row of rows) {
     if (options.shouldStop?.()) break;

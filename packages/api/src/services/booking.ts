@@ -6,7 +6,7 @@ import type { z } from "zod";
 import {
   audit, type RequestMeta,
   type ServiceContext, guardedRead, guardedWrite, clean,
-  decodeCursor, paginate, NotFoundError, ConflictError, OrganizationSuspendedError,
+  decodeCursor, paginate, NotFoundError, ConflictError, OrganizationSuspendedError, DemoReadOnlyError,
 } from "./context";
 import { emit } from "./events";
 import { nextNumber } from "./jobs";
@@ -53,6 +53,7 @@ async function resolveOrg(db: Database, slug: string) {
     // calendar day is only a pair of instants once you know the zone.
     timezone: schema.organization.timezone,
     suspendedAt: schema.organization.suspendedAt,
+    demoUserId: schema.organization.demoUserId,
   }).from(schema.organization).where(eq(schema.organization.slug, slug)).limit(1);
   if (!org) throw new NotFoundError("Company");
   /**
@@ -62,7 +63,7 @@ async function resolveOrg(db: Database, slug: string) {
    * sign in to read would be a customer waiting for a call that never comes.
    */
   if (org.suspendedAt) throw new OrganizationSuspendedError();
-  return { id: org.id, name: org.name, timezone: org.timezone };
+  return { id: org.id, name: org.name, timezone: org.timezone, demo: org.demoUserId != null };
 }
 
 export async function listServices(db: Database, input: z.infer<typeof listBookableServices.input>) {
@@ -1024,6 +1025,10 @@ export async function createRequest(
   options: { member?: MemberShare | null | undefined } = {},
 ) {
   const org = await resolveOrg(db, input.organizationSlug);
+  // The demo company's booking page shows its services and its free windows,
+  // and books nothing: a request there would be a stranger's name and phone
+  // number in a company every visitor can read.
+  if (org.demo) throw new DemoReadOnlyError();
 
   return db.transaction(async (rawTx) => {
     const tx = rawTx as unknown as Database;

@@ -9,7 +9,7 @@ import {
   failCardPayout, loadNote, lockNote, pendingPayoutsOn, postPayout, reservePayout,
   type PayoutMethod,
 } from "./credit-notes";
-import { processorFor, type PaymentDeps, secretFromEnvironment } from "./payments";
+import { processorFor, type PaymentDeps } from "./payments";
 
 /**
  * CREDIT PAID OUT AS MONEY
@@ -53,7 +53,12 @@ const say = (value: m.Money) => m.edit(m.round(value, 2));
 /** Cents, because processors speak cents. The amount is already whole cents. */
 const toMinor = (amount: m.Money): number => Math.round(Number(m.toString(m.round(amount, 2))) * 100);
 
-const DEFAULT_DEPS: PaymentDeps = { readSecret: secretFromEnvironment };
+/**
+ * Nothing injected: the processor's key is read from the company's own
+ * secrets by `processorFor` (`readerFor`), never from a bare environment
+ * variable a connection names.
+ */
+const DEFAULT_DEPS: PaymentDeps = {};
 
 export interface PayOutInput {
   id: string;

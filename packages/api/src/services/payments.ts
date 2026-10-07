@@ -6,6 +6,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
+import { readerFor } from "../secrets/store";
 import * as creditNotes from "./credit-notes";
 import * as deposits from "./deposits";
 import { assertPeriodOpen } from "./history";
@@ -151,43 +152,25 @@ async function connectionFor(tx: Database, organizationId: string): Promise<Conn
  */
 export type ReadSecret = (ref: string) => Promise<string>;
 
-/**
- * The default, which reads an environment variable named by the reference.
- *
- * The smallest thing that works and keeps the secret out of the database,
- * matching what the worker already does for carrier credentials. A deployment
- * with a real secret store passes its own reader instead; nothing in this
- * file assumes otherwise.
- *
- * It throws rather than returning an empty string. An empty API key reaches
- * Stripe as an unauthenticated request and comes back as a 401, which
- * presents to the operator as "Stripe rejected our key" when the truth is
- * that nobody ever gave us one.
- */
-export const secretFromEnvironment: ReadSecret = async (ref: string) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No payments credential in the environment under "${ref}". The connection points `
-      + "at that name and nothing is set there, so no card can be charged.",
-    );
-  }
-  return value;
-};
-
-const DEFAULT_DEPS: PaymentDeps = { readSecret: secretFromEnvironment };
-
 export interface PaymentDeps {
-  readSecret: ReadSecret;
+  /**
+   * Omitted in production: the deployment's secret store is read for the
+   * connection's own organization (`readerFor`). A test passes its own.
+   */
+  readSecret?: ReadSecret | undefined;
   /** Injected so a test never reaches a processor and a deployment never fakes one. */
   provider?: PaymentProvider | undefined;
 }
 
+const DEFAULT_DEPS: PaymentDeps = {};
+
 async function providerFrom(
-  connection: Connection, deps: PaymentDeps,
+  db: Database, connection: Connection, deps: PaymentDeps,
 ): Promise<PaymentProvider> {
   if (deps.provider) return deps.provider;
-  const key = await deps.readSecret(connection.credentialRef);
+  /** The connection's own organization's store, never a bare environment variable. */
+  const read = deps.readSecret ?? readerFor(db, connection.organizationId);
+  const key = await read(connection.credentialRef);
   return createPaymentProvider(connection.provider, connection.settings, key);
 }
 
@@ -200,7 +183,7 @@ export async function processorFor(
   tx: Database, organizationId: string, deps: PaymentDeps = DEFAULT_DEPS,
 ): Promise<{ connection: Connection; provider: PaymentProvider }> {
   const connection = await connectionFor(tx, organizationId);
-  return { connection, provider: await providerFrom(connection, deps) };
+  return { connection, provider: await providerFrom(tx, connection, deps) };
 }
 
 /* ------------------------------------------------------------- the charge */
@@ -517,7 +500,7 @@ export async function intent(
       },
     }).returning();
 
-    const provider = await providerFrom(connection, deps);
+    const provider = await providerFrom(tx, connection, deps);
     const outcome = await provider.charge({
       amountMinor: minor,
       currency: "usd",
@@ -1485,7 +1468,7 @@ export async function refund(
     }
 
     const connection = await connectionFor(tx, ctx.actor.organizationId);
-    const provider = await providerFrom(connection, deps);
+    const provider = await providerFrom(tx, connection, deps);
 
     const [attempt] = await tx.insert(schema.integrationEvent).values({
       organizationId: ctx.actor.organizationId,

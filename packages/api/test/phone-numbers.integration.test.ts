@@ -48,7 +48,7 @@ const owner = () => as(["owner"]);
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Number Co", slug: "number-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Number Co", slug: "phone-number-co" });
   await raw`insert into public.communication_consent
     (organization_id, address, channel, purpose, state, method, captured_at)
     values (${ORG}, ${THEIRS}, 'sms', 'transactional', 'granted', 'verbal', now())`;

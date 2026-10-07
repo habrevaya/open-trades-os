@@ -28,6 +28,13 @@ import {
  * safe.
  */
 
+/** Strips trailing slashes with a loop: `/\/+$/` is quadratic on a long run of them. */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
 export interface ClientOptions {
   /** The instance's address, such as https://ops.example.com. */
   baseUrl: string;
@@ -106,7 +113,7 @@ export class OpenTradesOS extends GeneratedOperations {
        */
       throw new Error("That is not an OpenTradesOS app token: it should start with ots_ and contain no spaces.");
     }
-    this.base = `${options.baseUrl.replace(/\/+$/, "")}${options.apiPath ?? "/api"}`;
+    this.base = `${trimTrailingSlashes(options.baseUrl)}${options.apiPath ?? "/api"}`;
     this.token = options.token;
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.maxRetries = options.maxRetries ?? 2;

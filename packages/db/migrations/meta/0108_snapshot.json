@@ -1,6 +1,6 @@
 {
-  "id": "9dd9a72e-23f0-4126-980f-7ccfaf5b4eeb",
-  "prevId": "256213a8-2f21-436c-b324-dd70e5c0ee3f",
+  "id": "7f870e06-7bd5-4d7f-9217-c0a9e4bef7fd",
+  "prevId": "48acb15f-6c4b-4384-8c58-7ead1620907c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -195,6 +195,61 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.demo_visit": {
+      "name": "demo_visit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ip_hash": {
+          "name": "ip_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "demo_visit_ip_idx": {
+          "name": "demo_visit_ip_idx",
+          "columns": [
+            {
+              "expression": "ip_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1013,6 +1068,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "demo_user_id": {
+          "name": "demo_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "sandbox_of_organization_id": {
           "name": "sandbox_of_organization_id",
           "type": "uuid",
@@ -1107,6 +1168,19 @@
           "tableTo": "network",
           "columnsFrom": [
             "network_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "organization_demo_user_id_user_id_fk": {
+          "name": "organization_demo_user_id_user_id_fk",
+          "tableFrom": "organization",
+          "tableTo": "user",
+          "columnsFrom": [
+            "demo_user_id"
           ],
           "columnsTo": [
             "id"
@@ -7038,6 +7112,13 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "dropped_skills": {
+          "name": "dropped_skills",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "total": {
           "name": "total",
           "type": "numeric(14, 4)",
@@ -9028,6 +9109,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "schedule_applied_at": {
+          "name": "schedule_applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "schedule_applied_by": {
+          "name": "schedule_applied_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "schedule_applied": {
+          "name": "schedule_applied",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "amount": {
           "name": "amount",
           "type": "numeric(14, 4)",
@@ -9199,6 +9298,19 @@
           "tableTo": "project_phase",
           "columnsFrom": [
             "project_phase_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "project_change_order_schedule_applied_by_user_id_fk": {
+          "name": "project_change_order_schedule_applied_by_user_id_fk",
+          "tableFrom": "project_change_order",
+          "tableTo": "user",
+          "columnsFrom": [
+            "schedule_applied_by"
           ],
           "columnsTo": [
             "id"
@@ -28518,6 +28630,39 @@
           "primaryKey": false,
           "notNull": false
         },
+        "status": {
+          "name": "status",
+          "type": "continuing_education_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'approved'"
+        },
+        "self_logged": {
+          "name": "self_logged",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_user_id": {
+          "name": "decided_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decline_reason": {
+          "name": "decline_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -28614,6 +28759,19 @@
           "tableTo": "user",
           "columnsFrom": [
             "recorded_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "continuing_education_decided_by_user_id_user_id_fk": {
+          "name": "continuing_education_decided_by_user_id_user_id_fk",
+          "tableFrom": "continuing_education",
+          "tableTo": "user",
+          "columnsFrom": [
+            "decided_by_user_id"
           ],
           "columnsTo": [
             "id"
@@ -29802,6 +29960,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "expires_on": {
+          "name": "expires_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "renewal_lead_days": {
+          "name": "renewal_lead_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 30
         },
         "created_at": {
           "name": "created_at",
@@ -31284,6 +31455,127 @@
         "integration_connection_organization_id_organization_id_fk": {
           "name": "integration_connection_organization_id_organization_id_fk",
           "tableFrom": "integration_connection",
+          "tableTo": "organization",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.integration_secret": {
+      "name": "integration_secret",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sealed_secret": {
+          "name": "sealed_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_id": {
+          "name": "key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secret_last4": {
+          "name": "secret_last4",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "integration_secret_org_name_idx": {
+          "name": "integration_secret_org_name_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "integration_secret_key_idx": {
+          "name": "integration_secret_key_idx",
+          "columns": [
+            {
+              "expression": "key_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "integration_secret_organization_id_organization_id_fk": {
+          "name": "integration_secret_organization_id_organization_id_fk",
+          "tableFrom": "integration_secret",
           "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
@@ -44340,6 +44632,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "variant": {
+          "name": "variant",
+          "type": "campaign_variant",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'a'"
+        },
         "state": {
           "name": "state",
           "type": "campaign_recipient_state",
@@ -44774,6 +45074,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "variant_b_body": {
+          "name": "variant_b_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "variant_b_subject": {
+          "name": "variant_b_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "utm_campaign": {
           "name": "utm_campaign",
@@ -46779,6 +47091,14 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'queued'"
+        },
+        "source": {
+          "name": "source",
+          "type": "review_request_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'office'"
         },
         "send_at": {
           "name": "send_at",
@@ -57285,6 +57605,15 @@
         "revoked"
       ]
     },
+    "public.continuing_education_status": {
+      "name": "continuing_education_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "approved",
+        "declined"
+      ]
+    },
     "public.employment_type": {
       "name": "employment_type",
       "schema": "public",
@@ -57737,6 +58066,14 @@
         "cancelled"
       ]
     },
+    "public.campaign_variant": {
+      "name": "campaign_variant",
+      "schema": "public",
+      "values": [
+        "a",
+        "b"
+      ]
+    },
     "public.form_submission_state": {
       "name": "form_submission_state",
       "schema": "public",
@@ -57767,6 +58104,14 @@
         "referrer",
         "declared",
         "none"
+      ]
+    },
+    "public.review_request_source": {
+      "name": "review_request_source",
+      "schema": "public",
+      "values": [
+        "office",
+        "automation"
       ]
     },
     "public.review_request_state": {

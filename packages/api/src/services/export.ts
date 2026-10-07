@@ -38,7 +38,8 @@ import { bytesOf, HELD } from "./files";
  *
  * WHAT IS OUTSIDE THE TENANT ALTOGETHER, and therefore cannot appear here at
  * all: `credential` (password hashes), `session`, `setup_token`,
- * `sign_in_code`, `user`, `organization` and `network`. None carries `organization_id`, so row level
+ * `sign_in_code`, `user`, `organization`, `network` and the demo's rate limit,
+ * `demo_visit`. None carries `organization_id`, so row level
  * security does not scope them and this export cannot reach them. A company's
  * people are in `membership`, which is a tenant table, and the person's email
  * and name come back through it. The password hash does not exist in any shape
@@ -53,6 +54,13 @@ import { bytesOf, HELD } from "./files";
  * the file, so they can reissue rather than discover it when the leads stop.
  */
 export const REDACTED: Record<string, Record<string, string>> = {
+  integration_secret: {
+    sealed_secret:
+      "A company's provider secret, encrypted with a key that never leaves the deployment, so the "
+      + "ciphertext is of no use anywhere else. The name is exported, so a company moving away knows "
+      + "which secrets to go and get from the provider.",
+    secret_last4: "Part of a live credential. The name says which secret it was; the provider says the rest.",
+  },
   app_token: {
     token_hash: "The hash of a live app token. Reissue the token in the new system; a hash is a "
       + "cracking target and is useless to you.",
@@ -162,6 +170,9 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  integration_secret: {
+    key_id: "A fingerprint of which master key sealed the secret, not the key, and useless without it.",
+  },
   customer_tag: {
     tag_key: "A customer's tag lower cased with its spaces tidied, which the tag filter compares by. "
       + "A key in the sense of a lookup, not a credential.",
@@ -417,6 +428,11 @@ const OUTSIDE: { table: string; reason: string }[] = [
   {
     table: "setup_token",
     reason: "First-password links, which expire.",
+  },
+  {
+    table: "demo_visit",
+    reason: "The public demo's rate limit: a hash of each visitor's address, for an hour. "
+      + "It belongs to the deployment and names no company.",
   },
   {
     table: "sign_in_code",

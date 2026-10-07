@@ -9,6 +9,9 @@ import {
 import { createGeocoder, type GeocodingProvider, type Clock } from "../maps/provider";
 // Registers the adapters, so a connection's provider key resolves.
 import "../maps";
+import { within } from "./workflow-schedule";
+import { readerFor } from "../secrets/store";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * PUTTING ADDRESSES ON THE MAP
@@ -45,7 +48,11 @@ type Entity = "property" | "location";
 export type SecretReader = (ref: string) => Promise<string>;
 
 export interface GeocodeDeps {
-  /** Reads a credential by the NAME on the connection. The environment by default. */
+  /**
+   * Reads a credential by the NAME on the connection. For a test; left out,
+   * it is the secrets of the company the connection belongs to (`readerFor`),
+   * never a variable with that bare name.
+   */
   readSecret?: SecretReader;
   /**
    * Builds the provider for a company's connection. Tests pass a fake here,
@@ -57,12 +64,6 @@ export interface GeocodeDeps {
   clock?: Clock;
   now?: () => Date;
 }
-
-const envSecret: SecretReader = async (ref) => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
 
 function systemActor(organizationId: string): Actor {
   return { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: [], agentId: "geocoder" };
@@ -89,6 +90,7 @@ export async function geocodePending(db: Database, options: {
   limit?: number;
   budgetMs?: number;
   shouldStop?: () => boolean;
+  only?: readonly string[];
   deps?: GeocodeDeps;
 } = {}): Promise<GeocodePass> {
   const deps = options.deps ?? {};
@@ -97,9 +99,9 @@ export async function geocodePending(db: Database, options: {
   const budget = options.budgetMs ?? 4_000;
   const outOfTime = () => (options.shouldStop?.() ?? false) || clock.now() - started >= budget;
 
-  const due = await db.execute<{ organization_id: string; entity: Entity; entity_id: string }>(
+  const due = within(options.only, await db.execute<{ organization_id: string; entity: Entity; entity_id: string }>(
     sql`select organization_id, entity, entity_id from app.addresses_to_geocode(${options.limit ?? 25})`,
-  );
+  ));
 
   const pass: GeocodePass = { looked: 0, found: 0, notFound: 0, failed: 0, unusable: [] };
   const providers = new Map<string, GeocodingProvider | null>();
@@ -147,9 +149,9 @@ async function providerOf(ctx: ServiceContext, deps: GeocodeDeps): Promise<Geoco
   });
   if (!connection) throw new Error("No geocoder is connected.");
   const secret = connection.credentialRef
-    ? await (deps.readSecret ?? envSecret)(connection.credentialRef)
+    ? await (deps.readSecret ?? readerFor(ctx.db, ctx.actor.organizationId))(connection.credentialRef)
     : null;
-  const settings = (connection.settings ?? {}) as Record<string, unknown>;
+  const settings = adapterSettings(connection.provider, (connection.settings ?? {}) as Record<string, unknown>);
   return deps.providerFor
     ? deps.providerFor({ provider: connection.provider, settings, secret })
     : createGeocoder(connection.provider, { settings, secret, ...(deps.clock ? { clock: deps.clock } : {}) });

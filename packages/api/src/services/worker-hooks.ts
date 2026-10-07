@@ -3,6 +3,7 @@ import { SYSTEM_USER_ID } from "@opentradesos/core";
 import { flush, providerFor, recoverStuck } from "./comms-outbox";
 import { deliver } from "./webhooks";
 import { inTenant } from "./context";
+import { readerFor } from "../secrets/store";
 import { ProviderNotConfiguredError } from "../comms/provider";
 import * as accounting from "./accounting";
 import * as email from "./email";
@@ -37,24 +38,17 @@ import "../accounting";
 
 export type SecretReader = (ref: string) => Promise<string>;
 
-/**
- * Reading a carrier credential.
- *
- * A deployment stores these wherever it stores secrets: Supabase Vault, a
- * KMS, a file mounted by the orchestrator. The default reads an environment
- * variable named by the connection's `credentialRef`, which is the smallest
- * thing that works and keeps the secret out of the database.
- */
-export const readSecretFromEnv = async (ref: string): Promise<string> => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
-
-async function sendQueued(db: Database, readSecret: SecretReader, organizationId: string): Promise<void> {
+async function sendQueued(
+  db: Database, readSecret: SecretReader | undefined, organizationId: string,
+): Promise<void> {
   const provider = await inTenant(
     { actor: { userId: SYSTEM_USER_ID, organizationId, roles: [] }, db },
-    async (tx) => providerFor(tx, organizationId, readSecret),
+    /**
+     * The carrier credential comes from THIS organization's secrets. The
+     * store adds the organization itself, so a connection's credential name
+     * can never reach the worker's own environment.
+     */
+    async (tx) => providerFor(tx, organizationId, readSecret ?? readerFor(tx, organizationId)),
   ).catch((error: unknown) => {
     // No carrier connected is an ordinary state, not an error. The messages
     // stay queued and go out when one is.
@@ -79,7 +73,7 @@ async function sendQueued(db: Database, readSecret: SecretReader, organizationId
  * Same shape as the texts: no provider connected is an ordinary state and the
  * mail stays queued until one is.
  */
-async function sendQueuedEmail(db: Database, readSecret: SecretReader, organizationId: string): Promise<void> {
+async function sendQueuedEmail(db: Database, readSecret: SecretReader | undefined, organizationId: string): Promise<void> {
   const provider = await email.providerFor(db, organizationId, readSecret).catch((error: unknown) => {
     if (error instanceof EmailProviderNotConfiguredError) return null;
     throw error;
@@ -164,7 +158,7 @@ async function marketingUpkeep(db: Database, organizationId: string): Promise<vo
  * already called for. Nothing is waiting for a company with no speech to
  * text connected, because nothing is queued for one.
  */
-async function transcribeCalls(db: Database, readSecret: SecretReader, organizationId: string): Promise<void> {
+async function transcribeCalls(db: Database, readSecret: SecretReader | undefined, organizationId: string): Promise<void> {
   const pass = await transcription.transcribePending(db, organizationId, { readSecret });
   if (pass.failed > 0) {
     console.warn(`[worker] ${pass.failed} call transcripts failed for ${organizationId}; the reason is on each call.`);
@@ -187,7 +181,8 @@ async function transcribeCalls(db: Database, readSecret: SecretReader, organizat
  */
 export function backgroundHooks(
   db: Database,
-  readSecret: SecretReader = readSecretFromEnv,
+  /** For a test. A deployment leaves it out and each organization's own store is read. */
+  readSecret?: SecretReader,
 ): (organizationId: string) => Promise<void> {
   const steps = [
     { name: "sendQueued", run: (org: string) => sendQueued(db, readSecret, org) },

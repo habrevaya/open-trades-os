@@ -747,36 +747,22 @@
     {
       "idx": 106,
       "version": "7",
-      "when": 1791295771494,
-      "tag": "0106_warm_mandrill",
+      "when": 1791290671108,
+      "tag": "0106_mighty_sprite",
       "breakpoints": true
     },
     {
       "idx": 107,
       "version": "7",
-      "when": 1791323142412,
-      "tag": "0107_spotty_squadron_supreme",
+      "when": 1791290672108,
+      "tag": "0107_lean_wendell_rand",
       "breakpoints": true
     },
     {
       "idx": 108,
       "version": "7",
-      "when": 1791328032061,
-      "tag": "0108_chunky_lockheed",
-      "breakpoints": true
-    },
-    {
-      "idx": 109,
-      "version": "7",
-      "when": 1791328774778,
-      "tag": "0109_robust_penance",
-      "breakpoints": true
-    },
-    {
-      "idx": 110,
-      "version": "7",
-      "when": 1791329287883,
-      "tag": "0110_outgoing_payback",
+      "when": 1791331269716,
+      "tag": "0108_small_argent",
       "breakpoints": true
     }
   ]

@@ -30,6 +30,12 @@ export interface ResolvedSession {
   organizationSlug: string;
   organizationTimezone: string;
   setupCompleted: boolean;
+  /**
+   * The public demo's shared, read only user (docs/self-hosting/demo.md).
+   * Its actor is `readonly` with `readOnly` set, whatever the membership
+   * row says, and the app shows the demo banner.
+   */
+  demo: boolean;
 }
 
 interface SessionRow extends Record<string, unknown> {
@@ -51,6 +57,7 @@ interface SessionRow extends Record<string, unknown> {
   crew_ids: string[] | null;
   custom_role_permissions: string[] | null;
   custom_role_scopes: Record<string, string> | null;
+  demo: boolean | null;
 }
 
 /**
@@ -85,10 +92,30 @@ function cleanScopes(
 type MembershipRow = Pick<SessionRow,
   | "user_id" | "organization_id" | "role" | "grants" | "revocations" | "scope_overrides"
   | "business_unit_id" | "location_id" | "technician_id" | "crew_ids"
-  | "custom_role_permissions" | "custom_role_scopes">;
+  | "custom_role_permissions" | "custom_role_scopes" | "demo">;
 
 export function actorFromMembership(row: MembershipRow): Actor {
   const role = row.role as RoleId;
+
+  /**
+   * THE DEMO'S USER IS READ ONLY, AND NOTHING ON ITS MEMBERSHIP CAN CHANGE
+   * THAT.
+   *
+   * The preset is forced to `readonly` and the grants, the custom role and
+   * the scope overrides are ignored, so an administrator of the demo company
+   * (there should be none) adding a grant to its row widens nothing, and
+   * `readOnly` drops anything but a read and makes every transaction read
+   * only. The flag comes from SQL and is derived from the user, not from the
+   * session, so there is no way to hold a writable session as this user.
+   */
+  if (row.demo) {
+    return {
+      userId: row.user_id,
+      organizationId: row.organization_id,
+      roles: ["readonly"],
+      readOnly: true,
+    };
+  }
 
   /**
    * A custom role REPLACES the preset. The membership's own grants and
@@ -183,7 +210,8 @@ export async function memberActor(
         (select array_agg(cm.crew_id) from public.crew_member cm where cm.technician_id = t.id),
         '{}'::uuid[]
       ) as crew_ids,
-      r.permissions as custom_role_permissions, r.scopes as custom_role_scopes
+      r.permissions as custom_role_permissions, r.scopes as custom_role_scopes,
+      exists (select 1 from public.organization d where d.demo_user_id = m.user_id) as demo
     from public.membership m
     left join public.technician t on t.membership_id = m.id and t.active
     left join public.role r on r.id = m.role_id and r.deleted_at is null
@@ -233,6 +261,7 @@ export async function resolveSession(
     // is at least stable across a hydration, and setup asks for a real one.
     organizationTimezone: row.organization_timezone ?? "America/Chicago",
     setupCompleted: row.setup_completed_at != null,
+    demo: row.demo === true,
   };
 }
 

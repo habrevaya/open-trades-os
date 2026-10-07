@@ -1,14 +1,7 @@
 import { defineConfig, devices, chromium } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
-import { E2E_WISETACK_ENV } from "./e2e/wisetack-env";
-import { E2E_CALLRAIL_ENV } from "./e2e/callrail-env";
-import { E2E_TWILIO_ENV } from "./e2e/twilio-env";
-import { E2E_ADS_ENV } from "./e2e/ads-env";
-import { E2E_AI_ENV } from "./e2e/ai-env";
-import { E2E_VOICE_RELAY_ENV } from "./e2e/voice-relay-env";
-import { E2E_MARKETING_ENV } from "./e2e/marketing-env";
+import { E2E_SERVER_ENV } from "./e2e/stripe-env";
 
 /**
  * THE BROWSER SUITE
@@ -97,25 +90,17 @@ export default defineConfig({
      * Configured the way .env.example says to, and no further. The links a
      * customer is sent are built from PUBLIC_URL, and setting anything more
      * here than a deployment would is how a suite passes against a setup
-     * nobody runs. The two Stripe variables are the ones .env.example names,
-     * holding values that are not keys: the suite points the company's
-     * Stripe connection at a local fake and signs its own webhook with the
-     * second (e2e/stripe.ts). The CallRail pair is the same arrangement for
-     * call tracking (e2e/callrail-env.ts): names the spec points the
-     * connection at, holding values that are not keys. The Twilio token is
-     * the same again for the voice webhooks (e2e/twilio-env.ts). The ad
-     * platforms' sealing key and secret names are the same arrangement again
-     * (e2e/ads-env.ts), for a local fake of Google, and so is the model key
-     * for the AI agents (e2e/ai-env.ts), and for the lender behind customer
-     * financing (e2e/wisetack-env.ts), and for the lead marketplaces and the
-     * mail house (e2e/marketing-env.ts). The voice relay's address is the one
-     * .env.example names for the phone assistant, pointed at a relay the
-     * assistant's spec starts itself (e2e/voice-relay-env.ts).
+     * nobody runs. Every provider secret the specs name (Stripe, CallRail,
+     * Twilio, the ad platforms, the model key, the lender, the lead
+     * marketplaces and the mail house) is under the seeded company's own
+     * prefix, as .env.example says, holding values that are not keys; the
+     * specs point those connections at local fakes, which is what
+     * ALLOW_PROVIDER_BASE_URL allows and the only thing set here that a
+     * deployment never sets. The ad platforms' sealing key and the voice
+     * relay's address are the deployment's own settings and are set as
+     * .env.example names them (e2e/stripe-env.ts).
      */
-    env: {
-      PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV, ...E2E_AI_ENV,
-      ...E2E_WISETACK_ENV, ...E2E_VOICE_RELAY_ENV, ...E2E_MARKETING_ENV,
-    },
+    env: { PUBLIC_URL: BASE, ...E2E_SERVER_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

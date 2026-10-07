@@ -4,7 +4,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, marketing as mk, tracking, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, NotFoundError, ConflictError, OrganizationSuspendedError,
-  type RequestMeta, type ServiceContext,
+  DemoReadOnlyError, type RequestMeta, type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
 import * as consent from "./consent";
@@ -310,12 +310,15 @@ export async function submit(
 ): Promise<SubmitOutcome> {
   const [org] = await db.select({
     id: schema.organization.id, suspendedAt: schema.organization.suspendedAt,
+    demoUserId: schema.organization.demoUserId,
   }).from(schema.organization)
     .where(eq(schema.organization.slug, input.organizationSlug)).limit(1);
   if (!org) throw new NotFoundError("Company");
   // Refused before anything is stored, for the reason booking is: a lead
   // captured for a company nobody can sign in to is a lead nobody calls.
   if (org.suspendedAt) throw new OrganizationSuspendedError();
+  // Nor is one stored for the demo company, which every visitor can read.
+  if (org.demoUserId) throw new DemoReadOnlyError();
 
   await throttle(db, `form:ip:${org.id}:${meta?.ip?.slice(0, 64) || "unknown"}`, LIMITS.formPerAddress);
   await throttle(db, `form:f:${org.id}:${input.formSlug}`, LIMITS.formPerForm);

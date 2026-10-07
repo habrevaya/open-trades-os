@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { campaign as cp, comms, money as m, resolveMembership, tags as tagRules, SYSTEM_USER_ID, type Actor, type Permission, type RoleId } from "@opentradesos/core";
 import * as commsSend from "./comms-send";
@@ -11,6 +11,8 @@ import { refusingDuplicate } from "./duplicates";
 import { render } from "../lib/render";
 import { REVENUE_SQL, revenueByJob } from "./marketing";
 import { senderFor } from "./phone-numbers";
+import { within } from "./workflow-schedule";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * SENDING TO THE LIST THE COMPANY ALREADY OWNS
@@ -1197,7 +1199,7 @@ async function sendCampaignEmail(tx: Database, ctx: ServiceContext, input: {
  * silently does not work.
  */
 function baseUrl(): string {
-  return (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/+$/, "");
+  return trimTrailingSlashes((process.env["PUBLIC_BASE_URL"] ?? ""));
 }
 
 /**
@@ -1313,12 +1315,12 @@ async function authorOf(tx: Database, row: typeof schema.marketingCampaign.$infe
  */
 export async function sendDue(
   db: Database,
-  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<DueResult[]> {
   const now = options.now ?? new Date();
-  const rows = await db.execute<{ organization_id: string; campaign_id: string }>(
+  const rows = within(options.only, await db.execute<{ organization_id: string; campaign_id: string }>(
     sql`select organization_id, campaign_id from app.due_campaigns(${options.limit ?? 50})`,
-  );
+  ));
   const results: DueResult[] = [];
   for (const due of rows) {
     if (options.shouldStop?.()) break;

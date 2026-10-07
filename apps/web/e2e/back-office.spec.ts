@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { test, expect, run, newCustomer } from "./fixtures";
 import { fakeCarrier, flushOutbox } from "./outbox";
+import { E2E_ORGANIZATION_ID } from "./stripe-env";
 
 /**
  * THE BACK OFFICE SCREENS, ONE REAL SUBMIT EACH
@@ -67,8 +68,18 @@ test("Job costing: the report's date range submits and keeps its rows", async ({
 });
 
 test("Payroll: a period is added, closed, and exported as the CSV the bureau imports", async ({ owner }) => {
-  // A Monday nobody else will have used, so a rerun does not overlap the last one.
-  const weeks = Math.floor(Date.now() / 1000) % 2000;
+  /**
+   * A Monday nobody else will have used, so a rerun does not overlap the last
+   * one, and one that is FINISHED, because a period that has not ended yet
+   * cannot be closed: the service refuses to freeze hours still being worked.
+   *
+   * This was `% 2000` weeks after 1 January 1990, which reaches into 2028.
+   * About one run in twenty four (whenever the clock's seconds landed on
+   * this week or later) declared a period not yet over, the close was refused
+   * with exactly that sentence, and the test waited fifteen seconds for a
+   * "Closed" that was never coming. A thousand weeks ends in 2009.
+   */
+  const weeks = Math.floor(Date.now() / 1000) % 1000;
   const start = new Date(Date.UTC(1990, 0, 1) + weeks * 7 * 864e5);
   const label = `E2E ${run}`;
 
@@ -242,6 +253,11 @@ test("Settings, Integrations: Stripe is connected by secret names, a pasted key 
   const connected = owner.getByRole("listitem").filter({ hasText: "Stripe" }).first();
   await expect(connected.getByRole("button", { name: "Disconnect" })).toBeVisible();
   await expect(connected).not.toContainText(pasted);
+  // The name typed is not the variable read: the company's own prefix is
+  // added by the server, and the screen says exactly which variable it is.
+  const prefix = `OTS_SECRET__${E2E_ORGANIZATION_ID.replace(/-/g, "").toUpperCase()}__`;
+  await expect(connected).toContainText(`${prefix}STRIPE_SECRET_KEY`);
+  await expect(connected).toContainText(`${prefix}STRIPE_WEBHOOK_SECRET`);
 
   await connected.getByRole("button", { name: "Disconnect" }).click();
   await expect(connected.getByRole("button", { name: "Connect Stripe" })).toBeVisible();

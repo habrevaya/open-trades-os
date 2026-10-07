@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { ads, isSystem, marketing as mk, money as m } from "@opentradesos/core";
 import {
@@ -52,8 +52,6 @@ const BATCH = 50;
 /** A claim this old belongs to a worker that died mid send. Safe to send again: the platform dedupes on the event id. */
 const STUCK_MS = 10 * 60_000;
 const GOOGLE_CLICKS = new Set(["gclid", "gbraid", "wbraid"]);
-
-type SendRow = typeof schema.adConversionSend.$inferSelect;
 
 const settingsOf = (row: Connection) => (row.settings ?? {}) as Record<string, unknown>;
 

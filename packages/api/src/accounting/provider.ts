@@ -1,3 +1,5 @@
+import { adapterSettings } from "../secrets/endpoints";
+
 /**
  * THE ACCOUNTING PROVIDER SEAM
  *
@@ -603,7 +605,8 @@ export function createProvider(
 ): AccountingProvider {
   const factory = registry.get(name);
   if (!factory) throw new AccountingNotConfiguredError(name);
-  return factory(settings, secret, hooks);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory(adapterSettings(name, settings), secret, hooks);
 }
 
 export const registeredProviders = (): string[] => [...registry.keys()];

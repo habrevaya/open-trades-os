@@ -13,9 +13,14 @@ phone signs its passes with.
 ## What you need first
 
 1. **Twilio connected for texts**, as `docs/self-hosting/messaging.md`
-   describes: the Account SID on the connection, the auth token in your secret
-   store under the name the connection holds, and the webhook token the
-   connection was given. Voice uses all three as they are.
+   describes: the Account SID on the connection, the auth token in your
+   company's own secrets under the name the connection holds, and the webhook
+   token the connection was given. Voice uses all three as they are. With the
+   default store the token is the variable
+   `OTS_SECRET__<company id>__<name>`, which **Settings → Integrations** shows
+   under the connection; with `SECRET_STORE=database` it is pasted there and
+   kept encrypted. A variable with the bare name alone is never read
+   ([secrets.md](secrets.md)).
 2. **`PUBLIC_URL`** set to the address Twilio reaches you on, with its scheme,
    and no trailing path. Every webhook URL a number is pointed at is built
    from it, and Twilio signs each request over the full URL it called, so a
@@ -151,13 +156,18 @@ Twilio's API only on their yes.
 ## Transcripts
 
 Connect speech to text under Settings, Integrations, Call transcripts. It
-speaks the Whisper API: OpenAI's (an API key in your secret store, its name
-on the form) or a Whisper server you run yourself, such as
-faster-whisper-server, LocalAI or the whisper.cpp server (its address on the
-form, no key). The worker sends each kept recording and voicemail to it with
-no database transaction open, and writes the words back through the
-redaction gate. The audio leaves your network only if the server is outside
-it.
+speaks the Whisper API: OpenAI's (an API key in the company's own secrets,
+its name on the form, read the same way as the Twilio token above) or a
+Whisper server you run yourself, such as faster-whisper-server, LocalAI or the
+whisper.cpp server. A server of your own is the deployment's to set, as
+`WHISPER_URL` (up to and including `/v1`), and applies to every company here
+that connects speech to text; with it set the key is optional. A company
+cannot point its connection at an address of its choosing, for the reason in
+[secrets.md](secrets.md#provider-addresses-are-fixed): the server would send
+the key it holds, and every customer's voice, wherever it was told. The
+worker sends each kept recording and voicemail to it with no database
+transaction open, and writes the words back through the redaction gate. The
+audio leaves your network only if the server is outside it.
 
 ## What is kept, and where
 
@@ -171,7 +181,10 @@ at Twilio and never kept.
 
 Recordings are fetched only from Twilio's own API host, with the account's
 credentials. A webhook naming a recording anywhere else is refused rather than
-fetched.
+fetched. Every request goes to `api.twilio.com`: a `baseUrl` on the
+connection is refused when it is saved and ignored if one is found, unless the
+server runs with `ALLOW_PROVIDER_BASE_URL=1`, which only the test suites set
+([secrets.md](secrets.md#provider-addresses-are-fixed)).
 
 ## Releasing a number
 
@@ -187,8 +200,12 @@ at Twilio (released in their console) is released here too.
 - **Calls answer "not in service".** The number is not on file here, or was
   released here. Add it on the settings screen, or release it at Twilio.
 - **"Connect your Twilio account first" when buying.** No connected Twilio
-  messaging connection, or its secret name holds nothing in this deployment's
-  environment.
+  messaging connection.
+- **"No secret named … is set for this company".** The auth token is not
+  where this version reads it. The message names the variable
+  (`OTS_SECRET__<company id>__<name>`); set it and restart, or paste the token
+  on **Settings → Integrations** with the database store. An install upgraded
+  from a version that read `TWILIO_AUTH_TOKEN` alone has to rename it.
 - **A menu option rings nobody.** The person has no number on Settings, Phone
   menus, or the group's members have none; the call screen says which under
   "Where it went", and the call went to voicemail.

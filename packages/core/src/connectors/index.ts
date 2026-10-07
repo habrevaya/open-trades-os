@@ -701,7 +701,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     purpose:
       "Put every customer's address on the dispatch map, and give the route optimiser something to measure, with no account and no key. Addresses are looked up by the background worker, never while somebody is saving a customer.",
     setup:
-      "Nothing to sign up for. Give a contact email so the OpenStreetMap volunteers who run the public server can reach you, as their usage policy asks. With more than a few thousand addresses, run your own Nominatim server and enter its address instead: the public one asks not to be used for bulk work, and this product will only ask it one address a second.",
+      "Nothing to sign up for. Give a contact email so the OpenStreetMap volunteers who run the public server can reach you, as their usage policy asks. With more than a few thousand addresses, run your own Nominatim server and have whoever runs this installation set NOMINATIM_URL to it: the public one asks not to be used for bulk work, and this product will only ask it one address a second. The address is the deployment's to set, not a company's, because the server sends every customer's address to it.",
     limitation:
       "The public server answers one request a second at most, so a backfill of a large customer list takes hours, and its coverage of house numbers is patchy outside cities: many answers land on the street rather than the house, and the map says so. Your customers' addresses are sent to whichever server you point it at. A pin placed by hand on the property page always wins over it.",
   },
@@ -731,7 +731,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     purpose:
       "Drive times by road for the route optimiser, the day rebalance and the arrival time a customer sees on their tracking link, from a routing engine you run yourself on OpenStreetMap roads. Nothing leaves your own servers.",
     setup:
-      "Run OSRM with your state's OpenStreetMap extract (the project publishes a container that does it in three commands) and enter its address here. There is no account and no key. The project's public demo server is not offered: it asks not to be used for real traffic.",
+      "Run OSRM with your state's OpenStreetMap extract (the project publishes a container that does it in three commands) and have whoever runs this installation set OSRM_URL to its address: an address a company typed would be fetched from inside the server's network, with every customer's coordinates. There is no account and no key. The project's public demo server is not offered: it asks not to be used for real traffic.",
     limitation:
       "No live traffic: a time is what the roads allow, not what the motorway is doing at five. Answers are kept thirty days, so a road that opens or closes takes that long to show unless you refresh your extract and reconnect. Without a routing service connected, or when it does not answer, every drive is a straight line estimate and the screens say so.",
   },
@@ -759,7 +759,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     purpose:
       "Drive times by road over OpenStreetMap from Heidelberg's hosted routing service, which has a free tier, or from the same software run on your own server.",
     setup:
-      "For the hosted service, a free key from openrouteservice.org in your secret store with its name entered here. For your own server, enter its address and leave the key empty.",
+      "For the hosted service, a free key from openrouteservice.org in your secret store with its name entered here. For your own server, have whoever runs this installation set OPENROUTESERVICE_URL to it, and leave the key empty.",
     limitation:
       "The hosted free tier has a daily request quota and fifty points a request; a company that outgrows it runs its own. No live traffic. Answers are kept a week. Your customers' locations are sent to whichever server you point it at.",
   },
@@ -775,7 +775,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     purpose:
       "Write out every call recording and voicemail this product keeps, so the call log can be searched for what was said and a voicemail can be read in the van rather than played. Card numbers and security codes read aloud are removed before the words are stored.",
     setup:
-      "Either an API key from your own OpenAI account, put in your secret store with its name entered here, or the address of a Whisper server you run yourself (faster-whisper-server, LocalAI or the whisper.cpp server all speak the same API) and no key at all. Then every recording and voicemail kept from that moment is written out by the background worker within a minute or two.",
+      "Either an API key from your own OpenAI account, put in your secret store with its name entered here, or a Whisper server of your own (faster-whisper-server, LocalAI or the whisper.cpp server all speak the same API), which whoever runs this installation sets as WHISPER_URL, and no key at all. Then every recording and voicemail kept from that moment is written out by the background worker within a minute or two.",
     limitation:
       "The audio is sent to whichever server you point it at, so a company that does not want customers' calls to leave the building runs its own. It does not tell voices apart: a recorded call reads as one stream of words, not as caller and answerer. Only audio this product kept is transcribed, which means only calls the recording check allowed and voicemails; a recording deleted here takes its transcript with it.",
   },

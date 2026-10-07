@@ -6,6 +6,7 @@ import { inTenant, type ServiceContext } from "./context";
 import { createRouter, type RoutingProvider } from "../routing/provider";
 // Registers the adapters, so a connection's provider key resolves.
 import "../routing";
+import { readerFor } from "../secrets/store";
 
 /**
  * DRIVE TIMES BY ROAD, WHEN THE COMPANY HAS A ROAD NETWORK TO ASK
@@ -50,12 +51,6 @@ export interface TravelDeps {
   now?: () => Date;
 }
 
-const envSecret = async (ref: string) => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
-
 /**
  * The company's routing provider, or null. The OLDEST connected one, so which
  * service answers does not change between two optimisations for no visible
@@ -74,7 +69,7 @@ async function routerOf(ctx: ServiceContext, deps: TravelDeps): Promise<{ provid
   });
   if (!connection) return { provider: null, error: null };
   try {
-    const secret = connection.credentialRef ? await (deps.readSecret ?? envSecret)(connection.credentialRef) : null;
+    const secret = connection.credentialRef ? await (deps.readSecret ?? readerFor(ctx.db, ctx.actor.organizationId))(connection.credentialRef) : null;
     return {
       provider: createRouter(connection.provider, { settings: (connection.settings ?? {}) as Record<string, unknown>, secret }),
       error: null,

@@ -8,6 +8,7 @@ import type { InboundMessage, MessagingProvider, WebhookRequest } from "../comms
 import { recordDelivery } from "./comms-outbox";
 import { threadFor } from "./comms-send";
 import { createProvider } from "../comms/provider";
+import { readerFor } from "../secrets/store";
 
 /**
  * WHAT ARRIVES
@@ -355,7 +356,8 @@ export interface WebhookConnection {
 export async function resolveWebhook(
   db: Database,
   token: string,
-  readSecret: (ref: string) => Promise<string>,
+  /** For a test. Left out, the organization the token resolves to has its own store read. */
+  readSecret?: (ref: string) => Promise<string>,
 ): Promise<WebhookConnection | null> {
   const rows = await db.execute<{
     connection_id: string;
@@ -368,7 +370,8 @@ export async function resolveWebhook(
   const row = rows[0];
   if (!row) return null;
 
-  const secret = row.credential_ref ? await readSecret(row.credential_ref) : "";
+  const read = readSecret ?? readerFor(db, row.organization_id);
+  const secret = row.credential_ref ? await read(row.credential_ref) : "";
   return {
     connectionId: row.connection_id,
     organizationId: row.organization_id,

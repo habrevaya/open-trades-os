@@ -55,9 +55,16 @@ export async function list(ctx: ServiceContext): Promise<TagCount[]> {
      * book's counts are a walk of the key index and touch no customer row.
      * A reader with a narrower scope joins the customers, because the scope
      * is a condition on them.
+     *
+     * The spelling shown is the one most of those customers carry, ties
+     * broken by a fixed byte order. It was `min(tag)`, whose answer depends
+     * on the database's collation: "VIP" before "vip" under C, the other way
+     * under en_US, so the same data showed a different tag on a different
+     * server.
      */
     const rows = await tx.execute<{ tag: string; customers: number }>(sql`
-      select min(ct.tag) as tag, count(distinct ct.customer_id)::int as customers
+      select mode() within group (order by btrim(ct.tag) collate "C") as tag,
+             count(distinct ct.customer_id)::int as customers
       from public.customer_tag ct
       ${scope ? sql`join public.customer on ${schema.customer.id} = ct.customer_id and ${scope}` : sql``}
       group by ct.tag_key

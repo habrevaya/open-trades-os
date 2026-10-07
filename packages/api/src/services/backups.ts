@@ -12,7 +12,8 @@ import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { withSnapshot } from "./export";
-import { readSecretFromEnv, type SecretReader } from "./worker-hooks";
+import { type SecretReader } from "./worker-hooks";
+import { readerFor } from "../secrets/store";
 import { restore, type RestoreResult } from "./restore";
 import { remember, replayed } from "./once";
 import { s3Client, S3Error, type S3Client } from "../storage";
@@ -43,10 +44,15 @@ import { writeArchive } from "../portability/archive";
  * another deployment names the same bucket and picks a copy.
  */
 
-/** The deployment's secret reader. Replaceable, for a deployment whose secrets are not environment variables. */
-let readSecret: SecretReader = readSecretFromEnv;
+/**
+ * For a test. Left out, a bucket's secret key is read from the secrets of the
+ * company whose copy it is (`readerFor`), never from a variable with the bare
+ * name the destination holds: a bare name would let an owner name
+ * AUTH_SECRET and have the server sign requests to their bucket with it.
+ */
+let override: SecretReader | null = null;
 export function useSecretReader(reader: SecretReader | null): void {
-  readSecret = reader ?? readSecretFromEnv;
+  override = reader;
 }
 
 export interface Bucket {
@@ -60,13 +66,15 @@ export interface Bucket {
 }
 
 /** The secret behind a name, said in words when it is not there. */
-async function clientFor(bucket: Bucket): Promise<S3Client> {
+async function clientFor(db: Database, organizationId: string, bucket: Bucket): Promise<S3Client> {
   let secret: string;
   try {
-    secret = await readSecret(bucket.secretKeyRef);
-  } catch {
+    secret = await (override ?? readerFor(db, organizationId))(bucket.secretKeyRef);
+  } catch (error) {
+    // The store's own refusal names where it looked (the company's variable, or its stored secrets).
+    if (error instanceof ConflictError) throw error;
     throw new ConflictError(
-      `This deployment has no secret named ${bucket.secretKeyRef}. Whoever runs it adds the bucket's secret key under that name.`,
+      `This company has no secret named ${bucket.secretKeyRef}. Add the bucket's secret key under that name on Settings, Integrations.`,
     );
   }
   return s3Client({
@@ -80,9 +88,9 @@ async function clientFor(bucket: Bucket): Promise<S3Client> {
  * deleted. Done when a destination is saved, so a wrong key shows on the
  * screen that moment rather than as a failed copy at two in the morning.
  */
-async function check(bucket: Bucket): Promise<string | null> {
+async function check(db: Database, organizationId: string, bucket: Bucket): Promise<string | null> {
   try {
-    const client = await clientFor(bucket);
+    const client = await clientFor(db, organizationId, bucket);
     const key = `${normalise(bucket.prefix)}.opentradesos-check-${randomUUID()}`;
     const body = Buffer.from(`Written by OpenTradesOS to check it can keep copies here. Safe to delete.\n`);
     await client.put(key, body, "text/plain");
@@ -186,7 +194,7 @@ export async function saveDestination(ctx: ServiceContext, input: DestinationInp
     prefix: input.prefix, accessKeyId: input.accessKeyId, secretKeyRef: input.secretKeyRef,
     pathStyle: input.pathStyle ?? true,
   };
-  const failure = await check(bucket);
+  const failure = await check(ctx.db, ctx.actor.organizationId, bucket);
   return guardedWrite(ctx, "data:export", async (tx) => {
     const nextRunAt = await nextAt(tx, ctx.actor.organizationId, input, new Date());
     const [before] = await tx.select().from(schema.backupDestination).limit(1);
@@ -279,7 +287,7 @@ export async function runBackup(
 
   let finished: typeof schema.backupRun.$inferSelect | undefined;
   try {
-    const client = await clientFor(dest);
+    const client = await clientFor(db, organizationId, dest);
     const upload = client.upload(objectKey, "application/zip");
     let written: { rows: number; files: number; size: number };
     try {
@@ -423,7 +431,7 @@ export async function copiesIn(ctx: ServiceContext, bucket: Bucket) {
   assertCan(ctx.actor, "data:import");
   const problems = portability.checkDestination({ ...bucket, frequency: "off", hour: 0, weekday: null, keep: 1 });
   if (problems.length > 0) throw new ConflictError(problems.join(" "));
-  const client = await clientFor(bucket);
+  const client = await clientFor(ctx.db, ctx.actor.organizationId, bucket);
   const listed = await client.list(normalise(bucket.prefix));
   return listed
     .filter((object) => object.key.endsWith(".zip"))
@@ -444,7 +452,7 @@ export async function restoreFromBucket(
   ctx: ServiceContext, input: { bucket: Bucket; key: string; dryRun: boolean; keepSending?: boolean | undefined },
 ): Promise<RestoreResult> {
   assertCan(ctx.actor, "data:import");
-  const client = await clientFor(input.bucket);
+  const client = await clientFor(ctx.db, ctx.actor.organizationId, input.bucket);
   const object = await client.stream(input.key);
   if (!object) throw new NotFoundError("Copy");
   const folder = await mkdtemp(join(tmpdir(), "opentradesos-restore-"));

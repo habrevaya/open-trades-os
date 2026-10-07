@@ -87,7 +87,19 @@ fake.on("POST", /^https:\/\/mscampaign\.fake\/OfflineConversions\/Apply$/, (call
   return { status: 200, body: { PartialErrors: errors } };
 });
 
+/**
+ * The fake Microsoft this file stands up has its own address, which a
+ * connection may name only where the deployment allows it
+ * (docs/self-hosting/secrets.md). Only a test may, and this file says so.
+ */
+const allowedBefore = process.env["ALLOW_PROVIDER_BASE_URL"];
+afterAll(() => {
+  if (allowedBefore === undefined) delete process.env["ALLOW_PROVIDER_BASE_URL"];
+  else process.env["ALLOW_PROVIDER_BASE_URL"] = allowedBefore;
+});
+
 beforeAll(async () => {
+  process.env["ALLOW_PROVIDER_BASE_URL"] = "1";
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Ads MS Conversions Co", slug: SLUG });

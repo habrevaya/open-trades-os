@@ -1,4 +1,5 @@
 import type { geo } from "@opentradesos/core";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * THE ROUTING SEAM: HOW LONG THE DRIVE ACTUALLY IS
@@ -68,7 +69,8 @@ export function registerRouter(name: string, factory: (options: RouterOptions) =
 export function createRouter(name: string, options: RouterOptions): RoutingProvider {
   const factory = registry.get(name);
   if (!factory) throw new RouterNotConfiguredError(name);
-  return factory(options);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory({ ...options, settings: adapterSettings(name, options.settings) });
 }
 
 export const registeredRouters = (): string[] => [...registry.keys()];

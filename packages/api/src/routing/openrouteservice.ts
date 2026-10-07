@@ -2,6 +2,7 @@ import {
   registerRouter, tableFrom, failureFrom, USER_AGENT, DAY_SECONDS,
   type RouterOptions, type RoutingProvider,
 } from "./provider";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * OPENROUTESERVICE: OPENSTREETMAP ROADS, HOSTED OR SELF HOSTED
@@ -20,7 +21,11 @@ const API = "https://api.openrouteservice.org";
 
 export function openRouteServiceRouter(options: RouterOptions): RoutingProvider {
   const settings = options.settings;
-  const endpoint = String(settings["endpoint"] ?? settings["baseUrl"] ?? API).trim().replace(/\/+$/, "");
+  // A connection's `endpoint` or `baseUrl` survives only where overrides are
+  // allowed (the test suites); a self hosted server is `OPENROUTESERVICE_URL`.
+  const endpoint = trimTrailingSlashes(String(
+    settings["endpoint"] ?? settings["baseUrl"] ?? (process.env["OPENROUTESERVICE_URL"]?.trim() || API),
+  ).trim());
   const profile = typeof settings["profile"] === "string" && /^[a-z-]+$/.test(settings["profile"]) ? settings["profile"] : "driving-car";
   const isPublic = endpoint === API;
   const doFetch = options.fetch ?? fetch;

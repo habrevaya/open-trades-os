@@ -22,6 +22,7 @@
     "./voice": "./src/voice/index.ts",
     "./voice-relay": "./src/voice/relay-server.ts",
     "./services/calendar": "./src/services/calendar.ts",
+    "./services/demo": "./src/services/demo.ts",
     "./services/call-tracking": "./src/services/call-tracking.ts",
     "./services/passwords": "./src/services/passwords.ts"
   },
@@ -33,7 +34,10 @@
     "move-files": "tsx src/bin/move-files.ts",
     "voice-relay": "tsx src/bin/voice-relay.ts",
     "seed": "tsx src/seed/index.ts",
-    "mcp": "tsx src/bin/mcp-stdio.ts"
+    "demo:seed": "tsx src/seed/index.ts --demo",
+    "demo:setup": "tsx src/bin/demo-setup.ts",
+    "mcp": "tsx src/bin/mcp-stdio.ts",
+    "secrets:rotate": "tsx src/bin/rotate-secrets.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",

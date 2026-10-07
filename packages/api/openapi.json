@@ -109136,6 +109136,351 @@
         "x-permissions": []
       }
     },
+    "/v1/secrets": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listSecrets",
+        "summary": "Which secrets this company has set, never what they are",
+        "description": "Every secret this company's connections name, and every one it has stored, with whether it is set and, with the database store, its last four characters. There is no route that returns a value.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M25"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which secrets this company has set, never what they are",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSecretsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
+    "/v1/secrets/{name}": {
+      "description": "Served at this path: DELETE, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PUT"
+      ],
+      "delete": {
+        "operationId": "deleteSecret",
+        "summary": "Clear a secret",
+        "description": "Requires a session holding: integration:write.",
+        "tags": [
+          "M25"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteSecretInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Clear a secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteSecretOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      },
+      "put": {
+        "operationId": "putSecret",
+        "summary": "Paste a secret, or replace one",
+        "description": "Write only: the value is encrypted and stored, and the answer says it is set and its last four characters. Audited by name, never by value. Refused with the variable to set when the deployment keeps secrets in its environment. Not offered to AI agents, because a value passed to one passes through its model provider.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M25"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSecretInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Paste a secret, or replace one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutSecretOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
     "/v1/service-report-templates": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -146260,6 +146605,12 @@
           "secretRef": {
             "type": "string"
           },
+          "secretEnvironmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -146307,6 +146658,7 @@
           "active",
           "webhookPath",
           "secretRef",
+          "secretEnvironmentVariable",
           "fieldMap",
           "autoAcceptEnabled",
           "autoAcceptRules",
@@ -155606,6 +155958,28 @@
         "required": [
           "id",
           "deleted"
+        ]
+      },
+      "DeleteSecretInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteSecretOutput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "removed"
         ]
       },
       "DeleteWebhookEndpointInput": {
@@ -192271,6 +192645,45 @@
                     "string",
                     "null"
                   ]
+                },
+                "secrets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "set": {
+                        "type": "boolean"
+                      },
+                      "last4": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "updatedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "environmentVariable": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "set",
+                      "last4",
+                      "updatedAt",
+                      "environmentVariable"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -192288,7 +192701,8 @@
                 "lastError",
                 "webhookPath",
                 "credentialRef",
-                "notice"
+                "notice",
+                "secrets"
               ]
             }
           }
@@ -198964,6 +199378,12 @@
                 "secretRef": {
                   "type": "string"
                 },
+                "secretEnvironmentVariable": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "fieldMap": {
                   "type": "object",
                   "additionalProperties": {
@@ -199002,6 +199422,7 @@
                 "active",
                 "webhookPath",
                 "secretRef",
+                "secretEnvironmentVariable",
                 "fieldMap",
                 "autoAcceptEnabled",
                 "autoAcceptRules",
@@ -206667,6 +207088,61 @@
         },
         "required": [
           "revisions"
+        ]
+      },
+      "ListSecretsOutput": {
+        "type": "object",
+        "properties": {
+          "store": {
+            "type": "string",
+            "enum": [
+              "environment",
+              "database"
+            ]
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "set": {
+                  "type": "boolean"
+                },
+                "last4": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "environmentVariable": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "set",
+                "last4",
+                "updatedAt",
+                "environmentVariable"
+              ]
+            }
+          }
+        },
+        "required": [
+          "store",
+          "secrets"
         ]
       },
       "ListServiceReportTemplatesOutput": {
@@ -218798,6 +219274,55 @@
           "check"
         ]
       },
+      "PutSecretInput": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "PutSecretOutput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "set": {
+            "type": "boolean"
+          },
+          "last4": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "set",
+          "last4",
+          "updatedAt",
+          "environmentVariable"
+        ]
+      },
       "QueueEmailInput": {
         "type": "object",
         "properties": {
@@ -230342,6 +230867,12 @@
           "secretRef": {
             "type": "string"
           },
+          "secretEnvironmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -230383,6 +230914,7 @@
           "active",
           "webhookPath",
           "secretRef",
+          "secretEnvironmentVariable",
           "fieldMap",
           "autoAcceptEnabled",
           "autoAcceptRules",
@@ -247877,6 +248409,12 @@
           "secretRef": {
             "type": "string"
           },
+          "secretEnvironmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -247915,6 +248453,7 @@
           "active",
           "webhookPath",
           "secretRef",
+          "secretEnvironmentVariable",
           "fieldMap",
           "autoAcceptEnabled",
           "autoAcceptRules",

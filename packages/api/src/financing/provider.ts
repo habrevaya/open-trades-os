@@ -1,4 +1,5 @@
 import type { financing } from "@opentradesos/core";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * THE FINANCING SEAM
@@ -134,7 +135,8 @@ export function createFinancingProvider(
 ): FinancingProvider {
   const factory = registry.get(name);
   if (!factory) throw new FinancingNotConfiguredError(name);
-  return factory(settings, secret);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory(adapterSettings(name, settings), secret);
 }
 
 export const registeredFinancingProviders = (): string[] => [...registry.keys()];

@@ -3,6 +3,7 @@ import {
   registerGeocoder, pace, realClock, failureFrom, USER_AGENT,
   type GeocoderOptions, type GeocodingProvider,
 } from "./provider";
+import { trimTrailingSlashes } from "@opentradesos/core";
 
 /**
  * MAPBOX: THE COMMERCIAL ADAPTER, ON THE PERMANENT TIER
@@ -58,7 +59,7 @@ export function precisionOf(feature: Feature): Exclude<geo.GeocodePrecision, "pl
 
 export function mapboxGeocoder(options: GeocoderOptions): GeocodingProvider {
   const settings = options.settings;
-  const base = String(settings["baseUrl"] ?? API).replace(/\/+$/, "");
+  const base = trimTrailingSlashes(String(settings["baseUrl"] ?? API));
   const countryCodes = Array.isArray(settings["countryCodes"])
     ? (settings["countryCodes"] as string[]).map((c) => c.trim().toLowerCase()).filter(Boolean)
     : [];

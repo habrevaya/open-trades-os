@@ -73,7 +73,7 @@ afterAll(async () => { if (raw) await raw.end(); });
 
 beforeEach(async () => {
   if (!url) return;
-  await seedOrg(raw, { organizationId: ORG, userId: OWNER, name: "Reach Co", slug: "reach-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: OWNER, name: "Reach Co", slug: "record-reach-co" });
   await raw`update public.organization set timezone = ${ZONE} where id = ${ORG}`;
   await raw`delete from public."user" where id = ${TECH}`;
   await raw`insert into public."user" (id, email, name) values (${TECH}, 'tech@reach-co.test', 'Tia Tech')`;
