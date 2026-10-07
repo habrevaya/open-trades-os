@@ -25,6 +25,14 @@
  *    seventy five minutes are, and is not counted twice.
  *  - The day ends at the yard, so a full can on board at the end is tipped.
  *
+ * EACH TRUCK IS ITS OWN KIND. A hook lift that carries two small cans and
+ * a roll off truck that carries one big one are not the same truck, and a
+ * company's one figure is only the default for a truck nobody has given a
+ * kind. `truckFigures` says which figures a plan runs on and where they
+ * came from; a stop whose container is a size the truck does not carry is
+ * not served by it, and is left out of the truck's arithmetic and named on
+ * the proposal rather than driven as if the truck could lift it.
+ *
  * The search is `optimise`'s own (nearest neighbour in time, then 2-opt and
  * or-opt, windows first and driving second, deterministic), walking each
  * candidate order through this arithmetic instead of the plain one. Still a
@@ -39,6 +47,12 @@ export type TruckWork = "drop" | "pickup" | "swap" | "dump_return" | "none";
 
 export interface TruckStop extends PlanStop {
   work: TruckWork;
+  /**
+   * The container's size in cubic yards, when the stop is about a particular
+   * can and its size is known. Null or left out when it is not: a drop booked
+   * before a can is chosen has no size, and is not refused for it.
+   */
+  size?: number | null | undefined;
 }
 
 export interface TruckLoad {
@@ -57,6 +71,11 @@ export interface TruckPlan extends DayPlan {
   /** Minutes at the yard to tip what is full and load what is needed. */
   yardMinutes: number;
   /**
+   * The sizes, in cubic yards, this truck can lift. Empty or left out means
+   * it is not limited to any, which is also what a truck with no kind is.
+   */
+  sizes?: readonly number[] | undefined;
+  /**
    * What is on the truck as the plan starts. Null when the day starts at
    * the yard, where it is loaded for the stops that follow.
    */
@@ -73,6 +92,74 @@ export interface YardRun {
   /** Empties loaded, or left at the yard when negative. */
   loaded: number;
   arriveAt: number;
+}
+
+/**
+ * What a truck carries and how long the yard takes it, and where those
+ * figures came from.
+ */
+export interface TruckFigures {
+  containers: number;
+  yardMinutes: number;
+  /** Cubic yards. Empty means any size. */
+  sizes: readonly number[];
+  /** The truck's own kind, or the company's figures for a truck with none. */
+  source: "truck" | "company";
+}
+
+/**
+ * The figures a driver's day is planned on: the truck's own kind when it has
+ * one, otherwise the company's, which is the default and not a ceiling.
+ * Clamped to what the planner can reason about (one to four containers), so
+ * a figure typed wrongly cannot make the arithmetic loop or go negative.
+ */
+export function truckFigures(
+  company: { containersPerTruck: number; yardMinutes: number },
+  own: { containers: number; yardMinutes: number; sizes: readonly number[] } | null,
+): TruckFigures {
+  const clamp = (n: number, low: number, high: number) => Math.min(high, Math.max(low, Math.floor(n)));
+  if (own) {
+    return {
+      containers: clamp(own.containers, 1, 4), yardMinutes: clamp(own.yardMinutes, 0, 120),
+      sizes: [...new Set(own.sizes.filter((s) => Number.isFinite(s) && s > 0))].sort((a, b) => a - b),
+      source: "truck",
+    };
+  }
+  return {
+    containers: clamp(company.containersPerTruck, 1, 4), yardMinutes: clamp(company.yardMinutes, 0, 120),
+    sizes: [], source: "company",
+  };
+}
+
+/**
+ * A container's size in cubic yards from the words a company wrote on it:
+ * "20 yard", "20yd", "20 cubic yards", "30". Null when there is no number to
+ * read, which is "not known", never "does not fit".
+ */
+export function sizeOf(label: string | null | undefined): number | null {
+  const found = /(\d+(?:\.\d+)?)/.exec(label ?? "");
+  if (!found) return null;
+  const size = Number(found[1]);
+  return Number.isFinite(size) && size > 0 ? size : null;
+}
+
+/** Whether a truck lifts a container of this size. An unknown size is not refused. */
+export function carries(sizes: readonly number[] | undefined, size: number | null | undefined): boolean {
+  if (!sizes || sizes.length === 0 || size === null || size === undefined) return true;
+  return sizes.includes(size);
+}
+
+/**
+ * The plan as the truck can serve it: a stop whose can the truck does not
+ * lift is plain driving (`none`) here, so the truck's load and the runs to
+ * the yard are worked out only from the stops it can do. The ids of the
+ * stops it cannot lift are returned beside it.
+ */
+export function servable(plan: TruckPlan): { plan: TruckPlan; notCarried: string[] } {
+  const notCarried = plan.stops.filter((s) => s.work !== "none" && !carries(plan.sizes, s.size)).map((s) => s.id);
+  if (notCarried.length === 0) return { plan, notCarried };
+  const skip = new Set(notCarried);
+  return { plan: { ...plan, stops: plan.stops.map((s) => (skip.has(s.id) ? { ...s, work: "none" as const } : s)) }, notCarried };
 }
 
 export interface TruckEvaluation extends Evaluation {
@@ -127,7 +214,8 @@ export function loadFor(works: readonly TruckWork[], capacity: number): number {
 }
 
 /** Walk a day in a given order with the truck, and say what it costs. */
-export function evaluateTruck(plan: TruckPlan, order: readonly string[]): TruckEvaluation {
+export function evaluateTruck(given: TruckPlan, order: readonly string[]): TruckEvaluation {
+  const plan = servable(given).plan;
   const capacity = Math.max(1, Math.floor(plan.capacity));
   const byId = new Map(plan.stops.map((s) => [s.id, s]));
   const works = order.map((id) => {
@@ -207,7 +295,8 @@ export function evaluateTruck(plan: TruckPlan, order: readonly string[]): TruckE
  * one where work can start soonest, counting the run to the yard first when
  * the truck as it stands cannot serve it.
  */
-export function constructTruck(plan: TruckPlan): string[] {
+export function constructTruck(given: TruckPlan): string[] {
+  const plan = servable(given).plan;
   const capacity = Math.max(1, Math.floor(plan.capacity));
   const remaining = [...plan.stops].sort((a, b) => a.id.localeCompare(b.id));
   const order: string[] = [];
@@ -257,6 +346,8 @@ export interface TruckProposal {
   proposed: TruckEvaluation;
   improved: boolean;
   missed: { id: string; lateBy: number; unreachable: boolean }[];
+  /** Stops about a container of a size this truck does not lift, ordered as plain driving. */
+  notCarried: string[];
 }
 
 /**
@@ -265,8 +356,9 @@ export interface TruckProposal {
  * when nothing beats the current order, the proposal is the current order.
  */
 export function optimiseTruck(
-  plan: TruckPlan, current: readonly string[], options: { pinned?: ReadonlySet<string> } = {},
+  given: TruckPlan, current: readonly string[], options: { pinned?: ReadonlySet<string> } = {},
 ): TruckProposal {
+  const { plan, notCarried } = servable(given);
   const pinned = options.pinned ?? new Set<string>();
   const ids = new Set(plan.stops.map((s) => s.id));
   if (current.length !== ids.size || new Set(current).size !== current.length || current.some((id) => !ids.has(id))) {
@@ -284,5 +376,5 @@ export function optimiseTruck(
     const direct = plan.departAt + plan.travel(plan.start, l.id);
     return { id: l.id, lateBy: l.lateBy, unreachable: stop.windowEnd !== null && direct > stop.windowEnd };
   });
-  return { current: now, proposed, improved: proposed !== now, missed };
+  return { current: now, proposed, improved: proposed !== now, missed, notCarried };
 }

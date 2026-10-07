@@ -161,7 +161,7 @@ export const getRouteProposal = defineRoute({
   path: "/v1/dispatch/optimise",
   summary: "Propose a better order for one technician's day",
   description:
-    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck, with the runs to the yard it needs, when the yard is on the map. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
+    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ date: z.string().date(), technicianId: Uuid }),
@@ -203,6 +203,15 @@ export const getRouteProposal = defineRoute({
       note: z.string(),
       containersPerTruck: z.number().int(),
       yardMinutes: z.number().int(),
+      /** Whose figures these are: the driver's own truck's kind, or the company's for a driver with none. */
+      source: z.enum(["truck", "company"]),
+      /** The truck the driver has that day, when it has a kind. */
+      truckLabel: z.string().nullable(),
+      kindName: z.string().nullable(),
+      /** Cubic yards the truck lifts. Empty means any size. */
+      sizes: z.array(z.number().int()),
+      /** Stops about a container this truck does not lift, ordered as plain driving: they need another truck. */
+      notCarried: z.array(Uuid),
       /** Runs to the yard in the middle of the day in the order it has now (not the one at the end). */
       currentYardRuns: z.number().int().nullable(),
       /** The runs to the yard the proposed order takes, in order: after which stop, before which, and what is done there. */

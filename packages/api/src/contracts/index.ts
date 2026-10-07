@@ -95,6 +95,7 @@ import { safetyTalkRoutes } from "./safety-talks";
 import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
+import { truckRoutes } from "./trucks";
 import { peopleRecordRoutes } from "./people-records";
 import { selfServiceRoutes } from "./self-service";
 import { customObjectRoutes } from "./custom-objects";
@@ -197,6 +198,7 @@ export * from "./direct-mail";
 export * from "./stock-tracking";
 export * from "./purchasing";
 export * from "./rental-billing";
+export * from "./trucks";
 export * from "./people-records";
 export * from "./self-service";
 
@@ -316,6 +318,7 @@ export const routes = {
   ...stockTrackingRoutes,
   ...purchasingRoutes,
   ...rentalBillingRoutes,
+  ...truckRoutes,
   ...peopleRecordRoutes,
   ...selfServiceRoutes,
   ...customObjectRoutes,

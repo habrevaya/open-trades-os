@@ -122,3 +122,78 @@ describe("ordering a driver's day", () => {
     expect(a.proposed.order).toEqual(b.proposed.order);
   });
 });
+
+describe("each truck is its own kind", () => {
+  const company = { containersPerTruck: 1, yardMinutes: 20 };
+
+  it("runs a truck on its own kind's figures and a truck with none on the company's", () => {
+    expect(routing.truckFigures(company, { containers: 2, yardMinutes: 35, sizes: [30, 10, 20, 20] }))
+      .toEqual({ containers: 2, yardMinutes: 35, sizes: [10, 20, 30], source: "truck" });
+    expect(routing.truckFigures(company, null))
+      .toEqual({ containers: 1, yardMinutes: 20, sizes: [], source: "company" });
+  });
+
+  it("keeps a figure typed wrongly inside what the planner can reason about", () => {
+    expect(routing.truckFigures(company, { containers: 9, yardMinutes: 500, sizes: [] }))
+      .toMatchObject({ containers: 4, yardMinutes: 120 });
+    expect(routing.truckFigures(company, { containers: 0, yardMinutes: -3, sizes: [] }))
+      .toMatchObject({ containers: 1, yardMinutes: 0 });
+    expect(routing.truckFigures({ containersPerTruck: 7, yardMinutes: 20 }, null).containers).toBe(4);
+  });
+
+  it("reads a size from the words written on a can, and says nothing when there is none", () => {
+    expect(routing.sizeOf("20 yard")).toBe(20);
+    expect(routing.sizeOf("30yd")).toBe(30);
+    expect(routing.sizeOf("10 cubic yards")).toBe(10);
+    expect(routing.sizeOf("Large")).toBeNull();
+    expect(routing.sizeOf(null)).toBeNull();
+    expect(routing.sizeOf("0 yard")).toBeNull();
+  });
+
+  it("refuses a size only when it knows both the size and what the truck lifts", () => {
+    expect(routing.carries([10, 20], 20)).toBe(true);
+    expect(routing.carries([10, 20], 40)).toBe(false);
+    /** A truck that lists nothing lifts anything, and a can of unknown size is not refused. */
+    expect(routing.carries([], 40)).toBe(true);
+    expect(routing.carries(undefined, 40)).toBe(true);
+    expect(routing.carries([10, 20], null)).toBe(true);
+  });
+
+  it("plans the same day differently for a truck that carries two", () => {
+    const stops = [stop("d1", "drop"), stop("d2", "drop")];
+    const one = routing.evaluateTruck(plan(stops, 1), ["d1", "d2"]);
+    const two = routing.evaluateTruck(plan(stops, 2), ["d1", "d2"]);
+    /** One can at a time goes back to the yard between the two drops; two cans at once do not. */
+    expect(one.yardRuns.filter((r) => r.beforeId !== null)).toHaveLength(1);
+    expect(two.yardRuns).toEqual([]);
+    expect(two.driveMinutes).toBeLessThan(one.driveMinutes);
+  });
+
+  it("counts the yard's own time for each truck", () => {
+    const stops = [stop("p1", "pickup"), stop("d1", "drop")];
+    const quick = routing.evaluateTruck({ ...plan(stops), yardMinutes: 5 }, ["p1", "d1"]);
+    const slow = routing.evaluateTruck({ ...plan(stops), yardMinutes: 45 }, ["p1", "d1"]);
+    expect(slow.finishAt - quick.finishAt).toBe(40);
+    expect(slow.driveMinutes).toBe(quick.driveMinutes);
+  });
+
+  it("leaves a can the truck cannot lift out of its arithmetic and names it", () => {
+    /** A truck that lifts 10 and 20 yard cans, asked to drop a 40: no empty is loaded for it. */
+    const stops: routing.TruckStop[] = [{ ...stop("d1", "drop"), size: 40 }, { ...stop("d2", "drop"), size: 20 }];
+    const lifting: routing.TruckPlan = { ...plan(stops, 1), sizes: [10, 20] };
+    const day = routing.evaluateTruck(lifting, ["d1", "d2"]);
+    expect(day.startLoad).toEqual({ empties: 1, fulls: 0 });
+    expect(day.yardRuns).toEqual([]);
+    const proposal = routing.optimiseTruck(lifting, ["d1", "d2"]);
+    expect(proposal.notCarried).toEqual(["d1"]);
+    /** The same day on a truck with no limit on sizes needs the yard between the two. */
+    const any = routing.optimiseTruck({ ...lifting, sizes: [] }, ["d1", "d2"]);
+    expect(any.notCarried).toEqual([]);
+    expect(any.proposed.yardRuns.filter((r) => r.beforeId !== null)).toHaveLength(1);
+  });
+
+  it("serves a stop with no known size on any truck", () => {
+    const lifting: routing.TruckPlan = { ...plan([stop("d1", "drop")], 1), sizes: [10] };
+    expect(routing.optimiseTruck(lifting, ["d1"]).notCarried).toEqual([]);
+  });
+});

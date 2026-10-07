@@ -208,6 +208,7 @@ export * as purchaseOrderEmail from "./purchase-order-email";
 export * as stockReturns from "./stock-returns";
 export * as landedCost from "./landed-cost";
 export * as rentalBilling from "./rental-billing";
+export * as trucks from "./trucks";
 export * as peopleRecords from "./people-records";
 export * as staffDocuments from "./staff-documents";
 export * as me from "./me";

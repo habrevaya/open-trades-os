@@ -11169,6 +11169,135 @@
         ]
       }
     },
+    "/v1/assets/{assetId}/truck-kind": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setAssetTruckKind",
+        "summary": "Say what kind of truck a vehicle is",
+        "description": "`truckKindId: null` says it has none, and a driver holding it is planned on the company's figures. Only a vehicle that has not been retired can have a kind. The driver's truck on a day is the vehicle with a kind that is in their custody that day (`POST /v1/assets/{assetId}/check-out`), and `GET /v1/dispatch/optimise` says which truck and which figures it used.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAssetTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say what kind of truck a vehicle is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAssetTruckKindOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/assets/{id}": {
       "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -39396,7 +39525,7 @@
       "get": {
         "operationId": "getRouteProposal",
         "summary": "Propose a better order for one technician's day",
-        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck, with the runs to the yard it needs, when the yard is on the map. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -122601,6 +122730,480 @@
         ]
       }
     },
+    "/v1/truck-kinds": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createTruckKind",
+        "summary": "Add a kind of truck",
+        "description": "A name, how many containers it carries at once (one to four), the sizes in cubic yards it can lift (none listed means any) and the minutes the yard takes it. Two kinds with one name are refused.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a kind of truck",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTruckKindOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "get": {
+        "operationId": "listTruckKinds",
+        "summary": "The kinds of truck the company runs",
+        "description": "How many containers each kind of truck carries, which sizes it lifts and how long the yard takes it, with how many trucks on the register have it. The company's own figures (`GET /v1/rental-dispatch`) are the default for a truck with no kind.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "responses": {
+          "200": {
+            "description": "The kinds of truck the company runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTruckKindsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      }
+    },
+    "/v1/truck-kinds/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "retireTruckKind",
+        "summary": "Take a kind of truck off the list",
+        "description": "Refused while a truck on the register still has the kind, naming the trucks.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a kind of truck off the list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireTruckKindOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "patch": {
+        "operationId": "updateTruckKind",
+        "summary": "Change a kind of truck",
+        "description": "Any field left out keeps its value. Every truck of this kind is planned on the new figures the next time a day is optimised; a day already ordered is not reordered.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a kind of truck",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateTruckKindOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/truck-minimums": {
       "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -151862,6 +152465,109 @@
           "utmCampaign",
           "notes",
           "archived"
+        ]
+      },
+      "CreateTruckKindInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "maxItems": 12
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "name",
+          "containersCarried",
+          "yardMinutes"
+        ]
+      },
+      "CreateTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trucks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "containersCarried",
+          "containerSizes",
+          "yardMinutes",
+          "notes",
+          "trucks"
         ]
       },
       "CreateVendorInput": {
@@ -182934,6 +183640,38 @@
               "yardMinutes": {
                 "type": "integer"
               },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "truck",
+                  "company"
+                ]
+              },
+              "truckLabel": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kindName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sizes": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "notCarried": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
               "currentYardRuns": {
                 "type": [
                   "integer",
@@ -183003,6 +183741,11 @@
               "note",
               "containersPerTruck",
               "yardMinutes",
+              "source",
+              "truckLabel",
+              "kindName",
+              "sizes",
+              "notCarried",
               "currentYardRuns",
               "yardRuns",
               "startLoad"
@@ -209980,6 +210723,79 @@
           "fills"
         ]
       },
+      "ListTruckKindsOutput": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "containersCarried": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                },
+                "containerSizes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "yardMinutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "trucks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "containersCarried",
+                "containerSizes",
+                "yardMinutes",
+                "notes",
+                "trucks"
+              ]
+            }
+          }
+        },
+        "required": [
+          "kinds"
+        ]
+      },
       "ListTruckMinimumsOutput": {
         "type": "object",
         "properties": {
@@ -229131,6 +229947,26 @@
           "rates"
         ]
       },
+      "RetireTruckKindInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetireTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "retired"
+        ]
+      },
       "RetireWageScaleInput": {
         "type": "object",
         "properties": {
@@ -234619,6 +235455,45 @@
           "assetId",
           "kind",
           "expiresOn"
+        ]
+      },
+      "SetAssetTruckKindInput": {
+        "type": "object",
+        "properties": {
+          "truckKindId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "truckKindId"
+        ]
+      },
+      "SetAssetTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "truckKindId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "truckKindId"
         ]
       },
       "SetBranchNumberingInput": {
@@ -253005,6 +253880,104 @@
           "utmCampaign",
           "notes",
           "archived"
+        ]
+      },
+      "UpdateTruckKindInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "maxItems": 12
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        }
+      },
+      "UpdateTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trucks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "containersCarried",
+          "containerSizes",
+          "yardMinutes",
+          "notes",
+          "trucks"
         ]
       },
       "UpdateWebhookEndpointInput": {

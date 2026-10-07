@@ -4338,6 +4338,27 @@ export interface CreateTrackingCampaignOutput {
   archived: boolean;
 }
 
+export interface CreateTruckKindInput {
+  name: string;
+  containersCarried: number;
+  containerSizes?: number[];
+  yardMinutes: number;
+  notes?: string | null;
+}
+
+export interface CreateTruckKindOutput {
+  id: string;
+  name: string;
+  containersCarried: number;
+  containerSizes: number[];
+  yardMinutes: number;
+  notes: string | null;
+  trucks: Array<{
+    id: string;
+    label: string;
+  }>;
+}
+
 export interface CreateVendorInput {
   name: string;
   accountNumber?: string;
@@ -10330,6 +10351,11 @@ export interface GetRouteProposalOutput {
     note: string;
     containersPerTruck: number;
     yardMinutes: number;
+    source: "truck" | "company";
+    truckLabel: string | null;
+    kindName: string | null;
+    sizes: number[];
+    notCarried: string[];
     currentYardRuns: number | null;
     yardRuns: Array<{
       afterVisitId: string | null;
@@ -15477,6 +15503,21 @@ export interface ListTruckFillsOutput {
   }>;
 }
 
+export interface ListTruckKindsOutput {
+  kinds: Array<{
+    id: string;
+    name: string;
+    containersCarried: number;
+    containerSizes: number[];
+    yardMinutes: number;
+    notes: string | null;
+    trucks: Array<{
+      id: string;
+      label: string;
+    }>;
+  }>;
+}
+
 export interface ListTruckMinimumsOutput {
   minimums: Array<{
     id: string;
@@ -19397,6 +19438,13 @@ export interface RetireTaxRateOutput {
   }>;
 }
 
+export type RetireTruckKindInput = Record<string, unknown>;
+
+export interface RetireTruckKindOutput {
+  id: string;
+  retired: boolean;
+}
+
 export interface RetireWageScaleInput {
   effectiveTo: string;
 }
@@ -20526,6 +20574,16 @@ export interface SetAssetObligationOutput {
   assetId: string;
   kind: "registration" | "inspection" | "insurance" | "calibration";
   expiresOn: string;
+}
+
+export interface SetAssetTruckKindInput {
+  truckKindId: string | null;
+}
+
+export interface SetAssetTruckKindOutput {
+  id: string;
+  label: string;
+  truckKindId: string | null;
 }
 
 export interface SetBranchNumberingInput {
@@ -24232,6 +24290,27 @@ export interface UpdateTrackingCampaignOutput {
   archived: boolean;
 }
 
+export interface UpdateTruckKindInput {
+  name?: string;
+  containersCarried?: number;
+  containerSizes?: number[];
+  yardMinutes?: number;
+  notes?: string | null;
+}
+
+export interface UpdateTruckKindOutput {
+  id: string;
+  name: string;
+  containersCarried: number;
+  containerSizes: number[];
+  yardMinutes: number;
+  notes: string | null;
+  trucks: Array<{
+    id: string;
+    label: string;
+  }>;
+}
+
 export interface UpdateWebhookEndpointInput {
   url?: string;
   events?: string[];
@@ -27204,6 +27283,8 @@ export type ListTradePacksInput = Record<string, never>;
 
 export type ListTruckFillsInput = Record<string, never>;
 
+export type ListTruckKindsInput = Record<string, never>;
+
 export type ListTruckMinimumsInput = Record<string, never>;
 
 export interface ListUndeliveredInvoicesInput {
@@ -27750,6 +27831,10 @@ export interface RetireTaxRateParams {
   id: string;
 }
 
+export interface RetireTruckKindParams {
+  id: string;
+}
+
 export interface RetireWageScaleParams {
   id: string;
 }
@@ -27887,6 +27972,10 @@ export interface SetAssetMaintenancePlanParams {
 export interface SetAssetObligationParams {
   assetId: string;
   kind: "registration" | "inspection" | "insurance" | "calibration";
+}
+
+export interface SetAssetTruckKindParams {
+  assetId: string;
 }
 
 export interface SetBudgetLineParams {
@@ -28356,6 +28445,10 @@ export interface UpdateTrackingCampaignParams {
   id: string;
 }
 
+export interface UpdateTruckKindParams {
+  id: string;
+}
+
 export interface UpdateWebhookEndpointParams {
   id: string;
 }
@@ -28604,6 +28697,7 @@ export interface OperationTypes {
   createTaxRate: { input: CreateTaxRateInput; output: CreateTaxRateOutput };
   createTerritory: { input: CreateTerritoryInput; output: CreateTerritoryOutput };
   createTrackingCampaign: { input: CreateTrackingCampaignInput; output: CreateTrackingCampaignOutput };
+  createTruckKind: { input: CreateTruckKindInput; output: CreateTruckKindOutput };
   createVendor: { input: CreateVendorInput; output: CreateVendorOutput };
   createVendorReturn: { input: CreateVendorReturnInput; output: CreateVendorReturnOutput };
   createWorkflow: { input: CreateWorkflowInput; output: CreateWorkflowOutput };
@@ -29066,6 +29160,7 @@ export interface OperationTypes {
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
+  listTruckKinds: { input: ListTruckKindsInput; output: ListTruckKindsOutput };
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
   listUndeliveredInvoices: { input: ListUndeliveredInvoicesInput; output: ListUndeliveredInvoicesOutput };
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
@@ -29256,6 +29351,7 @@ export interface OperationTypes {
   retireRentableAsset: { input: RetireRentableAssetParams & RetireRentableAssetInput; output: RetireRentableAssetOutput };
   retireStaffDocument: { input: RetireStaffDocumentParams & RetireStaffDocumentInput; output: RetireStaffDocumentOutput };
   retireTaxRate: { input: RetireTaxRateParams & RetireTaxRateInput; output: RetireTaxRateOutput };
+  retireTruckKind: { input: RetireTruckKindParams & RetireTruckKindInput; output: RetireTruckKindOutput };
   retireWageScale: { input: RetireWageScaleParams & RetireWageScaleInput; output: RetireWageScaleOutput };
   retryAccountingDocument: { input: RetryAccountingDocumentParams & RetryAccountingDocumentInput; output: RetryAccountingDocumentOutput };
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
@@ -29308,6 +29404,7 @@ export interface OperationTypes {
   setArrivalWindows: { input: SetArrivalWindowsInput; output: SetArrivalWindowsOutput };
   setAssetMaintenancePlan: { input: SetAssetMaintenancePlanParams & SetAssetMaintenancePlanInput; output: SetAssetMaintenancePlanOutput };
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
+  setAssetTruckKind: { input: SetAssetTruckKindParams & SetAssetTruckKindInput; output: SetAssetTruckKindOutput };
   setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
@@ -29474,6 +29571,7 @@ export interface OperationTypes {
   updateTechnician: { input: UpdateTechnicianParams & UpdateTechnicianInput; output: UpdateTechnicianOutput };
   updateTerritory: { input: UpdateTerritoryParams & UpdateTerritoryInput; output: UpdateTerritoryOutput };
   updateTrackingCampaign: { input: UpdateTrackingCampaignParams & UpdateTrackingCampaignInput; output: UpdateTrackingCampaignOutput };
+  updateTruckKind: { input: UpdateTruckKindParams & UpdateTruckKindInput; output: UpdateTruckKindOutput };
   updateWebhookEndpoint: { input: UpdateWebhookEndpointParams & UpdateWebhookEndpointInput; output: UpdateWebhookEndpointOutput };
   upgradeTradePack: { input: UpgradeTradePackParams & UpgradeTradePackInput; output: UpgradeTradePackOutput };
   uploadAttachment: { input: UploadAttachmentInput; output: UploadAttachmentOutput };
@@ -29659,6 +29757,7 @@ export const OPERATIONS = {
   createTaxRate: { method: "POST", path: "/v1/tax-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTerritory: { method: "POST", path: "/v1/territories", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTrackingCampaign: { method: "POST", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  createTruckKind: { method: "POST", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   createVendor: { method: "POST", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   createVendorReturn: { method: "POST", path: "/v1/vendor-returns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write","inventory:adjust"] },
   createWorkflow: { method: "POST", path: "/v1/workflows", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
@@ -30121,6 +30220,7 @@ export const OPERATIONS = {
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
+  listTruckKinds: { method: "GET", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listUndeliveredInvoices: { method: "GET", path: "/v1/invoice-deliveries/undelivered", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -30311,6 +30411,7 @@ export const OPERATIONS = {
   retireRentableAsset: { method: "DELETE", path: "/v1/rentable-assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   retireTaxRate: { method: "POST", path: "/v1/tax-rates/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  retireTruckKind: { method: "DELETE", path: "/v1/truck-kinds/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   retryAccountingDocument: { method: "POST", path: "/v1/accounting/problems/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -30363,6 +30464,7 @@ export const OPERATIONS = {
   setArrivalWindows: { method: "PUT", path: "/v1/booking/arrival-windows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setAssetMaintenancePlan: { method: "POST", path: "/v1/assets/{assetId}/maintenance-plans", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  setAssetTruckKind: { method: "PUT", path: "/v1/assets/{assetId}/truck-kind", pathParams: ["assetId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -30529,6 +30631,7 @@ export const OPERATIONS = {
   updateTechnician: { method: "PATCH", path: "/v1/technicians/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   updateTerritory: { method: "PATCH", path: "/v1/territories/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateTrackingCampaign: { method: "PATCH", path: "/v1/marketing/tracking-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  updateTruckKind: { method: "PATCH", path: "/v1/truck-kinds/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   updateWebhookEndpoint: { method: "PATCH", path: "/v1/webhooks/endpoints/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   upgradeTradePack: { method: "POST", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   uploadAttachment: { method: "POST", path: "/v1/attachments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -31956,6 +32059,15 @@ export abstract class GeneratedOperations {
    */
   createTrackingCampaign(input: CreateTrackingCampaignInput, options?: CallOptions): Promise<CreateTrackingCampaignOutput> {
     return this.call("createTrackingCampaign", input, options);
+  }
+
+  /**
+   * Add a kind of truck.
+   *
+   * POST /v1/truck-kinds. Needs asset:write.
+   */
+  createTruckKind(input: CreateTruckKindInput, options?: CallOptions): Promise<CreateTruckKindOutput> {
+    return this.call("createTruckKind", input, options);
   }
 
   /**
@@ -36117,6 +36229,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The kinds of truck the company runs.
+   *
+   * GET /v1/truck-kinds. Needs asset:read.
+   */
+  listTruckKinds(input: ListTruckKindsInput = {} as ListTruckKindsInput, options?: CallOptions): Promise<ListTruckKindsOutput> {
+    return this.call("listTruckKinds", input, options);
+  }
+
+  /**
    * What each truck should carry.
    *
    * GET /v1/truck-minimums. Needs inventory:read.
@@ -37827,6 +37948,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a kind of truck off the list.
+   *
+   * DELETE /v1/truck-kinds/{id}. Needs asset:write.
+   */
+  retireTruckKind(input: RetireTruckKindParams & RetireTruckKindInput, options?: CallOptions): Promise<RetireTruckKindOutput> {
+    return this.call("retireTruckKind", input, options);
+  }
+
+  /**
    * Stop a scale on a date.
    *
    * POST /v1/payroll/wage-scales/{id}/retire. Needs payroll:configure.
@@ -38292,6 +38422,15 @@ export abstract class GeneratedOperations {
    */
   setAssetObligation(input: SetAssetObligationParams & SetAssetObligationInput, options?: CallOptions): Promise<SetAssetObligationOutput> {
     return this.call("setAssetObligation", input, options);
+  }
+
+  /**
+   * Say what kind of truck a vehicle is.
+   *
+   * PUT /v1/assets/{assetId}/truck-kind. Needs asset:write.
+   */
+  setAssetTruckKind(input: SetAssetTruckKindParams & SetAssetTruckKindInput, options?: CallOptions): Promise<SetAssetTruckKindOutput> {
+    return this.call("setAssetTruckKind", input, options);
   }
 
   /**
@@ -39786,6 +39925,15 @@ export abstract class GeneratedOperations {
    */
   updateTrackingCampaign(input: UpdateTrackingCampaignParams & UpdateTrackingCampaignInput, options?: CallOptions): Promise<UpdateTrackingCampaignOutput> {
     return this.call("updateTrackingCampaign", input, options);
+  }
+
+  /**
+   * Change a kind of truck.
+   *
+   * PATCH /v1/truck-kinds/{id}. Needs asset:write.
+   */
+  updateTruckKind(input: UpdateTruckKindParams & UpdateTruckKindInput, options?: CallOptions): Promise<UpdateTruckKindOutput> {
+    return this.call("updateTruckKind", input, options);
   }
 
   /**

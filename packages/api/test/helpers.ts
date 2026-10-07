@@ -242,6 +242,8 @@ const ORDER = [
    */
   "asset_cost", "asset_compliance", "asset_maintenance_plan",
   "asset_meter_reading", "asset_custody", "company_asset",
+  /** A truck points at its kind, so the kind goes after the trucks. */
+  "truck_kind",
   /** A lead's messages and the inbox's emails point at the offer; the offer at its connector. */
   "lead_offer_message", "lead_email", "lead_inbox",
   "lead_offer", "lead_source_connector", "sync_run",

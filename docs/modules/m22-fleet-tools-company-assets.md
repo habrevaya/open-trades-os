@@ -195,6 +195,35 @@ tipped and what is loaded. The leg comes from the hire's own record on the
 stop, or from the pack's job type (delivery, final pickup, swap, dump and
 return) before the hire exists.
 
+### Each truck its own kind
+
+A hook lift that carries two small cans and a roll off truck that carries one
+big one are different machines, so a truck has a kind of its own on
+`/fleet/containers/trucks`: how many containers it carries at once (one to
+four), which sizes in cubic yards it can lift (none listed means any), and
+how long the yard takes it. `GET /v1/truck-kinds` lists them with the trucks
+that have each, `POST /v1/truck-kinds` adds one, `PATCH /v1/truck-kinds/{id}`
+changes one, `DELETE /v1/truck-kinds/{id}` takes one off the list (refused
+while a truck has it, naming the trucks) and
+`PUT /v1/assets/{assetId}/truck-kind` says what kind a vehicle is, or that it
+has none. Only a vehicle that has not been retired can be a truck, and all of
+it needs `asset:write` (`asset:read` to look).
+
+The truck a driver has on a day is the vehicle with a kind that is checked out
+to them that day, which is the same custody record that already says who has
+the van (half open, so on the day a truck is handed back it is the next
+driver's). A driver holding two such vehicles is planned on the one they were
+handed most recently. "Optimise route" plans that day on the truck's own
+figures, and the company's one figure under "Collections and the truck" is the
+default for a driver with no truck of a kind, not a ceiling. The proposal says
+which it used (`GET /v1/dispatch/optimise` answers `source`, the truck's label
+and kind), and a stop about a container of a size the truck does not lift is
+named on the proposal and ordered as plain driving, rather than driven as if
+the truck could take it: it needs another truck. A can with no number in its
+size, or a drop booked before a can is chosen, is never refused for its size.
+A kind's figures change the next proposal only; a day already ordered is not
+reordered behind anybody's back.
+
 ### Charges found on a haul
 
 `POST /v1/rentals/{id}/charges` records a contaminated load, a prohibited
@@ -355,14 +384,13 @@ this product's own board first.
   by "Optimise route". A collection the customer moves after it is under way
   is the office's to rearrange by hand.
 - **Scale tickets come from a file.** A photograph of a ticket is not read.
-- **The truck is one kind for the whole company.** How many containers a
-  truck carries and how long the yard takes are company wide; a fleet with a
-  hook lift and roll off trucks is planned as if every truck were the same.
-  The yard is where the driver's day starts: a disposal facility apart from
-  the yard is not a place the plan knows. The load in the morning is not
-  recorded; for a day already under way it is worked out from the stops done.
-  The rebalance across people leaves a driver's day with containers on it
-  alone (M09).
+- **The truck has one capacity figure.** A kind says how many containers a
+  truck carries at once, whatever their size: a hook lift that takes two small
+  cans or one large one is two kinds. The yard is where the driver's day
+  starts: a disposal facility apart from the yard is not a place the plan
+  knows. The load in the morning is not recorded; for a day already under way
+  it is worked out from the stops done. The rebalance across people leaves a
+  driver's day with containers on it alone (M09).
 - **A hire is invoiced one haul at a time.** A swap chain is several hauls and
   each is invoiced from its own row; the facility's disposal fee on a haul is
   its cost, and is not passed through.

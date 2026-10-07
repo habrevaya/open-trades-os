@@ -295,7 +295,9 @@ export default async function ContainersPage(
           A driver&apos;s day is ordered by what is on the truck: a drop needs an empty on board, a collection needs room,
           and Optimise route on the board counts the runs to the yard between. The yard is where the driver&apos;s day starts.
           Now: {dispatching.containersPerTruck === 1 ? "one container" : `${dispatching.containersPerTruck} containers`} a truck,{" "}
-          {dispatching.yardMinutes} minutes at the yard.
+          {dispatching.yardMinutes} minutes at the yard. These are the figures for a driver whose truck has no kind;
+          a hook lift and a roll off truck can each have their own on{" "}
+          <a href="/fleet/containers/trucks" className="underline underline-offset-4">Trucks</a>.
         </p>
         {settingsWrite ? (
           <SaidForm action={rentalDispatchAction} submit="Save" className="mt-2 flex flex-wrap items-end gap-3">
