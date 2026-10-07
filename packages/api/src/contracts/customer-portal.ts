@@ -306,6 +306,17 @@ export const PortalCardAgreement = z.object({
   autopay: z.boolean(),
   autopayAt: z.string().datetime().nullable(),
   autopayWording: z.string().nullable(),
+  /** `customer` when they agreed in their own account, `office` when somebody at the company recorded what they said or signed. */
+  givenBy: z.enum(["customer", "office"]),
+  way: z.enum(["portal_sign_in", "office_phone", "office_form"]),
+  /** The way in plain words: "Agreed by phone". */
+  wayLabel: z.string(),
+  /** The company day they gave it, for an agreement the office recorded. */
+  agreedOn: z.string().nullable(),
+  /** The first name of the person at the company who took it, for one the office recorded. */
+  takenBy: z.string().nullable(),
+  /** Whether the signed form is kept. The scan is the company's to open, never served here. */
+  hasForm: z.boolean(),
 });
 
 export const listPortalCards = defineRoute({

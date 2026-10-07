@@ -1,13 +1,15 @@
 import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  comms, customerPortal as cp, money as m, SYSTEM_USER_ID, type Actor, type Permission,
+  comms, customerPortal as cp, money as m, time, SYSTEM_USER_ID, type Actor, type Permission,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, scopeOf, timezoneOf,
   ConflictError, NotFoundError, type RequestMeta, type ServiceContext,
 } from "./context";
-import { invoiceScopeFilter } from "./scope";
+import { customerScopeFilter, invoiceScopeFilter } from "./scope";
+import { rememberKey, seenKey } from "./project-position";
+import * as files from "./files";
 import * as payments from "./payments";
 import * as invoiceDelivery from "./invoice-delivery";
 import { sendTransactional, quietHoursFor } from "./comms-send";
@@ -40,6 +42,18 @@ import { sessionFor, type PortalSession } from "./portal-sign-in";
  * other card payment; the invoice shows paid when the processor's signed
  * webhook says the money moved, through the one settlement path.
  *
+ * THE OFFICE CAN RECORD ONE TOO, for a customer who said yes on the phone or
+ * signed a form. It lands in the same `payment_agreement` rows with
+ * `given_by = 'office'`, the day the customer gave it, the person who took
+ * it, and for paper the scanned form, which is required: no form, no paper
+ * agreement, held by the service and by a check on the table. The words are
+ * the product's (the phone script, or the form's words, which are the
+ * portal's), never the company's, and are checked against what the server
+ * builds exactly as the portal's are. The customer sees it in their portal
+ * and withdraws it there, as they do their own; the office can record that
+ * the customer asked to stop. Charging is unchanged: `payment:charge_saved`
+ * and a live agreement for that very card, whoever gave it.
+ *
  * PAYING AUTOMATICALLY is a second agreement on the first, and is the
  * worker's: each invoice the customer pays that is issued after they turned
  * it on is charged once, keyed on the invoice under a unique index. A
@@ -61,9 +75,33 @@ export interface AgreementView {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  /** `customer` from their own sign in, or `office` when somebody at the company recorded what they said or signed. */
+  givenBy: "customer" | "office";
+  /** `portal_sign_in`, `office_phone` or `office_form`. */
+  way: cp.AgreementWay;
+  /** The way in plain words: "Agreed by phone". */
+  wayLabel: string;
+  /** The company day the customer gave it, for one the office recorded. */
+  agreedOn: string | null;
+  /** Who at the company took it. First name only on the customer's side. */
+  takenBy: string | null;
+  /** Whether a scanned form is kept with it. The scan itself is the company's to open. */
+  hasForm: boolean;
 }
 
-const view = (row: typeof schema.paymentAgreement.$inferSelect, contactName: string | null = null): AgreementView => ({
+/** What the office sees: the same, with the person's full name and the scanned form. */
+export interface OfficeAgreementView extends Omit<AgreementView, "takenBy"> {
+  takenBy: string | null;
+  form: { attachmentId: string; fileName: string | null; storageKey: string } | null;
+}
+
+const wayOf = (row: typeof schema.paymentAgreement.$inferSelect): cp.AgreementWay =>
+  row.agreedVia === "office_phone" || row.agreedVia === "office_form" ? row.agreedVia : "portal_sign_in";
+
+const view = (
+  row: typeof schema.paymentAgreement.$inferSelect, contactName: string | null = null,
+  options: { fullName?: boolean } = {},
+): AgreementView => ({
   id: row.id,
   cardId: row.savedPaymentMethodId,
   wording: row.wording,
@@ -72,6 +110,12 @@ const view = (row: typeof schema.paymentAgreement.$inferSelect, contactName: str
   autopay: row.autopayAt !== null,
   autopayAt: row.autopayAt?.toISOString() ?? null,
   autopayWording: row.autopayWording,
+  givenBy: row.givenBy === "office" ? "office" : "customer",
+  way: wayOf(row),
+  wayLabel: cp.agreementWayLabel(wayOf(row)),
+  agreedOn: row.agreedOn,
+  takenBy: row.takenByName ? (options.fullName ? row.takenByName : row.takenByName.trim().split(/\s+/)[0] ?? null) : null,
+  hasForm: row.formAttachmentId !== null,
 });
 
 /** The words a customer would agree to for this card, now. */
@@ -104,6 +148,14 @@ async function liveAgreement(tx: Database, cardId: string) {
     .where(and(eq(schema.paymentAgreement.savedPaymentMethodId, cardId), isNull(schema.paymentAgreement.withdrawnAt)))
     .limit(1);
   return row ?? null;
+}
+
+/** One agreement as the customer sees it, with the contact named from its own column. */
+async function viewOf(tx: Database, row: typeof schema.paymentAgreement.$inferSelect): Promise<AgreementView> {
+  const [contact] = row.contactId
+    ? await tx.select({ name: schema.contact.name }).from(schema.contact).where(eq(schema.contact.id, row.contactId)).limit(1)
+    : [];
+  return view(row, contact?.name ?? null);
 }
 
 /**
@@ -154,7 +206,7 @@ export async function agree(
       throw new ConflictError("The words on this page have changed. Refresh it, read them again and agree if you still want to.");
     }
     const already = await liveAgreement(tx, card.id);
-    if (already) return view(already, session.contact?.name ?? null);
+    if (already) return viewOf(tx, already);
 
     const inserted = await tx.insert(schema.paymentAgreement).values({
       organizationId: session.grant.organizationId,
@@ -174,7 +226,7 @@ export async function agree(
         agreementId: row.id, cardId: card.id, wording: row.wording, ip: row.ip,
       });
     }
-    return view(row, session.contact?.name ?? null);
+    return viewOf(tx, row);
   });
 }
 
@@ -195,19 +247,19 @@ export async function setAutopay(
       throw new ConflictError("Agree to let the company charge this card first. Paying automatically needs that agreement.");
     }
     if (!input.on) {
-      if (agreement.autopayAt === null) return view(agreement);
+      if (agreement.autopayAt === null) return viewOf(tx, agreement);
       const [after] = await tx.update(schema.paymentAgreement)
         .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, updatedAt: new Date() })
         .where(eq(schema.paymentAgreement.id, agreement.id)).returning();
       await audit(tx, ctx, "portal.card.autopay_off", "customer", session.customerId,
         { autopayAt: agreement.autopayAt, autopayWording: agreement.autopayWording }, { agreementId: agreement.id });
-      return view(after!);
+      return viewOf(tx, after!);
     }
     const expected = wordingFor(session.organizationName, card).autopay;
     if (!cp.sameWording(input.wording ?? "", expected)) {
       throw new ConflictError("The words on this page have changed. Refresh it, read them again and turn it on if you still want to.");
     }
-    if (agreement.autopayAt !== null) return view(agreement);
+    if (agreement.autopayAt !== null) return viewOf(tx, agreement);
 
     const others = await tx.update(schema.paymentAgreement)
       .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, updatedAt: new Date() })
@@ -222,7 +274,7 @@ export async function setAutopay(
     await audit(tx, ctx, "portal.card.autopay_on", "customer", session.customerId, null, {
       agreementId: agreement.id, cardId: card.id, wording: expected, turnedOffOn: others.map((o) => o.id),
     });
-    return view(after!);
+    return viewOf(tx, after!);
   });
 }
 
@@ -251,7 +303,11 @@ export async function withdraw(
  */
 export async function withdrawWithin(
   tx: Database, ctx: ServiceContext,
-  input: { customerId: string; cardId: string; reason: "customer" | "card_removed"; grantId: string | null },
+  input: {
+    customerId: string; cardId: string; reason: "customer" | "card_removed" | "office"; grantId: string | null;
+    /** The person at the company who recorded that the customer asked to stop, for `office`. */
+    byUserId?: string | null;
+  },
 ): Promise<boolean> {
   const [row] = await tx.select().from(schema.paymentAgreement)
     .where(and(
@@ -262,6 +318,7 @@ export async function withdrawWithin(
   if (!row) return false;
   await tx.update(schema.paymentAgreement).set({
     withdrawnAt: new Date(), withdrawnReason: input.reason, withdrawnGrantId: input.grantId,
+    withdrawnByUserId: input.byUserId ?? null,
     autopayAt: null, autopayWording: null, autopayGrantId: null, updatedAt: new Date(),
   }).where(eq(schema.paymentAgreement.id, row.id));
   await audit(tx, ctx, "portal.card.agreement_withdrawn", "customer", input.customerId,
@@ -279,6 +336,12 @@ export interface CardOnFile {
   agreedAt: string;
   agreedByContact: string | null;
   autopay: boolean;
+  /** Who gave it and how, so the screen says "by phone, taken by Sam" and not only "agreed". */
+  givenBy: "customer" | "office";
+  way: cp.AgreementWay;
+  wayLabel: string;
+  agreedOn: string | null;
+  takenBy: string | null;
 }
 
 export interface ChargeView {
@@ -331,6 +394,11 @@ async function cardsOnFileWithin(tx: Database, customerId: string): Promise<Card
     agreedAt: agreement.agreedAt.toISOString(),
     agreedByContact: contactName,
     autopay: agreement.autopayAt !== null,
+    givenBy: agreement.givenBy === "office" ? "office" as const : "customer" as const,
+    way: wayOf(agreement),
+    wayLabel: cp.agreementWayLabel(wayOf(agreement)),
+    agreedOn: agreement.agreedOn,
+    takenBy: agreement.takenByName,
   }));
 }
 
@@ -387,6 +455,250 @@ export async function forInvoice(ctx: ServiceContext, input: { invoiceId: string
 /** The cards one customer agreed may be charged, for their page. */
 export async function forCustomer(ctx: ServiceContext, input: { customerId: string }) {
   return guardedRead(ctx, "payment:read", async (tx) => ({ cards: await cardsOnFileWithin(tx, input.customerId) }));
+}
+
+/* ------------------------------------ an agreement the office records */
+
+export interface OfficeCard {
+  cardId: string;
+  kind: "card" | "bank_account";
+  label: string;
+  savedOn: string;
+  /** The live agreement, whoever gave it, or null. */
+  agreement: OfficeAgreementView | null;
+  /** The product's words for each way of recording one, as they are checked when it is recorded. */
+  wording: { phone: string; form: string };
+}
+
+async function officeView(tx: Database, row: typeof schema.paymentAgreement.$inferSelect): Promise<OfficeAgreementView> {
+  const [contact] = row.contactId
+    ? await tx.select({ name: schema.contact.name }).from(schema.contact).where(eq(schema.contact.id, row.contactId)).limit(1)
+    : [];
+  const [form] = row.formAttachmentId
+    ? await tx.select({ id: schema.attachment.id, fileName: schema.attachment.fileName, storageKey: schema.attachment.storageKey })
+      .from(schema.attachment).where(eq(schema.attachment.id, row.formAttachmentId)).limit(1)
+    : [];
+  return {
+    ...view(row, contact?.name ?? null, { fullName: true }),
+    form: form ? { attachmentId: form.id, fileName: form.fileName, storageKey: form.storageKey } : null,
+  };
+}
+
+/** A customer the actor may see, or not found: another company's, or one outside their scope, reads as absent. */
+async function visibleCustomer(tx: Database, ctx: ServiceContext, customerId: string) {
+  const [row] = await tx.select({ id: schema.customer.id, name: schema.customer.name }).from(schema.customer)
+    .where(and(
+      eq(schema.customer.id, customerId),
+      isNull(schema.customer.deletedAt),
+      customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
+    )).limit(1);
+  if (!row) throw new NotFoundError("Customer");
+  return row;
+}
+
+async function companyName(tx: Database, organizationId: string): Promise<string> {
+  const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+    .where(eq(schema.organization.id, organizationId)).limit(1);
+  return org?.name ?? "";
+}
+
+/**
+ * The customer's saved cards for the office's page, each with its live
+ * agreement (whoever gave it) and the words the office would record one under.
+ * A customer's page asks for this; it is only what the customer already
+ * saved, never a card number.
+ */
+export async function officeCardsFor(ctx: ServiceContext, input: { customerId: string }): Promise<{ cards: OfficeCard[] }> {
+  return guardedRead(ctx, "payment:read", async (tx) => {
+    await visibleCustomer(tx, ctx, input.customerId);
+    const company = await companyName(tx, ctx.actor.organizationId);
+    const cards = await tx.select().from(schema.savedPaymentMethod)
+      .where(and(eq(schema.savedPaymentMethod.customerId, input.customerId), isNull(schema.savedPaymentMethod.removedAt)))
+      .orderBy(desc(schema.savedPaymentMethod.createdAt));
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const out: OfficeCard[] = [];
+    for (const card of cards) {
+      const live = await liveAgreement(tx, card.id);
+      out.push({
+        cardId: card.id,
+        kind: card.kind === "bank_account" ? "bank_account" : "card",
+        label: cp.methodLabel(card),
+        savedOn: time.dateIn(card.createdAt, zone),
+        agreement: live ? await officeView(tx, live) : null,
+        wording: officeWords(company, card),
+      });
+    }
+    return { cards: out };
+  });
+}
+
+function officeWords(company: string, card: { kind: string; brand: string | null; last4: string | null }) {
+  const input = {
+    company, method: cp.methodLabel(card), kind: card.kind === "bank_account" ? "bank_account" as const : "card" as const,
+  };
+  return { phone: cp.officeWording("phone", input), form: cp.officeWording("signed_form", input) };
+}
+
+export interface RecordAgreementInput {
+  customerId: string;
+  cardId: string;
+  way: cp.OfficeWay;
+  /** The company's day the customer gave it. Not in the future, not before the card was saved. */
+  agreedOn: string;
+  /** The words the office was shown, checked against the product's own for this way and this card. */
+  wording: string;
+  /** A scan of the signed form, to be stored with the agreement. Required for paper unless `formAttachmentId` names one. */
+  form?: { fileName: string; contentType?: string | undefined; bytes: string } | undefined;
+  /** A scan already on the customer, uploaded through the attachment path. */
+  formAttachmentId?: string | undefined;
+}
+
+/**
+ * The office records that a customer agreed, on the phone or on paper, to
+ * be charged on one of their saved cards.
+ *
+ * `payment:charge_saved`, the permission that charges it: whoever may
+ * charge a card may say the customer agreed to it, and nobody else. Not
+ * `document:write`, which an office manager does not hold, because the form
+ * goes up as part of the agreement and is the agreement's, not a free
+ * standing document.
+ *
+ * Conservative on purpose: one live agreement per card (the customer's own
+ * stands, and the office cannot record a second over it); the words are the
+ * product's and checked; paper needs its scan; the day cannot be in the
+ * future or before the card existed; and the person who took it must be a
+ * real user of the company, because an agreement nobody can be asked about
+ * is not one a dispute can be decided on.
+ */
+export async function recordAgreement(ctx: ServiceContext, input: RecordAgreementInput): Promise<OfficeAgreementView> {
+  return guardedWrite(ctx, "payment:charge_saved", async (tx) => {
+    const seen = await seenKey(tx, ctx, "payment_agreement");
+    if (seen) {
+      const [prior] = await tx.select().from(schema.paymentAgreement).where(eq(schema.paymentAgreement.id, seen)).limit(1);
+      if (prior) return officeView(tx, prior);
+    }
+
+    const customer = await visibleCustomer(tx, ctx, input.customerId);
+    const [card] = await tx.select().from(schema.savedPaymentMethod)
+      .where(and(
+        eq(schema.savedPaymentMethod.id, input.cardId),
+        eq(schema.savedPaymentMethod.customerId, customer.id),
+        isNull(schema.savedPaymentMethod.removedAt),
+      )).limit(1);
+    if (!card) throw new NotFoundError("Saved card");
+
+    const taker = isPerson(ctx.actor)
+      ? (await tx.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email }).from(schema.user)
+        .where(eq(schema.user.id, ctx.actor.userId)).limit(1))[0]
+      : undefined;
+    if (!taker) throw new ConflictError("A person at the company takes an agreement, with their own sign in.");
+
+    const company = await companyName(tx, ctx.actor.organizationId);
+    const expected = officeWords(company, card)[input.way === "phone" ? "phone" : "form"];
+    if (!cp.sameWording(input.wording, expected)) {
+      throw new ConflictError("The words on this page have changed. Refresh it, read them again and record it if the customer still agrees.");
+    }
+
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.agreedOn) || Number.isNaN(Date.parse(`${input.agreedOn}T00:00:00Z`))) {
+      throw new ConflictError("Give the day the customer agreed, like 2026-10-07.");
+    }
+    if (input.agreedOn > time.dateIn(new Date(), zone)) {
+      throw new ConflictError("The day the customer agreed cannot be in the future.");
+    }
+    if (input.agreedOn < time.dateIn(card.createdAt, zone)) {
+      throw new ConflictError("The day the customer agreed is before the card was saved. An agreement is for a card that exists.");
+    }
+
+    const already = await liveAgreement(tx, card.id);
+    if (already) {
+      throw new ConflictError(
+        "That card is already agreed to. Record the customer's wish to stop first if they want it changed, "
+        + "or leave it as it is.",
+      );
+    }
+
+    /** Paper is the paper. The scan is read through the ordinary file path, so a file that is not a PDF or a picture is refused there. */
+    let formAttachmentId: string | null = null;
+    if (input.way === "signed_form") {
+      if (input.form) {
+        const { file } = await files.put(tx, ctx.actor.organizationId, {
+          bytes: Buffer.from(input.form.bytes, "base64"), claimedType: input.form.contentType, uploadedByUserId: taker.id,
+        });
+        const [kept] = await tx.select({ id: schema.attachment.id }).from(schema.attachment)
+          .where(and(
+            eq(schema.attachment.entityType, "customer"), eq(schema.attachment.entityId, customer.id),
+            eq(schema.attachment.storageKey, file.storageKey), isNull(schema.attachment.deletedAt),
+          )).limit(1);
+        formAttachmentId = kept?.id ?? (await files.attach(tx, ctx.actor.organizationId, {
+          entityType: "customer", entityId: customer.id, storageKey: file.storageKey, kind: "document",
+          fileName: input.form.fileName.slice(0, 200) || "Signed form", contentType: file.contentType, sizeBytes: file.sizeBytes,
+          uploadedByUserId: taker.id,
+        })).id;
+      } else if (input.formAttachmentId) {
+        const [own] = await tx.select({ id: schema.attachment.id }).from(schema.attachment)
+          .where(and(
+            eq(schema.attachment.id, input.formAttachmentId),
+            eq(schema.attachment.entityType, "customer"), eq(schema.attachment.entityId, customer.id),
+            isNull(schema.attachment.deletedAt),
+          )).limit(1);
+        if (!own) throw new ConflictError("Attach the scanned form to this customer first. A paper agreement needs the scanned form.");
+        formAttachmentId = own.id;
+      }
+      if (!formAttachmentId) {
+        throw new ConflictError("A paper agreement needs the scanned form. Upload the signed form, then record the agreement.");
+      }
+      const [used] = await tx.select({ id: schema.paymentAgreement.id }).from(schema.paymentAgreement)
+        .where(eq(schema.paymentAgreement.formAttachmentId, formAttachmentId)).limit(1);
+      if (used) throw new ConflictError("That scanned form is already behind an agreement. Each signed form is for one card.");
+    } else if (input.form || input.formAttachmentId) {
+      throw new ConflictError("A form goes only with an agreement on paper. For a phone agreement, record it as taken by phone.");
+    }
+
+    const [row] = await tx.insert(schema.paymentAgreement).values({
+      organizationId: ctx.actor.organizationId,
+      customerId: customer.id,
+      savedPaymentMethodId: card.id,
+      wording: expected,
+      agreedVia: cp.agreementWayOf(input.way),
+      givenBy: "office",
+      agreedOn: input.agreedOn,
+      takenByUserId: taker.id,
+      takenByName: taker.name?.trim() || taker.email,
+      formAttachmentId,
+    }).returning();
+    await rememberKey(tx, ctx, "card_agreement.record", "payment_agreement", row!.id);
+    await audit(tx, ctx, "card_agreement.recorded", "customer", customer.id, null, {
+      agreementId: row!.id, cardId: card.id, way: input.way, agreedOn: input.agreedOn,
+      wording: expected, formAttachmentId,
+    });
+    return officeView(tx, row!);
+  });
+}
+
+/**
+ * The office records that the customer asked to stop, by phone or in
+ * writing. Ends the agreement and paying automatically at once, as the
+ * customer's own withdrawal does, and says who took the request. Whoever may
+ * charge a card may stop charging it; withdrawing what is already withdrawn
+ * answers the same and changes nothing.
+ */
+export async function withdrawForCustomer(
+  ctx: ServiceContext, input: { customerId: string; agreementId: string },
+): Promise<{ ok: true }> {
+  return guardedWrite(ctx, "payment:charge_saved", async (tx) => {
+    const customer = await visibleCustomer(tx, ctx, input.customerId);
+    const [row] = await tx.select().from(schema.paymentAgreement)
+      .where(and(eq(schema.paymentAgreement.id, input.agreementId), eq(schema.paymentAgreement.customerId, customer.id)))
+      .limit(1);
+    if (!row) throw new NotFoundError("Agreement");
+    if (row.withdrawnAt !== null) return { ok: true as const };
+    await withdrawWithin(tx, ctx, {
+      customerId: customer.id, cardId: row.savedPaymentMethodId, reason: "office", grantId: null,
+      byUserId: isPerson(ctx.actor) ? ctx.actor.userId : null,
+    });
+    return { ok: true as const };
+  });
 }
 
 export interface ChargeResult {
@@ -932,4 +1244,11 @@ export const handlers = {
   listInvoiceCardsOnFile: (ctx: ServiceContext, input: { id: string }) => forInvoice(ctx, { invoiceId: input.id }),
   chargeInvoiceCardOnFile: (ctx: ServiceContext, input: { id: string; cardId: string }) =>
     charge(ctx, { invoiceId: input.id, cardId: input.cardId }),
+  listCustomerCardAgreements: (ctx: ServiceContext, input: { id: string }) => officeCardsFor(ctx, { customerId: input.id }),
+  recordCustomerCardAgreement: (ctx: ServiceContext, input: Omit<RecordAgreementInput, "customerId"> & { id: string }) => {
+    const { id, ...rest } = input;
+    return recordAgreement(ctx, { customerId: id, ...rest });
+  },
+  withdrawCustomerCardAgreement: (ctx: ServiceContext, input: { id: string; agreementId: string }) =>
+    withdrawForCustomer(ctx, { customerId: input.id, agreementId: input.agreementId }),
 } as const;

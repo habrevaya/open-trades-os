@@ -35853,6 +35853,395 @@
         ]
       }
     },
+    "/v1/customers/{id}/card-agreements": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listCustomerCardAgreements",
+        "summary": "A customer's saved cards, their agreement to be charged, and the words to record one under",
+        "description": "Each saved card (never the card number) with its live agreement, whoever gave it: the customer in their own account, or the office from a phone call or a signed form. The words are the product's, one set for a phone agreement (a script to read out) and one for a signed form, exactly as they are checked when an agreement is recorded.\n\nRequires a session holding: payment:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A customer's saved cards, their agreement to be charged, and the words to record one under",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCustomerCardAgreementsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:read"
+        ]
+      },
+      "post": {
+        "operationId": "recordCustomerCardAgreement",
+        "summary": "Record that a customer agreed, by phone or on a signed form, to be charged on a saved card",
+        "description": "Needs `payment:charge_saved`. `wording` is the product's own words for this way and this card (from the list), refused when they are not. `agreedOn` is the company's day the customer agreed: not in the future, not before the card was saved. A signed form needs its scan, sent as `form` (base64) or an earlier upload to the customer as `formAttachmentId`; without one it is refused. A card with a live agreement is refused: the customer's own stands. Kept in the same records as the customer's own agreement, shown to them in their portal, where they can withdraw it.\n\nRequires a session holding: payment:charge_saved.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordCustomerCardAgreementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record that a customer agreed, by phone or on a signed form, to be charged on a saved card",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordCustomerCardAgreementOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:charge_saved"
+        ]
+      }
+    },
+    "/v1/customers/{id}/card-agreements/{agreementId}/withdraw": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "withdrawCustomerCardAgreement",
+        "summary": "Record that a customer asked to stop being charged on a saved card",
+        "description": "Needs `payment:charge_saved`. Ends the agreement and paying automatically at once, naming the person who took the request. The agreement and its form are kept. Withdrawing one already withdrawn changes nothing.\n\nRequires a session holding: payment:charge_saved.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agreementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawCustomerCardAgreementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record that a customer asked to stop being charged on a saved card",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawCustomerCardAgreementOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:charge_saved"
+        ]
+      }
+    },
     "/v1/customers/{id}/contacts": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -131816,6 +132205,39 @@
               "string",
               "null"
             ]
+          },
+          "givenBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "office"
+            ]
+          },
+          "way": {
+            "type": "string",
+            "enum": [
+              "portal_sign_in",
+              "office_phone",
+              "office_form"
+            ]
+          },
+          "wayLabel": {
+            "type": "string"
+          },
+          "agreedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "takenBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasForm": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -131826,7 +132248,13 @@
           "agreedByContact",
           "autopay",
           "autopayAt",
-          "autopayWording"
+          "autopayWording",
+          "givenBy",
+          "way",
+          "wayLabel",
+          "agreedOn",
+          "takenBy",
+          "hasForm"
         ]
       },
       "AnnotateServiceReportInput": {
@@ -194538,6 +194966,183 @@
           "hasMore"
         ]
       },
+      "ListCustomerCardAgreementsOutput": {
+        "type": "object",
+        "properties": {
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cardId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "bank_account"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "savedOn": {
+                  "type": "string"
+                },
+                "agreement": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "cardId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "wording": {
+                      "type": "string"
+                    },
+                    "agreedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "agreedByContact": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "autopay": {
+                      "type": "boolean"
+                    },
+                    "autopayAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "autopayWording": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "givenBy": {
+                      "type": "string",
+                      "enum": [
+                        "customer",
+                        "office"
+                      ]
+                    },
+                    "way": {
+                      "type": "string",
+                      "enum": [
+                        "portal_sign_in",
+                        "office_phone",
+                        "office_form"
+                      ]
+                    },
+                    "wayLabel": {
+                      "type": "string"
+                    },
+                    "agreedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "takenBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "hasForm": {
+                      "type": "boolean"
+                    },
+                    "form": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "attachmentId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "fileName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "storageKey": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "attachmentId",
+                        "fileName",
+                        "storageKey"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "cardId",
+                    "wording",
+                    "agreedAt",
+                    "agreedByContact",
+                    "autopay",
+                    "autopayAt",
+                    "autopayWording",
+                    "givenBy",
+                    "way",
+                    "wayLabel",
+                    "agreedOn",
+                    "takenBy",
+                    "hasForm",
+                    "form"
+                  ]
+                },
+                "wording": {
+                  "type": "object",
+                  "properties": {
+                    "phone": {
+                      "type": "string"
+                    },
+                    "form": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "phone",
+                    "form"
+                  ]
+                }
+              },
+              "required": [
+                "cardId",
+                "kind",
+                "label",
+                "savedOn",
+                "agreement",
+                "wording"
+              ]
+            }
+          }
+        },
+        "required": [
+          "cards"
+        ]
+      },
       "ListCustomerContactsOutput": {
         "type": "object",
         "properties": {
@@ -197805,6 +198410,36 @@
                 },
                 "autopay": {
                   "type": "boolean"
+                },
+                "givenBy": {
+                  "type": "string",
+                  "enum": [
+                    "customer",
+                    "office"
+                  ]
+                },
+                "way": {
+                  "type": "string",
+                  "enum": [
+                    "portal_sign_in",
+                    "office_phone",
+                    "office_form"
+                  ]
+                },
+                "wayLabel": {
+                  "type": "string"
+                },
+                "agreedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "takenBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -197814,7 +198449,12 @@
                 "label",
                 "agreedAt",
                 "agreedByContact",
-                "autopay"
+                "autopay",
+                "givenBy",
+                "way",
+                "wayLabel",
+                "agreedOn",
+                "takenBy"
               ]
             }
           },
@@ -202935,6 +203575,39 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "givenBy": {
+                      "type": "string",
+                      "enum": [
+                        "customer",
+                        "office"
+                      ]
+                    },
+                    "way": {
+                      "type": "string",
+                      "enum": [
+                        "portal_sign_in",
+                        "office_phone",
+                        "office_form"
+                      ]
+                    },
+                    "wayLabel": {
+                      "type": "string"
+                    },
+                    "agreedOn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "takenBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "hasForm": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -202945,7 +203618,13 @@
                     "agreedByContact",
                     "autopay",
                     "autopayAt",
-                    "autopayWording"
+                    "autopayWording",
+                    "givenBy",
+                    "way",
+                    "wayLabel",
+                    "agreedOn",
+                    "takenBy",
+                    "hasForm"
                   ]
                 },
                 "wording": {
@@ -220820,6 +221499,181 @@
           "decisionNote"
         ]
       },
+      "RecordCustomerCardAgreementInput": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "way": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "signed_form"
+            ]
+          },
+          "agreedOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "wording": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 4000
+          },
+          "form": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "contentType": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "bytes": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "fileName",
+              "bytes"
+            ]
+          },
+          "formAttachmentId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "cardId",
+          "way",
+          "agreedOn",
+          "wording"
+        ]
+      },
+      "RecordCustomerCardAgreementOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "wording": {
+            "type": "string"
+          },
+          "agreedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agreedByContact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopay": {
+            "type": "boolean"
+          },
+          "autopayAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "autopayWording": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "givenBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "office"
+            ]
+          },
+          "way": {
+            "type": "string",
+            "enum": [
+              "portal_sign_in",
+              "office_phone",
+              "office_form"
+            ]
+          },
+          "wayLabel": {
+            "type": "string"
+          },
+          "agreedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "takenBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasForm": {
+            "type": "boolean"
+          },
+          "form": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "attachmentId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "fileName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "storageKey": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "attachmentId",
+              "fileName",
+              "storageKey"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "wording",
+          "agreedAt",
+          "agreedByContact",
+          "autopay",
+          "autopayAt",
+          "autopayWording",
+          "givenBy",
+          "way",
+          "wayLabel",
+          "agreedOn",
+          "takenBy",
+          "hasForm",
+          "form"
+        ]
+      },
       "RecordDeliveryInput": {
         "type": "object",
         "properties": {
@@ -237267,6 +238121,39 @@
               "string",
               "null"
             ]
+          },
+          "givenBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "office"
+            ]
+          },
+          "way": {
+            "type": "string",
+            "enum": [
+              "portal_sign_in",
+              "office_phone",
+              "office_form"
+            ]
+          },
+          "wayLabel": {
+            "type": "string"
+          },
+          "agreedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "takenBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasForm": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -237277,7 +238164,13 @@
           "agreedByContact",
           "autopay",
           "autopayAt",
-          "autopayWording"
+          "autopayWording",
+          "givenBy",
+          "way",
+          "wayLabel",
+          "agreedOn",
+          "takenBy",
+          "hasForm"
         ]
       },
       "SetPortalLayoutInput": {
@@ -257053,6 +257946,24 @@
           "daysUntilExpiry",
           "actBy",
           "statement"
+        ]
+      },
+      "WithdrawCustomerCardAgreementInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "WithdrawCustomerCardAgreementOutput": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
         ]
       },
       "WithdrawMyContinuingEducationInput": {

@@ -435,6 +435,12 @@ export interface AgreeToPortalCardChargesOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  givenBy: "customer" | "office";
+  way: "portal_sign_in" | "office_phone" | "office_form";
+  wayLabel: string;
+  agreedOn: string | null;
+  takenBy: string | null;
+  hasForm: boolean;
 }
 
 export interface AnnotateServiceReportInput {
@@ -12547,6 +12553,40 @@ export interface ListCustomRecordsOutput {
   hasMore: boolean;
 }
 
+export interface ListCustomerCardAgreementsOutput {
+  cards: Array<{
+    cardId: string;
+    kind: "card" | "bank_account";
+    label: string;
+    savedOn: string;
+    agreement: {
+      id: string;
+      cardId: string;
+      wording: string;
+      agreedAt: string;
+      agreedByContact: string | null;
+      autopay: boolean;
+      autopayAt: string | null;
+      autopayWording: string | null;
+      givenBy: "customer" | "office";
+      way: "portal_sign_in" | "office_phone" | "office_form";
+      wayLabel: string;
+      agreedOn: string | null;
+      takenBy: string | null;
+      hasForm: boolean;
+      form: {
+        attachmentId: string;
+        fileName: string | null;
+        storageKey: string;
+      } | null;
+    } | null;
+    wording: {
+      phone: string;
+      form: string;
+    };
+  }>;
+}
+
 export interface ListCustomerContactsOutput {
   contacts: Array<{
     id: string;
@@ -13168,6 +13208,11 @@ export interface ListInvoiceCardsOnFileOutput {
     agreedAt: string;
     agreedByContact: string | null;
     autopay: boolean;
+    givenBy: "customer" | "office";
+    way: "portal_sign_in" | "office_phone" | "office_form";
+    wayLabel: string;
+    agreedOn: string | null;
+    takenBy: string | null;
   }>;
   charges: Array<{
     id: string;
@@ -14136,6 +14181,12 @@ export interface ListPortalCardsOutput {
       autopay: boolean;
       autopayAt: string | null;
       autopayWording: string | null;
+      givenBy: "customer" | "office";
+      way: "portal_sign_in" | "office_phone" | "office_form";
+      wayLabel: string;
+      agreedOn: string | null;
+      takenBy: string | null;
+      hasForm: boolean;
     } | null;
     wording: {
       agreement: string;
@@ -17653,6 +17704,41 @@ export interface RecordClaimPaymentOutput {
   decisionNote: string | null;
 }
 
+export interface RecordCustomerCardAgreementInput {
+  cardId: string;
+  way: "phone" | "signed_form";
+  agreedOn: string;
+  wording: string;
+  form?: {
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  };
+  formAttachmentId?: string;
+}
+
+export interface RecordCustomerCardAgreementOutput {
+  id: string;
+  cardId: string;
+  wording: string;
+  agreedAt: string;
+  agreedByContact: string | null;
+  autopay: boolean;
+  autopayAt: string | null;
+  autopayWording: string | null;
+  givenBy: "customer" | "office";
+  way: "portal_sign_in" | "office_phone" | "office_form";
+  wayLabel: string;
+  agreedOn: string | null;
+  takenBy: string | null;
+  hasForm: boolean;
+  form: {
+    attachmentId: string;
+    fileName: string | null;
+    storageKey: string;
+  } | null;
+}
+
 export interface RecordDeliveryInput {
   customerId: string;
   propertyId: string;
@@ -21106,6 +21192,12 @@ export interface SetPortalCardAutopayOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  givenBy: "customer" | "office";
+  way: "portal_sign_in" | "office_phone" | "office_form";
+  wayLabel: string;
+  agreedOn: string | null;
+  takenBy: string | null;
+  hasForm: boolean;
 }
 
 export interface SetPortalLayoutInput {
@@ -25012,6 +25104,12 @@ export interface WithdrawComplianceDocumentOutput {
   statement: string;
 }
 
+export type WithdrawCustomerCardAgreementInput = Record<string, unknown>;
+
+export interface WithdrawCustomerCardAgreementOutput {
+  ok: true;
+}
+
 export type WithdrawMyContinuingEducationInput = Record<string, unknown>;
 
 export interface WithdrawMyContinuingEducationOutput {
@@ -26580,6 +26678,10 @@ export interface ListCustomRecordsInput {
   limit?: number;
 }
 
+export interface ListCustomerCardAgreementsInput {
+  id: string;
+}
+
 export interface ListCustomerContactsInput {
   id: string;
 }
@@ -27500,6 +27602,10 @@ export interface RecordAssetServiceParams {
 }
 
 export interface RecordClaimPaymentParams {
+  id: string;
+}
+
+export interface RecordCustomerCardAgreementParams {
   id: string;
 }
 
@@ -28432,6 +28538,11 @@ export interface WithdrawComplianceDocumentParams {
   id: string;
 }
 
+export interface WithdrawCustomerCardAgreementParams {
+  id: string;
+  agreementId: string;
+}
+
 export interface WithdrawMyContinuingEducationParams {
   id: string;
 }
@@ -28920,6 +29031,7 @@ export interface OperationTypes {
   listCustomFields: { input: ListCustomFieldsInput; output: ListCustomFieldsOutput };
   listCustomObjects: { input: ListCustomObjectsInput; output: ListCustomObjectsOutput };
   listCustomRecords: { input: ListCustomRecordsInput; output: ListCustomRecordsOutput };
+  listCustomerCardAgreements: { input: ListCustomerCardAgreementsInput; output: ListCustomerCardAgreementsOutput };
   listCustomerContacts: { input: ListCustomerContactsInput; output: ListCustomerContactsOutput };
   listCustomerDuplicatePairs: { input: ListCustomerDuplicatePairsInput; output: ListCustomerDuplicatePairsOutput };
   listCustomerPortalSessions: { input: ListCustomerPortalSessionsInput; output: ListCustomerPortalSessionsOutput };
@@ -29164,6 +29276,7 @@ export interface OperationTypes {
   recordCashTipFor: { input: RecordCashTipForInput; output: RecordCashTipForOutput };
   recordCertification: { input: RecordCertificationInput; output: RecordCertificationOutput };
   recordClaimPayment: { input: RecordClaimPaymentParams & RecordClaimPaymentInput; output: RecordClaimPaymentOutput };
+  recordCustomerCardAgreement: { input: RecordCustomerCardAgreementParams & RecordCustomerCardAgreementInput; output: RecordCustomerCardAgreementOutput };
   recordDelivery: { input: RecordDeliveryInput; output: RecordDeliveryOutput };
   recordExpense: { input: RecordExpenseInput; output: RecordExpenseOutput };
   recordInspection: { input: RecordInspectionInput; output: RecordInspectionOutput };
@@ -29495,6 +29608,7 @@ export interface OperationTypes {
   waiveObligation: { input: WaiveObligationParams & WaiveObligationInput; output: WaiveObligationOutput };
   withdrawChangeOrder: { input: WithdrawChangeOrderParams & WithdrawChangeOrderInput; output: WithdrawChangeOrderOutput };
   withdrawComplianceDocument: { input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput; output: WithdrawComplianceDocumentOutput };
+  withdrawCustomerCardAgreement: { input: WithdrawCustomerCardAgreementParams & WithdrawCustomerCardAgreementInput; output: WithdrawCustomerCardAgreementOutput };
   withdrawMyContinuingEducation: { input: WithdrawMyContinuingEducationParams & WithdrawMyContinuingEducationInput; output: WithdrawMyContinuingEducationOutput };
   withdrawPortalCardAgreement: { input: WithdrawPortalCardAgreementParams & WithdrawPortalCardAgreementInput; output: WithdrawPortalCardAgreementOutput };
   withdrawTimeOff: { input: WithdrawTimeOffParams & WithdrawTimeOffInput; output: WithdrawTimeOffOutput };
@@ -29975,6 +30089,7 @@ export const OPERATIONS = {
   listCustomFields: { method: "GET", path: "/v1/custom-fields", pathParams: [], queryParams: ["entityType"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCustomObjects: { method: "GET", path: "/v1/custom-objects", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read"] },
   listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","fields","customerId","propertyId","jobId","equipmentId","invoiceId","membershipId","linkedRecordId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
+  listCustomerCardAgreements: { method: "GET", path: "/v1/customers/{id}/card-agreements", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listCustomerContacts: { method: "GET", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
@@ -30219,6 +30334,7 @@ export const OPERATIONS = {
   recordCashTipFor: { method: "POST", path: "/v1/cash-tips", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
   recordCertification: { method: "POST", path: "/v1/certifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   recordClaimPayment: { method: "POST", path: "/v1/claims/{id}/payments", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect","invoice:read"] },
+  recordCustomerCardAgreement: { method: "POST", path: "/v1/customers/{id}/card-agreements", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:charge_saved"] },
   recordDelivery: { method: "POST", path: "/v1/deliveries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordExpense: { method: "POST", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   recordInspection: { method: "POST", path: "/v1/inspections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -30550,6 +30666,7 @@ export const OPERATIONS = {
   waiveObligation: { method: "POST", path: "/v1/obligations/{id}/waive", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   withdrawChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   withdrawComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
+  withdrawCustomerCardAgreement: { method: "POST", path: "/v1/customers/{id}/card-agreements/{agreementId}/withdraw", pathParams: ["id","agreementId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:charge_saved"] },
   withdrawMyContinuingEducation: { method: "POST", path: "/v1/me/continuing-education/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   withdrawPortalCardAgreement: { method: "POST", path: "/v1/portal/cards/{cardId}/agreement/withdraw", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   withdrawTimeOff: { method: "POST", path: "/v1/time-off/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
@@ -34803,6 +34920,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * A customer's saved cards, their agreement to be charged, and the words to record one under.
+   *
+   * GET /v1/customers/{id}/card-agreements. Needs payment:read.
+   */
+  listCustomerCardAgreements(input: ListCustomerCardAgreementsInput, options?: CallOptions): Promise<ListCustomerCardAgreementsOutput> {
+    return this.call("listCustomerCardAgreements", input, options);
+  }
+
+  /**
    * The people at a customer.
    *
    * GET /v1/customers/{id}/contacts. Needs customer:read.
@@ -36996,6 +37122,15 @@ export abstract class GeneratedOperations {
    */
   recordClaimPayment(input: RecordClaimPaymentParams & RecordClaimPaymentInput, options?: CallOptions): Promise<RecordClaimPaymentOutput> {
     return this.call("recordClaimPayment", input, options);
+  }
+
+  /**
+   * Record that a customer agreed, by phone or on a signed form, to be charged on a saved card.
+   *
+   * POST /v1/customers/{id}/card-agreements. Needs payment:charge_saved.
+   */
+  recordCustomerCardAgreement(input: RecordCustomerCardAgreementParams & RecordCustomerCardAgreementInput, options?: CallOptions): Promise<RecordCustomerCardAgreementOutput> {
+    return this.call("recordCustomerCardAgreement", input, options);
   }
 
   /**
@@ -39975,6 +40110,15 @@ export abstract class GeneratedOperations {
    */
   withdrawComplianceDocument(input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput, options?: CallOptions): Promise<WithdrawComplianceDocumentOutput> {
     return this.call("withdrawComplianceDocument", input, options);
+  }
+
+  /**
+   * Record that a customer asked to stop being charged on a saved card.
+   *
+   * POST /v1/customers/{id}/card-agreements/{agreementId}/withdraw. Needs payment:charge_saved.
+   */
+  withdrawCustomerCardAgreement(input: WithdrawCustomerCardAgreementParams & WithdrawCustomerCardAgreementInput, options?: CallOptions): Promise<WithdrawCustomerCardAgreementOutput> {
+    return this.call("withdrawCustomerCardAgreement", input, options);
   }
 
   /**

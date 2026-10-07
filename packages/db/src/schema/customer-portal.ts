@@ -1,11 +1,12 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, integer, index, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, index, timestamp, uniqueIndex, date, check } from "drizzle-orm/pg-core";
 import { pk, money } from "./_shared";
 import { organization, user } from "./tenancy";
 import { contact, customer } from "./crm";
 import { invoice } from "./billing";
 import { integrationConnection } from "./integrations";
 import { portalGrant } from "./portal";
+import { attachment } from "./platform";
 
 /**
  * A CARD THE CUSTOMER SAVED, AND NOTHING OF THE CARD ITSELF.
@@ -122,8 +123,38 @@ export const paymentAgreement = pgTable("payment_agreement", {
   /** The words the customer was shown and agreed to, exactly. */
   wording: text("wording").notNull(),
   agreedAt: timestamp("agreed_at", { withTimezone: true }).notNull().defaultNow(),
-  /** How they agreed. `portal_sign_in` (ticked and pressed Agree, signed in to their account) is the only way today. */
+  /**
+   * How they agreed: `portal_sign_in` (ticked and pressed Agree, signed in
+   * to their account), `office_phone` (said yes on the phone to the product's
+   * script, which the office recorded) or `office_form` (signed a form the
+   * office scanned, kept in `form_attachment_id`).
+   */
   agreedVia: text("agreed_via").notNull(),
+  /**
+   * Who put the agreement on record: `customer` from their own sign in, or
+   * `office` when a person at the company recorded what the customer said or
+   * signed. An office agreement is shown to the customer in their portal like
+   * their own, and they can withdraw it there.
+   */
+  givenBy: text("given_by").notNull().default("customer"),
+  /** The day the customer gave it, in the company's day, for an agreement the office recorded. Null for the customer's own. */
+  agreedOn: date("agreed_on", { mode: "string" }),
+  /** The person at the company who took it, for an agreement the office recorded. */
+  takenByUserId: uuid("taken_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * Their name as it was when they took it. Kept on the row because the
+   * customer's portal names who took it (a first name) and a portal sign in
+   * cannot read the company's people, and because an agreement a dispute is
+   * decided on should say who took it even after that person has left.
+   */
+  takenByName: text("taken_by_name"),
+  /**
+   * The scanned form the customer signed, an attachment on the customer
+   * uploaded through the ordinary attachment path. Required for `office_form`
+   * and nothing else. Not deleted along with anything: an agreement a dispute
+   * may be decided on does not lose its paper.
+   */
+  formAttachmentId: uuid("form_attachment_id").references(() => attachment.id),
   /** The sign in they agreed from. */
   grantId: uuid("grant_id").references(() => portalGrant.id, { onDelete: "set null" }),
   /** The contact who agreed, when a contact signed in as the customer. */
@@ -134,10 +165,12 @@ export const paymentAgreement = pgTable("payment_agreement", {
   autopayAt: timestamp("autopay_at", { withTimezone: true }),
   autopayWording: text("autopay_wording"),
   autopayGrantId: uuid("autopay_grant_id").references(() => portalGrant.id, { onDelete: "set null" }),
-  /** When it stopped: `customer` withdrew it, or `card_removed` because the card itself was taken off. */
+  /** When it stopped: `customer` withdrew it, `office` because they told the company to stop, or `card_removed` because the card itself was taken off. */
   withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
   withdrawnReason: text("withdrawn_reason"),
   withdrawnGrantId: uuid("withdrawn_grant_id").references(() => portalGrant.id, { onDelete: "set null" }),
+  /** The person at the company who recorded a withdrawal the customer asked for by phone or in writing. */
+  withdrawnByUserId: uuid("withdrawn_by_user_id").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -148,6 +181,18 @@ export const paymentAgreement = pgTable("payment_agreement", {
   autopayIdx: uniqueIndex("payment_agreement_autopay_idx").on(t.organizationId, t.customerId)
     .where(sql`${t.withdrawnAt} is null and ${t.autopayAt} is not null`),
   customerIdx: index("payment_agreement_customer_idx").on(t.organizationId, t.customerId),
+  /**
+   * An agreement on paper is the paper: no scanned form, no agreement. Held
+   * by the database as well as the service, because the service is the only
+   * thing that writes this table today and a second writer should not be
+   * able to make a paper agreement out of nothing.
+   */
+  paperNeedsForm: check("payment_agreement_paper_needs_form",
+    sql`${t.agreedVia} <> 'office_form' or ${t.formAttachmentId} is not null`),
+  /** Only the office takes an agreement by phone or on paper, and only the customer signs in. */
+  givenByMatchesWay: check("payment_agreement_given_by_way",
+    sql`(${t.givenBy} = 'customer' and ${t.agreedVia} = 'portal_sign_in')
+      or (${t.givenBy} = 'office' and ${t.agreedVia} in ('office_phone', 'office_form') and ${t.agreedOn} is not null)`),
 }));
 
 /**

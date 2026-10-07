@@ -13,7 +13,19 @@ export interface CardRow {
   expMonth: number | null;
   expYear: number | null;
   /** Whether the customer lets the company charge it, and pays bills automatically with it. */
-  agreement?: { agreedAt: string; autopay: boolean; agreedByContact: string | null } | null;
+  agreement?: {
+    agreedAt: string;
+    autopay: boolean;
+    agreedByContact: string | null;
+    /** `office` when somebody at the company recorded it for them, from a phone call or a signed form. */
+    givenBy?: "customer" | "office";
+    /** "Agreed by phone", "Agreed on a signed form". */
+    wayLabel?: string;
+    /** The day they agreed, for one the office recorded. */
+    agreedOn?: string | null;
+    /** First name of the person who took it. */
+    takenBy?: string | null;
+  } | null;
   /** The words they would agree to, exactly as the server checks them. */
   wording?: { agreement: string; autopay: string };
 }
@@ -246,6 +258,13 @@ function CardAgreement({ card, wording, actions, company }: {
             {agreement.agreedByContact ? ` (agreed by ${agreement.agreedByContact})` : ""}.
             {agreement.autopay ? " Your bills are paid with it automatically when they are issued." : ""}
           </p>
+          {agreement.givenBy === "office" && (
+            <p className="mt-1 text-xs text-ink-500">
+              {agreement.wayLabel ?? "Agreed with the office"}
+              {agreement.agreedOn ? ` on ${agreement.agreedOn}` : ""}
+              {agreement.takenBy ? `, taken by ${agreement.takenBy}` : ""}. You can stop this at any time.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
             {agreement.autopay ? (
               <button type="button" disabled={busy} onClick={() => void run(() => actions.autopay(card.id, false))}
