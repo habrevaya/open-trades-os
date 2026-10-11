@@ -161,9 +161,12 @@ test("Containers: the facility's fee is offered when a hire passes it on, added 
   await expect(second.getByRole("button", { name: "Raise invoice with the disposal fee" })).toBeVisible();
   await expect(second.getByRole("button", { name: "Raise invoice without the disposal fee" })).toBeVisible();
 
-  // Asked for: one invoice for both cans with the fee of each on it.
+  // Asked for: one invoice for both cans with the fee of each on it. The form goes with the invoice,
+  // so what is left on the row is the record that it was raised and that the fee went on.
   await second.getByRole("button", { name: "Raise invoice with the disposal fee" }).click();
-  await expect(second.getByRole("status").filter({ hasText: "Draft invoice" })).toContainText("for 2 containers");
-  await expect(second.getByRole("status").filter({ hasText: "Draft invoice" })).toContainText("The disposal fee is on it.");
   await expect(second).toContainText("Disposal fee passed on: 150.00");
+  await expect(second).toContainText("Invoiced");
+  await expect(second.getByRole("button", { name: "Raise invoice with the disposal fee" })).toHaveCount(0);
+  // And the first can of the chain is on the same invoice, so it offers nothing more.
+  await expect(first).toContainText("Invoiced");
 });

@@ -204,6 +204,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     address_key: "The same normalised address as on a property, for a branch or yard. Nothing "
       + "secret in it.",
   },
+  disposal_facility: {
+    address_key: "The same normalised address as on a property, for a landfill or transfer station. "
+      + "A key in the sense of a lookup, not a credential.",
+  },
   marketing_channel: {
     source_key: "Which lead source in the catalogue the channel is, such as google_ads. A word "
       + "from a public list, not a credential, and the export is unreadable as marketing without it.",
