@@ -1,6 +1,6 @@
-import { asc, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customObjects, type reporting } from "@opentradesos/core";
+import { customObjects, plugins, type reporting } from "@opentradesos/core";
 import { CATALOGUE } from "./report-catalogue";
 
 /**
@@ -263,7 +263,7 @@ export async function catalogueFor(tx: Database, _organizationId: string): Promi
   const kinds = await tx.select().from(schema.customObjectType)
     .where(isNull(schema.customObjectType.deletedAt))
     .orderBy(asc(schema.customObjectType.sortOrder), asc(schema.customObjectType.label));
-  if (fields.length === 0 && kinds.length === 0) return CATALOGUE;
+  if (fields.length === 0 && kinds.length === 0) return withReportTypes(tx, CATALOGUE);
 
   const on = (entity: string) => fields.filter((field) => field.entityType === entity);
   const extended = CATALOGUE.map((dataset) => {
@@ -284,5 +284,31 @@ export async function catalogueFor(tx: Database, _organizationId: string): Promi
   const own = kinds
     .map((kind) => kindDataset(kind, on(customObjects.entityTypeFor(kind.key)), on))
     .filter((dataset): dataset is reporting.Dataset => dataset !== null);
-  return [...extended, ...own];
+  return withReportTypes(tx, [...extended, ...own]);
+}
+
+/**
+ * AND THE REPORT TYPES CONNECTED APPLICATIONS REGISTERED (M28), each a cut
+ * of one of the datasets above built by core from the dataset's own
+ * fragments, so it adds no SQL of its own. Only those in force: removed,
+ * or from an application that is turned off, and it is not offered, and a
+ * saved report on it no longer runs. One whose base or columns have gone
+ * since (a field retired) is left out rather than offered with a column
+ * missing.
+ */
+async function withReportTypes(tx: Database, catalogue: reporting.Dataset[]): Promise<reporting.Dataset[]> {
+  const rows = await tx.select({ plugin: schema.appPlugin })
+    .from(schema.appPlugin)
+    .leftJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appPlugin.appId))
+    .where(and(
+      eq(schema.appPlugin.kind, "report_type"),
+      isNull(schema.appPlugin.retiredAt),
+      or(isNull(schema.appPlugin.appId), eq(schema.connectedApp.status, "active")),
+    ))
+    .orderBy(asc(schema.appPlugin.name));
+  if (rows.length === 0) return catalogue;
+  const types = rows
+    .map(({ plugin }) => plugins.reportTypeDataset(plugin.key, plugin.definition as unknown as plugins.ReportType, catalogue))
+    .filter((dataset): dataset is reporting.Dataset => dataset !== null);
+  return [...catalogue, ...types];
 }

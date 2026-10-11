@@ -136,8 +136,13 @@ export interface RateOffer {
   because: string[];
 }
 
-/** The week's hours from the rows online booking keeps, or null when none are declared. */
-async function weekOf(tx: Database): Promise<holidayRules.WeekHours | null> {
+/**
+ * The week's hours from the rows online booking keeps, or null when none are
+ * declared. Exported for a pricing rule on work outside the company's hours
+ * (`services/plugins.ts`), so "outside your hours" means the same thing on
+ * the rate offered here and on the rule.
+ */
+export async function weekOf(tx: Database): Promise<holidayRules.WeekHours | null> {
   const rows = await tx.select().from(schema.businessHours);
   if (rows.length === 0) return null;
   return Array.from({ length: 7 }, (_, dow) => {

@@ -33,6 +33,7 @@ import {
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
   me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
+  plugins,
 } from "../services/index";
 
 /**
@@ -773,6 +774,15 @@ export const handlers = {
   reviewAppRequest: apps.handlers.reviewAppRequest,
   approveAppRequest: apps.handlers.approveAppRequest,
   refuseAppRequest: apps.handlers.refuseAppRequest,
+  listPlugins: plugins.handlers.listPlugins,
+  registerJobWorkflow: plugins.handlers.registerJobWorkflow,
+  retireJobWorkflow: plugins.handlers.retireJobWorkflow,
+  registerPricingRule: plugins.handlers.registerPricingRule,
+  retirePricingRule: plugins.handlers.retirePricingRule,
+  registerReportType: plugins.handlers.registerReportType,
+  retireReportType: plugins.handlers.retireReportType,
+  getJobStages: plugins.handlers.getJobStages,
+  listReportDatasets: plugins.handlers.listReportDatasets,
 
   listSafetyMeetings: safety.handlers.listSafetyMeetings,
   createSafetyMeeting: safety.handlers.createSafetyMeeting,

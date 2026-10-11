@@ -8,6 +8,20 @@ import { priceBookItemVersion } from "./pricebook";
 import { taxRate } from "./tax";
 
 /**
+ * One pricing rule's effect on one line, as `core/plugins` recorded it.
+ * `amount` is signed: below zero it took money off, above zero it added it.
+ */
+export interface PricingRuleRecord {
+  ruleId: string;
+  name: string;
+  appName: string;
+  version: number;
+  kind: string;
+  amount: string;
+  unitPriceBefore: string;
+}
+
+/**
  * MONEY
  *
  * Rules that are not negotiable, enforced here and tested in packages/core:
@@ -258,6 +272,19 @@ export const estimateLine = pgTable("estimate_line", {
    */
   memberAgreementId: uuid("member_agreement_id"),
   memberDiscountAmount: money("member_discount_amount").notNull().default("0"),
+  /**
+   * THE PRICING RULES THAT TOUCHED THIS LINE, AND WHAT EACH DID.
+   *
+   * A connected application can register pricing rules (`core/plugins`),
+   * applied after member pricing and before tax. What a rule took off is
+   * already in `discount_amount` and what it added is already in
+   * `unit_price`, so every total and the ledger read them as they always
+   * have; this says which rule, from which application and at which
+   * version, how much, and the unit price before any rule raised it,
+   * because "why is this line what it is" has to be answered by the line.
+   * Carried onto the invoice on conversion, with the price it describes.
+   */
+  pricingRules: jsonb("pricing_rules").$type<PricingRuleRecord[]>().notNull().default([]),
   taxable: boolean("taxable").notNull().default(true),
   /** The rate AS APPLIED, carried onto the invoice on conversion. */
   taxRate: rate("tax_rate").notNull().default("0"),
@@ -483,6 +510,8 @@ export const invoiceLine = pgTable("invoice_line", {
   /** See `estimate_line.member_agreement_id`. Carried across on conversion. */
   memberAgreementId: uuid("member_agreement_id"),
   memberDiscountAmount: money("member_discount_amount").notNull().default("0"),
+  /** See `estimate_line.pricing_rules`. */
+  pricingRules: jsonb("pricing_rules").$type<PricingRuleRecord[]>().notNull().default([]),
   taxable: boolean("taxable").notNull().default(true),
   /** The rate AS APPLIED. Never recomputed on read. */
   taxRate: rate("tax_rate").notNull().default("0"),

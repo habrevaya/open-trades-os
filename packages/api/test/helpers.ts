@@ -102,6 +102,11 @@ const ORDER = [
   "visit", "entitlement", "job_party", "job",
   /** A card's labour rate points at the job type it is for and at its card, so it goes before both. */
   "rate_card_labour_rate",
+  /**
+   * What a connected application registered (M28): a job workflow points at
+   * its job type and every plugin at its application, so they go before both.
+   */
+  "app_plugin_version", "app_plugin",
   "job_type",
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",

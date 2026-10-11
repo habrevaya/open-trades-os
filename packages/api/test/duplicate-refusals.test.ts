@@ -150,6 +150,10 @@ const REFUSED: Record<string, Refused> = {
   technician_skill_open_idx: {
     file: "people-records.ts", how: "check", says: "already has",
   },
+  /** A second application, or a second key of one, deciding how one job type moves. */
+  app_plugin_job_type_idx: {
+    file: "plugins.ts", how: "check", says: "Only one workflow per job type can be in force",
+  },
 };
 
 /**
@@ -184,6 +188,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "The event log's own per-organization sequence, allocated inside the append.",
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",
   workflow_version_idx: "The next version number, assigned on publish.",
+  app_plugin_key_idx: "An application's key for its own plugin. Registering a key reads it first and writes the next version onto the same row, so nothing inserts a second; two registrations racing is the only way to meet this, and that is a bug to see.",
+  app_plugin_version_idx: "The next version number, assigned on registration.",
   workflow_step_run_idx: "One row per step of a run, keyed by the run and the step.",
   stock_tracking_item_idx:
     "One tracking mode per item. Setting it reads the row first and updates it in place, so nothing inserts a second.",

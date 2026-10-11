@@ -35,6 +35,7 @@ export * as agreementNotices from "./agreement-notices";
 export * as entitlements from "./entitlements";
 export * as commercial from "./commercial";
 export * as apps from "./apps";
+export * as plugins from "./plugins";
 export * as oauth from "./oauth";
 export * as comms from "./comms";
 export * as commsInbound from "./comms-inbound";

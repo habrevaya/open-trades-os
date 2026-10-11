@@ -573,6 +573,8 @@ export const getDispatchBoard = defineRoute({
         routeName: z.string().nullable(),
         /** Locked by the office: the rebalance and the optimiser leave it where it is. */
         locked: z.boolean(),
+        /** The stage its job is at, when a connected application registered a workflow for the job's type. */
+        stage: z.string().nullable().optional(),
       })),
     })),
     /**
@@ -599,6 +601,7 @@ export const getDispatchBoard = defineRoute({
         isLate: z.boolean(),
         routeName: z.string().nullable(),
         locked: z.boolean(),
+        stage: z.string().nullable().optional(),
       })),
     })),
     /** Service routes with stops on the day, how many are done, and who runs each. */
@@ -634,6 +637,7 @@ export const getDispatchBoard = defineRoute({
        * order it always had.
        */
       priorityPlan: z.string().nullable(),
+      stage: z.string().nullable().optional(),
     })),
   }),
 });

@@ -24,6 +24,7 @@ import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
 import * as customObjects from "./custom-objects";
+import * as plugins from "./plugins";
 
 
 /**
@@ -73,6 +74,8 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       visit: schema.visit,
       jobNumber: schema.job.number,
       summary: schema.job.summary,
+      jobTypeId: schema.job.jobTypeId,
+      jobStatus: schema.job.status,
       customerName: schema.customer.name,
       customerId: schema.job.customerId,
       propertyId: schema.job.propertyId,
@@ -145,10 +148,20 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         !["completed", "cancelled", "no_show", "completed_after_cancellation"].includes(v.status),
       );
 
+    /**
+     * THE STAGE EACH JOB IS AT, when a connected application registered a
+     * workflow for its type (`services/plugins.ts`), so the board says
+     * "Permit" rather than only "scheduled". Null for a type with none.
+     */
+    const stages = await plugins.stageNamesWithin(tx, rows.map((r) => ({
+      jobId: r.visit.jobId, jobTypeId: r.jobTypeId, status: r.jobStatus,
+    })));
+
     const shape = (r: (typeof rows)[number]) => ({
       id: r.visit.id,
       jobNumber: r.jobNumber,
       summary: r.summary,
+      stage: stages.get(r.visit.jobId) ?? null,
       status: r.visit.status,
       windowStart: r.visit.windowStart?.toISOString() ?? null,
       windowEnd: r.visit.windowEnd?.toISOString() ?? null,

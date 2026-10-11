@@ -124,6 +124,35 @@ export interface Dataset {
    * what it summed is a number nobody can check. See `drill.ts`.
    */
   records: RecordShape;
+  /**
+   * The product's dataset this one is cut from, for a report type a
+   * connected application registered (`plugins/report-type.ts`). Every rule
+   * that is decided by which dataset a report reads (its scope, its branch,
+   * its soft deletes, whether it can go to a customer) is decided by this
+   * one's base, so a report type reaches exactly the records its base does.
+   */
+  base?: string;
+  /**
+   * Filters that are part of the dataset rather than of a report on it,
+   * bound as parameters like any filter and held to the permission of the
+   * dimension each filters on, as a report's own filters are.
+   */
+  fixedFilters?: FixedFilter[];
+}
+
+/**
+ * A filter a report type always carries, with the base dimension it filters
+ * on copied in (its expression and its permission), because the dimension
+ * need not be one the type offers to group by.
+ */
+export interface FixedFilter {
+  dimension: string;
+  label: string;
+  /** The base dimension's expression, written by us. */
+  sql: string;
+  permission?: Permission;
+  op: "eq" | "neq" | "in";
+  value: string | string[];
 }
 
 export interface ReportDefinition {
@@ -220,12 +249,21 @@ export function resolveReport(
    * grouping is. Counting the jobs whose technician's "Background check" is
    * "Failed" tells you who failed it as surely as grouping by it would.
    */
+  /**
+   * A report type's own filters count as well: a type narrowed to the jobs
+   * whose technician's "Background check" failed reveals the same thing to
+   * whoever runs it, so they need what filtering by it needs. Each carries
+   * its base dimension's permission, because the dimension need not be one
+   * the type offers.
+   */
+  const fixed = dataset.fixedFilters ?? [];
   const filtered = (definition.filters ?? [])
     .map((filter) => dataset.dimensions.find((d) => d.key === filter.dimension));
   const needed = [
     dataset.permission,
     ...dimensions.flatMap((d) => (d!.permission ? [d!.permission] : [])),
     ...filtered.flatMap((d) => (d?.permission ? [d.permission] : [])),
+    ...fixed.flatMap((f) => (f.permission ? [f.permission] : [])),
     ...measures.flatMap((m) => (m!.permission ? [m!.permission] : [])),
   ];
   const missing = [...new Set(needed)].filter((p) => !held.has(p));

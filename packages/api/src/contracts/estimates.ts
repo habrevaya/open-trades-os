@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup, CompanyContact } from "./common";
+import { AppliedPricingRule, Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup, CompanyContact } from "./common";
 import { CustomFieldListFilter } from "./custom-fields";
 
 export const EstimateStatus = z.enum([
@@ -22,6 +22,8 @@ export const EstimateLine = z.object({
    */
   memberDiscountAmount: MoneyString.optional(),
   memberAgreementId: Uuid.nullable().optional(),
+  /** The company's pricing rules that touched this line, worked out by the server as it is priced. */
+  pricingRules: z.array(AppliedPricingRule).optional(),
   taxable: z.boolean(),
   /** The rate AS APPLIED, frozen on the line and carried onto the invoice. */
   taxRate: RateString,
