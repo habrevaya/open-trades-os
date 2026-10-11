@@ -352,4 +352,10 @@ export const equipment = pgTable("equipment", {
   serialIdx: index("equipment_serial_idx").on(t.organizationId, t.serialNumber),
   parentIdx: index("equipment_parent_idx").on(t.parentEquipmentId),
   tagIdx: index("equipment_tag_idx").on(t.organizationId, t.propertyId, t.tag),
+  /**
+   * A unit brought in from another system is one record per source record,
+   * like every other importable table, so a spreadsheet loaded twice finds
+   * the units it already loaded rather than registering them again.
+   */
+  sourceRefIdx: sourceRefIndex("equipment_source_ref_idx", t),
 }));

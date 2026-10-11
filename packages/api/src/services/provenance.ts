@@ -20,7 +20,7 @@ export function provenance(ref: ExternalRef | undefined): { sourceSystem?: strin
 
 /** The tables a caller may give an `externalRef`, by the name in SQL. */
 type Importable =
-  | "customer" | "property" | "price_book_item" | "job" | "visit" | "estimate" | "invoice" | "payment";
+  | "customer" | "property" | "price_book_item" | "job" | "visit" | "estimate" | "invoice" | "payment" | "equipment";
 
 /**
  * Refuse a second record for the same source record, naming the first.

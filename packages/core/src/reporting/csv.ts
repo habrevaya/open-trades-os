@@ -63,3 +63,14 @@ export function toCsv(
   }
   return `${lines.join("\r\n")}\r\n`;
 }
+
+/**
+ * One cell of a file a person typed, written back out: a plain number stays a
+ * number, and anything else a spreadsheet would run as a formula is text.
+ * For a writer that has no column types, such as the rows of an upload handed
+ * back to be fixed.
+ */
+export function csvCell(value: string): string {
+  if (/^-?\d+(\.\d+)?$/.test(value)) return value;
+  return cell(FORMULA.test(value) ? `'${value}` : value);
+}

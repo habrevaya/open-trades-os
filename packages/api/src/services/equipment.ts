@@ -2,8 +2,9 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { field, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext, type ExternalRef,
 } from "./context";
+import { assertUnclaimed, provenance } from "./provenance";
 
 /**
  * THE EQUIPMENT AT AN ADDRESS
@@ -184,6 +185,8 @@ export interface EquipmentInput {
    * duplicate whatever anybody confirms.
    */
   serialElsewhereConfirmed?: boolean | undefined;
+  /** Where this came from in another system, once per source record. See `ExternalRef`. */
+  externalRef?: ExternalRef | undefined;
 }
 
 /* -------------------------------------------------------------- the register */
@@ -199,6 +202,7 @@ export async function register(ctx: ServiceContext, input: EquipmentInput) {
       .where(and(eq(schema.property.id, input.propertyId), isNull(schema.property.deletedAt)))
       .limit(1);
     if (!property) throw new NotFoundError("Property");
+    await assertUnclaimed(tx, "equipment", input.externalRef);
 
     const serial = input.serialNumber?.trim() || null;
     if (serial) {
@@ -250,6 +254,7 @@ export async function register(ctx: ServiceContext, input: EquipmentInput) {
       warrantyLaborExpiresOn: input.warrantyLaborExpiresOn ?? null,
       location: input.location?.trim() || null,
       attributes: input.attributes ?? {},
+      ...provenance(input.externalRef),
     }).returning();
 
     await audit(tx, ctx, "equipment.registered", "equipment", row!.id, null, row!);

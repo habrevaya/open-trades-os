@@ -210,6 +210,16 @@ export const JobCreate = z.object({
     externalReference: z.string().max(100).optional(),
     customerResponsibility: MoneyString.optional(),
   }).optional(),
+  /**
+   * A job that already happened, recorded as it ended: finished at
+   * `completedAt`, or called off at `cancelledAt`, never both and never with
+   * a visit. More than a week back is history and needs `data:import`, and a
+   * job recorded as history announces nothing: no "created" event and no
+   * "completed" one, so no workflow asks a customer about work from three
+   * years ago.
+   */
+  completedAt: z.string().datetime().optional(),
+  cancelledAt: z.string().datetime().optional(),
   /** Schedule the first visit inline. Most bookings do. */
   visit: z.object({
     windowStart: z.string().datetime(),
@@ -287,6 +297,7 @@ export const updateJob = defineRoute({
   permissions: ["job:write"],
   input: JobCreate.partial().omit({
     visit: true, parties: true, coverage: true, number: true, externalRef: true, callId: true,
+    completedAt: true, cancelledAt: true,
   }).extend({
     id: Uuid,
     status: JobStatus.optional(),

@@ -160,6 +160,8 @@ const REFUSED: Record<string, Refused> = {
  */
 const LEFT_TO_THE_DATABASE: Record<string, string> = {
   connected_app_claim_idx: "A claim secret is random and the app's own; a retry with the same one is read first and answered with the first request, and the insert is on conflict do nothing for two retries racing.",
+  import_mapping_name_idx: "Written with on conflict do update: saving a mapping under a name it already has replaces it, which is what the screen says it does.",
+  import_row_number_idx: "A row's place in its file, numbered by the upload that wrote every row at once. Nobody types one.",
   backup_destination_org_idx: "One destination per company, and saving reads it first and updates it in place. Nobody types a duplicate; two saves racing is the only way to meet this, and that is a bug to see.",
   journal_entry_number_idx: "Allocated by the numbering service, in its own sequence.",
   financing_application_external_idx: "The lender's own id for an application, written once when the lender opens it. Nobody types it.",

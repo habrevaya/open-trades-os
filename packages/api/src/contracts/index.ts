@@ -67,6 +67,7 @@ import { campaignRoutes } from "./campaigns";
 import { rentalRoutes } from "./rentals";
 import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
+import { importRoutes } from "./imports";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
 import { visitRoutes } from "./visits";
@@ -104,6 +105,7 @@ import { searchRoutes } from "./search";
 
 export * from "./common";
 export * from "./export";
+export * from "./imports";
 export * from "./visits";
 export * from "./customers";
 export * from "./properties";
@@ -287,6 +289,7 @@ export const routes = {
   ...rentalRoutes,
   ...networkRoutes,
   ...exportRoutes,
+  ...importRoutes,
   ...externalWorkRoutes,
   ...kpiRoutes,
   ...visitRoutes,
