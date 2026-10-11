@@ -1,6 +1,6 @@
 import { and, asc, eq, desc, gte, lt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { permissionsFor, estimate as est, ledger, membership, money as m, tax, time } from "@opentradesos/core";
+import { permissionsFor, estimate as est, ledger, membership, money as m, plugins as pluginRules, tax, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -19,6 +19,7 @@ import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 import { emit } from "./events";
 import * as marketing from "./marketing";
 import * as taxRates from "./tax";
+import * as plugins from "./plugins";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
@@ -266,6 +267,7 @@ export async function createIn(
      * day it is written. History keeps whatever it was given.
      */
     const estimateRate = await estimateRateWithin(tx, ctx, input, issuedOn, historical || Boolean(input.externalRef));
+    const priceByRules = !historical && !input.externalRef && !onSite;
 
     for (const [index, option] of input.options.entries()) {
       const resolved = option.lines.map((line, lineIndex) => {
@@ -290,6 +292,7 @@ export async function createIn(
           itemId: version?.itemId ?? null,
           memberDiscountAmount: "0",
           memberAgreementId: null as string | null,
+          pricingRules: [] as schema.PricingRuleRecord[],
         };
       });
 
@@ -324,6 +327,33 @@ export async function createIn(
           line.memberDiscountAmount = m.toString(amount);
           line.memberAgreementId = member.agreementId;
           line.discountAmount = m.toString(m.add(usd(line.discountAmount), amount));
+        }
+      }
+
+      /**
+       * THE COMPANY'S PRICING RULES, after member pricing and before tax, as
+       * an invoice's are (`services/plugins.ts`): on lines from the price
+       * book, an amount or a minimum spread over the lines that are bought
+       * (an optional line left unticked may never be), and each line saying
+       * which rule did what. Not on history, and not on an estimate built on
+       * a technician's phone, whose figure the customer has already seen.
+       */
+      if (priceByRules) {
+        const ruled = await plugins.applyRulesWithin(tx, ctx.actor.organizationId, {
+          customerId: input.customerId, jobId: input.jobId ?? null,
+        }, resolved.map((l) => ({
+          quantity: l.quantity,
+          unitPrice: usd(l.unitPrice),
+          discountAmount: usd(l.discountAmount),
+          touchable: l.versionId !== null,
+          counts: !l.isOptional || l.isSelected,
+        })));
+        for (const [i, line] of resolved.entries()) {
+          const after = ruled?.[i];
+          if (!after || after.applied.length === 0) continue;
+          line.unitPrice = m.toString(after.unitPrice);
+          line.discountAmount = m.toString(after.discountAmount);
+          line.pricingRules = after.applied;
         }
       }
 
@@ -362,10 +392,11 @@ export async function createIn(
          * when it set the plan's rate, so it is not checked against what this
          * person may give away. Only what they typed is.
          */
+        /** Nor is a pricing rule's, which the company's own application decided. */
         discount: m.subtract(
           computed.totals.discountTotal,
           m.round(m.sum(resolved.filter((l) => !l.isOptional || l.isSelected)
-            .map((l) => usd(l.memberDiscountAmount)), "USD"), 2),
+            .map((l) => m.add(usd(l.memberDiscountAmount), pluginRules.ruleDiscount(l.pricingRules))), "USD"), 2),
         ),
         subtotal: computed.totals.subtotal,
       });
@@ -398,6 +429,7 @@ export async function createIn(
         discountAmount: line.discountAmount,
         memberAgreementId: line.memberAgreementId,
         memberDiscountAmount: line.memberDiscountAmount,
+        pricingRules: line.pricingRules,
         taxable: line.taxable,
         taxRate: line.taxRate,
         taxAmount: m.toString(computed.lines[i]!.taxAmount),
@@ -1170,6 +1202,8 @@ export async function convertIn(
         /** The member discount and its agreement travel with the line, as priced. */
         memberAgreementId: (l["memberAgreementId"] ?? null) as string | null,
         memberDiscountAmount: (l["memberDiscountAmount"] ?? "0") as string,
+        /** And the pricing rules that made the price, with it. */
+        pricingRules: (l["pricingRules"] ?? []) as schema.PricingRuleRecord[],
         taxable: l["taxable"] as boolean,
         taxRate: l["taxRate"] as string,
         taxAmount: m.toString(billedTax.lines[i]!.taxAmount),

@@ -17,6 +17,7 @@ import { assertPlaceable } from "./branches";
 import { crews as crewsInView, dispatchPeople } from "./people-scope";
 import { shopNames, shopOfCrew, shopOfPeople } from "./visit-shop";
 import { emit } from "./events";
+import * as plugins from "./plugins";
 import { announce, NEW_VISIT, sideOf } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
@@ -768,6 +769,17 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       await enforceWithin(
         tx, ctx.actor.organizationId, "job", input.customFields, before.customFields,
       );
+    }
+
+    /**
+     * THE JOB TYPE'S WORKFLOW, when a connected application registered one:
+     * a move past a stage whose gates are not met is refused in words that
+     * name each of them. Checked against the fields as this same update
+     * leaves them, so filling in what a gate asks for and moving on is one
+     * save. See `services/plugins.ts`.
+     */
+    if (input.status !== undefined && input.status !== before.status) {
+      await plugins.assertMoveWithin(tx, ctx, before, input.status, input.customFields ?? before.customFields);
     }
 
     /**

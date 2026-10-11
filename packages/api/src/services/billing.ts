@@ -22,6 +22,7 @@ import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
 import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 import * as taxRates from "./tax";
+import * as plugins from "./plugins";
 import type {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
   updateInvoice, issueInvoice, deleteInvoice,
@@ -71,6 +72,12 @@ export interface CreateOptions {
   applyCeiling?: boolean;
   /** False to leave member pricing off: a split prices every line once, before it is cut. */
   memberPricing?: boolean;
+  /**
+   * False to leave the company's pricing rules off: an invoice raised on a
+   * technician's phone is compared with the figure the customer was shown,
+   * which the phone priced without them.
+   */
+  pricingRules?: boolean;
   /**
    * The invoice's id when a phone made it: an invoice raised on site is
    * named by the phone before the server has it, so the payment and the
@@ -342,6 +349,7 @@ async function writeLines(
     discountAmount: m.toString(r.discountAmount),
     memberAgreementId: r.memberAgreementId,
     memberDiscountAmount: m.toString(r.memberDiscountAmount),
+    pricingRules: r.pricingRules,
     taxable: r.taxable,
     taxRate: r.taxRate,
     taxAmount: m.toString(computed.lines[i]!.taxAmount),
@@ -1003,6 +1011,8 @@ async function priceInvoice(
       itemId: line.priceAsGiven ? null : (linked?.itemId ?? null),
       memberDiscountAmount: usd("0"),
       memberAgreementId: null as string | null,
+      /** What the company's pricing rules did to it, filled below when any is in force. */
+      pricingRules: [] as schema.PricingRuleRecord[],
       authority: authority.authority as string,
       basis: authority.basis as string,
       note: authority.note,
@@ -1101,6 +1111,7 @@ async function priceInvoice(
       itemId: null,
       memberDiscountAmount: usd("0"),
       memberAgreementId: null,
+      pricingRules: [] as schema.PricingRuleRecord[],
       authority: "entered",
       basis: "entered",
       note: null,
@@ -1140,6 +1151,43 @@ async function priceInvoice(
       }));
     const refusal = entitlements.refusalFor(terms, charges);
     if (refusal) throw new ConflictError(refusal);
+  }
+
+  /**
+   * THE COMPANY'S PRICING RULES, from the connected applications that
+   * registered them (`services/plugins.ts`, `core/plugins`): after member
+   * pricing and before tax, on the lines priced from the company's own price
+   * book, in the order core decides. What a rule took off goes into the
+   * line's discount as a member's does, what it added into its unit price,
+   * and the line records which rule, from which application and at which
+   * version.
+   *
+   * In the same circumstances member pricing is decided in and no others:
+   * never on history, never on a job billed in parts (which priced every
+   * line before it cut them), and never when the caller says the customer
+   * already saw a figure (an invoice raised on a phone). And not when
+   * somebody other than the customer covers the job, because then the
+   * coverage's own terms decide what the customer's part is.
+   */
+  if (memberOn !== null && !options.prepared && options.pricingRules !== false
+    && !(terms && terms.source !== "customer")) {
+    const sale = await saleOf(tx, input.customerId, input.jobId ?? null);
+    const ruled = await plugins.applyRulesWithin(tx, ctx.actor.organizationId, {
+      customerId: sale.customerId, jobId: input.jobId ?? null,
+    }, resolved.map((r, i) => ({
+      quantity: r.quantity,
+      unitPrice: r.unitPrice,
+      discountAmount: r.discountAmount,
+      touchable: r.origin !== "manual" && r.authority === "price_book" && !input.lines[i]?.priceAsGiven,
+      counts: true,
+    })));
+    for (const [i, r] of resolved.entries()) {
+      const after = ruled?.[i];
+      if (!after || after.applied.length === 0) continue;
+      r.unitPrice = after.unitPrice;
+      r.discountAmount = after.discountAmount;
+      r.pricingRules = after.applied;
+    }
   }
 
   /**

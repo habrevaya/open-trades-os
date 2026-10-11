@@ -14,6 +14,8 @@ import {
 import { portalBase } from "../lib/portal-base";
 import * as email from "./email";
 import { memberActor } from "./session";
+import * as plugins from "./plugins";
+import type { PluginView } from "./plugins";
 
 /**
  * CONNECTED APPLICATIONS
@@ -132,6 +134,12 @@ export interface AppView {
   request: RequestView | null;
   tokens: TokenView[];
   /**
+   * What it registered (M28): job workflows, pricing rules and report types,
+   * removed ones included, each saying whether it is in force. Turning the
+   * app off turns every one of them off.
+   */
+  plugins: PluginView[];
+  /**
    * Whether anything can actually call us as this app right now.
    *
    * DERIVED, and the alternative is the failure this answer exists to prevent.
@@ -213,6 +221,9 @@ export async function list(ctx: ServiceContext): Promise<AppView[]> {
       if (held) held.push(view); else byApp.set(token.appId, [view]);
     }
 
+    /** What each one added (M28): its job workflows, pricing rules and report types. */
+    const added = await plugins.forAppsWithin(tx, apps.map((app) => app.id));
+
     return apps.map((app) => {
       const held = byApp.get(app.id) ?? [];
       return {
@@ -233,6 +244,7 @@ export async function list(ctx: ServiceContext): Promise<AppView[]> {
         tokens: held,
         live: app.status === "active"
           && held.some((token) => token.revokedAt === null && !token.expired),
+        plugins: added.get(app.id) ?? [],
       };
     });
   });

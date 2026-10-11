@@ -153,3 +153,20 @@ export const DeletedInBooks = z.object({
   noticedAt: z.string().datetime(),
   taskId: Uuid.nullable(),
 });
+
+/**
+ * What one of the company's pricing rules did to a line (M28 plugins): which
+ * rule, from which application and at which version, and the amount, below
+ * zero when it took money off (already in the line's discount) and above
+ * zero when it added money (already in its unit price). `unitPriceBefore` is
+ * the line's unit price before any rule raised it.
+ */
+export const AppliedPricingRule = z.object({
+  ruleId: z.string(),
+  name: z.string(),
+  appName: z.string(),
+  version: z.number().int(),
+  kind: z.string(),
+  amount: MoneyString,
+  unitPriceBefore: MoneyString,
+});

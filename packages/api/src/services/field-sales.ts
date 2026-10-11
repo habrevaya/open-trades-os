@@ -440,7 +440,12 @@ async function fromWork(
   if (!parsed.success) return "Some of that work could not be read, so the invoice was not raised.";
 
   const issued = await savepoint(tx, async (sp) => {
-    await billing.createIn(sp, keyed(ctx, op, "invoice", sp), parsed.data, { id: invoiceId });
+    /**
+     * Without the company's pricing rules: the phone priced what the
+     * customer saw without them, and a rule the phone could not apply
+     * would make every such invoice a draft for the office.
+     */
+    await billing.createIn(sp, keyed(ctx, op, "invoice", sp), parsed.data, { id: invoiceId, pricingRules: false });
     return null;
   });
   if (issued === null) return null;
@@ -454,7 +459,7 @@ async function fromWork(
   if (!differs) return issued;
   const draft = createInvoice.input.parse({ ...base, draft: true });
   const kept = await savepoint(tx, async (sp) => {
-    await billing.createIn(sp, keyed(ctx, op, "invoice", sp), draft, { id: invoiceId });
+    await billing.createIn(sp, keyed(ctx, op, "invoice", sp), draft, { id: invoiceId, pricingRules: false });
     return null;
   });
   if (kept !== null) return kept;

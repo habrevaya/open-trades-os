@@ -58,6 +58,8 @@ export const createSandbox = defineRoute({
     copied: z.object({
       jobTypes: z.number().int(), customFields: z.number().int(), kinds: z.number().int(),
       workflows: z.number().int(), reports: z.number().int(), proposalTemplates: z.number().int(),
+      /** Job workflows connected applications registered (M28), copied to stand on their own. */
+      jobWorkflows: z.number().int(),
     }),
     sampleJobs: z.number().int(),
   }),

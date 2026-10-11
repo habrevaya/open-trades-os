@@ -1047,6 +1047,15 @@ export interface ApproveEstimateOutput {
       discountAmount: string;
       memberDiscountAmount?: string;
       memberAgreementId?: string | null;
+      pricingRules?: Array<{
+        ruleId: string;
+        name: string;
+        appName: string;
+        version: number;
+        kind: string;
+        amount: string;
+        unitPriceBefore: string;
+      }>;
       taxable: boolean;
       taxRate: string;
       taxRateId?: string | null;
@@ -2221,6 +2230,15 @@ export interface ConvertEstimateOutput {
         discountAmount: string;
         memberDiscountAmount?: string;
         memberAgreementId?: string | null;
+        pricingRules?: Array<{
+          ruleId: string;
+          name: string;
+          appName: string;
+          version: number;
+          kind: string;
+          amount: string;
+          unitPriceBefore: string;
+        }>;
         taxable: boolean;
         taxRate: string;
         taxRateId?: string | null;
@@ -3005,6 +3023,15 @@ export interface CreateEstimateOutput {
       discountAmount: string;
       memberDiscountAmount?: string;
       memberAgreementId?: string | null;
+      pricingRules?: Array<{
+        ruleId: string;
+        name: string;
+        appName: string;
+        version: number;
+        kind: string;
+        amount: string;
+        unitPriceBefore: string;
+      }>;
       taxable: boolean;
       taxRate: string;
       taxRateId?: string | null;
@@ -3151,6 +3178,15 @@ export interface CreateInvoiceOutput {
     discountAmount: string;
     memberDiscountAmount?: string;
     memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
@@ -4146,6 +4182,7 @@ export interface CreateSandboxOutput {
     workflows: number;
     reports: number;
     proposalTemplates: number;
+    jobWorkflows: number;
   };
   sampleJobs: number;
 }
@@ -4798,6 +4835,15 @@ export interface DeclineEstimateOutput {
       discountAmount: string;
       memberDiscountAmount?: string;
       memberAgreementId?: string | null;
+      pricingRules?: Array<{
+        ruleId: string;
+        name: string;
+        appName: string;
+        version: number;
+        kind: string;
+        amount: string;
+        unitPriceBefore: string;
+      }>;
       taxable: boolean;
       taxRate: string;
       taxRateId?: string | null;
@@ -7006,6 +7052,7 @@ export interface GetDispatchBoardOutput {
       isLate: boolean;
       routeName: string | null;
       locked: boolean;
+      stage?: string | null;
     }>;
   }>;
   crews: Array<{
@@ -7028,6 +7075,7 @@ export interface GetDispatchBoardOutput {
       isLate: boolean;
       routeName: string | null;
       locked: boolean;
+      stage?: string | null;
     }>;
   }>;
   routes: Array<{
@@ -7055,6 +7103,7 @@ export interface GetDispatchBoardOutput {
     routeName: string | null;
     locked: boolean;
     priorityPlan: string | null;
+    stage?: string | null;
   }>;
 }
 
@@ -7340,6 +7389,15 @@ export interface GetEstimateOutput {
       discountAmount: string;
       memberDiscountAmount?: string;
       memberAgreementId?: string | null;
+      pricingRules?: Array<{
+        ruleId: string;
+        name: string;
+        appName: string;
+        version: number;
+        kind: string;
+        amount: string;
+        unitPriceBefore: string;
+      }>;
       taxable: boolean;
       taxRate: string;
       taxRateId?: string | null;
@@ -8081,6 +8139,15 @@ export interface GetInvoiceOutput {
     discountAmount: string;
     memberDiscountAmount?: string;
     memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
@@ -8373,6 +8440,26 @@ export interface GetJobSkillsOutput {
     droppedBy: string | null;
   }>;
   checked: string[];
+}
+
+export interface GetJobStagesOutput {
+  workflow: {
+    id: string;
+    name: string;
+    appName: string;
+    version: number;
+  } | null;
+  stages: Array<{
+    key: string;
+    name: string;
+    statuses: string[];
+    current: boolean;
+    gates: Array<{
+      kind: "checklist" | "field";
+      label: string;
+      met: boolean | null;
+    }>;
+  }>;
 }
 
 export interface GetJournalEntryOutput {
@@ -11266,6 +11353,15 @@ export interface IssueInvoiceOutput {
     discountAmount: string;
     memberDiscountAmount?: string;
     memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
@@ -11664,6 +11760,22 @@ export interface ListAppsOutput {
       lastUsedAt: string | null;
       revokedAt: string | null;
       expired: boolean;
+    }>;
+    plugins: Array<{
+      id: string;
+      appId: string | null;
+      appName: string;
+      kind: "job_workflow" | "pricing_rule" | "report_type";
+      key: string;
+      name: string;
+      version: number;
+      jobTypeId: string | null;
+      definition: Record<string, unknown>;
+      summary: string;
+      on: boolean;
+      retiredAt: string | null;
+      registeredAt: string;
+      changedAt: string;
     }>;
     live: boolean;
   }>;
@@ -14197,6 +14309,25 @@ export interface ListPlatformCampaignsOutput {
   }>;
 }
 
+export interface ListPluginsOutput {
+  plugins: Array<{
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  }>;
+}
+
 export interface ListPortalCardsOutput {
   cards: Array<{
     id: string;
@@ -14645,6 +14776,22 @@ export interface ListReorderSuggestionsOutput {
     onOrder: string;
     reorderPoint: string;
     preferredVendorId?: string | null;
+  }>;
+}
+
+export interface ListReportDatasetsOutput {
+  datasets: Array<{
+    key: string;
+    label: string;
+    description: string;
+    dimensions: Array<{
+      key: string;
+      label: string;
+    }>;
+    measures: Array<{
+      key: string;
+      label: string;
+    }>;
   }>;
 }
 
@@ -18469,6 +18616,114 @@ export interface RegisterEquipmentOutput {
   id: string;
 }
 
+export interface RegisterJobWorkflowInput {
+  key: string;
+  name: string;
+  jobTypeId: string;
+  stages: Array<{
+    key: string;
+    name: string;
+    statuses: string[];
+    gates?: Array<{
+      kind: string;
+      itemId?: string;
+      key?: string;
+    }>;
+  }>;
+}
+
+export interface RegisterJobWorkflowOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
+  changed: boolean;
+}
+
+export interface RegisterPricingRuleInput {
+  key: string;
+  name: string;
+  rule: {
+    kind: string;
+    tag?: string;
+    jobTypeId?: string;
+    window?: "outside_hours" | {
+      days: number[];
+      from: string;
+      to: string;
+    };
+    percent?: string;
+    amount?: string;
+    minimum?: string;
+  };
+}
+
+export interface RegisterPricingRuleOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
+  changed: boolean;
+}
+
+export interface RegisterReportTypeInput {
+  key: string;
+  label: string;
+  description?: string;
+  base: string;
+  dimensions?: string[];
+  measures: string[];
+  filters?: Array<{
+    dimension: string;
+    op: string;
+    value: string | string[];
+  }>;
+}
+
+export interface RegisterReportTypeOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
+  changed: boolean;
+}
+
 export interface RegisterWebhookEndpointInput {
   url: string;
   events: string[];
@@ -19434,11 +19689,74 @@ export interface RetireEquipmentOutput {
   reason: string;
 }
 
+export type RetireJobWorkflowInput = Record<string, unknown>;
+
+export interface RetireJobWorkflowOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
+}
+
+export type RetirePricingRuleInput = Record<string, unknown>;
+
+export interface RetirePricingRuleOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
+}
+
 export type RetireRentableAssetInput = Record<string, unknown>;
 
 export interface RetireRentableAssetOutput {
   id: string;
   retired: boolean;
+}
+
+export type RetireReportTypeInput = Record<string, unknown>;
+
+export interface RetireReportTypeOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
 }
 
 export type RetireStaffDocumentInput = Record<string, unknown>;
@@ -19668,6 +19986,22 @@ export interface ReviewAppRequestOutput {
       lastUsedAt: string | null;
       revokedAt: string | null;
       expired: boolean;
+    }>;
+    plugins: Array<{
+      id: string;
+      appId: string | null;
+      appName: string;
+      kind: "job_workflow" | "pricing_rule" | "report_type";
+      key: string;
+      name: string;
+      version: number;
+      jobTypeId: string | null;
+      definition: Record<string, unknown>;
+      summary: string;
+      on: boolean;
+      retiredAt: string | null;
+      registeredAt: string;
+      changedAt: string;
     }>;
     live: boolean;
   };
@@ -20347,6 +20681,15 @@ export interface SendEstimateOutput {
         discountAmount: string;
         memberDiscountAmount?: string;
         memberAgreementId?: string | null;
+        pricingRules?: Array<{
+          ruleId: string;
+          name: string;
+          appName: string;
+          version: number;
+          kind: string;
+          amount: string;
+          unitPriceBefore: string;
+        }>;
         taxable: boolean;
         taxRate: string;
         taxRateId?: string | null;
@@ -23351,6 +23694,15 @@ export interface UpdateInvoiceOutput {
     discountAmount: string;
     memberDiscountAmount?: string;
     memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
@@ -25027,6 +25379,15 @@ export interface VoidInvoiceOutput {
     discountAmount: string;
     memberDiscountAmount?: string;
     memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
@@ -25229,6 +25590,15 @@ export interface WriteOffInvoiceOutput {
     discountAmount: string;
     memberDiscountAmount?: string;
     memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
     taxable: boolean;
     taxRate: string;
     taxAmount: string;
@@ -26083,6 +26453,10 @@ export interface GetJobRateOffersInput {
 }
 
 export interface GetJobSkillsInput {
+  id: string;
+}
+
+export interface GetJobStagesInput {
   id: string;
 }
 
@@ -27073,6 +27447,8 @@ export type ListPhoneMenusInput = Record<string, never>;
 
 export type ListPlatformCampaignsInput = Record<string, never>;
 
+export type ListPluginsInput = Record<string, never>;
+
 export interface ListPortalCardsInput {
   token: string;
 }
@@ -27171,6 +27547,8 @@ export interface ListRentalsInput {
 export type ListReorderPoliciesInput = Record<string, never>;
 
 export type ListReorderSuggestionsInput = Record<string, never>;
+
+export type ListReportDatasetsInput = Record<string, never>;
 
 export interface ListReportDeliveriesInput {
   scheduleId?: string;
@@ -27872,8 +28250,20 @@ export interface RetireEquipmentParams {
   id: string;
 }
 
+export interface RetireJobWorkflowParams {
+  key: string;
+}
+
+export interface RetirePricingRuleParams {
+  key: string;
+}
+
 export interface RetireRentableAssetParams {
   id: string;
+}
+
+export interface RetireReportTypeParams {
+  key: string;
 }
 
 export interface RetireStaffDocumentParams {
@@ -28891,6 +29281,7 @@ export interface OperationTypes {
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
   getJobRateOffers: { input: GetJobRateOffersInput; output: GetJobRateOffersOutput };
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
+  getJobStages: { input: GetJobStagesInput; output: GetJobStagesOutput };
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
@@ -29132,6 +29523,7 @@ export interface OperationTypes {
   listPerDiem: { input: ListPerDiemInput; output: ListPerDiemOutput };
   listPhoneMenus: { input: ListPhoneMenusInput; output: ListPhoneMenusOutput };
   listPlatformCampaigns: { input: ListPlatformCampaignsInput; output: ListPlatformCampaignsOutput };
+  listPlugins: { input: ListPluginsInput; output: ListPluginsOutput };
   listPortalCards: { input: ListPortalCardsInput; output: ListPortalCardsOutput };
   listPortalSignIns: { input: ListPortalSignInsInput; output: ListPortalSignInsOutput };
   listPriceBook: { input: ListPriceBookInput; output: ListPriceBookOutput };
@@ -29155,6 +29547,7 @@ export interface OperationTypes {
   listRentals: { input: ListRentalsInput; output: ListRentalsOutput };
   listReorderPolicies: { input: ListReorderPoliciesInput; output: ListReorderPoliciesOutput };
   listReorderSuggestions: { input: ListReorderSuggestionsInput; output: ListReorderSuggestionsOutput };
+  listReportDatasets: { input: ListReportDatasetsInput; output: ListReportDatasetsOutput };
   listReportDeliveries: { input: ListReportDeliveriesInput; output: ListReportDeliveriesOutput };
   listReportSchedules: { input: ListReportSchedulesInput; output: ListReportSchedulesOutput };
   listReportingLines: { input: ListReportingLinesInput; output: ListReportingLinesOutput };
@@ -29329,6 +29722,9 @@ export interface OperationTypes {
   registerComplianceDocument: { input: RegisterComplianceDocumentInput; output: RegisterComplianceDocumentOutput };
   registerDevice: { input: RegisterDeviceInput; output: RegisterDeviceOutput };
   registerEquipment: { input: RegisterEquipmentInput; output: RegisterEquipmentOutput };
+  registerJobWorkflow: { input: RegisterJobWorkflowInput; output: RegisterJobWorkflowOutput };
+  registerPricingRule: { input: RegisterPricingRuleInput; output: RegisterPricingRuleOutput };
+  registerReportType: { input: RegisterReportTypeInput; output: RegisterReportTypeOutput };
   registerWebhookEndpoint: { input: RegisterWebhookEndpointInput; output: RegisterWebhookEndpointOutput };
   releasePhoneNumber: { input: ReleasePhoneNumberParams & ReleasePhoneNumberInput; output: ReleasePhoneNumberOutput };
   releaseRetentionHold: { input: ReleaseRetentionHoldParams & ReleaseRetentionHoldInput; output: ReleaseRetentionHoldOutput };
@@ -29390,7 +29786,10 @@ export interface OperationTypes {
   retireAgreementPlan: { input: RetireAgreementPlanParams & RetireAgreementPlanInput; output: RetireAgreementPlanOutput };
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
   retireEquipment: { input: RetireEquipmentParams & RetireEquipmentInput; output: RetireEquipmentOutput };
+  retireJobWorkflow: { input: RetireJobWorkflowParams & RetireJobWorkflowInput; output: RetireJobWorkflowOutput };
+  retirePricingRule: { input: RetirePricingRuleParams & RetirePricingRuleInput; output: RetirePricingRuleOutput };
   retireRentableAsset: { input: RetireRentableAssetParams & RetireRentableAssetInput; output: RetireRentableAssetOutput };
+  retireReportType: { input: RetireReportTypeParams & RetireReportTypeInput; output: RetireReportTypeOutput };
   retireStaffDocument: { input: RetireStaffDocumentParams & RetireStaffDocumentInput; output: RetireStaffDocumentOutput };
   retireTaxRate: { input: RetireTaxRateParams & RetireTaxRateInput; output: RetireTaxRateOutput };
   retireWageScale: { input: RetireWageScaleParams & RetireWageScaleInput; output: RetireWageScaleOutput };
@@ -29950,6 +30349,7 @@ export const OPERATIONS = {
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
   getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["exceptInvoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
@@ -30191,6 +30591,7 @@ export const OPERATIONS = {
   listPerDiem: { method: "GET", path: "/v1/per-diem", pathParams: [], queryParams: ["technicianId","jobId","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  listPlugins: { method: "GET", path: "/v1/plugins", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
   listPortalCards: { method: "GET", path: "/v1/portal/cards", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   listPortalSignIns: { method: "GET", path: "/v1/portal-sign-ins", pathParams: [], queryParams: ["customerId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listPriceBook: { method: "GET", path: "/v1/pricebook/items", pathParams: [], queryParams: ["cursor","limit","q","kind","categoryId","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["pricebook:read"] },
@@ -30214,6 +30615,7 @@ export const OPERATIONS = {
   listRentals: { method: "GET", path: "/v1/rentals", pathParams: [], queryParams: ["open","propertyId","assetId","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listReorderPolicies: { method: "GET", path: "/v1/reorder-policies", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listReorderSuggestions: { method: "GET", path: "/v1/stock/reorder-suggestions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
+  listReportDatasets: { method: "GET", path: "/v1/report-datasets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportDeliveries: { method: "GET", path: "/v1/report-deliveries", pathParams: [], queryParams: ["scheduleId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportSchedules: { method: "GET", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportingLines: { method: "GET", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
@@ -30388,6 +30790,9 @@ export const OPERATIONS = {
   registerComplianceDocument: { method: "POST", path: "/v1/compliance/documents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
   registerDevice: { method: "POST", path: "/v1/field/devices", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   registerEquipment: { method: "POST", path: "/v1/equipment", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
+  registerJobWorkflow: { method: "POST", path: "/v1/plugins/job-workflows", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write","job:read"] },
+  registerPricingRule: { method: "POST", path: "/v1/plugins/pricing-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  registerReportType: { method: "POST", path: "/v1/plugins/report-types", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   registerWebhookEndpoint: { method: "POST", path: "/v1/webhooks/endpoints", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   releasePhoneNumber: { method: "POST", path: "/v1/marketing/tracking-numbers/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   releaseRetentionHold: { method: "POST", path: "/v1/compliance/retention/holds/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -30449,7 +30854,10 @@ export const OPERATIONS = {
   retireAgreementPlan: { method: "POST", path: "/v1/agreement-plans/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireEquipment: { method: "POST", path: "/v1/equipment/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
+  retireJobWorkflow: { method: "DELETE", path: "/v1/plugins/job-workflows/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  retirePricingRule: { method: "DELETE", path: "/v1/plugins/pricing-rules/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   retireRentableAsset: { method: "DELETE", path: "/v1/rentable-assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  retireReportType: { method: "DELETE", path: "/v1/plugins/report-types/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   retireStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   retireTaxRate: { method: "POST", path: "/v1/tax-rates/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   retireWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
@@ -33478,6 +33886,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Where a job is in its job type's workflow.
+   *
+   * GET /v1/jobs/{id}/stages. Needs job:read.
+   */
+  getJobStages(input: GetJobStagesInput, options?: CallOptions): Promise<GetJobStagesOutput> {
+    return this.call("getJobStages", input, options);
+  }
+
+  /**
    * One manual journal entry and its lines.
    *
    * GET /v1/ledger/journal-entries/{id}. Needs ledger:read.
@@ -35647,6 +36064,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The plugins this application registered.
+   *
+   * GET /v1/plugins.
+   */
+  listPlugins(input: ListPluginsInput = {} as ListPluginsInput, options?: CallOptions): Promise<ListPluginsOutput> {
+    return this.call("listPlugins", input, options);
+  }
+
+  /**
    * The cards and bank accounts the customer has saved.
    *
    * GET /v1/portal/cards.
@@ -35851,6 +36277,15 @@ export abstract class GeneratedOperations {
    */
   listReorderSuggestions(input: ListReorderSuggestionsInput = {} as ListReorderSuggestionsInput, options?: CallOptions): Promise<ListReorderSuggestionsOutput> {
     return this.call("listReorderSuggestions", input, options);
+  }
+
+  /**
+   * The datasets the report builder offers the caller.
+   *
+   * GET /v1/report-datasets. Needs report:read.
+   */
+  listReportDatasets(input: ListReportDatasetsInput = {} as ListReportDatasetsInput, options?: CallOptions): Promise<ListReportDatasetsOutput> {
+    return this.call("listReportDatasets", input, options);
   }
 
   /**
@@ -37420,6 +37855,33 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Register a job workflow for a job type.
+   *
+   * POST /v1/plugins/job-workflows. Needs settings:write, job:read.
+   */
+  registerJobWorkflow(input: RegisterJobWorkflowInput, options?: CallOptions): Promise<RegisterJobWorkflowOutput> {
+    return this.call("registerJobWorkflow", input, options);
+  }
+
+  /**
+   * Register a pricing rule.
+   *
+   * POST /v1/plugins/pricing-rules. Needs pricebook:write.
+   */
+  registerPricingRule(input: RegisterPricingRuleInput, options?: CallOptions): Promise<RegisterPricingRuleOutput> {
+    return this.call("registerPricingRule", input, options);
+  }
+
+  /**
+   * Register a report type.
+   *
+   * POST /v1/plugins/report-types. Needs report:build.
+   */
+  registerReportType(input: RegisterReportTypeInput, options?: CallOptions): Promise<RegisterReportTypeOutput> {
+    return this.call("registerReportType", input, options);
+  }
+
+  /**
    * Send these events to this URL.
    *
    * POST /v1/webhooks/endpoints. Needs integration:write.
@@ -37969,12 +38431,39 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Remove a job workflow this application registered.
+   *
+   * DELETE /v1/plugins/job-workflows/{key}. Needs settings:write.
+   */
+  retireJobWorkflow(input: RetireJobWorkflowParams & RetireJobWorkflowInput, options?: CallOptions): Promise<RetireJobWorkflowOutput> {
+    return this.call("retireJobWorkflow", input, options);
+  }
+
+  /**
+   * Remove a pricing rule this application registered.
+   *
+   * DELETE /v1/plugins/pricing-rules/{key}. Needs pricebook:write.
+   */
+  retirePricingRule(input: RetirePricingRuleParams & RetirePricingRuleInput, options?: CallOptions): Promise<RetirePricingRuleOutput> {
+    return this.call("retirePricingRule", input, options);
+  }
+
+  /**
    * Take a unit out of the fleet for good.
    *
    * DELETE /v1/rentable-assets/{id}. Needs asset:write.
    */
   retireRentableAsset(input: RetireRentableAssetParams & RetireRentableAssetInput, options?: CallOptions): Promise<RetireRentableAssetOutput> {
     return this.call("retireRentableAsset", input, options);
+  }
+
+  /**
+   * Remove a report type this application registered.
+   *
+   * DELETE /v1/plugins/report-types/{key}. Needs report:build.
+   */
+  retireReportType(input: RetireReportTypeParams & RetireReportTypeInput, options?: CallOptions): Promise<RetireReportTypeOutput> {
+    return this.call("retireReportType", input, options);
   }
 
   /**

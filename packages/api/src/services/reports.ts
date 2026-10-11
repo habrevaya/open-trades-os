@@ -157,8 +157,13 @@ export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset):
    * A company's own kind of record is read through the same visibility its
    * list uses, so a report counts exactly the permits that list shows.
    */
-  if (dataset.key.startsWith(OBJECT_DATASET_PREFIX)) return recordVisibility(ctx);
-  const filter = SCOPE_FILTERS[dataset.key];
+  /**
+   * A report type an application registered reads its base's records, so
+   * it is scoped exactly as its base is (M28).
+   */
+  const key = dataset.base ?? dataset.key;
+  if (key.startsWith(OBJECT_DATASET_PREFIX)) return recordVisibility(ctx);
+  const filter = SCOPE_FILTERS[key];
   /**
    * A dataset in the catalogue with no filter here would otherwise be
    * unscoped, which is the quiet version of the leak this exists to prevent.
@@ -184,8 +189,10 @@ function conditionsFor(
   narrowing: RunNarrowing = {},
 ): SQL[] {
   const conditions: SQL[] = [];
+  /** Decided by the base for a report type an application registered, as its scope is. */
+  const key = dataset.base ?? dataset.key;
   if (narrowing.customerId !== undefined) {
-    const narrow = CUSTOMER_FILTERS[dataset.key];
+    const narrow = CUSTOMER_FILTERS[key];
     if (!narrow) {
       throw new ConflictError(`${dataset.label} cannot be narrowed to one customer, so this report cannot be sent to one.`);
     }
@@ -201,7 +208,7 @@ function conditionsFor(
    * records disagrees with every list screen in the product, and the person
    * reading it has no way to know which is right.
    */
-  if (["jobs", "invoices", "estimates", "visits", "profitability"].includes(dataset.key)) {
+  if (["jobs", "invoices", "estimates", "visits", "profitability"].includes(key)) {
     /**
      * The table is its own alias, deliberately. The scope filters are
      * written against the drizzle schema and render as `"job"."column"`,
@@ -214,7 +221,7 @@ function conditionsFor(
   }
 
   if (definition.branchId) {
-    const narrow = BRANCH_FILTERS[dataset.key];
+    const narrow = BRANCH_FILTERS[key];
     if (!narrow) {
       throw new ConflictError(
         `${dataset.label} do not belong to branches, so this report cannot be narrowed to one. Clear the branch to run it.`,
@@ -243,9 +250,19 @@ function conditionsFor(
     conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${edge(definition.to)}`);
   }
 
-  for (const filter of definition.filters ?? []) {
-    const dimension = dataset.dimensions.find((d) => d.key === filter.dimension)!;
-    const expression = sql.raw(`(${dimension.sql})`);
+  /**
+   * A report type's own filters (M28), from the base's dimensions, bound
+   * exactly as a report's filters are below and held to the same
+   * permissions by `resolveReport`.
+   */
+  const filters = [
+    ...(dataset.fixedFilters ?? []).map((f) => ({ sql: f.sql, op: f.op, value: f.value })),
+    ...(definition.filters ?? []).map((filter) => ({
+      sql: dataset.dimensions.find((d) => d.key === filter.dimension)!.sql, op: filter.op, value: filter.value,
+    })),
+  ];
+  for (const filter of filters) {
+    const expression = sql.raw(`(${filter.sql})`);
     if (filter.op === "in" && Array.isArray(filter.value)) {
       // Bound as one array parameter. Joining the values into the string is
       // how a report builder becomes a SQL console.

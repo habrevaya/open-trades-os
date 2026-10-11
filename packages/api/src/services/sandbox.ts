@@ -32,8 +32,9 @@ import { remember, replayed } from "./once";
  *
  * WHAT IS COPIED: job types, custom fields, the company's kinds of record,
  * automations (every one switched off, so nothing runs until somebody turns
- * it on there), saved reports, and proposal layouts with their cover
- * photographs. WHAT IS NOT: customers, jobs, invoices, money, people other
+ * it on there), saved reports, proposal layouts with their cover
+ * photographs, and the job workflows connected applications registered,
+ * each standing on its own in the sandbox, which has no applications. WHAT IS NOT: customers, jobs, invoices, money, people other
  * than whoever made it, and every integration, so a sandbox has no texting
  * number, no email sender and no card processor and cannot send anything to
  * anybody but the people in it. Its name says "(sandbox)" wherever the
@@ -128,6 +129,8 @@ export interface Created {
   name: string;
   copied: {
     jobTypes: number; customFields: number; kinds: number; workflows: number; reports: number; proposalTemplates: number;
+    /** Job workflows connected applications registered, copied to stand on their own. */
+    jobWorkflows: number;
   };
   sampleJobs: number;
 }
@@ -161,6 +164,20 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       .innerJoin(schema.workflowVersion, eq(schema.workflowVersion.id, schema.workflow.activeVersionId))
       .where(isNull(schema.workflow.deletedAt));
     const reports = await tx.select().from(schema.report).where(isNull(schema.report.deletedAt));
+    /**
+     * Job workflows a connected application registered (M28), the ones in
+     * force. A sandbox has no applications, so each copy stands on its own
+     * there, naming the application it came from, and holds the sandbox's
+     * copies of the job types to the same stages and gates.
+     */
+    const jobWorkflows = (await tx.select({ plugin: schema.appPlugin })
+      .from(schema.appPlugin)
+      .innerJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appPlugin.appId))
+      .where(and(
+        eq(schema.appPlugin.kind, "job_workflow"),
+        isNull(schema.appPlugin.retiredAt),
+        eq(schema.connectedApp.status, "active"),
+      ))).map((r) => r.plugin);
     const templates = await tx.select().from(schema.proposalTemplate).where(isNull(schema.proposalTemplate.deletedAt));
     const coverKeys = templates.map((t) => t.cover?.photoKey).filter((k): k is string => Boolean(k));
     const held = coverKeys.length === 0 ? [] : await tx.select({ key: schema.storedFile.storageKey, ...HELD })
@@ -202,6 +219,18 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       await tx.insert(schema.jobType).values({
         ...type, id, organizationId: sandboxId, businessUnitId: null, requiredAssetIds: [],
         createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
+
+    for (const flow of jobWorkflows) {
+      const jobTypeId = flow.jobTypeId ? typeIds.get(flow.jobTypeId) : undefined;
+      if (!jobTypeId) continue;
+      const [copy] = await tx.insert(schema.appPlugin).values({
+        organizationId: sandboxId, appId: null, appName: flow.appName, kind: "job_workflow",
+        key: flow.key, name: flow.name, jobTypeId, version: 1, definition: flow.definition,
+      }).returning({ id: schema.appPlugin.id });
+      await tx.insert(schema.appPluginVersion).values({
+        organizationId: sandboxId, pluginId: copy!.id, version: 1, name: flow.name, definition: flow.definition,
       });
     }
 
@@ -306,6 +335,7 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       copied: {
         jobTypes: jobTypes.length, customFields: fields.length, kinds: kinds.length,
         workflows: flows.length, reports: reports.length, proposalTemplates: templates.length,
+        jobWorkflows: jobWorkflows.filter((flow) => flow.jobTypeId && typeIds.has(flow.jobTypeId)).length,
       },
       sampleJobs: number,
     };

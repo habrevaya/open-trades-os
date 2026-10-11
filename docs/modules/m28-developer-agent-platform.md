@@ -24,6 +24,12 @@ tools are generated from the same route definitions the web app and the HTTP
 API are built from, so there is no version of this system where the tool an
 agent calls and the endpoint a developer calls have drifted apart.
 
+A connected application can also add to how the company runs, as data and
+never as code: the stages a kind of work moves through, a rule that changes
+prices, a report type in the report builder. The company sees each one under
+the application that added it and turns all of it off by turning the
+application off.
+
 ## Key concepts
 
 **The tools are generated, never curated.** `packages/api/src/contracts` holds
@@ -78,6 +84,26 @@ itself rather than a prediction of it, so the preview cannot drift from what the
 real call does. Only routes that write nothing outside the database offer it: a
 rollback cannot take back a text or a card charge, and asking any other route
 for a dry run is refused rather than run for real.
+
+**A plugin is data an application registers, never code.** Nothing an
+application sends is run on this server. It registers one of three closed
+shapes through the API with its own token, core (`core/plugins`) checks it and
+refuses it in words when it does not fit, and the services that act on it read
+it back: a job workflow, a pricing rule, a report type. Only an application may
+register one, so Settings, Applications can always say which application added
+what, and only with the permission a person would need to make the same change
+by hand (`settings:write` for how jobs move, `pricebook:write` for prices,
+`report:build` for reports). It may only register what it could read itself: a
+rule on customers' tags needs `customer:read`, a checklist gate `visit:read`, a
+report whatever its columns need. An application holds nothing its installer
+did not, so that is the installer's authority, asked again at registration.
+
+**Versioned like an automation, and off with its application.** Registering a
+key again is the next version, every version is kept, and the same thing sent
+twice changes nothing, so a retry needs no state. Every registration and
+removal is in the audit log. Whether a plugin is in force is a join on the
+application's status on every read, so turning the application off turns
+everything it added off at the same moment.
 
 ## Setup
 
@@ -205,6 +231,64 @@ that takes `idempotencyKey`, sending the same value makes the second call a
 no-op that returns the first call's result. Use a new value only when you mean
 a genuinely new action.
 
+### Adding to how the company runs
+
+An application acting with its own token registers these with
+`POST /v1/plugins/job-workflows`, `POST /v1/plugins/pricing-rules` and
+`POST /v1/plugins/report-types`, each under a key of its own; registering the
+key again is the next version. `DELETE /v1/plugins/job-workflows/{key}`,
+`DELETE /v1/plugins/pricing-rules/{key}` and `DELETE /v1/plugins/report-types/{key}`
+remove one (kept as a record, never in force again until registered again), and
+`GET /v1/plugins` lists what the application registered. A person signed in
+calling any of them gets a 404, as on `GET /v1/apps/me`: there is no
+application behind a session. As tools they are `otos_register_job_workflow`,
+`otos_register_pricing_rule` and `otos_register_report_type`.
+
+**A job workflow** is for one job type: named stages in order, every one of the
+nine job statuses in exactly one stage, and gates a job has to meet before it
+leaves a stage, either an item of the job type's checklist ticked on one of its
+visits not cancelled, or one of the company's job fields filled in. Moving a
+job forward past a gate not met, whether from the job page or with
+`PATCH /v1/jobs/{id}`, is refused in a sentence naming every gate left ("This
+job cannot leave "Survey" yet: fill in "Permit number" on the job."), counting
+the fields the same save fills in. A move that skips a stage is held to that
+stage's gates too. Moving back, inside a stage or to cancelled is never held,
+and neither is a move the product makes because something happened (a visit
+booked, the last visit finished, an invoice issued, paid or voided). The job
+page shows the stages, which one the job is at and each gate met or waiting,
+`GET /v1/jobs/{id}/stages` says the same, and each card on the board at
+`/schedule` names its job's stage. One workflow per job type: another
+application's is refused while its application is on, and replaced once it is
+off. A sandbox copies the workflows in force, each standing on its own there,
+because a sandbox has no applications.
+
+**A pricing rule** is one of four kinds: a percentage or an amount for customers
+carrying a tag, for a job type, or for work booked in a time window (days and
+hours, or outside the company's own hours, counted from the start of the job's
+first visit window as the after hours rate is), or a minimum charge. Rules are
+applied when an estimate or an invoice is priced, after member pricing and
+before tax, to the lines priced from the company's own price book, in an order
+core decides and tests: every percentage taken from the price after member
+pricing (so two give the same in either order), then amounts spread over the
+lines by what each comes to, never below nothing, then the largest minimum that
+applies. Money taken off goes into the line's discount, as a member's does;
+money added raises the line's unit price. Each line a rule touched records the
+rule, its application, its version and the amount, the estimate and invoice
+pages show it on the line, and the invoice made from an estimate carries it
+with the price.
+
+**A report type** is a cut of one of the report builder's datasets (a key from
+`GET /v1/report-datasets`): the columns it offers to group by, the numbers it
+offers, and filters it always carries. It appears in the report builder and on
+dashboards as a dataset of its own, keyed `app_` and its key, reading the same
+records its base does with the same scope, and whoever runs it needs exactly
+what its base, columns and filters need.
+
+**On Settings, Applications** (`/settings/apps`), each application lists what it
+added: what kind, its name, what it does in a sentence, its version, and
+whether it is on, removed by the application, or off because the application is
+turned off. `GET /v1/apps` carries the same under each application.
+
 ## Permissions
 
 There is no permission specific to this module. A tool requires exactly what
@@ -238,6 +322,20 @@ OAuth lives beside it: `/.well-known/oauth-authorization-server`,
 The underlying routes are the same ones in the OpenAPI document at
 `packages/api/openapi.json`, generated from the contracts.
 
+The plugin routes:
+
+| Call | Needs |
+|---|---|
+| `GET /v1/plugins` | nothing: the application's token is the identity |
+| `POST /v1/plugins/job-workflows` | `settings:write`, `job:read`, and `visit:read` for a checklist gate |
+| `DELETE /v1/plugins/job-workflows/{key}` | `settings:write` |
+| `POST /v1/plugins/pricing-rules` | `pricebook:write`, and `customer:read`, `job:read` or `visit:read` for what the rule asks about |
+| `DELETE /v1/plugins/pricing-rules/{key}` | `pricebook:write` |
+| `POST /v1/plugins/report-types` | `report:build`, and whatever its base, columns and filters need |
+| `DELETE /v1/plugins/report-types/{key}` | `report:build` |
+| `GET /v1/jobs/{id}/stages` | `job:read` |
+| `GET /v1/report-datasets` | `report:read` |
+
 ## Common questions
 
 **Can an agent do something I cannot?** No. Every call goes through the same
@@ -269,6 +367,11 @@ names a step the person the agent acts for could not publish. Records of a compa
 own kinds are `otos_list_custom_records` and `otos_create_custom_record`, under
 `record:read` and `record:write`.
 
+**Can an application change how jobs move or what things cost?** Yes, as data
+it registers, never code: a job workflow, a pricing rule or a report type, each
+checked by core, listed under the application on Settings, Applications and
+turned off with it. See "Adding to how the company runs".
+
 **Is there somewhere safe to try things?** Yes, a sandbox: a second company holding a
 copy of this one's settings and none of its customers. `otos_create_sandbox` makes
 one, `otos_get_sandbox_copy_plan` says what copying each setting back would do, and
@@ -277,8 +380,34 @@ asked. All three need `sandbox:manage`. M29 has what is copied and what is not.
 
 ## What is not built
 
-The plugin APIs for custom job workflows, pricing rules and report types. An app
-token belongs to one company, so an agent connected to the real company reaches its
+Plugins are three closed shapes and nothing else. A pricing rule cannot be a
+callback to the application's own server ("ask my app for a price
+adjustment"): calling out from inside the transaction that prices an invoice
+would hold the invoice on a stranger's server, and doing it properly needs the
+call made before that transaction and a per application signing secret read
+through the company's secret store, which is not built. Rules touch only lines
+priced from the company's own price book, never a typed price, a contract's
+rate card or history; they are not applied on a job somebody other than the
+customer covers (the coverage decides the customer's part), on a job billed in
+parts, or on an estimate or invoice a technician's phone priced, whose figure
+the customer has already seen. Money a rule adds raises the line's unit price
+(revenue) and money it takes off is a discount, the conservative reading until
+an accountant says otherwise. A time window ends on the day it starts (the
+evening and the early morning are two rules, or "outside your hours"), and only
+the largest minimum charge counts. Editing a draft invoice prices it again: a
+line billing work recorded on the job is sent back as the price before the
+rules and priced as typed, so a rule does not touch it a second time. A gate is
+a checklist item or a job field, only one workflow can be in force per job
+type, a stage is a name over the existing statuses and never a new status, and
+nobody at the company can write stages, a rule or a report type on a screen or
+turn one plugin off on its own: they come from an application, and the
+company's control is turning that application off. A report type is a cut of
+one dataset, without joins of its own, cannot be cut from another application's
+type, and cannot be sent to a customer by an automation. Pricing rules and
+report types are not copied into a sandbox, and nothing an application
+registered is offered for copying back.
+
+An app token belongs to one company, so an agent connected to the real company reaches its
 sandbox only through the sandbox routes, and an agent working inside a sandbox needs a
 token issued there.
 

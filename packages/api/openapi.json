@@ -56768,6 +56768,115 @@
         ]
       }
     },
+    "/v1/jobs/{id}/stages": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getJobStages",
+        "summary": "Where a job is in its job type's workflow",
+        "description": "The stages of the workflow a connected application registered for the job's type, which one the job is in, and each stage's gates with whether they are met. A checklist gate reads as not known (`met: null`) to a caller who may not read visits. Empty when the job's type has no workflow in force.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where a job is in its job type's workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetJobStagesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      }
+    },
     "/v1/jobs/{id}/visits": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -79739,6 +79848,850 @@
         ]
       }
     },
+    "/v1/plugins": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listPlugins",
+        "summary": "The plugins this application registered",
+        "description": "Every job workflow, pricing rule and report type the application behind the bearer token has registered with this company, removed ones included, with the version in force and whether it is on. Needs no permission, because it answers only about the caller. A signed-in person calling it gets a 404: there is no application behind a session, and the company's whole list is on `GET /v1/apps`.\n\nRequires a session. No further permission is checked.",
+        "tags": [
+          "M28"
+        ],
+        "responses": {
+          "200": {
+            "description": "The plugins this application registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPluginsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": []
+      }
+    },
+    "/v1/plugins/job-workflows": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "registerJobWorkflow",
+        "summary": "Register a job workflow for a job type",
+        "description": "Named stages in order for one job type, each covering some of the nine job statuses (every status in exactly one stage), and gates a job has to meet before it leaves a stage: `{ \"kind\": \"checklist\", \"itemId\" }` for an item on the job type's checklist ticked on a visit, `{ \"kind\": \"field\", \"key\" }` for one of the company's job fields filled in. Moving a job forward past a gate not met is then refused in words; moving it back, inside a stage, or to cancelled never is. Only an application may register one, holding `settings:write` and `job:read`, and `visit:read` for a checklist gate. One workflow per job type: another application's in force is refused, and one whose application is turned off is replaced. Registering the same key again is the next version.\n\nRequires a session holding: settings:write, job:read.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterJobWorkflowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Register a job workflow for a job type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterJobWorkflowOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write",
+          "job:read"
+        ]
+      }
+    },
+    "/v1/plugins/job-workflows/{key}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "retireJobWorkflow",
+        "summary": "Remove a job workflow this application registered",
+        "description": "No longer in force from this call. Kept as a record, and registering the key again brings it back as the next version.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireJobWorkflowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Remove a job workflow this application registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireJobWorkflowOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/plugins/pricing-rules": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "registerPricingRule",
+        "summary": "Register a pricing rule",
+        "description": "One of four kinds: `customer_tag` (with `tag`), `job_type` (with `jobTypeId`) and `time_window` (with `window`, either \"outside_hours\" or `{ days, from, to }` in the company's zone), each with exactly one of a signed `percent` or a signed `amount` for the document; or `minimum_charge` (with `minimum`). Applied when an estimate or an invoice is priced, after member pricing and before tax, to lines priced from the company's own price book, in this order: percentages, each from the price after member pricing; then amounts spread over the lines; never below nothing; then the largest minimum. Each line it touched records the rule. Only an application may register one, holding `pricebook:write`, and the permission that reads what the rule asks about: `customer:read` for a tag, `job:read` for a job type, `visit:read` for a time.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterPricingRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Register a pricing rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterPricingRuleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      }
+    },
+    "/v1/plugins/pricing-rules/{key}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "retirePricingRule",
+        "summary": "Remove a pricing rule this application registered",
+        "description": "Not applied to anything priced after this call. Lines it already touched keep their record of it.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetirePricingRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Remove a pricing rule this application registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirePricingRuleOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      }
+    },
+    "/v1/plugins/report-types": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "registerReportType",
+        "summary": "Register a report type",
+        "description": "A cut of one of the report builder's datasets (`base`, a key from `GET /v1/report-datasets`): the columns it offers to group by, the numbers it offers, and filters it always carries. It appears in the report builder and on dashboards as a dataset of its own, keyed `app_` and the key. Whoever runs it needs exactly what its base, columns and filters need, scope included, and registering it needs the same of the application, with `report:build`. A key another application uses is refused.\n\nRequires a session holding: report:build.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterReportTypeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Register a report type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterReportTypeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:build"
+        ]
+      }
+    },
+    "/v1/plugins/report-types/{key}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "retireReportType",
+        "summary": "Remove a report type this application registered",
+        "description": "No longer offered from this call, and a saved report on it no longer runs.\n\nRequires a session holding: report:build.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireReportTypeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Remove a report type this application registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireReportTypeOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:build"
+        ]
+      }
+    },
     "/v1/portal-layout": {
       "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -101121,6 +102074,104 @@
         "x-authorization": "session",
         "x-permissions": [
           "po:write"
+        ]
+      }
+    },
+    "/v1/report-datasets": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listReportDatasets",
+        "summary": "The datasets the report builder offers the caller",
+        "description": "Each dataset with the columns and numbers the caller may use, by key and label: the product's, the company's own fields and kinds of record, and the report types connected applications registered. What a report type's `base`, `dimensions`, `measures` and filters name.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "responses": {
+          "200": {
+            "description": "The datasets the report builder offers the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListReportDatasetsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
         ]
       }
     },
@@ -135321,6 +136372,46 @@
                         ],
                         "format": "uuid"
                       },
+                      "pricingRules": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "ruleId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "appName": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "kind": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            },
+                            "unitPriceBefore": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            }
+                          },
+                          "required": [
+                            "ruleId",
+                            "name",
+                            "appName",
+                            "version",
+                            "kind",
+                            "amount",
+                            "unitPriceBefore"
+                          ]
+                        }
+                      },
                       "taxable": {
                         "type": "boolean"
                       },
@@ -141003,6 +142094,46 @@
                             ],
                             "format": "uuid"
                           },
+                          "pricingRules": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "ruleId": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "appName": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "integer"
+                                },
+                                "kind": {
+                                  "type": "string"
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                                },
+                                "unitPriceBefore": {
+                                  "type": "string",
+                                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                                }
+                              },
+                              "required": [
+                                "ruleId",
+                                "name",
+                                "appName",
+                                "version",
+                                "kind",
+                                "amount",
+                                "unitPriceBefore"
+                              ]
+                            }
+                          },
                           "taxable": {
                             "type": "boolean"
                           },
@@ -145034,6 +146165,46 @@
                         ],
                         "format": "uuid"
                       },
+                      "pricingRules": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "ruleId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "appName": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "kind": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            },
+                            "unitPriceBefore": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            }
+                          },
+                          "required": [
+                            "ruleId",
+                            "name",
+                            "appName",
+                            "version",
+                            "kind",
+                            "amount",
+                            "unitPriceBefore"
+                          ]
+                        }
+                      },
                       "taxable": {
                         "type": "boolean"
                       },
@@ -145904,6 +147075,46 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "pricingRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ruleId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPriceBefore": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "ruleId",
+                      "name",
+                      "appName",
+                      "version",
+                      "kind",
+                      "amount",
+                      "unitPriceBefore"
+                    ]
+                  }
                 },
                 "taxable": {
                   "type": "boolean"
@@ -151273,6 +152484,9 @@
               },
               "proposalTemplates": {
                 "type": "integer"
+              },
+              "jobWorkflows": {
+                "type": "integer"
               }
             },
             "required": [
@@ -151281,7 +152495,8 @@
               "kinds",
               "workflows",
               "reports",
-              "proposalTemplates"
+              "proposalTemplates",
+              "jobWorkflows"
             ]
           },
           "sampleJobs": {
@@ -154716,6 +155931,46 @@
                           "null"
                         ],
                         "format": "uuid"
+                      },
+                      "pricingRules": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "ruleId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "appName": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "kind": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            },
+                            "unitPriceBefore": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            }
+                          },
+                          "required": [
+                            "ruleId",
+                            "name",
+                            "appName",
+                            "version",
+                            "kind",
+                            "amount",
+                            "unitPriceBefore"
+                          ]
+                        }
                       },
                       "taxable": {
                         "type": "boolean"
@@ -165607,6 +166862,12 @@
                       },
                       "locked": {
                         "type": "boolean"
+                      },
+                      "stage": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "required": [
@@ -165727,6 +166988,12 @@
                       },
                       "locked": {
                         "type": "boolean"
+                      },
+                      "stage": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "required": [
@@ -165866,6 +167133,12 @@
                   "type": "boolean"
                 },
                 "priorityPlan": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stage": {
                   "type": [
                     "string",
                     "null"
@@ -167169,6 +168442,46 @@
                           "null"
                         ],
                         "format": "uuid"
+                      },
+                      "pricingRules": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "ruleId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "appName": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "kind": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            },
+                            "unitPriceBefore": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                            }
+                          },
+                          "required": [
+                            "ruleId",
+                            "name",
+                            "appName",
+                            "version",
+                            "kind",
+                            "amount",
+                            "unitPriceBefore"
+                          ]
+                        }
                       },
                       "taxable": {
                         "type": "boolean"
@@ -171143,6 +172456,46 @@
                   ],
                   "format": "uuid"
                 },
+                "pricingRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ruleId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPriceBefore": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "ruleId",
+                      "name",
+                      "appName",
+                      "version",
+                      "kind",
+                      "amount",
+                      "unitPriceBefore"
+                    ]
+                  }
+                },
                 "taxable": {
                   "type": "boolean"
                 },
@@ -173012,6 +174365,101 @@
           "typeSkills",
           "dropped",
           "checked"
+        ]
+      },
+      "GetJobStagesOutput": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "appName",
+              "version"
+            ]
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "statuses": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "gates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "checklist",
+                          "field"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "met": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "label",
+                      "met"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "name",
+                "statuses",
+                "current",
+                "gates"
+              ]
+            }
+          }
+        },
+        "required": [
+          "workflow",
+          "stages"
         ]
       },
       "GetJournalEntryOutput": {
@@ -188103,6 +189551,46 @@
                   ],
                   "format": "uuid"
                 },
+                "pricingRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ruleId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPriceBefore": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "ruleId",
+                      "name",
+                      "appName",
+                      "version",
+                      "kind",
+                      "amount",
+                      "unitPriceBefore"
+                    ]
+                  }
+                },
                 "taxable": {
                   "type": "boolean"
                 },
@@ -190141,6 +191629,90 @@
                     ]
                   }
                 },
+                "plugins": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "appId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "job_workflow",
+                          "pricing_rule",
+                          "report_type"
+                        ]
+                      },
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "jobTypeId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "definition": {
+                        "type": "object",
+                        "additionalProperties": {}
+                      },
+                      "summary": {
+                        "type": "string"
+                      },
+                      "on": {
+                        "type": "boolean"
+                      },
+                      "retiredAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "registeredAt": {
+                        "type": "string"
+                      },
+                      "changedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "appId",
+                      "appName",
+                      "kind",
+                      "key",
+                      "name",
+                      "version",
+                      "jobTypeId",
+                      "definition",
+                      "summary",
+                      "on",
+                      "retiredAt",
+                      "registeredAt",
+                      "changedAt"
+                    ]
+                  }
+                },
                 "live": {
                   "type": "boolean"
                 }
@@ -190161,6 +191733,7 @@
                 "source",
                 "request",
                 "tokens",
+                "plugins",
                 "live"
               ]
             }
@@ -203705,6 +205278,98 @@
           "campaigns"
         ]
       },
+      "ListPluginsOutput": {
+        "type": "object",
+        "properties": {
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "appId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "appName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "job_workflow",
+                    "pricing_rule",
+                    "report_type"
+                  ]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "jobTypeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "definition": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                },
+                "retiredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "registeredAt": {
+                  "type": "string"
+                },
+                "changedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "appId",
+                "appName",
+                "kind",
+                "key",
+                "name",
+                "version",
+                "jobTypeId",
+                "definition",
+                "summary",
+                "on",
+                "retiredAt",
+                "registeredAt",
+                "changedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "plugins"
+        ]
+      },
       "ListPortalCardsOutput": {
         "type": "object",
         "properties": {
@@ -206176,6 +207841,74 @@
         },
         "required": [
           "suggestions"
+        ]
+      },
+      "ListReportDatasetsOutput": {
+        "type": "object",
+        "properties": {
+          "datasets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "dimensions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ]
+                  }
+                },
+                "measures": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "description",
+                "dimensions",
+                "measures"
+              ]
+            }
+          }
+        },
+        "required": [
+          "datasets"
         ]
       },
       "ListReportDeliveriesOutput": {
@@ -225450,6 +227183,512 @@
           "id"
         ]
       },
+      "RegisterJobWorkflowInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "jobTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "maxLength": 48
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "statuses": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "gates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "key": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "name",
+                "statuses"
+              ]
+            },
+            "maxItems": 12
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "jobTypeId",
+          "stages"
+        ]
+      },
+      "RegisterJobWorkflowOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plugin",
+          "changed"
+        ]
+      },
+      "RegisterPricingRuleInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "rule": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "jobTypeId": {
+                "type": "string"
+              },
+              "window": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "outside_hours"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "days": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer"
+                        }
+                      },
+                      "from": {
+                        "type": "string"
+                      },
+                      "to": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "days",
+                      "from",
+                      "to"
+                    ]
+                  }
+                ]
+              },
+              "percent": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string"
+              },
+              "minimum": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "rule"
+        ]
+      },
+      "RegisterPricingRuleOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plugin",
+          "changed"
+        ]
+      },
+      "RegisterReportTypeInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "base": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dimension": {
+                  "type": "string"
+                },
+                "op": {
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "dimension",
+                "op",
+                "value"
+              ]
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "base",
+          "measures"
+        ]
+      },
+      "RegisterReportTypeOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plugin",
+          "changed"
+        ]
+      },
       "RegisterWebhookEndpointInput": {
         "type": "object",
         "properties": {
@@ -229795,6 +232034,192 @@
           "reason"
         ]
       },
+      "RetireJobWorkflowInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetireJobWorkflowOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          }
+        },
+        "required": [
+          "plugin"
+        ]
+      },
+      "RetirePricingRuleInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetirePricingRuleOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          }
+        },
+        "required": [
+          "plugin"
+        ]
+      },
       "RetireRentableAssetInput": {
         "type": "object",
         "properties": {}
@@ -229813,6 +232238,99 @@
         "required": [
           "id",
           "retired"
+        ]
+      },
+      "RetireReportTypeInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetireReportTypeOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          }
+        },
+        "required": [
+          "plugin"
         ]
       },
       "RetireStaffDocumentInput": {
@@ -230928,6 +233446,90 @@
                   ]
                 }
               },
+              "plugins": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "appId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "appName": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "job_workflow",
+                        "pricing_rule",
+                        "report_type"
+                      ]
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    },
+                    "jobTypeId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "definition": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "on": {
+                      "type": "boolean"
+                    },
+                    "retiredAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "registeredAt": {
+                      "type": "string"
+                    },
+                    "changedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "appId",
+                    "appName",
+                    "kind",
+                    "key",
+                    "name",
+                    "version",
+                    "jobTypeId",
+                    "definition",
+                    "summary",
+                    "on",
+                    "retiredAt",
+                    "registeredAt",
+                    "changedAt"
+                  ]
+                }
+              },
               "live": {
                 "type": "boolean"
               }
@@ -230948,6 +233550,7 @@
               "source",
               "request",
               "tokens",
+              "plugins",
               "live"
             ]
           },
@@ -234182,6 +236785,46 @@
                               "null"
                             ],
                             "format": "uuid"
+                          },
+                          "pricingRules": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "ruleId": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "appName": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "integer"
+                                },
+                                "kind": {
+                                  "type": "string"
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                                },
+                                "unitPriceBefore": {
+                                  "type": "string",
+                                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                                }
+                              },
+                              "required": [
+                                "ruleId",
+                                "name",
+                                "appName",
+                                "version",
+                                "kind",
+                                "amount",
+                                "unitPriceBefore"
+                              ]
+                            }
                           },
                           "taxable": {
                             "type": "boolean"
@@ -248588,6 +251231,46 @@
                   ],
                   "format": "uuid"
                 },
+                "pricingRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ruleId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPriceBefore": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "ruleId",
+                      "name",
+                      "appName",
+                      "version",
+                      "kind",
+                      "amount",
+                      "unitPriceBefore"
+                    ]
+                  }
+                },
                 "taxable": {
                   "type": "boolean"
                 },
@@ -257477,6 +260160,46 @@
                   ],
                   "format": "uuid"
                 },
+                "pricingRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ruleId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPriceBefore": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "ruleId",
+                      "name",
+                      "appName",
+                      "version",
+                      "kind",
+                      "amount",
+                      "unitPriceBefore"
+                    ]
+                  }
+                },
                 "taxable": {
                   "type": "boolean"
                 },
@@ -258562,6 +261285,46 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "pricingRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ruleId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "appName": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPriceBefore": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "ruleId",
+                      "name",
+                      "appName",
+                      "version",
+                      "kind",
+                      "amount",
+                      "unitPriceBefore"
+                    ]
+                  }
                 },
                 "taxable": {
                   "type": "boolean"

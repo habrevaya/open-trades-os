@@ -6,7 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses,
+  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses, plugins,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -34,6 +34,7 @@ import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, CancelJob, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
 import { EstimateDrafts } from "./EstimateDrafts";
+import { Stages } from "./Stages";
 
 export const dynamic = "force-dynamic";
 
@@ -189,6 +190,8 @@ export default async function JobPage({ params, searchParams }: {
     ? (await billing.list(ctx, { limit: 50, jobId: id })).data
     : [];
   const canInvoice = can(user.actor, "invoice:write") && job.status !== "cancelled";
+  /** The stages a connected application set for this job's type, when one did. */
+  const stages = await plugins.stagesOf(ctx, { id });
   const items = completes && openVisits.length > 0 && can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
       .map((item) => ({ id: item.id, name: item.name, price: item.price }))
@@ -225,6 +228,8 @@ export default async function JobPage({ params, searchParams }: {
           {job.equipmentId ? <a href={`/equipment/${job.equipmentId}`} className="hover:underline">The unit this job is about</a> : null}
         </Fact>
       </Facts>
+
+      <Stages data={stages} />
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />

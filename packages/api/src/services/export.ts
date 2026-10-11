@@ -170,6 +170,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  app_plugin: {
+    key: "A connected application's own name for a job workflow, pricing rule or report type it "
+      + "registered, such as install_stages. A key in the sense of a lookup, not a credential.",
+  },
   integration_secret: {
     key_id: "A fingerprint of which master key sealed the secret, not the key, and useless without it.",
   },

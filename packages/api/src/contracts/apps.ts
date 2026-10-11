@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid } from "./common";
+import { PluginView } from "./plugins";
 
 /**
  * CONNECTED APPLICATIONS
@@ -100,6 +101,8 @@ export const AppView = z.object({
     claimedAt: z.string().nullable(),
   }).nullable(),
   tokens: z.array(AppTokenView),
+  /** What it registered (M28), removed ones included, each saying whether it is in force. */
+  plugins: z.array(PluginView),
   /**
    * Whether anything can actually call us as this app right now: active, and
    * holding a token that is neither revoked nor lapsed. Separate from `status`

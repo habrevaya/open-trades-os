@@ -53,6 +53,7 @@ import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
 import { reportRoutes } from "./reports";
 import { appRoutes } from "./apps";
+import { pluginRoutes } from "./plugins";
 import { equipmentRoutes } from "./equipment";
 import { taskRoutes } from "./tasks";
 import { workflowRoutes } from "./workflows";
@@ -167,6 +168,7 @@ export * from "./holidays";
 export * from "./after-hours";
 export * from "./safety-talks";
 export * from "./apps";
+export * from "./plugins";
 export * from "./pricing-authority";
 export * from "./field-assets";
 export * from "./credit-notes";
@@ -275,6 +277,7 @@ export const routes = {
   ...readbackRoutes,
   ...serviceReportRoutes,
   ...appRoutes,
+  ...pluginRoutes,
   ...equipmentRoutes,
   ...taskRoutes,
   ...workflowRoutes,
