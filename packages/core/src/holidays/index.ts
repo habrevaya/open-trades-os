@@ -1,4 +1,4 @@
-import { addDays } from "../time/index.js";
+import { addDays, dateIn, minutesInDay } from "../time/index.js";
 import type { Holiday as PhoneHoliday } from "../telephony/index.js";
 
 /**
@@ -216,4 +216,72 @@ export function bookedAt(input: {
         ? `after the ${clock(hours.closeMinute)} close${holiday ? ` on ${holiday.name}` : ""}`
         : holiday ? `on ${holiday.name}` : "inside your hours";
   return { holiday, outsideHours, why: `${at}, ${where}` };
+}
+
+/* ------------------------------------------------------ working time */
+
+/** Everything the working time maths needs to know about the company's week. */
+export interface WorkingCalendar {
+  /** The week's hours, or null when the company has declared none. */
+  week: WeekHours | null;
+  holidays: readonly CompanyHoliday[];
+  timeZone: string;
+}
+
+/**
+ * The hours the company works on one date, in minutes past midnight, or null
+ * when it is shut.
+ *
+ * The same answer `bookedAt` gives, so "outside your hours" and "not a
+ * working hour" never disagree: a date in the holiday list keeps its own
+ * hours (a closed one keeps none), and any other date keeps its weekday's.
+ * A company with no weekly hours declared has nothing to say about its week,
+ * so every day that is not a closed holiday counts all day. That is the
+ * conservative reading for a clock that tells somebody something is late: it
+ * errs towards telling them.
+ */
+export function workingHoursOn(
+  date: string, calendar: Pick<WorkingCalendar, "week" | "holidays">,
+): { openMinute: number; closeMinute: number } | null {
+  const holiday = holidayOn(calendar.holidays, date);
+  if (holiday) return holiday.hours;
+  if (calendar.week === null) return { openMinute: 0, closeMinute: 24 * 60 };
+  return calendar.week[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? null;
+}
+
+/** The most days the working time walk will cross before it gives up: a little over eleven years. */
+const WORKING_WALK_DAYS = 4000;
+
+/**
+ * How many working minutes lie between two instants.
+ *
+ * Only the minutes inside the company's hours on a day the company works, in
+ * its own zone, count: the evening, the weekend, a closed day and a holiday
+ * add nothing. Counted on the wall clock of each date rather than by adding
+ * milliseconds, so the day the clocks change is neither an hour short nor an
+ * hour long. Zero when `to` is not after `from`.
+ *
+ * `stopAt` lets a caller that only asks "has it reached N minutes" stop as
+ * soon as it has, so a task a year late costs a few days of walking rather
+ * than three hundred and sixty five. The walk is bounded either way, so a
+ * calendar that is never open (every weekday closed) returns zero rather than
+ * spinning.
+ */
+export function workingMinutesBetween(
+  from: Date, to: Date, calendar: WorkingCalendar, stopAt: number = Number.POSITIVE_INFINITY,
+): number {
+  if (!(to.getTime() > from.getTime())) return 0;
+  const first = dateIn(from, calendar.timeZone);
+  const last = dateIn(to, calendar.timeZone);
+  let total = 0;
+  let date = first;
+  for (let step = 0; date <= last && step < WORKING_WALK_DAYS; step += 1, date = addDays(date, 1)) {
+    const hours = workingHoursOn(date, calendar);
+    if (!hours) continue;
+    const start = date === first ? Math.max(hours.openMinute, minutesInDay(from, calendar.timeZone)) : hours.openMinute;
+    const end = date === last ? Math.min(hours.closeMinute, minutesInDay(to, calendar.timeZone)) : hours.closeMinute;
+    if (end > start) total += end - start;
+    if (total >= stopAt) return total;
+  }
+  return total;
 }

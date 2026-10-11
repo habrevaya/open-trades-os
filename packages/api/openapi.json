@@ -120883,7 +120883,7 @@
       "post": {
         "operationId": "createTaskEscalationRule",
         "summary": "Tell somebody when a task is late, and optionally hand it over",
-        "description": "After `afterHours` past due, the worker tells the assignee's manager, everybody in a role, or a named person, with a task in their queue linked to the late one and an email when the company sends email, and hands the task to `reassignToUserId` when one is set. Once per task per rule, recorded before anybody is told. With no manager recorded, or nobody in the role, the owners are told and the record says why.\n\nRequires a session holding: task:write.",
+        "description": "After `afterHours` past due, the worker tells the assignee's manager, everybody in a role, or a named person, with a task in their queue linked to the late one and an email when the company sends email, and hands the task to `reassignToUserId` when one is set. With `workingHours` true the hours are counted inside the company's business hours, on the days it is open and not on its holidays, and the rule is refused until business hours are set; the default counts the clock. Once per task per rule, recorded before anybody is told. With no manager recorded, or nobody in the role, the owners are told and the record says why.\n\nRequires a session holding: task:write.",
         "tags": [
           "M34"
         ],
@@ -156854,6 +156854,9 @@
             "minimum": 1,
             "maximum": 672
           },
+          "workingHours": {
+            "type": "boolean"
+          },
           "minimumPriority": {
             "type": [
               "string",
@@ -156926,6 +156929,9 @@
           "afterHours": {
             "type": "integer"
           },
+          "workingHours": {
+            "type": "boolean"
+          },
           "minimumPriority": {
             "type": [
               "string",
@@ -156992,6 +156998,7 @@
           "id",
           "name",
           "afterHours",
+          "workingHours",
           "minimumPriority",
           "target",
           "targetRole",
@@ -216366,6 +216373,9 @@
                 "afterHours": {
                   "type": "integer"
                 },
+                "workingHours": {
+                  "type": "boolean"
+                },
                 "minimumPriority": {
                   "type": [
                     "string",
@@ -216432,6 +216442,7 @@
                 "id",
                 "name",
                 "afterHours",
+                "workingHours",
                 "minimumPriority",
                 "target",
                 "targetRole",
@@ -263508,6 +263519,9 @@
             "minimum": 1,
             "maximum": 672
           },
+          "workingHours": {
+            "type": "boolean"
+          },
           "minimumPriority": {
             "type": [
               "string",
@@ -263578,6 +263592,9 @@
           "afterHours": {
             "type": "integer"
           },
+          "workingHours": {
+            "type": "boolean"
+          },
           "minimumPriority": {
             "type": [
               "string",
@@ -263644,6 +263661,7 @@
           "id",
           "name",
           "afterHours",
+          "workingHours",
           "minimumPriority",
           "target",
           "targetRole",

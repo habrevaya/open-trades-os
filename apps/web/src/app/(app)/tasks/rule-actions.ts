@@ -183,6 +183,7 @@ export async function addRule(_previous: FormState, form: FormData): Promise<For
     const input = parsed(createTaskEscalationRule.input, {
       name: field(form, "name"),
       afterHours: Number(field(form, "afterHours") ?? "0"),
+      workingHours: form.get("workingHours") === "yes",
       target,
       ...(target === "role" ? { targetRole: field(form, "targetRole") } : {}),
       ...(target === "person" ? { targetUserId: field(form, "targetUserId") } : {}),
@@ -199,6 +200,16 @@ export async function setRuleActive(_previous: FormState, form: FormData): Promi
   const state = await attempt(form, async () => {
     const { ctx } = await session();
     await taskRules.updateRule(ctx, { id: String(form.get("id") ?? ""), active: form.get("active") === "1" });
+  });
+  refresh("/tasks/escalation");
+  return state;
+}
+
+/** Switch a rule between counting working hours and counting every hour. It applies to tasks not yet acted on. */
+export async function setRuleWorkingHours(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const { ctx } = await session();
+    await taskRules.updateRule(ctx, { id: String(form.get("id") ?? ""), workingHours: form.get("workingHours") === "1" });
   });
   refresh("/tasks/escalation");
   return state;

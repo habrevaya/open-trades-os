@@ -1,0 +1,1 @@
+ALTER TABLE "task_escalation_rule" ADD COLUMN "working_hours" boolean DEFAULT false NOT NULL;

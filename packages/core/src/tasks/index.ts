@@ -1,4 +1,5 @@
 import { addDays, addMonths, compareDates, parseDate } from "../recurrence/index.js";
+import { workingMinutesBetween, type WorkingCalendar } from "../holidays/index.js";
 
 /**
  * THE OFFICE QUEUE'S RULES
@@ -412,24 +413,52 @@ export interface EscalationCandidate {
 export interface EscalationRuleShape {
   afterHours: number;
   minimumPriority: TaskPriority | null;
+  /**
+   * Count only the company's working hours: inside its business hours, on a
+   * day it is open, skipping its holidays. False counts the clock, as every
+   * rule did before this existed.
+   */
+  workingHours?: boolean | undefined;
+}
+
+/**
+ * How late a task is, in minutes, the way a rule counts it.
+ *
+ * A clock rule counts every minute. A working hours rule counts only the
+ * minutes the company is open, and needs the company's calendar to know
+ * which. Asked for working hours with no calendar to read, it counts the
+ * clock: a rule that cannot tell when the company is open must not go quiet,
+ * because the failure of a late task nobody was told about is worse than the
+ * failure of one told about early.
+ */
+export function minutesLate(
+  dueAt: Date, now: Date, workingHours: boolean | undefined, calendar: WorkingCalendar | null | undefined,
+  stopAt: number = Number.POSITIVE_INFINITY,
+): number {
+  if (workingHours && calendar) return workingMinutesBetween(dueAt, now, calendar, stopAt);
+  return Math.max(0, Math.floor((now.getTime() - dueAt.getTime()) / 60_000));
 }
 
 /**
  * Whether a rule applies to a task now.
  *
  * Past due by at least the rule's hours, still open, and at or above the
- * rule's priority. Hours rather than working hours, deliberately and said
- * out loud: a task due Friday at five escalates on Saturday morning under a
- * twelve hour rule, which for a company with an on call week is right and for
- * one without is a reason to set the rule at sixty hours.
+ * rule's priority. By default the hours are clock hours, said out loud: a
+ * task due Friday at five escalates on Saturday morning under a twelve hour
+ * rule, which for a company with an on call week is right. A rule set to
+ * count working hours reads the company's business hours and holiday list
+ * instead, so the same task escalates on Tuesday at eleven under a twelve hour
+ * rule for a company that opens at eight and closes at five, after counting
+ * Monday's nine hours and the first three of Tuesday's.
  */
 export function escalationDue(
-  task: EscalationCandidate, rule: EscalationRuleShape, now: Date,
+  task: EscalationCandidate, rule: EscalationRuleShape, now: Date, calendar?: WorkingCalendar | null,
 ): boolean {
   if (task.dueAt === null) return false;
   if (task.status !== "open" && task.status !== "in_progress") return false;
   if (rule.minimumPriority && PRIORITY_RANK[task.priority] < PRIORITY_RANK[rule.minimumPriority]) return false;
-  return now.getTime() - task.dueAt.getTime() >= rule.afterHours * 3_600_000;
+  const needed = rule.afterHours * 60;
+  return minutesLate(task.dueAt, now, rule.workingHours, calendar, needed) >= needed;
 }
 
 export function checkEscalationHours(hours: number): ScheduleVerdict {
