@@ -30,7 +30,7 @@ import {
   rateCards, jobBilling, claims, payerDelivery,
   safety, retention, holidays, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
-  stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, peopleRecords,
+  stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
   me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
 } from "../services/index";
@@ -1141,6 +1141,8 @@ export const handlers = {
   ...rentalBilling.handlers,
   // Each truck its own kind: containers carried, sizes lifted, time at the yard (M22)
   ...trucks.handlers,
+  // Disposal facilities as places: address, pin, hours and rate (M22)
+  ...disposalFacilities.handlers,
   // Onboarding, emergency contacts, employment, skills, continuing education, a job's own skills (M24)
   ...peopleRecords.handlers,
   // A person's own record, and the documents the company asks its people to sign (M24)

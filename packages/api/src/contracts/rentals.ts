@@ -53,6 +53,8 @@ const RentalView = z.object({
   divertedTons: MoneyString.nullable(),
   disposalTicketNumber: z.string().nullable(),
   disposalFacility: z.string().nullable(),
+  /** The recorded facility the load went to, when it is one. Its name is `disposalFacility`. */
+  disposalFacilityId: Uuid.nullable(),
   materialType: z.string().nullable(),
   disposalFee: MoneyString.nullable(),
   previousRentalId: Uuid.nullable(),
@@ -192,6 +194,8 @@ export const pickUpRental = defineRoute({
     materialType: z.string().max(100).nullable().optional(),
     disposalFee: MoneyString.nullable().optional(),
     backInService: z.boolean().optional(),
+    /** A facility recorded on `/v1/disposal-facilities`. Its name replaces `facility`. A closed one is refused. */
+    facilityId: Uuid.nullable().optional(),
   }),
   output: RentalView,
 });
@@ -213,6 +217,8 @@ export const swapRental = defineRoute({
     ticketNumber: z.string().max(100).nullable().optional(),
     facility: z.string().max(200).nullable().optional(),
     materialType: z.string().max(100).nullable().optional(),
+    /** A facility recorded on `/v1/disposal-facilities` for the full can. Its name replaces `facility`. */
+    facilityId: Uuid.nullable().optional(),
   }),
   output: z.object({ closed: RentalView, opened: RentalView }),
 });

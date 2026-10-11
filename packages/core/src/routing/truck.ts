@@ -25,6 +25,17 @@
  *    seventy five minutes are, and is not counted twice.
  *  - The day ends at the yard, so a full can on board at the end is tipped.
  *
+ * THE FACILITY IS A PLACE. A full can is tipped at a disposal facility, not at
+ * the yard, and a plan that is given one (`TruckPlan.facility`) sends the
+ * truck there with any full can before it needs an empty or the day ends:
+ * yard to customer to facility to the next stop. What it tips there comes
+ * back as an empty on the same truck, so a drop straight after needs no run
+ * to the yard; a collection still needs room, which only the yard gives. The
+ * facility has hours: a truck that arrives before it opens waits at the gate,
+ * and one that arrives after it closes is a run the plan REFUSES, counted
+ * with the broken windows so the search drives further to avoid it, and named
+ * on the proposal. With no facility, the yard tips, exactly as before.
+ *
  * EACH TRUCK IS ITS OWN KIND. A hook lift that carries two small cans and
  * a roll off truck that carries one big one are not the same truck, and a
  * company's one figure is only the default for a truck nobody has given a
@@ -41,6 +52,22 @@
  */
 
 import { better, improve, type DayPlan, type Evaluation, type PlanStop } from "./index.js";
+
+/**
+ * A disposal facility as the plan knows it: where it is (by the key `travel`
+ * understands), how long a tip takes there and when it takes loads.
+ */
+export interface TruckFacility {
+  key: string;
+  /** Minutes for the queue, the scale and the tip. */
+  minutes: number;
+  /**
+   * When it takes loads on the plan's day, in the same minutes as the windows.
+   * "closed" for a day it is shut all day; null when its hours are not known,
+   * which is never a reason to refuse a trip.
+   */
+  hours: { opensAt: number; closesAt: number } | "closed" | null;
+}
 
 /** What a stop does to the truck. `none` is any other work on the day. */
 export type TruckWork = "drop" | "pickup" | "swap" | "dump_return" | "none";
@@ -75,6 +102,8 @@ export interface TruckPlan extends DayPlan {
    * it is not limited to any, which is also what a truck with no kind is.
    */
   sizes?: readonly number[] | undefined;
+  /** Where a full can is tipped, when the plan knows a facility. Without one the yard tips. */
+  facility?: TruckFacility | null | undefined;
   /**
    * What is on the truck as the plan starts. Null when the day starts at
    * the yard, where it is loaded for the stops that follow.
@@ -162,8 +191,25 @@ export function servable(plan: TruckPlan): { plan: TruckPlan; notCarried: string
   return { plan: { ...plan, stops: plan.stops.map((s) => (skip.has(s.id) ? { ...s, work: "none" as const } : s)) }, notCarried };
 }
 
+/** A run to the disposal facility to tip what is full. */
+export interface FacilityRun {
+  /** The stop before the run, or null when the truck goes straight from where the plan starts. */
+  afterId: string | null;
+  /** The stop it is for, or null for the run at the end of the day. */
+  beforeId: string | null;
+  /** Full containers tipped. */
+  tipped: number;
+  arriveAt: number;
+  /** Minutes waiting at the gate for it to open. */
+  waitMinutes: number;
+  /** Minutes after it closed that the truck arrives. Zero when the gate is open; a whole day when it is shut all day. */
+  closedBy: number;
+}
+
 export interface TruckEvaluation extends Evaluation {
   yardRuns: YardRun[];
+  /** Runs to the facility, empty when the plan has none. */
+  facilityRuns: FacilityRun[];
   /** What the truck leaves with in the morning. */
   startLoad: TruckLoad;
 }
@@ -216,6 +262,7 @@ export function loadFor(works: readonly TruckWork[], capacity: number): number {
 /** Walk a day in a given order with the truck, and say what it costs. */
 export function evaluateTruck(given: TruckPlan, order: readonly string[]): TruckEvaluation {
   const plan = servable(given).plan;
+  const facility = plan.facility ?? null;
   const capacity = Math.max(1, Math.floor(plan.capacity));
   const byId = new Map(plan.stops.map((s) => [s.id, s]));
   const works = order.map((id) => {
@@ -233,6 +280,7 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
   let wait = 0;
   const arrivals: Evaluation["arrivals"] = [];
   const yardRuns: YardRun[] = [];
+  const facilityRuns: FacilityRun[] = [];
 
   const toYard = (beforeId: string | null, upcoming: readonly TruckWork[]) => {
     const leg = plan.travel(at, plan.yard);
@@ -246,9 +294,39 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     at = plan.yard;
   };
 
+  /**
+   * Tip what is full at the facility. A truck early for the gate waits for it;
+   * one that arrives after it has closed is recorded as closed by that many
+   * minutes and carries on as if it had been taken, so the rest of the day is
+   * still measured and the closure is what the proposal names.
+   */
+  const toFacility = (beforeId: string | null) => {
+    const f = facility!;
+    const leg = plan.travel(at, f.key);
+    drive += leg;
+    clock += leg;
+    const arriveAt = clock;
+    let waited = 0;
+    let closedBy = 0;
+    if (f.hours === "closed") closedBy = 1440;
+    else if (f.hours !== null) {
+      if (arriveAt < f.hours.opensAt) { waited = f.hours.opensAt - arriveAt; clock = f.hours.opensAt; }
+      else if (arriveAt > f.hours.closesAt) closedBy = arriveAt - f.hours.closesAt;
+    }
+    wait += waited;
+    facilityRuns.push({ afterId: previous, beforeId, tipped: load.fulls, arriveAt, waitMinutes: waited, closedBy });
+    clock += f.minutes;
+    /** What was full is empty now, and still on the truck. */
+    load = { empties: load.empties + load.fulls, fulls: 0 };
+    at = f.key;
+  };
+
   for (const [index, id] of order.entries()) {
     const stop = byId.get(id)!;
-    if (!canServe(stop.work, load, capacity)) toYard(id, works.slice(index));
+    if (!canServe(stop.work, load, capacity)) {
+      if (facility && load.fulls > 0) toFacility(id);
+      if (!canServe(stop.work, load, capacity)) toYard(id, works.slice(index));
+    }
     const leg = plan.travel(at, id);
     drive += leg;
     const arriveAt = clock + leg;
@@ -264,14 +342,16 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
   }
 
   /**
-   * Home, and a full can still on the hook is tipped first: at the yard when
-   * the day ends there, by way of it when it does not.
+   * Home, and a full can still on the hook is tipped first: at the facility
+   * when the plan has one, otherwise at the yard when the day ends there, by
+   * way of it when it does not.
    */
   const tipAtEnd = order.length > 0 && load.fulls > 0;
-  if (tipAtEnd && plan.end !== plan.yard) toYard(null, []);
+  if (tipAtEnd && facility) toFacility(null);
+  else if (tipAtEnd && plan.end !== plan.yard) toYard(null, []);
   const home = order.length === 0 ? 0 : plan.travel(at, plan.end);
   drive += home;
-  if (tipAtEnd && plan.end === plan.yard) {
+  if (tipAtEnd && !facility && plan.end === plan.yard) {
     yardRuns.push({ afterId: previous, beforeId: null, tipped: load.fulls, loaded: 0, arriveAt: clock + home });
     clock += plan.yardMinutes;
   }
@@ -286,8 +366,23 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     late,
     lateMinutes: late.reduce((n, l) => n + l.lateBy, 0),
     yardRuns,
+    facilityRuns,
     startLoad,
   };
+}
+
+/**
+ * Better, for a truck's day: a broken promise to a customer and a facility
+ * reached after it closed count the same, because both are a run the day
+ * cannot do, and the search should drive further to avoid either. With no
+ * facility this is `better`.
+ */
+export function betterTruck(a: TruckEvaluation, b: TruckEvaluation): boolean {
+  const broken = (e: TruckEvaluation) => e.late.length + e.facilityRuns.filter((r) => r.closedBy > 0).length;
+  const minutes = (e: TruckEvaluation) => e.lateMinutes + e.facilityRuns.reduce((n, r) => n + r.closedBy, 0);
+  if (broken(a) !== broken(b)) return broken(a) < broken(b);
+  if (minutes(a) !== minutes(b)) return minutes(a) < minutes(b);
+  return better(a, b);
 }
 
 /**
@@ -297,40 +392,67 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
  */
 export function constructTruck(given: TruckPlan): string[] {
   const plan = servable(given).plan;
+  const facility = plan.facility ?? null;
   const capacity = Math.max(1, Math.floor(plan.capacity));
   const remaining = [...plan.stops].sort((a, b) => a.id.localeCompare(b.id));
   const order: string[] = [];
   let at = plan.start;
   let clock = plan.departAt;
   let load: TruckLoad = plan.load ?? { empties: loadFor(remaining.map((s) => s.work), capacity), fulls: 0 };
+
+  /**
+   * Where the truck is, when and with what, once it has done what the stop
+   * needs first: a run to the facility to tip what is full, and then to the
+   * yard when it still cannot serve it. The same arithmetic `evaluateTruck`
+   * walks, so the order built is the order that is then measured.
+   */
+  const approach = (work: TruckWork, upcoming: readonly TruckWork[]) => {
+    let place = at;
+    let time = clock;
+    let ld = load;
+    let viaYard = false;
+    if (!canServe(work, ld, capacity)) {
+      if (facility && ld.fulls > 0) {
+        time += plan.travel(place, facility.key);
+        if (facility.hours !== null && facility.hours !== "closed" && time < facility.hours.opensAt) time = facility.hours.opensAt;
+        time += facility.minutes;
+        place = facility.key;
+        ld = { empties: ld.empties + ld.fulls, fulls: 0 };
+      }
+      if (!canServe(work, ld, capacity)) {
+        time += plan.travel(place, plan.yard) + plan.yardMinutes;
+        place = plan.yard;
+        ld = { empties: loadFor(upcoming, capacity), fulls: 0 };
+        viaYard = true;
+      }
+    }
+    return { place, time, load: ld, viaYard };
+  };
+
   while (remaining.length > 0) {
-    let best: { index: number; begin: number; leg: number; closes: number; viaYard: boolean } | null = null;
-    let urgent: { index: number; closes: number; viaYard: boolean } | null = null;
+    let best: { index: number; begin: number; leg: number; closes: number } | null = null;
+    let urgent: { index: number; closes: number } | null = null;
     for (const [index, stop] of remaining.entries()) {
-      const viaYard = !canServe(stop.work, load, capacity);
-      const leg = viaYard
-        ? plan.travel(at, plan.yard) + plan.yardMinutes + plan.travel(plan.yard, stop.id)
-        : plan.travel(at, stop.id);
+      const there = approach(stop.work, [stop.work]);
+      const leg = there.time - clock + plan.travel(there.place, stop.id);
       const arrive = clock + leg;
       const closes = stop.windowEnd ?? Number.POSITIVE_INFINITY;
       if (arrive <= closes) {
         const begin = Math.max(arrive, stop.windowStart ?? arrive);
         if (!best || begin < best.begin || (begin === best.begin && leg < best.leg)
           || (begin === best.begin && leg === best.leg && closes < best.closes)) {
-          best = { index, begin, leg, closes, viaYard };
+          best = { index, begin, leg, closes };
         }
       } else if (!urgent || closes < urgent.closes) {
-        urgent = { index, closes, viaYard };
+        urgent = { index, closes };
       }
     }
     const pick = (best ?? urgent)!;
     const [stop] = remaining.splice(pick.index, 1);
-    if (pick.viaYard) {
-      const works = [stop!.work, ...remaining.map((s) => s.work)];
-      load = { empties: loadFor(works, capacity), fulls: 0 };
-      clock += plan.travel(at, plan.yard) + plan.yardMinutes;
-      at = plan.yard;
-    }
+    const there = approach(stop!.work, [stop!.work, ...remaining.map((s) => s.work)]);
+    clock = there.time;
+    at = there.place;
+    load = there.load;
     const leg = plan.travel(at, stop!.id);
     const arrive = clock + leg;
     clock = Math.max(arrive, stop!.windowStart ?? arrive) + stop!.serviceMinutes;
@@ -346,6 +468,11 @@ export interface TruckProposal {
   proposed: TruckEvaluation;
   improved: boolean;
   missed: { id: string; lateBy: number; unreachable: boolean }[];
+  /**
+   * Runs to the facility the proposed day reaches after it has closed, each
+   * the way the day was ordered at the time: refused, and named.
+   */
+  facilityClosed: FacilityRun[];
   /** Stops about a container of a size this truck does not lift, ordered as plain driving. */
   notCarried: string[];
 }
@@ -365,10 +492,10 @@ export function optimiseTruck(
     throw new RangeError("The current order must name every stop in the plan exactly once.");
   }
   const now = evaluateTruck(plan, current);
-  const fromCurrent = improve(plan, current, 200, pinned, evaluateTruck);
-  const fromScratch = pinned.size === 0 ? improve(plan, constructTruck(plan), 200, new Set(), evaluateTruck) : fromCurrent;
-  const chosen = better(fromScratch, fromCurrent) ? fromScratch : fromCurrent;
-  const proposed = better(chosen, now) ? evaluateTruck(plan, chosen.order) : now;
+  const fromCurrent = improve(plan, current, 200, pinned, evaluateTruck, betterTruck);
+  const fromScratch = pinned.size === 0 ? improve(plan, constructTruck(plan), 200, new Set(), evaluateTruck, betterTruck) : fromCurrent;
+  const chosen = betterTruck(fromScratch, fromCurrent) ? fromScratch : fromCurrent;
+  const proposed = betterTruck(chosen, now) ? evaluateTruck(plan, chosen.order) : now;
 
   const byId = new Map(plan.stops.map((s) => [s.id, s]));
   const missed = proposed.late.map((l) => {
@@ -376,5 +503,8 @@ export function optimiseTruck(
     const direct = plan.departAt + plan.travel(plan.start, l.id);
     return { id: l.id, lateBy: l.lateBy, unreachable: stop.windowEnd !== null && direct > stop.windowEnd };
   });
-  return { current: now, proposed, improved: proposed !== now, missed, notCarried };
+  return {
+    current: now, proposed, improved: proposed !== now, missed,
+    facilityClosed: proposed.facilityRuns.filter((r) => r.closedBy > 0), notCarried,
+  };
 }

@@ -224,6 +224,43 @@ size, or a drop booked before a can is chosen, is never refused for its size.
 A kind's figures change the next proposal only; a day already ordered is not
 reordered behind anybody's back.
 
+### Disposal facilities
+
+A full can is tipped at a landfill or a transfer station, and on
+`/fleet/containers/facilities` the company records each one: its name, its
+address (put on the map by the worker like a property's, or pinned by hand and
+then never moved), the days and hours it takes loads (a day left empty is a day
+it is closed; none at all means the hours are not recorded, which is never a
+reason to refuse a trip), what it charges (by the ton or by the load, with a
+minimum when it has one) and the minutes a tip takes there. `GET
+/v1/disposal-facilities` lists them, `POST /v1/disposal-facilities` records one,
+`PATCH /v1/disposal-facilities/{id}` changes one, `DELETE
+/v1/disposal-facilities/{id}` stops using one (closed, never deleted: every haul
+that went there keeps naming it), `PUT /v1/disposal-facilities/{id}/pin` and
+`DELETE /v1/disposal-facilities/{id}/pin` place and take off a pin, and `GET
+/v1/disposal-facilities/{id}/open` says whether it takes loads at a time, and in
+words why not. They need `asset:write` (`asset:read` to look). The first one a
+company records is its default, and a company has one default at a time.
+
+"Optimise route" runs a driver's day through the default facility, or the one
+asked for with `facilityId`: yard to customer to facility to the next stop. A
+full can is tipped there and not at the yard, the empty it leaves with goes
+straight to the next drop, and the yard is still where empties are loaded and
+where a truck leaves one for room. The time at the gate is counted, a truck
+early for it waits, and a run that would arrive after it has closed, or on a day
+it keeps no hours, is refused in words on the proposal (`Austin Transfer is
+closed at 5:40 PM on Tuesday: it is open 7:00 AM to 4:30 PM that day`). The
+search counts a closed gate as a broken promise, so it drives further to avoid
+one where any order could. A facility with no pin on the map cannot be driven to
+in the arithmetic, and the proposal says the day was planned with the yard
+tipping. Public holidays are not known, so a facility shut for one looks open.
+
+A pickup or a swap names the facility the load went to with `facilityId` (the
+screen offers the company's facilities beside the ticket); its name becomes the
+haul's facility, and a closed facility is refused. A scale ticket file's
+facility is matched to a recorded one only when the name is the same, case
+ignored, and left as words otherwise.
+
 ### Charges found on a haul
 
 `POST /v1/rentals/{id}/charges` records a contaminated load, a prohibited
@@ -386,11 +423,12 @@ this product's own board first.
 - **Scale tickets come from a file.** A photograph of a ticket is not read.
 - **The truck has one capacity figure.** A kind says how many containers a
   truck carries at once, whatever their size: a hook lift that takes two small
-  cans or one large one is two kinds. The yard is where the driver's day
-  starts: a disposal facility apart from the yard is not a place the plan
-  knows. The load in the morning is not recorded; for a day already under way
-  it is worked out from the stops done. The rebalance across people leaves a
-  driver's day with containers on it alone (M09).
+  cans or one large one is two kinds. The disposal facility is one per day: a
+  day is planned through the default (or the one asked for), not choosing among
+  several by which is nearest or open, and facilities' holidays are not known.
+  The load in the morning is not recorded; for a day already under way it is
+  worked out from the stops done. The rebalance across people leaves a driver's
+  day with containers on it alone (M09).
 - **A hire is invoiced one haul at a time.** A swap chain is several hauls and
   each is invoiced from its own row; the facility's disposal fee on a haul is
   its cost, and is not passed through.

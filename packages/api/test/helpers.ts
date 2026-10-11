@@ -231,7 +231,10 @@ const ORDER = [
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   /** A charge found on a haul points at the hire and at the fee it was priced from. */
   "rental_charge",
-  "rental", "rentable_asset", "territory", "business_hours", "company_holiday",
+  "rental",
+  /** A haul points at the facility it went to, so the facility goes after the hauls. */
+  "disposal_facility",
+  "rentable_asset", "territory", "business_hours", "company_holiday",
   /**
    * The company's own tools, children first. Every one of these cascades
    * from `company_asset`, which cascades from the organization, but a scoped

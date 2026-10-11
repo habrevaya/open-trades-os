@@ -56,3 +56,52 @@ test("Trucks: a kind of truck is added, given to a vehicle, and cannot be remove
   await listed.getByRole("button", { name: "Remove" }).click();
   await expect(owner.getByRole("listitem").filter({ hasText: kind }).filter({ has: owner.getByRole("button", { name: "Remove" }) })).toHaveCount(0);
 });
+
+test("Disposal facilities: a facility is recorded with its hours and rate, pinned by hand, and made the default", async ({ owner }) => {
+  const name = `Tip ${run}`;
+  await owner.goto("/fleet/containers/facilities");
+  await expect(owner.getByRole("heading", { level: 1, name: "Disposal facilities" })).toBeVisible();
+
+  const add = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add facility" }) });
+  await add.getByLabel("Name").fill(name);
+  await add.getByLabel("Street").fill("9 Landfill Rd");
+  await add.getByLabel("City").fill("Austin");
+  await add.getByLabel("State").fill("TX");
+  await add.getByLabel("Charges").selectOption({ label: "By the ton" });
+  await add.getByLabel("How much").fill("62.50");
+  await add.getByLabel("At least, for any load").fill("40");
+  for (const day of ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]) {
+    await add.getByLabel(`${day} opens`).fill("07:00");
+    await add.getByLabel(`${day} closes`).fill("16:30");
+  }
+  await add.getByRole("button", { name: "Add facility" }).click();
+
+  const card = owner.getByRole("listitem", { name });
+  await expect(card).toContainText("9 Landfill Rd, Austin, TX");
+  await expect(card).toContainText("Mon to Fri 7:00 AM to 4:30 PM");
+  await expect(card).toContainText("62.50 a ton, at least 40.00");
+
+  // Half a day is refused in words rather than saved as a day it is closed.
+  const change = card.locator("form").filter({ has: owner.getByRole("button", { name: "Save changes" }) });
+  await change.getByLabel("Saturday opens").fill("08:00");
+  await change.getByRole("button", { name: "Save changes" }).click();
+  await expect(change.getByRole("alert")).toContainText("Saturday: give both the time it opens and the time it closes");
+
+  // Pinned by hand, which is what lets a day be planned through it.
+  const pin = card.locator("form").filter({ has: owner.getByRole("button", { name: "Place pin" }) });
+  await pin.getByLabel("Latitude").fill("30.2672");
+  await pin.getByLabel("Longitude").fill("-97.7431");
+  await pin.getByRole("button", { name: "Place pin" }).click();
+  await expect(card).toContainText("On the map, pinned by hand");
+
+  // Latitude and longitude of the sea are refused.
+  await pin.getByLabel("Latitude").fill("0");
+  await pin.getByLabel("Longitude").fill("0");
+  await pin.getByRole("button", { name: "Place pin" }).click();
+  await expect(pin.getByRole("alert")).toContainText("not a place on the map");
+
+  // And it can be made the default, which the first one already is only when it was first.
+  const makeDefault = card.getByRole("button", { name: "Make the default" });
+  if (await makeDefault.count()) await makeDefault.click();
+  await expect(card).toContainText("Default");
+});

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, eq, gte, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, geo, qualification as q, routing, time } from "@opentradesos/core";
+import { assertCan, can, geo, qualification as q, rental as rt, routing, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -16,6 +16,7 @@ import * as dispatch from "./dispatch";
 import { remember, replayed } from "./once";
 import { rentalDispatchOf } from "./rental-billing";
 import { truckOf } from "./trucks";
+import { facilityForPlan, addressText } from "./disposal-facilities";
 import { priorityWithin } from "./agreements";
 
 /**
@@ -610,6 +611,7 @@ export async function map(ctx: ServiceContext, input: { date: string }) {
 const START = "start";
 const END = "end";
 const YARD = "yard";
+const FACILITY = "facility";
 
 export type Points = Map<string, { place: Place | null; routeId: string | null }>;
 
@@ -691,7 +693,7 @@ export function startingPoint(day: Day, technicianId: string, stops: DayVisit[],
 
 /* -------------------------------------------------------------- optimise */
 
-export async function optimise(ctx: ServiceContext, input: { date: string; technicianId: string }) {
+export async function optimise(ctx: ServiceContext, input: { date: string; technicianId: string; facilityId?: string | undefined }) {
   const { day, company } = await guardedRead(ctx, "visit:read", async (tx) => ({
     day: await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx)),
     company: await rentalDispatchOf(tx, ctx.actor.organizationId),
@@ -712,22 +714,6 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
   const movable = stops.filter((v) => !locked.includes(v));
   const placed = movable.filter((v) => v.place !== null);
   const unplaced = movable.filter((v) => v.place === null);
-
-  const points: Points = new Map();
-  for (const v of stops) points.set(v.id, { place: v.place, routeId: v.routeId });
-  points.set(START, start);
-  points.set(END, end);
-  /** Where a roll off truck tips a full can and loads an empty: where the driver's day starts. */
-  points.set(YARD, { place: technician.start?.place ?? null, routeId: null });
-  const startKnown = start.place !== null;
-
-  const { travel, declared, matrix } = await travelOver(ctx, day, points);
-  const plan: routing.DayPlan = {
-    start: START, end: END, departAt, travel,
-    stops: placed.map((v) => stopOf(day, v)),
-  };
-  /** A visit the office locked keeps its place; everything else is ordered around it. */
-  const pinned = new Set(placed.filter((v) => v.locked).map((v) => v.id));
 
   /**
    * A DRIVER'S DAY WITH CONTAINERS ON IT is ordered by what is on the
@@ -750,6 +736,34 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     : { figures: routing.truckFigures(company, null), truck: null };
   const truck = driven.figures;
   const sizeOfStop = containers ? await containerSizes(ctx, placed.map((v) => v.id)) : new Map<string, number | null>();
+  /**
+   * THE DISPOSAL FACILITY the day tips at: the one asked for, or the company's
+   * default. A full can is tipped there and not at the yard, so the route goes
+   * yard to customer to facility to the next stop, but only when the facility
+   * is on the map, because a run to somewhere unknown cannot be measured.
+   */
+  const facility = containers
+    ? await guardedRead(ctx, "visit:read", (tx) => facilityForPlan(tx, ctx.actor.organizationId, input.facilityId ?? null))
+    : null;
+  const facilityPlace = facility ? placeOf(facility) : null;
+
+  const points: Points = new Map();
+  for (const v of stops) points.set(v.id, { place: v.place, routeId: v.routeId });
+  points.set(START, start);
+  points.set(END, end);
+  /** Where a roll off truck tips a full can and loads an empty: where the driver's day starts. */
+  points.set(YARD, { place: technician.start?.place ?? null, routeId: null });
+  points.set(FACILITY, { place: facilityPlace, routeId: null });
+  const startKnown = start.place !== null;
+
+  const { travel, declared, matrix } = await travelOver(ctx, day, points);
+  const plan: routing.DayPlan = {
+    start: START, end: END, departAt, travel,
+    stops: placed.map((v) => stopOf(day, v)),
+  };
+  /** A visit the office locked keeps its place; everything else is ordered around it. */
+  const pinned = new Set(placed.filter((v) => v.locked).map((v) => v.id));
+
   const truckPlan: routing.TruckPlan | null = byTruck ? {
     ...plan,
     stops: placed.map((v) => ({ ...stopOf(day, v), work: v.truckWork, size: sizeOfStop.get(v.id) ?? null })),
@@ -757,6 +771,9 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     capacity: truck.containers,
     yardMinutes: truck.yardMinutes,
     sizes: truck.sizes,
+    facility: facility && facilityPlace ? {
+      key: FACILITY, minutes: facility.tipMinutes, hours: facilityHours(day, facility.hours),
+    } : null,
     load: locked.length > 0 ? loadAfter(locked.map((v) => v.truckWork), truck.containers) : null,
   } : null;
   const truckResult = truckPlan ? routing.optimiseTruck(truckPlan, placed.map((v) => v.id), { pinned }) : null;
@@ -807,7 +824,7 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     truck: containers ? {
       byTruck,
       note: byTruck
-        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${truck.containers === 1 ? "one container" : `${truck.containers} containers`} at a time, ${truck.yardMinutes} minutes at the yard to tip and load.${
+        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${truck.containers === 1 ? "one container" : `${truck.containers} containers`} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facility && facility ? `load empties, and full ones tipped at ${facility.name}` : "tip and load"}.${
           truckResult && truckResult.notCarried.length > 0
             ? ` ${truckResult.notCarried.length === 1 ? "One stop is" : `${truckResult.notCarried.length} stops are`} for a container this truck does not lift, so ${truckResult.notCarried.length === 1 ? "it needs" : "they need"} another truck.`
             : ""}`
@@ -819,6 +836,37 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
       kindName: driven.truck?.kindName ?? null,
       sizes: [...truck.sizes],
       notCarried: truckResult?.notCarried ?? [],
+      /**
+       * The facility the day tips at, with its address and hours, and whether the
+       * plan went through it: a facility with no pin on the map cannot be driven
+       * to in the arithmetic, so the day was planned with the yard tipping and
+       * the answer says so.
+       */
+      facility: facility ? {
+        id: facility.id,
+        name: facility.name,
+        address: addressText(facility),
+        hoursText: rt.hoursWords(facility.hours),
+        tipMinutes: facility.tipMinutes,
+        used: Boolean(truckPlan?.facility),
+        note: !facilityPlace
+          ? `${facility.name} is not on the map yet, so this day was planned as if the yard tips. Place its pin on Disposal facilities.`
+          : truckPlan?.facility
+            ? `Full containers are tipped at ${facility.name}, ${addressText(facility) || "on the map"}. ${rt.hoursWords(facility.hours)}.`
+            : `${facility.name} is the facility, but the day's start is not on the map, so it was not planned through.`,
+      } : null,
+      /** The runs to the facility the proposed order takes, with the sentence for any that arrive after it has closed. */
+      facilityRuns: (truckResult?.proposed.facilityRuns ?? []).map((r) => ({
+        afterVisitId: r.afterId,
+        beforeVisitId: r.beforeId,
+        tipped: r.tipped,
+        arriveAt: clockOf(day, r.arriveAt),
+        waitMinutes: r.waitMinutes,
+        closed: r.closedBy > 0 && facility
+          ? rt.closedWords(facility.name, facility.hours, rt.weekdayOf(day.date), Math.min(1439, r.arriveAt))
+            ?? `${facility.name} is closed when this day reaches it.`
+          : null,
+      })),
       /** Runs in the middle of the day; the one at the end to tip the last can is not a choice. */
       currentYardRuns: truckResult ? truckResult.current.yardRuns.filter((r) => r.beforeId !== null).length : null,
       yardRuns: (truckResult?.proposed.yardRuns ?? []).map((r) => ({
@@ -832,6 +880,20 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     } : null,
     ...sourceOf(matrix),
   };
+}
+
+/**
+ * When the facility takes loads on the day being planned, in the plan's
+ * minutes: its opening and closing for that weekday, "closed" for a day it is
+ * shut, and null when nobody recorded its hours, which is never a reason to
+ * refuse a trip.
+ */
+function facilityHours(day: Day, hours: rt.DayHours[]): routing.TruckFacility["hours"] {
+  if (hours.length === 0) return null;
+  const open = rt.openingOn(hours, rt.weekdayOf(day.date));
+  if (open === null) return "closed";
+  const at = (minute: number) => minutesFrom(day.origin, time.instantOfLocal(day.date, minute, day.zone));
+  return { opensAt: at(open.opens), closesAt: at(open.closes) };
 }
 
 /**
@@ -1412,7 +1474,7 @@ export async function setTechnicianPhoto(ctx: ServiceContext, input: { id: strin
 
 export const handlers = {
   getDispatchMap: (ctx: ServiceContext, input: { date: string }) => map(ctx, input),
-  getRouteProposal: (ctx: ServiceContext, input: { date: string; technicianId: string }) => optimise(ctx, input),
+  getRouteProposal: (ctx: ServiceContext, input: { date: string; technicianId: string; facilityId?: string | undefined }) => optimise(ctx, input),
   getAssignmentSuggestions: (ctx: ServiceContext, input: { date: string }) => suggestions(ctx, input),
   getTravelSettings: (ctx: ServiceContext) => travelSettings(ctx),
   setTravelSettings: (ctx: ServiceContext, input: {

@@ -771,6 +771,16 @@ export function applyTickets(ctx: ServiceContext, input: { csv: string; skipLine
     if (seen) return seen;
     const { parsed, plans } = await planWithin(tx, ctx, input.csv);
     const skip = new Set(input.skipLines ?? []);
+    /**
+     * A facility named on a ticket is matched to a recorded one by its name, the
+     * whole name with case ignored, and nothing fuzzier: a load pointed at the
+     * wrong facility would be charged at the wrong rate, so a name that matches
+     * nothing is left as the words it was.
+     */
+    const recorded = await tx.select({ id: schema.disposalFacility.id, name: schema.disposalFacility.name })
+      .from(schema.disposalFacility)
+      .where(and(eq(schema.disposalFacility.organizationId, ctx.actor.organizationId), eq(schema.disposalFacility.active, true)));
+    const byName = new Map(recorded.map((f) => [f.name.trim().toLowerCase(), f.id]));
     let attached = 0;
     for (const plan of plans) {
       if (plan.action !== "attach" || skip.has(plan.line)) continue;
@@ -780,6 +790,8 @@ export function applyTickets(ctx: ServiceContext, input: { csv: string; skipLine
         disposalTicketNumber: plan.row.ticketNumber,
         weightTons: hire.weightTons ?? plan.row.netTons,
         disposalFacility: hire.disposalFacility ?? (plan.row.facility || null),
+        disposalFacilityId: hire.disposalFacilityId
+          ?? byName.get((hire.disposalFacility ?? plan.row.facility ?? "").trim().toLowerCase()) ?? null,
         materialType: hire.materialType ?? (plan.row.material || null),
         divertedTons: hire.divertedTons ?? plan.row.divertedTons,
         updatedAt: new Date(),

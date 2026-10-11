@@ -280,9 +280,15 @@ truck.** "Optimise route" on a roll off driver's column knows that a drop
 needs an empty container on the truck, a collection needs room on it, and a
 swap needs an empty and leaves with a full one, and counts the runs to the
 yard between (where the driver's day starts) as drive and time like any
-other. How many containers a truck carries and how long the yard takes are
-set on `/fleet/containers` (M22). The proposal lists each run to the yard:
-after which stop, before which, and what is tipped and loaded there.
+other. How many containers a truck carries, which sizes it lifts and how long
+the yard takes are those of the driver's own truck, the vehicle with a kind
+checked out to them that day, or the company's figures on `/fleet/containers`
+when they have none (M22). A full container is tipped at the company's default
+disposal facility, or the one asked for with `facilityId`, when it is on the
+map: yard to customer to facility to the next stop, counting the time at its
+gate, and a run that would reach it after it has closed is named in words. The
+proposal lists each run to the yard and each run to the facility: after which
+stop, before which, and what is tipped and loaded there.
 
 **Nobody is sent alone to work they are not qualified for.** The job type's
 required skills are checked for an individual technician on a drop, on the

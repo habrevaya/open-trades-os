@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { rentals, rentalBilling, properties, inTenant } from "@opentradesos/api/services";
+import { rentals, rentalBilling, properties, inTenant, disposalFacilities } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
@@ -123,6 +123,14 @@ export default async function ContainersPage(
   const invoices = can(user.actor, "invoice:write");
   const schedules = writes && can(user.actor, "job:write");
   const dispatching = await rentalBilling.rentalDispatch(ctx);
+  const tipping = (await disposalFacilities.listFacilities(ctx)).facilities;
+  /** Where the load went, offered when the company has recorded any facility. */
+  const facilityPick = (label: string) => tipping.length > 0 ? (
+    <select name="facilityId" className={input} aria-label={label} defaultValue={tipping.find((f) => f.isDefault)?.id ?? ""}>
+      <option value="">Facility not recorded</option>
+      {tipping.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+    </select>
+  ) : null;
   const settingsWrite = can(user.actor, "settings:write");
   const agreedText = (start: string | null, end: string | null) => {
     if (!start) return null;
@@ -175,7 +183,10 @@ export default async function ContainersPage(
       <div className="mt-8 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-semibold">Out on hire</h2>
         {writes ? (
-          <a href="/fleet/containers/tickets" className="text-sm underline underline-offset-4">Import a facility&apos;s scale tickets</a>
+          <span className="flex flex-wrap gap-4">
+            <a href="/fleet/containers/facilities" className="text-sm underline underline-offset-4">Disposal facilities</a>
+            <a href="/fleet/containers/tickets" className="text-sm underline underline-offset-4">Import a facility&apos;s scale tickets</a>
+          </span>
         ) : null}
       </div>
       <Hires
@@ -196,6 +207,7 @@ export default async function ContainersPage(
                        aria-label="Net tons collected" className={`${input} w-24`} />
                 <input name="ticketNumber" placeholder="Ticket"
                        aria-label="Ticket for the collection" className={`${input} w-24`} />
+                {facilityPick("Facility the load went to")}
                 {/*
                   Checked by default, because a can almost always goes back into
                   the yard. The unchecked case is the one that matters: a unit
@@ -220,6 +232,7 @@ export default async function ContainersPage(
                        aria-label="Net tons on the full can" className={`${input} w-24`} />
                 <input name="ticketNumber" placeholder="Ticket"
                        aria-label="Ticket for the swap" className={`${input} w-24`} />
+                {facilityPick("Facility the full can went to")}
               </ActionForm>
             )}
             {!hire.open && (

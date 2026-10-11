@@ -312,6 +312,8 @@ export const NAV: NavGroup[] = [
           { href: "/fleet/containers/tickets", label: "Scale tickets" },
           /** Each truck its own kind: containers carried, sizes lifted, time at the yard. */
           { href: "/fleet/containers/trucks", label: "Trucks" },
+          /** Where a full can is tipped: address, pin, hours and rate. */
+          { href: "/fleet/containers/facilities", label: "Disposal facilities" },
         ],
       },
       /**

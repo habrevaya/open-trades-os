@@ -75,6 +75,8 @@ const REFUSED: Record<string, Refused> = {
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
   truck_kind_name_idx: { file: "trucks.ts", how: "catch" },
+  /** A second default facility, from two people making one the default at once. */
+  disposal_facility_default_idx: { file: "disposal-facilities.ts", how: "catch" },
   report_name_idx: { file: "reports.ts", how: "catch" },
   delivery_schedule_statements_idx: { file: "delivery-schedules.ts", how: "catch" },
   dashboard_name_idx: { file: "dashboards.ts", how: "catch" },

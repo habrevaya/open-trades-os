@@ -197,3 +197,94 @@ describe("each truck is its own kind", () => {
     expect(routing.optimiseTruck(lifting, ["d1"]).notCarried).toEqual([]);
   });
 });
+
+describe("the disposal facility is a place", () => {
+  /** The yard at the origin, a collection at 20, a drop at 25, the facility at 30, the same line as the rest. */
+  const line: Grid = { yard: [0, 0], p1: [20, 0], d1: [25, 0], fac: [30, 0], x: [10, 0] };
+  const drive: routing.Travel = (from, to) => Math.abs(line[from]![0] - line[to]![0]);
+  const withFacility = (
+    stops: routing.TruckStop[], facility: Partial<routing.TruckFacility> = {}, capacity = 1,
+  ): routing.TruckPlan => ({
+    start: "yard", end: "yard", yard: "yard", departAt: 0, travel: drive, stops, capacity, yardMinutes: 10, load: null,
+    facility: { key: "fac", minutes: 15, hours: null, ...facility },
+  });
+  const pair = [stop("p1", "pickup"), stop("d1", "drop")];
+
+  it("tips a full can at the facility, and the empty it leaves goes straight to the next drop", () => {
+    const day = routing.evaluateTruck(withFacility(pair), ["p1", "d1"]);
+    /** Yard to the collection 20, to the facility 10, to the drop 5, home 25: no run to the yard at all. */
+    expect(day.driveMinutes).toBe(20 + 10 + 5 + 25);
+    expect(day.yardRuns).toEqual([]);
+    expect(day.facilityRuns).toEqual([{ afterId: "p1", beforeId: "d1", tipped: 1, arriveAt: 45, waitMinutes: 0, closedBy: 0 }]);
+    /** The collection takes 15, the facility 15, the drop 15, and home is 25. */
+    expect(day.finishAt).toBe(20 + 15 + 10 + 15 + 5 + 15 + 25);
+    /** Without the facility the same day went by way of the yard and drove further. */
+    const viaYard = routing.evaluateTruck({ ...withFacility(pair), facility: null }, ["p1", "d1"]);
+    expect(viaYard.driveMinutes).toBe(20 + 20 + 25 + 25);
+    expect(viaYard.facilityRuns).toEqual([]);
+  });
+
+  it("still goes to the yard for room, because tipping a can does not take it off the truck", () => {
+    /** A full can on a truck of one, and another collection: tip it, then leave the empty at the yard. */
+    const two = [stop("p1", "pickup"), stop("d1", "pickup")];
+    const day = routing.evaluateTruck(withFacility(two), ["p1", "d1"]);
+    expect(day.facilityRuns).toHaveLength(2);
+    expect(day.facilityRuns[0]).toMatchObject({ afterId: "p1", beforeId: "d1", tipped: 1 });
+    expect(day.yardRuns[0]).toMatchObject({ afterId: "p1", beforeId: "d1", tipped: 0 });
+    /** The one at the end of the day tips what the last collection filled, and goes home. */
+    expect(day.facilityRuns[1]).toMatchObject({ afterId: "d1", beforeId: null, tipped: 1 });
+  });
+
+  it("tips a can still on the hook at the end of the day at the facility rather than the yard", () => {
+    const day = routing.evaluateTruck(withFacility([stop("p1", "pickup")]), ["p1"]);
+    expect(day.facilityRuns).toEqual([{ afterId: "p1", beforeId: null, tipped: 1, arriveAt: 45, waitMinutes: 0, closedBy: 0 }]);
+    expect(day.yardRuns).toEqual([]);
+    expect(day.driveMinutes).toBe(20 + 10 + 30);
+  });
+
+  it("waits at the gate for a facility that has not opened", () => {
+    const day = routing.evaluateTruck(withFacility(pair, { hours: { opensAt: 60, closesAt: 600 } }), ["p1", "d1"]);
+    expect(day.facilityRuns[0]).toMatchObject({ arriveAt: 45, waitMinutes: 15, closedBy: 0 });
+    expect(day.waitMinutes).toBe(15);
+    expect(day.finishAt).toBe(20 + 15 + 10 + 15 + 15 + 5 + 15 + 25);
+  });
+
+  it("refuses a facility reached after it closed, by how long, and a facility shut all day", () => {
+    const late = routing.evaluateTruck(withFacility(pair, { hours: { opensAt: 0, closesAt: 40 } }), ["p1", "d1"]);
+    expect(late.facilityRuns[0]).toMatchObject({ arriveAt: 45, closedBy: 5 });
+    const shut = routing.evaluateTruck(withFacility(pair, { hours: "closed" }), ["p1", "d1"]);
+    expect(shut.facilityRuns[0]!.closedBy).toBe(1440);
+    /** Hours nobody recorded are not a reason to refuse anything. */
+    expect(routing.evaluateTruck(withFacility(pair), ["p1", "d1"]).facilityRuns[0]!.closedBy).toBe(0);
+  });
+
+  it("counts a closed gate as a broken promise, so the search drives further to avoid one", () => {
+    const open = routing.evaluateTruck(withFacility(pair, { hours: { opensAt: 0, closesAt: 600 } }), ["p1", "d1"]);
+    const shut = routing.evaluateTruck(withFacility(pair, { hours: "closed" }), ["p1", "d1"]);
+    /** The same drive and the same finish, and only the closed one is worse. */
+    expect(shut.driveMinutes).toBe(open.driveMinutes);
+    expect(routing.betterTruck(open, shut)).toBe(true);
+    expect(routing.betterTruck(shut, open)).toBe(false);
+    expect(routing.betterTruck(open, open)).toBe(false);
+  });
+
+  it("names the runs a proposal still reaches after closing, and orders the rest around the facility", () => {
+    const proposal = routing.optimiseTruck(withFacility(pair, { hours: { opensAt: 0, closesAt: 40 } }), ["p1", "d1"]);
+    expect(proposal.facilityClosed).toEqual([expect.objectContaining({ tipped: 1, closedBy: expect.any(Number) })]);
+    /** The collection first and the facility on the way to the drop is still the shortest day. */
+    expect(proposal.proposed.order).toEqual(["p1", "d1"]);
+    const fine = routing.optimiseTruck(withFacility(pair, { hours: { opensAt: 0, closesAt: 600 } }), ["d1", "p1"]);
+    expect(fine.facilityClosed).toEqual([]);
+    expect(fine.proposed.order).toEqual(["p1", "d1"]);
+    expect(fine.improved).toBe(true);
+    expect(fine.proposed.driveMinutes).toBeLessThan(fine.current.driveMinutes);
+  });
+
+  it("gives the same order for the same day with a facility in it", () => {
+    const stops = [stop("p1", "pickup"), stop("d1", "drop"), stop("x", "none")];
+    const a = routing.optimiseTruck(withFacility(stops), ["x", "p1", "d1"]);
+    const b = routing.optimiseTruck(withFacility(stops), ["x", "p1", "d1"]);
+    expect(a.proposed.order).toEqual(b.proposed.order);
+    expect(a.proposed.facilityRuns).toEqual(b.proposed.facilityRuns);
+  });
+});

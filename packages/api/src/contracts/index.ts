@@ -96,6 +96,7 @@ import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
 import { truckRoutes } from "./trucks";
+import { disposalFacilityRoutes } from "./disposal-facilities";
 import { peopleRecordRoutes } from "./people-records";
 import { selfServiceRoutes } from "./self-service";
 import { customObjectRoutes } from "./custom-objects";
@@ -199,6 +200,7 @@ export * from "./stock-tracking";
 export * from "./purchasing";
 export * from "./rental-billing";
 export * from "./trucks";
+export * from "./disposal-facilities";
 export * from "./people-records";
 export * from "./self-service";
 
@@ -319,6 +321,7 @@ export const routes = {
   ...purchasingRoutes,
   ...rentalBillingRoutes,
   ...truckRoutes,
+  ...disposalFacilityRoutes,
   ...peopleRecordRoutes,
   ...selfServiceRoutes,
   ...customObjectRoutes,

@@ -6,6 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
+import { facilityOf } from "./disposal-facilities";
 
 /**
  * A TRADE PACK THAT SHIPPED, AND THE THING IT RENTS
@@ -386,6 +387,11 @@ export interface PickUpInput {
   disposalFee?: string | null | undefined;
   /** False when the can went straight to the repair bay. */
   backInService?: boolean | undefined;
+  /**
+   * The facility the load went to, when it is one the company has recorded.
+   * Its name is written as the haul's facility, replacing any typed.
+   */
+  facilityId?: string | null | undefined;
 }
 
 /**
@@ -418,6 +424,7 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
     assertTons(input.tons, "net");
     assertTons(input.divertedTons, "diverted");
 
+    const facility = await tippedAt(tx, ctx, input.facilityId);
     const asset = await assetWithin(tx, ctx, hire.assetId);
     await moveAsset(tx, ctx, asset, input.backInService === false ? "out_of_service" : "available", null);
 
@@ -426,7 +433,8 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
       weightTons: input.tons ?? null,
       divertedTons: input.divertedTons ?? null,
       disposalTicketNumber: input.ticketNumber?.trim() ?? null,
-      disposalFacility: input.facility?.trim() ?? null,
+      disposalFacility: facility?.name ?? input.facility?.trim() ?? null,
+      disposalFacilityId: facility?.id ?? null,
       materialType: input.materialType?.trim() ?? null,
       disposalFee: input.disposalFee ?? null,
       updatedAt: new Date(),
@@ -435,6 +443,20 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
     await audit(tx, ctx, "rental.pickup", "rental", input.id, hire, row);
     return rentalViewWithin(tx, ctx, row!);
   });
+}
+
+/**
+ * The facility a load went to, when one is named: a recorded one that is still
+ * in use. A closed facility is refused in words rather than recorded against a
+ * place the company has stopped using, and nothing is guessed from a name.
+ */
+async function tippedAt(tx: Database, ctx: ServiceContext, facilityId: string | null | undefined) {
+  if (!facilityId) return null;
+  const facility = await facilityOf(tx, ctx, facilityId);
+  if (!facility.active) {
+    throw new ConflictError(`${facility.name} has been closed on Disposal facilities. Choose where the load went, or reopen it first.`);
+  }
+  return facility;
 }
 
 function assertTons(value: string | null | undefined, which: "net" | "diverted") {
@@ -457,6 +479,8 @@ export interface SwapInput {
   ticketNumber?: string | null | undefined;
   facility?: string | null | undefined;
   materialType?: string | null | undefined;
+  /** The recorded facility the full can went to. Its name replaces any typed. */
+  facilityId?: string | null | undefined;
 }
 
 /**
@@ -491,6 +515,7 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       throw new ConflictError("That swap is before the delivery it would close.");
     }
     assertTons(input.tons, "net");
+    const facility = await tippedAt(tx, ctx, input.facilityId);
 
     const outgoing = await assetWithin(tx, ctx, hire.assetId);
     const incoming = await assetWithin(tx, ctx, input.replacementAssetId);
@@ -502,7 +527,8 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       pickedUpAt: at,
       weightTons: input.tons ?? null,
       disposalTicketNumber: input.ticketNumber?.trim() ?? null,
-      disposalFacility: input.facility?.trim() ?? null,
+      disposalFacility: facility?.name ?? input.facility?.trim() ?? null,
+      disposalFacilityId: facility?.id ?? null,
       materialType: input.materialType?.trim() ?? null,
       updatedAt: new Date(),
     }).where(eq(schema.rental.id, input.id)).returning();
@@ -633,6 +659,7 @@ async function rentalViewWithin(
     divertedTons: row.divertedTons,
     disposalTicketNumber: row.disposalTicketNumber,
     disposalFacility: row.disposalFacility,
+    disposalFacilityId: row.disposalFacilityId,
     materialType: row.materialType,
     disposalFee: row.disposalFee,
     previousRentalId: row.previousRentalId,

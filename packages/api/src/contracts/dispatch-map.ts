@@ -161,10 +161,10 @@ export const getRouteProposal = defineRoute({
   path: "/v1/dispatch/optimise",
   summary: "Propose a better order for one technician's day",
   description:
-    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
+    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
   module: "M09",
   permissions: ["visit:read"],
-  input: z.object({ date: z.string().date(), technicianId: Uuid }),
+  input: z.object({ date: z.string().date(), technicianId: Uuid, facilityId: Uuid.optional() }),
   output: z.object({
     technicianId: Uuid,
     date: z.string().date(),
@@ -212,6 +212,28 @@ export const getRouteProposal = defineRoute({
       sizes: z.array(z.number().int()),
       /** Stops about a container this truck does not lift, ordered as plain driving: they need another truck. */
       notCarried: z.array(Uuid),
+      /**
+       * The disposal facility the day tips at (`facilityId`, or the company's default), with
+       * its address and hours. `used` is false when it is not on the map, and the day was planned
+       * as if the yard tips.
+       */
+      facility: z.object({
+        id: Uuid, name: z.string(), address: z.string(), hoursText: z.string(),
+        tipMinutes: z.number().int(), used: z.boolean(), note: z.string(),
+      }).nullable(),
+      /**
+       * Runs to the facility in the proposed order: after which stop, before which, and when. `closed`
+       * is the sentence when the day would reach it after it has closed, or on a day it is shut: that
+       * run is refused, and the order was chosen to avoid it where any order could.
+       */
+      facilityRuns: z.array(z.object({
+        afterVisitId: Uuid.nullable(),
+        beforeVisitId: Uuid.nullable(),
+        tipped: z.number().int(),
+        arriveAt: z.string().datetime(),
+        waitMinutes: z.number().int(),
+        closed: z.string().nullable(),
+      })),
       /** Runs to the yard in the middle of the day in the order it has now (not the one at the end). */
       currentYardRuns: z.number().int().nullable(),
       /** The runs to the yard the proposed order takes, in order: after which stop, before which, and what is done there. */

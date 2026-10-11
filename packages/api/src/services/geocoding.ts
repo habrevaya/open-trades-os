@@ -43,7 +43,7 @@ import { adapterSettings } from "../secrets/endpoints";
  *   3. Write what it said, unless somebody placed a pin while it was asking.
  */
 
-type Entity = "property" | "location";
+type Entity = "property" | "location" | "disposal_facility";
 
 export type SecretReader = (ref: string) => Promise<string>;
 
@@ -189,7 +189,7 @@ type GeoRow = {
   geocode_attempts: number;
 };
 
-/** Both tables carry the same columns, so one statement serves either. */
+/** All three tables carry the same columns, so one statement serves any of them. */
 const tableOf = (entity: Entity) => sql.identifier(entity);
 
 async function lookUp(
@@ -356,6 +356,15 @@ export interface Located {
 }
 
 /**
+ * Who may place a pin: the people who write the thing it is on. A property's
+ * is the customer record's, a location's is the company settings', and a
+ * disposal facility's is the fleet's, because the route through it is the
+ * dispatcher's and the facility is a place on the fleet screens.
+ */
+const pinPermission = (entity: Entity) =>
+  entity === "property" ? "property:write" : entity === "location" ? "settings:write" : "asset:write";
+
+/**
  * A pin placed by hand.
  *
  * It wins from then on: `location_source` is `manual`, and the worker's
@@ -366,7 +375,7 @@ export interface Located {
 export async function placePin(
   ctx: ServiceContext, input: { entity: Entity; id: string; latitude: number; longitude: number },
 ): Promise<Located> {
-  const permission = input.entity === "property" ? "property:write" : "settings:write";
+  const permission = pinPermission(input.entity);
   return guardedWrite(ctx, permission, async (tx) => {
     const at = geo.parseLatLng(input.latitude, input.longitude);
     if (!at) {
@@ -400,7 +409,7 @@ export async function placePin(
 export async function clearPin(
   ctx: ServiceContext, input: { entity: Entity; id: string },
 ): Promise<Located> {
-  const permission = input.entity === "property" ? "property:write" : "settings:write";
+  const permission = pinPermission(input.entity);
   return guardedWrite(ctx, permission, async (tx) => {
     const before = await located(tx, input.entity, input.id);
     const rows = await tx.execute<Located & Record<string, unknown>>(sql`
@@ -431,7 +440,7 @@ async function located(tx: Database, entity: Entity, id: string): Promise<Locate
     select id, latitude, longitude, location_precision as "locationPrecision", location_source as "locationSource"
     from ${tableOf(entity)}
     where id = ${id} ${entity === "property" ? sql`and deleted_at is null` : sql``}`);
-  if (!rows[0]) throw new NotFoundError(entity === "property" ? "Property" : "Location");
+  if (!rows[0]) throw new NotFoundError(entity === "property" ? "Property" : entity === "location" ? "Location" : "Disposal facility");
   return pick(rows[0]);
 }
 
