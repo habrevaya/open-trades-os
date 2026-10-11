@@ -91,6 +91,7 @@ export default async function PrintReportPage({ searchParams }: { searchParams: 
               measure={measure}
               split={split}
               arrange={arrange}
+              baseline={first(params.scale) === "data" ? "data" : undefined}
               prefer={chart === "columns" ? "columns" : chart === "line" ? "line" : undefined}
               additive={additivityFor(dataset)}
               title={title}

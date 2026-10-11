@@ -102,6 +102,14 @@ export interface ChartPlan {
   /** Set when the chart is cut by a second grouping. */
   split: ChartSplit | null;
   scale: Scale;
+  /**
+   * Whether the scale could start at the data instead of zero: a line of a
+   * plain number (never an amount of money, and never bars or columns, which
+   * are read by their length) whose values all sit on one side of zero.
+   * Offered to the reader as a choice, because a scale that starts at the data
+   * makes every wobble look like a swing and should be asked for.
+   */
+  narrowable: boolean;
 }
 
 export type ChartRefusal = { ok: false; reason: string };
@@ -149,6 +157,13 @@ export function chartFor(
     arrange?: ChartArrangement | undefined;
     prefer?: "line" | "columns" | undefined;
     additive?: Additivity | undefined;
+    /**
+     * Where the scale starts. `zero`, the default and the only choice for
+     * amounts and for bars and columns, or `data`, for a line of readings that
+     * move in a narrow band (a pool's pH, a pressure), which from zero is a
+     * flat line. Ignored where it would mislead; the plan says which it got.
+     */
+    baseline?: "zero" | "data" | undefined;
   } = {},
 ): { ok: true; plan: ChartPlan } | ChartRefusal {
   const dimensions = result.columns.filter((c) => c.role === "dimension");
@@ -212,6 +227,22 @@ export function chartFor(
     ? { dimension: splitBy, arrangement, series: folded.series }
     : null;
 
+  /**
+   * A scale around the data only for a plain number drawn as a line, uncut,
+   * with two points to join and all of them on one side of zero. Anything else
+   * (an amount, a bar, a column, a stack) keeps its zero, which is what makes
+   * its length mean something.
+   */
+  const low = Math.min(...kept.map((p) => p.value));
+  const high = Math.max(...kept.map((p) => p.value));
+  const narrowable = !split && kind === "line" && measure.type === "number" && kept.length >= 2
+    && (low > 0 || high < 0);
+  const scale = split
+    ? splitScale(kept, arrangement)
+    : narrowable && options.baseline === "data"
+      ? narrowScale(low, high)
+      : niceScale(Math.min(0, low), Math.max(0, high));
+
   return {
     ok: true,
     plan: {
@@ -222,7 +253,8 @@ export function chartFor(
       omitted: points.length - kept.length,
       summedOver: others.map((d) => d.label),
       split,
-      scale: split ? splitScale(kept, arrangement) : niceScale(Math.min(0, ...kept.map((p) => p.value)), Math.max(0, ...kept.map((p) => p.value))),
+      scale,
+      narrowable,
     },
   };
 }
@@ -352,8 +384,13 @@ function total(values: readonly (string | number | null)[], type: string): strin
 export interface Scale {
   min: number;
   max: number;
-  /** Gridline values from min to max, inclusive, always including zero. */
+  /** Gridline values from min to max, inclusive, including zero unless `fromData`. */
   ticks: number[];
+  /**
+   * True when this scale starts at the data and not at zero, so the chart has
+   * to say so on its face: the heights are no longer proportions of the value.
+   */
+  fromData?: boolean;
 }
 
 /**
@@ -378,6 +415,31 @@ export function niceScale(low: number, high: number, targetTicks = 5): Scale {
     ticks.push(Number(value.toFixed(places)));
   }
   return { min: lo, max: hi, ticks };
+}
+
+/**
+ * A scale that starts at the data, for a line of readings that stay in a
+ * narrow band (a pH between 7.2 and 7.6, a pressure between 58 and 62).
+ *
+ * The data with a tenth of its own spread above and below, so the line does not
+ * touch the edges, widened to gridlines on round numbers. The only scale in
+ * the product that does not include zero, so it is asked for and marked
+ * (`fromData`), never chosen for the reader. Values all alike (a line that
+ * did not move) get a band a few percent of the value wide, so the chart still
+ * draws a line in the middle rather than dividing by nothing.
+ */
+export function narrowScale(low: number, high: number, targetTicks = 4): Scale {
+  const a = Number.isFinite(low) ? low : 0;
+  const b = Number.isFinite(high) ? high : a;
+  const spread = b - a;
+  const pad = spread > 0 ? spread * 0.1 : Math.max(Math.abs(a) * 0.05, 1e-6);
+  const step = niceStep((spread + 2 * pad) / Math.max(1, targetTicks));
+  const lo = Math.floor((a - pad) / step) * step;
+  const hi = Math.ceil((b + pad) / step) * step;
+  const places = Math.max(0, -Math.floor(Math.log10(step)));
+  const ticks: number[] = [];
+  for (let value = lo; value <= hi + step / 2; value += step) ticks.push(Number(value.toFixed(places)));
+  return { min: Number(lo.toFixed(places)), max: Number(hi.toFixed(places)), ticks, fromData: true };
 }
 
 /** 1, 2, 2.5 or 5 times a power of ten, the steps a person counts in. */

@@ -19,7 +19,7 @@ export interface AccountViewData {
     bankPaymentPending?: boolean;
     tipping: { available: boolean; presets: { percent: number; amount: string }[]; for: string[] };
   }[];
-  estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null }[];
+  estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null; signedAt?: string | null }[];
   agreements: {
     id: string; planName: string; status: string; startedOn: string; endsOn: string | null;
     discount?: string | null; notDiscounted?: string[];
@@ -64,10 +64,14 @@ export interface AccountExtrasData {
   }[];
   readings: {
     key: string; label: string; unit: string | null; equipment?: string | null;
+    /** Drawn from the data and not from zero, and marked so on the chart. */
+    fromData?: boolean;
     points: { at: string; value: string; outOfRange: boolean }[];
   }[];
   checklist: { date: string | null; summary: string; items: { label: string; done: boolean }[] } | null;
   photos: { id: string; takenAt: string; jobNumber: number }[];
+  /** Files the office marked for them, read only. */
+  files?: { id: string; fileName: string | null; contentType: string; sizeBytes: number; addedAt: string; jobNumber: number; jobNumberPrefix?: string | null }[];
   payments: { id: string; receivedAt: string; amount: string; method: string; status: string }[];
   planVisits: { agreementId: string; planName: string; dueOn: string; state: "done" | "booked" | "skipped" | "due" }[];
   recommendations: { date: string; text: string }[];
@@ -89,7 +93,7 @@ const DEFAULT_BLOCKS: AccountExtrasData["blocks"] = [
 ];
 
 const EMPTY_EXTRAS: AccountExtrasData = {
-  blocks: DEFAULT_BLOCKS, history: [], equipment: [], readings: [], checklist: null, photos: [], payments: [],
+  blocks: DEFAULT_BLOCKS, history: [], equipment: [], readings: [], checklist: null, photos: [], files: [], payments: [],
   planVisits: [], recommendations: [], contact: { phone: null, technicians: [] },
 };
 
@@ -209,13 +213,17 @@ function Report({ report }: { report: ReportData }) {
  * to the token and the invoice on the server.
  */
 export function AccountView({
-  account, pay, returned = null, statementHref, changeHref, pdfHref, open, top, after, referral, photoHref, bookHref,
+  account, pay, returned = null, statementHref, changeHref, pdfHref, open, top, after, referral, photoHref, estimatePdfHref, fileHref, bookHref,
   closing = "Questions? Reply to the message that brought you here.",
 }: {
   /** The customer's referral link, drawn where the layout puts it, or last. */
   referral?: ReactNode;
   /** Where one of their photographs is served from, when the page can serve them. */
   photoHref?: (photoId: string) => string;
+  /** Where one of their signed estimates opens as a PDF. */
+  estimatePdfHref?: (estimateId: string) => string;
+  /** Where a file the office marked for them is served from, read only. */
+  fileHref?: (fileId: string) => string;
   /** Where a signed in customer asks for a visit. */
   bookHref?: string;
   account: AccountViewData;
@@ -353,7 +361,7 @@ export function AccountView({
                     {series.label}
                     {series.equipment ? <span className="font-normal text-ink-500">, {series.equipment}</span> : null}
                   </p>
-                  <ReadingsChart label={series.label} unit={series.unit} equipment={series.equipment} points={series.points} />
+                  <ReadingsChart label={series.label} unit={series.unit} equipment={series.equipment} fromData={series.fromData ?? false} points={series.points} />
                   <table className="mt-1 w-full text-sm">
                     <tbody>
                       {series.points.map((p, i) => (
@@ -433,13 +441,33 @@ export function AccountView({
             </ul>
           </Section>
         );
-      case "documents":
-        return reports.length === 0 && !statementHref ? null : (
+      case "documents": {
+        const signed = account.estimates.filter((e) => e.signedAt);
+        const billed = account.invoices.filter((i) => i.status !== "void");
+        const shared = extras.files ?? [];
+        const hasStatement = Boolean(statementHref) && account.invoices.length > 0;
+        const any = reports.length > 0 || hasStatement || (estimatePdfHref && signed.length > 0)
+          || (pdfHref && billed.length > 0) || (fileHref && shared.length > 0);
+        return !any ? null : (
           <Section key={b.kind} title={b.title}>
             <ul className="mt-3 space-y-1 text-sm">
-              {statementHref && account.invoices.length > 0 && (
+              {hasStatement && (
                 <li><a href={statementHref} className="text-blue-600 underline underline-offset-4">Your statement</a></li>
               )}
+              {estimatePdfHref && signed.map((e) => (
+                <li key={`estimate-${e.id}`}>
+                  <a href={estimatePdfHref(e.id)} className="text-blue-600 underline underline-offset-4">
+                    Signed estimate #{e.number}{e.title ? `, ${e.title}` : ""}, {day(e.signedAt!)} (PDF)
+                  </a>
+                </li>
+              ))}
+              {pdfHref && billed.map((i) => (
+                <li key={`invoice-${i.id}`}>
+                  <a href={pdfHref(i.id)} className="text-blue-600 underline underline-offset-4">
+                    Invoice #{work.documentNumber(i.numberPrefix ?? null, i.number)}{i.issuedOn ? `, ${day(i.issuedOn)}` : ""} (PDF)
+                  </a>
+                </li>
+              ))}
               {reports.map((r) => (
                 <li key={r.id}>
                   <a href={`#report-${r.id}`} className="text-blue-600 underline underline-offset-4">
@@ -447,9 +475,18 @@ export function AccountView({
                   </a>
                 </li>
               ))}
+              {fileHref && shared.map((f) => (
+                <li key={`file-${f.id}`}>
+                  <a href={fileHref(f.id)} className="text-blue-600 underline underline-offset-4">
+                    {f.fileName ?? "File"}
+                  </a>
+                  <span className="text-ink-500">, from job #{work.documentNumber(f.jobNumberPrefix ?? null, f.jobNumber)}, {day(f.addedAt)}</span>
+                </li>
+              ))}
             </ul>
           </Section>
         );
+      }
       case "invoices":
         return settled.length === 0 ? null : (
           <Section key={b.kind} title={b.title}>

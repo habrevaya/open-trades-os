@@ -7,7 +7,7 @@ import { consume, inGrant, peek, requireScope, type ResolvedGrant } from "./port
 import { payerContext, processorConnected, type PortalPaymentStart } from "./invoice-delivery";
 import { buildStatement } from "./statements";
 import * as tips from "./tips";
-import { accountExtras, customerPhotoBytes, type AccountExtras } from "./portal-blocks";
+import { accountExtras, customerFileBytes, customerPhotoBytes, type AccountExtras } from "./portal-blocks";
 import { pendingFor as pendingBookingsFor } from "./portal-booking";
 import { exclusionNamesWithin, percentOf } from "./agreements";
 import { forPortal as recordsForPortal, type PortalRecords } from "./custom-objects";
@@ -72,7 +72,8 @@ export interface PortalAccount {
     /** What the pay control offers as a tip on this one, when the company takes them. */
     tipping: tips.TipOffer;
   }[];
-  estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null }[];
+  /** `signedAt` is when the customer approved it, or null while it is unsigned: a signed one has its PDF in the documents block. */
+  estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null; signedAt: string | null }[];
   agreements: {
     id: string; planName: string; status: string; startedOn: string; endsOn: string | null;
     /** "15%" when the agreement carries a discount, for the member to read. */
@@ -170,6 +171,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       title: schema.estimate.title,
       status: schema.estimate.status,
       sentAt: schema.estimate.sentAt,
+      decidedAt: schema.estimate.decidedAt,
     })
       .from(schema.estimate)
       .where(eq(schema.estimate.customerId, customerId))
@@ -270,7 +272,12 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
       invoices,
       estimates: estimateRows
         .filter((e) => e.status !== "draft")
-        .map((e) => ({ ...e, sentAt: e.sentAt?.toISOString() ?? null })),
+        .map(({ decidedAt, ...e }) => ({
+          ...e,
+          sentAt: e.sentAt?.toISOString() ?? null,
+          /** Signed means approved: a declined, expired or waiting estimate has no signed copy. */
+          signedAt: (e.status === "approved" || e.status === "converted") && decidedAt ? decidedAt.toISOString() : null,
+        })),
       agreements: await Promise.all(agreementRows.map(async ({ discountRate, exclusions, ...a }) => ({
         ...a,
         discount: membership.usableRate(discountRate) ? percentOf(discountRate) : null,
@@ -303,6 +310,20 @@ export async function accountPhotoFor(
   const grant = await peek(db, token);
   const customerId = requireCustomer(grant);
   return inGrant(db, grant, (tx) => customerPhotoBytes(tx, grant.organizationId, customerId, attachmentId));
+}
+
+/**
+ * One file the office marked for this customer, by id: the account link's
+ * read only copy of a document on one of their jobs. Anything not marked,
+ * not a document, not on their job or not there is nothing, and the
+ * page makes the same 404 of all of them.
+ */
+export async function accountFileFor(
+  db: Database, token: string, attachmentId: string,
+): Promise<{ bytes: Buffer; contentType: string; fileName: string | null } | null> {
+  const grant = await peek(db, token);
+  const customerId = requireCustomer(grant);
+  return inGrant(db, grant, (tx) => customerFileBytes(tx, grant.organizationId, customerId, attachmentId));
 }
 
 /**

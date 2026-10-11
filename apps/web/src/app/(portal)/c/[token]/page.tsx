@@ -45,6 +45,8 @@ export default async function AccountPage({
         pdfHref={(invoiceId) => `/c/${token}/invoices/${invoiceId}/pdf`}
         changeHref={(visitId) => `/c/${token}/change/${visitId}`}
         photoHref={(photoId) => `/c/${token}/photos/${photoId}`}
+        estimatePdfHref={(estimateId) => `/c/${token}/estimates/${estimateId}/pdf`}
+        fileHref={(fileId) => `/c/${token}/files/${fileId}`}
         referral={referral ? <ReferralBlock referral={referral} /> : null}
         pay={(invoice) => (
           <PayInvoice

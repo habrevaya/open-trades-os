@@ -1,5 +1,5 @@
 import { deflateSync, inflateSync } from "node:zlib";
-import { and, asc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or, type SQL } from "drizzle-orm";
 import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, money as m, pdf, reporting, time, work } from "@opentradesos/core";
@@ -331,6 +331,29 @@ export async function proposalPdfForToken(db: Database, input: { token: string }
   const grant = await peek(db, input.token);
   const estimateId = requireScope(grant, "estimate");
   return inGrant(db, grant, async (tx, ctx) => proposalFile(tx, await proposalWithin(tx, ctx, estimateId)));
+}
+
+/**
+ * A signed estimate from the customer's account link or sign in: one of their
+ * own that they approved (approved, or since converted to a job), as the
+ * proposal prints it with who approved it and when. An estimate still waiting,
+ * declined or expired is not a signed copy, and another customer's is the same
+ * not found as one that does not exist.
+ */
+export async function proposalPdfForAccount(db: Database, input: { token: string; estimateId: string }): Promise<PdfFile> {
+  const grant = await peek(db, input.token);
+  const customerId = customerOf(grant);
+  return inGrant(db, grant, async (tx, ctx) => {
+    const [signed] = await tx.select({ id: schema.estimate.id }).from(schema.estimate)
+      .where(and(
+        eq(schema.estimate.id, input.estimateId),
+        eq(schema.estimate.customerId, customerId),
+        inArray(schema.estimate.status, ["approved", "converted"]),
+        isNotNull(schema.estimate.decidedAt),
+      )).limit(1);
+    if (!signed) throw new NotFoundError("Estimate");
+    return proposalFile(tx, await proposalWithin(tx, ctx, signed.id));
+  });
 }
 
 /* ----------------------------------------------------------- statement */

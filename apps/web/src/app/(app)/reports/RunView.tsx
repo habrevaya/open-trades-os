@@ -13,6 +13,8 @@ export interface ChartView {
   split?: string | undefined;
   /** `stacked` or `grouped`, for a chart that is cut. */
   arrange?: string | undefined;
+  /** `data` starts a line of plain numbers at the data and not at zero. */
+  scale?: string | undefined;
 }
 
 /**
@@ -71,6 +73,7 @@ export async function RunView({
     ...(view.measure ? { measure: view.measure } : {}),
     ...(view.split ? { split: view.split } : {}),
     ...(view.arrange ? { arrange: view.arrange } : {}),
+    ...(view.scale ? { scale: view.scale } : {}),
   });
   const toggle = (kind: string) => withParams(current, { chart: kind });
   const arrange = view.arrange === "grouped" ? "grouped" as const : view.arrange === "stacked" ? "stacked" as const : undefined;
@@ -119,6 +122,7 @@ export async function RunView({
           {view.chart ? <input type="hidden" name="chart" value={view.chart} /> : null}
           {view.split ? <input type="hidden" name="split" value={view.split} /> : null}
           {view.arrange ? <input type="hidden" name="arrange" value={view.arrange} /> : null}
+          {view.scale ? <input type="hidden" name="scale" value={view.scale} /> : null}
           <button
             type="submit"
             className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
@@ -144,6 +148,8 @@ export async function RunView({
               result={result!}
               measure={view.measure}
               prefer={prefer}
+              baseline={view.scale === "data" ? "data" : undefined}
+              baselineHref={(choice) => choice === "data" ? withParams(current, { scale: "data" }) : withoutParams(current, ["scale"])}
               split={view.split}
               arrange={arrange}
               additive={additivityFor(dataset)}
@@ -197,6 +203,7 @@ export function printHref(query: string, title: string, view: ChartView = {}, ba
   if (view.measure) params.set("measure", view.measure);
   if (view.split) params.set("split", view.split);
   if (view.arrange) params.set("arrange", view.arrange);
+  if (view.scale) params.set("scale", view.scale);
   return `/reports/print?${params.toString()}`;
 }
 

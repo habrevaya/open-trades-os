@@ -223,6 +223,21 @@ export function readingKeys(config: Record<string, unknown>): string[] {
 }
 
 /**
+ * The readings a trend block draws from the data and not from zero: the keys
+ * its `narrow` setting names, among the ones it shows. For readings that move
+ * in a narrow band, where a scale from zero draws a flat line (a water
+ * pressure between 55 and 65 psi, a soil pH between 6 and 7). Decided by the
+ * trade pack that lays the page out, per reading, because only the trade knows
+ * which readings live in a band; the chart says so on its face. An amount, or a
+ * reading nobody named, is drawn from zero.
+ */
+export function narrowReadingKeys(config: Record<string, unknown>): string[] {
+  const keys = config["narrow"];
+  if (!Array.isArray(keys)) return [];
+  return [...new Set(keys.filter((k): k is string => typeof k === "string" && k.trim() !== "").map((k) => k.trim()))];
+}
+
+/**
  * An equipment attribute's key as a heading, when the pack gives no label
  * for it: `filter_size` reads "Filter size".
  */

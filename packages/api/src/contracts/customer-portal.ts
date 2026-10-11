@@ -144,6 +144,8 @@ export const AccountExtras = z.object({
     key: z.string(), label: z.string(), unit: z.string().nullable(),
     /** The unit the readings were taken on, by its name; null for readings of the whole home. */
     equipment: z.string().nullable(),
+    /** Drawn from the data and not from zero, because the trade says this reading lives in a narrow band. The chart says so. */
+    fromData: z.boolean(),
     points: z.array(z.object({ at: z.string().datetime(), value: z.string(), outOfRange: z.boolean() })),
   })),
   checklist: z.object({
@@ -151,6 +153,11 @@ export const AccountExtras = z.object({
     items: z.array(z.object({ label: z.string(), done: z.boolean() })),
   }).nullable(),
   photos: z.array(z.object({ id: Uuid, takenAt: z.string().datetime(), jobNumber: z.number().int() })),
+  /** Files the office marked "the customer may see this" on one of their jobs, for the documents block. Read only. */
+  files: z.array(z.object({
+    id: Uuid, fileName: z.string().nullable(), contentType: z.string(), sizeBytes: z.number().int(),
+    addedAt: z.string().datetime(), jobNumber: z.number().int(), jobNumberPrefix: z.string().nullable(),
+  })),
   payments: z.array(z.object({
     id: Uuid, receivedAt: z.string().datetime(), amount: MoneyString, method: z.string(), status: z.string(),
   })),
@@ -199,6 +206,8 @@ export const viewPortalAccount = defineRoute({
     estimates: z.array(z.object({
       id: Uuid, number: z.number().int(), title: z.string().nullable(), status: z.string(),
       sentAt: z.string().datetime().nullable(),
+      /** When they approved it. Null until then; a signed one has its PDF in the documents block. */
+      signedAt: z.string().datetime().nullable(),
     })),
     agreements: z.array(z.object({
       id: Uuid, planName: z.string(), status: z.string(),

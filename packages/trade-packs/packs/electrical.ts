@@ -253,7 +253,7 @@ export const electrical: TradePackInput = {
     { kind: "next_visit" },
     { kind: "equipment_register", title: "Your panel and circuits" },
     { kind: "checklist_results", title: "Safety inspection results" },
-    { kind: "readings_trend", title: "Panel readings over time", config: { keys: ["volts_l1_n", "volts_l2_n", "panel_temp_max"] } },
+    { kind: "readings_trend", title: "Panel readings over time", config: { keys: ["volts_l1_n", "volts_l2_n", "panel_temp_max"], narrow: ["volts_l1_n", "volts_l2_n"] } },
     { kind: "photo_gallery", title: "Photos and thermal images" },
     { kind: "recommended_work", title: "What we found" },
     { kind: "invoices" },

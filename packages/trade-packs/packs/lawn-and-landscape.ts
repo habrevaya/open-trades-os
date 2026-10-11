@@ -309,7 +309,7 @@ export const lawnAndLandscape: TradePackInput = {
     { kind: "next_visit", title: "Your next visit" },
     { kind: "visit_timeline", title: "Every visit this season" },
     { kind: "photo_gallery", title: "Your property after each visit" },
-    { kind: "readings_trend", title: "How the lawn is doing", config: { keys: ["turf_density", "soil_ph", "mow_height"] } },
+    { kind: "readings_trend", title: "How the lawn is doing", config: { keys: ["turf_density", "soil_ph", "mow_height"], narrow: ["soil_ph"] } },
     { kind: "service_report", title: "What was applied and when it is safe to re enter" },
     { kind: "equipment_register", title: "Your irrigation system" },
     { kind: "plan_status", title: "Your programme" },

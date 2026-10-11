@@ -2238,6 +2238,386 @@
         ]
       }
     },
+    "/v1/agreement-plans/{id}/portal-layout": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getPlanPortalLayout",
+        "summary": "The account page a plan's members see",
+        "description": "The plan's own layout when it has one; otherwise the company's layout, which is what its members see, with `plan.ownLayout` false.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The account page a plan's members see",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPlanPortalLayoutOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "setPlanPortalLayout",
+        "summary": "Give a plan's members an account page of their own, or change it",
+        "description": "Arranged exactly as the company's layout is: name every block once, in order, each shown or not, with a heading or none. Starts from the company's layout when the plan has none. Members are customers with an active or past due agreement on the plan; a customer on several plans with a layout sees the one of their oldest active agreement; everyone else sees the company's layout. Never touched by a trade pack upgrade.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPlanPortalLayoutInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Give a plan's members an account page of their own, or change it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPlanPortalLayoutOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/agreement-plans/{id}/portal-layout/remove": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removePlanPortalLayout",
+        "summary": "Put a plan's members back on the company's account page",
+        "description": "Deletes the plan's own layout. Its members see the company's layout again from their next visit. Removing what is not there changes nothing.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemovePlanPortalLayoutInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a plan's members back on the company's account page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovePlanPortalLayoutOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/agreement-plans/{id}/retire": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -11695,8 +12075,8 @@
       ],
       "post": {
         "operationId": "shareAttachmentWithCustomer",
-        "summary": "Show a job photograph on the customer's job link, or stop showing it",
-        "description": "Only a photograph on a job or one of its visits. The same permission as publishing a service report, because showing a customer what a technician recorded is the same decision. Setting it to what it already is changes nothing.\n\nRequires a session holding: servicereport:publish.",
+        "summary": "Show a job photograph or file to the customer, or stop showing it",
+        "description": "Only a photograph or a file (a document) on a job or one of its visits, never a signature. A photograph shows on the job link and the account; a file shows in the account's documents block, read only, and only once marked: the company's setting to show every photograph never shows a file. The same permission as publishing a service report, because showing a customer what a technician recorded is the same decision. Setting it to what it already is changes nothing.\n\nRequires a session holding: servicereport:publish.",
         "tags": [
           "M05"
         ],
@@ -11732,7 +12112,7 @@
         },
         "responses": {
           "201": {
-            "description": "Show a job photograph on the customer's job link, or stop showing it",
+            "description": "Show a job photograph or file to the customer, or stop showing it",
             "content": {
               "application/json": {
                 "schema": {
@@ -79899,6 +80279,104 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:write"
+        ]
+      }
+    },
+    "/v1/portal-layout/plans": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listPlanPortalLayouts",
+        "summary": "Which agreement plans have an account page of their own",
+        "description": "Every plan with whether its members see a layout of its own or the company's, and how many customers are members now (an active or past due agreement on it).\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M05"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which agreement plans have an account page of their own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPlanPortalLayoutsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
         ]
       }
     },
@@ -178620,6 +179098,102 @@
           "numbers"
         ]
       },
+      "GetPlanPortalLayoutOutput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "customTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usualTitle": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "boolean"
+                },
+                "hideable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "customTitle",
+                "usualTitle",
+                "visible",
+                "hideable"
+              ]
+            }
+          },
+          "startedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ownLayout": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "ownLayout"
+            ]
+          }
+        },
+        "required": [
+          "blocks",
+          "startedFrom",
+          "changed",
+          "plan"
+        ]
+      },
       "GetPortalBookingAvailabilityOutput": {
         "type": "object",
         "properties": {
@@ -178928,12 +179502,36 @@
           },
           "changed": {
             "type": "boolean"
+          },
+          "plan": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ownLayout": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "ownLayout"
+            ]
           }
         },
         "required": [
           "blocks",
           "startedFrom",
-          "changed"
+          "changed",
+          "plan"
         ]
       },
       "GetPortalSettingsOutput": {
@@ -203410,6 +204008,45 @@
           "menus"
         ]
       },
+      "ListPlanPortalLayoutsOutput": {
+        "type": "object",
+        "properties": {
+          "plans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "planId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "ownLayout": {
+                  "type": "boolean"
+                },
+                "members": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "planId",
+                "name",
+                "active",
+                "ownLayout",
+                "members"
+              ]
+            }
+          }
+        },
+        "required": [
+          "plans"
+        ]
+      },
       "ListPlatformCampaignsOutput": {
         "type": "object",
         "properties": {
@@ -226414,6 +227051,106 @@
           "removed"
         ]
       },
+      "RemovePlanPortalLayoutInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemovePlanPortalLayoutOutput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "customTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usualTitle": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "boolean"
+                },
+                "hideable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "customTitle",
+                "usualTitle",
+                "visible",
+                "hideable"
+              ]
+            }
+          },
+          "startedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ownLayout": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "ownLayout"
+            ]
+          }
+        },
+        "required": [
+          "blocks",
+          "startedFrom",
+          "changed",
+          "plan"
+        ]
+      },
       "RemovePortalCardInput": {
         "type": "object",
         "properties": {
@@ -238061,6 +238798,153 @@
           "rules"
         ]
       },
+      "SetPlanPortalLayoutInput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200
+                },
+                "visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "visible"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 30
+          }
+        },
+        "required": [
+          "blocks"
+        ]
+      },
+      "SetPlanPortalLayoutOutput": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "visit_timeline",
+                    "service_report",
+                    "readings_trend",
+                    "equipment_register",
+                    "checklist_results",
+                    "photo_gallery",
+                    "documents",
+                    "invoices",
+                    "payments",
+                    "plan_status",
+                    "next_visit",
+                    "recommended_work",
+                    "referral",
+                    "contact_card"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "customTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usualTitle": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "boolean"
+                },
+                "hideable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "customTitle",
+                "usualTitle",
+                "visible",
+                "hideable"
+              ]
+            }
+          },
+          "startedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ownLayout": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "ownLayout"
+            ]
+          }
+        },
+        "required": [
+          "blocks",
+          "startedFrom",
+          "changed",
+          "plan"
+        ]
+      },
       "SetPortalCardAutopayInput": {
         "type": "object",
         "properties": {
@@ -238288,12 +239172,36 @@
           },
           "changed": {
             "type": "boolean"
+          },
+          "plan": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ownLayout": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "ownLayout"
+            ]
           }
         },
         "required": [
           "blocks",
           "startedFrom",
-          "changed"
+          "changed",
+          "plan"
         ]
       },
       "SetPortalSettingsInput": {
@@ -254981,6 +255889,13 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
                 }
               },
               "required": [
@@ -254988,7 +255903,8 @@
                 "number",
                 "title",
                 "status",
-                "sentAt"
+                "sentAt",
+                "signedAt"
               ]
             }
           },
@@ -255526,6 +256442,9 @@
                         "null"
                       ]
                     },
+                    "fromData": {
+                      "type": "boolean"
+                    },
                     "points": {
                       "type": "array",
                       "items": {
@@ -255555,6 +256474,7 @@
                     "label",
                     "unit",
                     "equipment",
+                    "fromData",
                     "points"
                   ]
                 }
@@ -255621,6 +256541,52 @@
                     "id",
                     "takenAt",
                     "jobNumber"
+                  ]
+                }
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "fileName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "contentType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "integer"
+                    },
+                    "addedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "jobNumber": {
+                      "type": "integer"
+                    },
+                    "jobNumberPrefix": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "fileName",
+                    "contentType",
+                    "sizeBytes",
+                    "addedAt",
+                    "jobNumber",
+                    "jobNumberPrefix"
                   ]
                 }
               },
@@ -255738,6 +256704,7 @@
               "readings",
               "checklist",
               "photos",
+              "files",
               "payments",
               "planVisits",
               "recommendations",

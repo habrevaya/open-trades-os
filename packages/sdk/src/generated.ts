@@ -9440,6 +9440,24 @@ export interface GetPhoneMenuOutput {
   }>;
 }
 
+export interface GetPlanPortalLayoutOutput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title: string;
+    customTitle: string | null;
+    usualTitle: string;
+    visible: boolean;
+    hideable: boolean;
+  }>;
+  startedFrom: string | null;
+  changed: boolean;
+  plan: {
+    id: string;
+    name: string;
+    ownLayout: boolean;
+  } | null;
+}
+
 export interface GetPortalBookingAvailabilityOutput {
   slots: Array<{
     date: string;
@@ -9502,6 +9520,11 @@ export interface GetPortalLayoutOutput {
   }>;
   startedFrom: string | null;
   changed: boolean;
+  plan: {
+    id: string;
+    name: string;
+    ownLayout: boolean;
+  } | null;
 }
 
 export interface GetPortalSettingsOutput {
@@ -14147,6 +14170,16 @@ export interface ListPhoneMenusOutput {
   }>;
 }
 
+export interface ListPlanPortalLayoutsOutput {
+  plans: Array<{
+    planId: string;
+    name: string;
+    active: boolean;
+    ownLayout: boolean;
+    members: number;
+  }>;
+}
+
 export interface ListPlatformCampaignsOutput {
   campaigns: Array<{
     id: string;
@@ -18698,6 +18731,26 @@ export interface RemovePerDiemOutput {
   removed: true;
 }
 
+export type RemovePlanPortalLayoutInput = Record<string, unknown>;
+
+export interface RemovePlanPortalLayoutOutput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title: string;
+    customTitle: string | null;
+    usualTitle: string;
+    visible: boolean;
+    hideable: boolean;
+  }>;
+  startedFrom: string | null;
+  changed: boolean;
+  plan: {
+    id: string;
+    name: string;
+    ownLayout: boolean;
+  } | null;
+}
+
 export interface RemovePortalCardInput {
   token: string;
 }
@@ -21177,6 +21230,32 @@ export interface SetPayExtrasOutput {
   }>;
 }
 
+export interface SetPlanPortalLayoutInput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title?: string | null;
+    visible: boolean;
+  }>;
+}
+
+export interface SetPlanPortalLayoutOutput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title: string;
+    customTitle: string | null;
+    usualTitle: string;
+    visible: boolean;
+    hideable: boolean;
+  }>;
+  startedFrom: string | null;
+  changed: boolean;
+  plan: {
+    id: string;
+    name: string;
+    ownLayout: boolean;
+  } | null;
+}
+
 export interface SetPortalCardAutopayInput {
   token: string;
   on: boolean;
@@ -21219,6 +21298,11 @@ export interface SetPortalLayoutOutput {
   }>;
   startedFrom: string | null;
   changed: boolean;
+  plan: {
+    id: string;
+    name: string;
+    ownLayout: boolean;
+  } | null;
 }
 
 export interface SetPortalSettingsInput {
@@ -24558,6 +24642,7 @@ export interface ViewPortalAccountOutput {
     title: string | null;
     status: string;
     sentAt: string | null;
+    signedAt: string | null;
   }>;
   agreements: Array<{
     id: string;
@@ -24654,6 +24739,7 @@ export interface ViewPortalAccountOutput {
       label: string;
       unit: string | null;
       equipment: string | null;
+      fromData: boolean;
       points: Array<{
         at: string;
         value: string;
@@ -24672,6 +24758,15 @@ export interface ViewPortalAccountOutput {
       id: string;
       takenAt: string;
       jobNumber: number;
+    }>;
+    files: Array<{
+      id: string;
+      fileName: string | null;
+      contentType: string;
+      sizeBytes: number;
+      addedAt: string;
+      jobNumber: number;
+      jobNumberPrefix: string | null;
     }>;
     payments: Array<{
       id: string;
@@ -26160,6 +26255,10 @@ export interface GetPhoneMenuInput {
   id: string;
 }
 
+export interface GetPlanPortalLayoutInput {
+  id: string;
+}
+
 export interface GetPortalBookingAvailabilityInput {
   token: string;
   bookableServiceId: string;
@@ -27043,6 +27142,8 @@ export interface ListPerDiemInput {
 
 export type ListPhoneMenusInput = Record<string, never>;
 
+export type ListPlanPortalLayoutsInput = Record<string, never>;
+
 export type ListPlatformCampaignsInput = Record<string, never>;
 
 export interface ListPortalCardsInput {
@@ -27732,6 +27833,10 @@ export interface RemovePerDiemParams {
   id: string;
 }
 
+export interface RemovePlanPortalLayoutParams {
+  id: string;
+}
+
 export interface RemovePortalCardParams {
   cardId: string;
 }
@@ -28100,6 +28205,10 @@ export interface SetNumberRoutingParams {
 }
 
 export interface SetOnboardingLineParams {
+  id: string;
+}
+
+export interface SetPlanPortalLayoutParams {
   id: string;
 }
 
@@ -28895,6 +29004,7 @@ export interface OperationTypes {
   getPerformance: { input: GetPerformanceInput; output: GetPerformanceOutput };
   getPersonRecord: { input: GetPersonRecordInput; output: GetPersonRecordOutput };
   getPhoneMenu: { input: GetPhoneMenuInput; output: GetPhoneMenuOutput };
+  getPlanPortalLayout: { input: GetPlanPortalLayoutInput; output: GetPlanPortalLayoutOutput };
   getPortalBookingAvailability: { input: GetPortalBookingAvailabilityInput; output: GetPortalBookingAvailabilityOutput };
   getPortalBookingOptions: { input: GetPortalBookingOptionsInput; output: GetPortalBookingOptionsOutput };
   getPortalJobLive: { input: GetPortalJobLiveInput; output: GetPortalJobLiveOutput };
@@ -29107,6 +29217,7 @@ export interface OperationTypes {
   listPeopleRoster: { input: ListPeopleRosterInput; output: ListPeopleRosterOutput };
   listPerDiem: { input: ListPerDiemInput; output: ListPerDiemOutput };
   listPhoneMenus: { input: ListPhoneMenusInput; output: ListPhoneMenusOutput };
+  listPlanPortalLayouts: { input: ListPlanPortalLayoutsInput; output: ListPlanPortalLayoutsOutput };
   listPlatformCampaigns: { input: ListPlatformCampaignsInput; output: ListPlatformCampaignsOutput };
   listPortalCards: { input: ListPortalCardsInput; output: ListPortalCardsOutput };
   listPortalSignIns: { input: ListPortalSignInsInput; output: ListPortalSignInsOutput };
@@ -29323,6 +29434,7 @@ export interface OperationTypes {
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
+  removePlanPortalLayout: { input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput; output: RemovePlanPortalLayoutOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
   removePurchaseApprovalRule: { input: RemovePurchaseApprovalRuleParams & RemovePurchaseApprovalRuleInput; output: RemovePurchaseApprovalRuleOutput };
@@ -29457,6 +29569,7 @@ export interface OperationTypes {
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
   setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
+  setPlanPortalLayout: { input: SetPlanPortalLayoutParams & SetPlanPortalLayoutInput; output: SetPlanPortalLayoutOutput };
   setPortalCardAutopay: { input: SetPortalCardAutopayParams & SetPortalCardAutopayInput; output: SetPortalCardAutopayOutput };
   setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
@@ -29953,6 +30066,7 @@ export const OPERATIONS = {
   getPerformance: { method: "GET", path: "/v1/marketing/performance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getPersonRecord: { method: "GET", path: "/v1/people/{membershipId}", pathParams: ["membershipId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   getPhoneMenu: { method: "GET", path: "/v1/phone-menus/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  getPlanPortalLayout: { method: "GET", path: "/v1/agreement-plans/{id}/portal-layout", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId","propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalBookingOptions: { method: "GET", path: "/v1/portal/booking", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalJobLive: { method: "GET", path: "/v1/portal/job/live", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -30165,6 +30279,7 @@ export const OPERATIONS = {
   listPeopleRoster: { method: "GET", path: "/v1/roster", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPerDiem: { method: "GET", path: "/v1/per-diem", pathParams: [], queryParams: ["technicianId","jobId","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listPlanPortalLayouts: { method: "GET", path: "/v1/portal-layout/plans", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listPortalCards: { method: "GET", path: "/v1/portal/cards", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   listPortalSignIns: { method: "GET", path: "/v1/portal-sign-ins", pathParams: [], queryParams: ["customerId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
@@ -30381,6 +30496,7 @@ export const OPERATIONS = {
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
+  removePlanPortalLayout: { method: "POST", path: "/v1/agreement-plans/{id}/portal-layout/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   removePurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -30515,6 +30631,7 @@ export const OPERATIONS = {
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
+  setPlanPortalLayout: { method: "PUT", path: "/v1/agreement-plans/{id}/portal-layout", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalCardAutopay: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -33696,6 +33813,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The account page a plan's members see.
+   *
+   * GET /v1/agreement-plans/{id}/portal-layout. Needs settings:read.
+   */
+  getPlanPortalLayout(input: GetPlanPortalLayoutInput, options?: CallOptions): Promise<GetPlanPortalLayoutOutput> {
+    return this.call("getPlanPortalLayout", input, options);
+  }
+
+  /**
    * The windows open for a service, from anybody or from one technician.
    *
    * GET /v1/portal/booking/availability.
@@ -35601,6 +35727,15 @@ export abstract class GeneratedOperations {
    */
   listPhoneMenus(input: ListPhoneMenusInput = {} as ListPhoneMenusInput, options?: CallOptions): Promise<ListPhoneMenusOutput> {
     return this.call("listPhoneMenus", input, options);
+  }
+
+  /**
+   * Which agreement plans have an account page of their own.
+   *
+   * GET /v1/portal-layout/plans. Needs settings:read.
+   */
+  listPlanPortalLayouts(input: ListPlanPortalLayoutsInput = {} as ListPlanPortalLayoutsInput, options?: CallOptions): Promise<ListPlanPortalLayoutsOutput> {
+    return this.call("listPlanPortalLayouts", input, options);
   }
 
   /**
@@ -37548,6 +37683,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Put a plan's members back on the company's account page.
+   *
+   * POST /v1/agreement-plans/{id}/portal-layout/remove. Needs settings:write.
+   */
+  removePlanPortalLayout(input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput, options?: CallOptions): Promise<RemovePlanPortalLayoutOutput> {
+    return this.call("removePlanPortalLayout", input, options);
+  }
+
+  /**
    * Remove a saved card.
    *
    * POST /v1/portal/cards/{cardId}/remove.
@@ -38754,6 +38898,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Give a plan's members an account page of their own, or change it.
+   *
+   * PUT /v1/agreement-plans/{id}/portal-layout. Needs settings:write.
+   */
+  setPlanPortalLayout(input: SetPlanPortalLayoutParams & SetPlanPortalLayoutInput, options?: CallOptions): Promise<SetPlanPortalLayoutOutput> {
+    return this.call("setPlanPortalLayout", input, options);
+  }
+
+  /**
    * Pay each bill automatically with a saved card, or stop.
    *
    * POST /v1/portal/cards/{cardId}/autopay.
@@ -39141,7 +39294,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Show a job photograph on the customer's job link, or stop showing it.
+   * Show a job photograph or file to the customer, or stop showing it.
    *
    * POST /v1/attachments/{id}/customer-sharing. Needs servicereport:publish.
    */

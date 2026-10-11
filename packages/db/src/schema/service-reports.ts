@@ -1,8 +1,10 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization } from "./tenancy";
 import { customer, property, equipment } from "./crm";
 import { visit, job } from "./work";
+import { agreementPlan } from "./agreements";
 
 /**
  * SERVICE REPORTS
@@ -177,8 +179,22 @@ export const portalLayout = pgTable("portal_layout", {
   name: text("name").notNull(),
   tradePackId: text("trade_pack_id"),
   isDefault: boolean("is_default").notNull().default(false),
+  /**
+   * The agreement plan whose members see the portal drawn this way, for a
+   * layout of a plan's own. Null for the company's layout (the pack's or the
+   * company's own), which is `is_default` and is what everyone else sees. A
+   * plan's layout is never the default, never a trade pack's (`trade_pack_id`
+   * is null), so the company's layout is read without it and a pack upgrade
+   * never touches it.
+   */
+  agreementPlanId: uuid("agreement_plan_id").references(() => agreementPlan.id, { onDelete: "cascade" }),
   ...timestamps,
-}, (t) => ({ orgIdx: index("portal_layout_org_idx").on(t.organizationId) }));
+}, (t) => ({
+  orgIdx: index("portal_layout_org_idx").on(t.organizationId),
+  /** One layout per plan. */
+  planIdx: uniqueIndex("portal_layout_plan_idx").on(t.organizationId, t.agreementPlanId)
+    .where(sql`${t.agreementPlanId} is not null`),
+}));
 
 export const portalBlock = pgTable("portal_block", {
   id: pk(),

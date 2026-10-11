@@ -332,12 +332,16 @@ export async function attachmentsFor(
 }
 
 /**
- * Show one photograph to the customer, or stop showing it.
+ * Show one photograph or one file to the customer, or stop showing it.
  *
  * The same permission as publishing a service report, for the reason that
- * one gives: showing a customer what a technician recorded is a different
- * decision from recording it. Only a photograph on a job or one of its
- * visits, because that is the only place a customer's link can show one.
+ * one gives: showing a customer what a technician or the office recorded is a
+ * different decision from recording it. Only a photograph or a document on a
+ * job or one of its visits, because that is the only place a customer's link
+ * can show one from: never a signature, and never a file on anything else.
+ * A file is private until somebody marks it, whatever the company's setting
+ * for photographs says, because "show every photograph" is a decision about
+ * photographs and not about the permit or the estimate somebody scanned.
  */
 export async function shareWithCustomer(
   ctx: ServiceContext, input: { attachmentId: string; shared: boolean },
@@ -349,9 +353,9 @@ export async function shareWithCustomer(
         eq(schema.attachment.id, input.attachmentId),
         isNull(schema.attachment.deletedAt),
       )).limit(1);
-    if (!row) throw new NotFoundError("Photo");
-    if (row.kind !== "photo" || (row.entityType !== "job" && row.entityType !== "visit")) {
-      throw new ConflictError("Only a photograph on a job can be shown to the customer.");
+    if (!row) throw new NotFoundError("File");
+    if ((row.kind !== "photo" && row.kind !== "document") || (row.entityType !== "job" && row.entityType !== "visit")) {
+      throw new ConflictError("Only a photograph or a file on a job can be shown to the customer.");
     }
     const sharedAt = input.shared ? (row.sharedWithCustomerAt ?? new Date()) : null;
     await tx.update(schema.attachment).set({
