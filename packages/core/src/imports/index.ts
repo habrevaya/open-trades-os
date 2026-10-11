@@ -696,5 +696,5 @@ export function refusedCsv(
     const cells = header.map((_, i) => row.cells[i] ?? "");
     lines.push(line([...cells, String(row.row), row.reason]));
   }
-  return `﻿${lines.join("\r\n")}\r\n`;
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
 }

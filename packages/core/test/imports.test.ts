@@ -267,7 +267,7 @@ describe("the file", () => {
 describe("the refused rows, handed back", () => {
   it("writes a formula cell as text and keeps a number a number", () => {
     const csv = refusedCsv(["Name", "Total"], [{ row: 2, cells: ['=HYPERLINK("http://x","y")', "-12.50"], reason: "No date." }]);
-    const lines = csv.replace(/^﻿/, "").split("\r\n");
+    const lines = csv.replace(/^\uFEFF/, "").split("\r\n");
     expect(lines[0]).toBe("Name,Total,Original row,Refused because");
     expect(lines[1]).toBe(`"'=HYPERLINK(""http://x"",""y"")",-12.50,2,No date.`);
   });

@@ -601,6 +601,13 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/export", label: "Take a copy" },
           /**
+           * The other direction: customers, equipment, the price book and past
+           * jobs and invoices from a file an owner exported from wherever they
+           * were before. Narrower than its corridor like Take a copy: shown
+           * under `settings:read`, read under `data:import`.
+           */
+          { href: "/settings/imports", label: "Bring in a spreadsheet" },
+          /**
            * The same copy on a clock, into the owner's own bucket. Beside Take
            * a copy and narrower than its corridor for the same reason: shown
            * under `settings:read`, read under `data:export`.

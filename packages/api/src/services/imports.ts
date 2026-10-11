@@ -796,7 +796,7 @@ export async function check(ctx: ServiceContext, input: { id: string }): Promise
   assertCan(ctx.actor, "data:import");
   const before = await inTenant(ctx, async (tx) => {
     const again = await replayed<Progress>(tx, ctx, "import_check");
-    if (again) return { again };
+    if (again) return { replay: true as const, again };
     const run = await loadRun(tx, input.id);
     if (run.status !== "mapping" && run.status !== "checking") {
       throw new ConflictError(run.status === "checked"
@@ -805,9 +805,9 @@ export async function check(ctx: ServiceContext, input: { id: string }): Promise
     }
     const problems = problemsOf(run);
     if (problems.length > 0) throw new ConflictError(`Set the columns first. ${problems.join(" ")}`);
-    return { run, rows: await nextRows(tx, run.id, "waiting"), clock: await todayFor(tx, ctx) };
+    return { replay: false as const, run, rows: await nextRows(tx, run.id, "waiting"), clock: await todayFor(tx, ctx) };
   });
-  if ("again" in before) return before.again;
+  if (before.replay) return before.again;
   const { run, rows, clock } = before;
   assertKind(ctx, kindOf(run));
 
@@ -856,14 +856,14 @@ export async function load(ctx: ServiceContext, input: { id: string }): Promise<
   assertCan(ctx.actor, "data:import");
   const before = await inTenant(ctx, async (tx) => {
     const again = await replayed<Progress>(tx, ctx, "import_load");
-    if (again) return { again };
+    if (again) return { replay: true as const, again };
     const run = await loadRun(tx, input.id);
     if (run.status !== "checked" && run.status !== "loading" && run.status !== "finished") {
       throw new ConflictError("Check the file first. Every row is tried before any is loaded.");
     }
-    return { run, rows: await nextRows(tx, run.id, "ready"), clock: await todayFor(tx, ctx) };
+    return { replay: false as const, run, rows: await nextRows(tx, run.id, "ready"), clock: await todayFor(tx, ctx) };
   });
-  if ("again" in before) return before.again;
+  if (before.replay) return before.again;
   const { run, clock } = before;
   assertKind(ctx, kindOf(run));
 

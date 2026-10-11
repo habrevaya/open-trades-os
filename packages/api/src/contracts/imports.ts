@@ -21,7 +21,6 @@ import { Uuid } from "./common";
 
 const Kind = z.enum(rules.IMPORT_KINDS);
 const Status = z.enum(["mapping", "checking", "checked", "loading", "finished"]);
-const Outcome = z.enum(["waiting", "ready", "already", "refused", "loaded"]);
 
 /** The name a record's provenance is kept under: the same rule as `ExternalRef.source`. */
 const Source = z.string()

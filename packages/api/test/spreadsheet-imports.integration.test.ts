@@ -167,7 +167,7 @@ run("bringing in a customer list", () => {
     routes.getImportRefusals.output.parse(file);
     expect(file.fileName).toBe("clients-refused.csv");
     expect(file.rows).toBe(2);
-    const lines = file.csv.replace(/^﻿/, "").split("\r\n");
+    const lines = file.csv.replace(/^\uFEFF/, "").split("\r\n");
     expect(lines[0]).toBe("Customer ID,Name,Email,Phone,Street,City,State,Zip,Contact Name,Contact Phone,Original row,Refused because");
     expect(lines[2]).toContain(`"'=HYPERLINK(""http://evil.example"",""Click me"")"`);
     expect(lines.some((line) => line.startsWith("C-5,=") || line.includes(",=HYPERLINK"))).toBe(false);
