@@ -49,6 +49,13 @@ export interface ServiceContext {
    * device it came from, so revoking that device ends the sign in too.
    */
   deviceTokenHash?: string;
+  /**
+   * When the person's sign in began, for a request made with one (a cookie
+   * or the phone app's token). Registering a technician's device reads it: a
+   * revocation is lifted only by a sign in that started after it. Absent
+   * means nothing lifts one, which is the safe way round to be unknown.
+   */
+  sessionStartedAt?: Date;
 }
 
 export interface RequestMeta {

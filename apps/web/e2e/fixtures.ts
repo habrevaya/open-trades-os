@@ -87,10 +87,12 @@ export { expect };
  * ONE TECHNICIAN, ONE PHONE AT A TIME
  *
  * The seed has one technician, and their day is one thing on the server:
- * opening `/my-day` registers the browser as their device, which also lifts a
- * revocation, and a punch in one window is the clock in another. Specs run in
- * parallel, so a test that revokes the phone and waits to be told so could
- * have it lifted by another file opening the same day a moment later. Every
+ * opening `/my-day` registers the browser as their device, and a punch in one
+ * window is the clock in another. Specs run in parallel, so a test that
+ * revokes the browser and waits to be told so would leave another file's
+ * day refused until it put the revocation back (opening the day no longer
+ * lifts one; only signing in again does, which no spec does as the seeded
+ * technician). Every
  * test that signs in as the technician holds this lock for its length, on one
  * connection inside a transaction, so those tests take turns and everything
  * else runs beside them.

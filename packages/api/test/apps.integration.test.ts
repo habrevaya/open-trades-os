@@ -335,6 +335,7 @@ run("authenticating over HTTP", () => {
     userId: USER, email: "owner@app-co.test", name: null,
     organizationId: ORG, organizationName: "App Co", organizationSlug: "app-co",
     organizationTimezone: "America/Chicago", setupCompleted: true, demo: false,
+    sessionStartedAt: new Date(),
   });
 
   it("accepts a bearer token and acts as the app", async () => {

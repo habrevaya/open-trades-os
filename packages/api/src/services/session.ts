@@ -36,6 +36,12 @@ export interface ResolvedSession {
    * row says, and the app shows the demo banner.
    */
   demo: boolean;
+  /**
+   * When this sign in began. Signing in again is a new session, so this is
+   * the moment the person last proved who they are on this browser or phone.
+   * A browser the office revoked after it is still revoked (M11).
+   */
+  sessionStartedAt: Date;
 }
 
 interface SessionRow extends Record<string, unknown> {
@@ -58,6 +64,7 @@ interface SessionRow extends Record<string, unknown> {
   custom_role_permissions: string[] | null;
   custom_role_scopes: Record<string, string> | null;
   demo: boolean | null;
+  session_started_at: Date | string;
 }
 
 /**
@@ -262,6 +269,7 @@ export async function resolveSession(
     organizationTimezone: row.organization_timezone ?? "America/Chicago",
     setupCompleted: row.setup_completed_at != null,
     demo: row.demo === true,
+    sessionStartedAt: new Date(row.session_started_at),
   };
 }
 

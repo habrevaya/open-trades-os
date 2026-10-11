@@ -233591,11 +233591,15 @@
           },
           "lastSequence": {
             "type": "integer"
+          },
+          "revoked": {
+            "type": "boolean"
           }
         },
         "required": [
           "deviceId",
-          "lastSequence"
+          "lastSequence",
+          "revoked"
         ]
       },
       "RegisterEquipmentInput": {

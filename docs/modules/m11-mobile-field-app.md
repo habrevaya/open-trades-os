@@ -149,6 +149,20 @@ every phone they have signed in on: when it was last heard from, whether it is
 signed in, and whether changes to their day reach it, with a button to take a
 lost one away. `GET /v1/field/technicians` is the same list (`user:read`).
 
+Taking a browser away lasts until its person signs in again, as it does for a
+phone. A browser has no token of its own: `/my-day` registers it on the
+person's ordinary sign in each time the day is opened. The sign in's start is
+resolved with the session (`app.resolve_session` returns the session row's
+creation as `session_started_at`), and registering lifts a revocation only when
+that sign in began after it; the revocation is stamped by the database's clock
+so the two are compared on one clock. Reloading the day keeps it revoked: the
+page says "The office has stopped this browser sending your work" and every
+sync is refused. Signing out and in again is a new session, so it lifts it, and
+the audit log records `device.revocation_lifted`. A phone's token is ended by
+the revocation, so the token it signs in with next is always newer and lifts
+it, exactly as before. `POST /v1/field/devices` answers `revoked: true` for a
+device that stays revoked, and takes no push token and binds no token to it.
+
 On the phone: the day in route order, today and then tomorrow, each visit with
 the customer, the job, the address (a tap opens the phone's own maps app), the
 arrival window in the company's timezone and the notes; the gate code, the dog
@@ -650,16 +664,13 @@ sight of the record), and only the ones somebody chose with **Show the
 customer** or all of them when the company says so (M05). There is still no
 unauthenticated way to read one.
 
-Revoking a browser is weaker than revoking a phone. A phone's revocation ends its
-token, and only signing in again on it lifts it. A browser has no token of its
-own: `/my-day` registers it on the person's ordinary sign in each time the day is
-opened, and registering lifts a revocation, so a revoked browser syncs again the
-next time its technician opens their day. The page fetching itself to keep its
-copy for no signal only looks the device up, so that fetch does not lift it.
-Holding a browser's revocation until the person signs in again needs the session's
-start to be known where the day is drawn, and is not built; to stop a browser,
-the office deactivates the person, which ends every sign in they have, or takes
-`field:sync` from their role.
+A revoked browser stays revoked until its person signs in again, and then it
+is lifted, as a phone's is: revoking does not stop somebody signing in, so to
+keep a person out for good the office deactivates them, which ends every sign
+in they have, or takes `field:sync` from their role. Revoking a browser does
+not end its sign in (a browser's session is the person's whole sign in to the
+office screens, not the day's alone), so the person can still open the rest of
+the product; only their day stops reaching the office.
 
 `/my-day` opens with no signal only once it has been opened on that phone
 with one, only in a browser that keeps service workers (any current one, on

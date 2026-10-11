@@ -41,13 +41,17 @@ import type {
  */
 export async function registered(ctx: ServiceContext, installationId: string) {
   return guardedRead(ctx, "field:sync", async (tx) => {
-    const [existing] = await tx.select({ id: schema.device.id, lastSequence: schema.device.lastSequence })
+    const [existing] = await tx.select({
+      id: schema.device.id, lastSequence: schema.device.lastSequence, revokedAt: schema.device.revokedAt,
+    })
       .from(schema.device)
       .where(and(
         eq(schema.device.organizationId, ctx.actor.organizationId),
         eq(schema.device.installationId, installationId),
       )).limit(1);
-    return existing ? { deviceId: existing.id, lastSequence: existing.lastSequence } : null;
+    return existing
+      ? { deviceId: existing.id, lastSequence: existing.lastSequence, revoked: existing.revokedAt !== null }
+      : null;
   });
 }
 
@@ -77,6 +81,27 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
       )).limit(1);
 
     if (existing) {
+      /**
+       * A revocation is lifted only by a sign in that began after it. Opening
+       * the day again in the same browser is not signing in again, so a
+       * browser the office took away stays away until the person proves who
+       * they are once more, as a phone does: revoking a phone ends its token,
+       * and the token it signs in with next is newer than the revocation.
+       */
+      const stillRevoked = existing.revokedAt !== null
+        && !(ctx.sessionStartedAt && ctx.sessionStartedAt > existing.revokedAt);
+
+      if (stillRevoked) {
+        /**
+         * Seen, and nothing else: no push token taken and no token bound, so a
+         * device the office took away is not told about anybody's day and is
+         * not signed in on. Its sync is refused, which is how it hears.
+         */
+        await tx.update(schema.device).set({ lastSeenAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.device.id, existing.id));
+        return { deviceId: existing.id, lastSequence: existing.lastSequence, revoked: true };
+      }
+
       await tx.update(schema.device).set({
         technicianId,
         label: input.label ?? existing.label,
@@ -88,13 +113,17 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
         revokedAt: null,
         updatedAt: new Date(),
       }).where(eq(schema.device.id, existing.id));
+      if (existing.revokedAt) {
+        await audit(tx, ctx, "device.revocation_lifted", "device", existing.id,
+          { revokedAt: existing.revokedAt }, { signedInAt: ctx.sessionStartedAt ?? null });
+      }
 
       if (ctx.deviceTokenHash) {
         await bindToken(tx, existing.id, existing.sessionTokenHash, ctx.deviceTokenHash);
       }
       if (input.pushToken) await releasePushToken(tx, existing.id, input.pushToken);
 
-      return { deviceId: existing.id, lastSequence: existing.lastSequence };
+      return { deviceId: existing.id, lastSequence: existing.lastSequence, revoked: false };
     }
 
     const [created] = await tx.insert(schema.device).values({
@@ -119,7 +148,7 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
       { installationId: input.installationId, platform: input.platform ?? null });
     if (input.pushToken) await releasePushToken(tx, created!.id, input.pushToken);
 
-    return { deviceId: created!.id, lastSequence: 0 };
+    return { deviceId: created!.id, lastSequence: 0, revoked: false };
   });
 }
 

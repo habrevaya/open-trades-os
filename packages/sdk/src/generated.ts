@@ -19141,6 +19141,7 @@ export interface RegisterDeviceInput {
 export interface RegisterDeviceOutput {
   deviceId: string;
   lastSequence: number;
+  revoked: boolean;
 }
 
 export interface RegisterEquipmentInput {

@@ -242,7 +242,10 @@ The phone app is what uploads to it: a photograph or a signature is copied
 into the app's own storage, hashed, recorded as an operation, and its bytes
 sent once the server lists them as owed. `/my-day` in a browser has a camera
 control too: the picture is made smaller, hashed, kept in IndexedDB and sent
-through the same upload queue.
+through the same upload queue. A browser the office takes away stays away
+until its technician signs in again: the session's start is resolved with the
+session, and opening the day lifts a revocation only for a sign in that began
+after it.
 
 The Expo app is built in `apps/mobile`. It signs in against a server address
 the company types, with an email and password, for a device token that is a

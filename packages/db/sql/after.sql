@@ -407,7 +407,14 @@ create function app.resolve_session(p_token_hash text)
      * The application resolves such a session as read only whatever the
      * membership says. docs/self-hosting/demo.md.
      */
-    demo boolean
+    demo boolean,
+    /**
+     * When this sign in began: the session row's creation, which signing in
+     * again replaces with a new row. Registering a technician's browser reads
+     * it, so a browser the office took away stays away until the person signs
+     * in again, rather than until they next open their day (M11).
+     */
+    session_started_at timestamptz
   )
   language sql
   stable
@@ -425,7 +432,8 @@ create function app.resolve_session(p_token_hash text)
         '{}'::uuid[]
       ),
       r.permissions, r.scopes,
-      exists (select 1 from public.organization d where d.demo_user_id = s.user_id)
+      exists (select 1 from public.organization d where d.demo_user_id = s.user_id),
+      s.created_at
     from public.session s
     join public."user" u on u.id = s.user_id
     join public.organization o on o.id = s.active_organization_id

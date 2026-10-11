@@ -196,3 +196,25 @@ test("/my-day opens with no signal once it has been opened, and the sign in page
   await tech.goto("/login");
   await expect.poll(() => tech.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith("ots-my-day")))).toEqual([]);
 });
+
+test("a browser the office took away stays away when the technician reloads their day", async ({ tech }) => {
+  await tech.goto("/my-day");
+  const clock = tech.getByRole("button", { name: /^Clock (in|out)$/ });
+  await expect(clock).toBeVisible();
+  const notice = "The office has stopped this browser sending your work";
+  await expect(tech.getByRole("alert").filter({ hasText: notice })).toHaveCount(0);
+
+  await setBrowserDeviceRevoked("Ray Ortiz", true);
+  try {
+    // Opening the day again is not signing in again, so it is still refused.
+    await tech.reload();
+    await expect(tech.getByRole("alert").filter({ hasText: notice })).toContainText("Sign out and sign in again");
+    await tech.reload();
+    await expect(tech.getByRole("alert").filter({ hasText: notice })).toBeVisible();
+  } finally {
+    await setBrowserDeviceRevoked("Ray Ortiz", false);
+  }
+
+  await tech.reload();
+  await expect(tech.getByRole("alert").filter({ hasText: notice })).toHaveCount(0);
+});

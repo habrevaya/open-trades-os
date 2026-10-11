@@ -466,8 +466,16 @@ export async function revoke(ctx: ServiceContext, input: { id: string }) {
     if (!found) throw new NotFoundError("Device");
     const device = found.device;
 
-    // Already revoked is the state the caller asked for, so a retry is a no-op.
-    const revokedAt = device.revokedAt ?? new Date();
+    /**
+     * Already revoked is the state the caller asked for, so a retry is a
+     * no-op. A new revocation is stamped by the database's clock, the one a
+     * session's start is stamped by, because the two are compared: only a
+     * sign in that began after this lifts it, and an application server whose
+     * clock ran a few seconds fast would otherwise let a sign in from just
+     * before count as one after.
+     */
+    const [clock] = await tx.execute<{ now: Date | string }>(sql`select now() as now`);
+    const revokedAt = device.revokedAt ?? new Date(clock!.now);
     await endTokens(tx, [device.sessionTokenHash]);
     /** And no more notices about somebody's day to a phone in a stranger's pocket. */
     await tx.update(schema.device)
