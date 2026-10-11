@@ -1,4 +1,4 @@
-import { test, expect, run } from "./fixtures";
+import { test, expect, run, newCustomer } from "./fixtures";
 
 /**
  * THE ROLL OFF COMPANY'S TRUCKS, DISPOSAL AND INVOICE, THROUGH THE FORMS
@@ -104,4 +104,66 @@ test("Disposal facilities: a facility is recorded with its hours and rate, pinne
   const makeDefault = card.getByRole("button", { name: "Make the default" });
   if (await makeDefault.count()) await makeDefault.click();
   await expect(card).toContainText("Default");
+});
+
+test("Containers: the facility's fee is offered when a hire passes it on, added only when asked, and a chain is one invoice", async ({ owner }) => {
+  const street = `${run.slice(-5)} Quarry Rd`;
+  const facility = `Pass ${run}`;
+  await newCustomer(owner, { name: `Chain Build ${run}`, address: { street, city: "Austin", state: "TX", zip: "78702" } });
+
+  // A facility that charges by the ton.
+  await owner.goto("/fleet/containers/facilities");
+  const addFacility = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add facility" }) });
+  await addFacility.getByLabel("Name").fill(facility);
+  await addFacility.getByLabel("Charges").selectOption({ label: "By the ton" });
+  await addFacility.getByLabel("How much").fill("60");
+  await addFacility.getByRole("button", { name: "Add facility" }).click();
+  await expect(owner.getByRole("listitem", { name: facility })).toContainText("60.00 a ton");
+
+  // Two cans for a chain, billed as one invoice, passing disposal on.
+  await owner.goto("/fleet/containers");
+  const register = owner.getByRole("table", { name: "The register" });
+  const board = owner.getByRole("table", { name: "Out on hire" });
+  const addForm = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add", exact: true }) });
+  const cans = [1, 2].map((n) => `${run.slice(-5)}${n}9`);
+  for (const number of cans) {
+    await addForm.getByPlaceholder("4012").fill(number);
+    await addForm.getByPlaceholder("20 yard").fill("20 yard");
+    await addForm.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(register.getByRole("row").filter({ hasText: number })).toBeVisible();
+  }
+  const yardRow = register.getByRole("row").filter({ hasText: cans[0]! });
+  await yardRow.getByLabel("Site").selectOption({ label: `${street}, Austin` });
+  await yardRow.getByLabel("Delivered on").fill("2026-06-01");
+  await yardRow.getByPlaceholder("Days incl.").fill("7");
+  await yardRow.getByPlaceholder("Day rate").fill("10");
+  await yardRow.getByLabel("Invoice this hire as").selectOption({ label: "One invoice for the whole chain" });
+  await yardRow.getByLabel("Pass the disposal fee on").check();
+  await yardRow.getByRole("button", { name: "Deliver" }).click();
+  const first = board.getByRole("row").filter({ hasText: cans[0]! });
+  await expect(first).toContainText(street);
+
+  // Swapped for the second can, which carries the terms forward.
+  await first.getByLabel("Empty can").selectOption({ label: cans[1]! });
+  await first.getByLabel("Swapped on").fill("2026-06-04");
+  await first.getByLabel("Net tons on the full can").fill("1");
+  await first.getByLabel("Facility the full can went to").selectOption({ label: facility });
+  await first.getByRole("button", { name: "Swap" }).click();
+  const second = board.getByRole("row").filter({ hasText: cans[1]! });
+  await expect(second).toContainText("Swap");
+
+  // Collected with its ticket: now the fee is offered, and nothing is invoiced yet.
+  await second.getByLabel("Collected on").fill("2026-06-06");
+  await second.getByLabel("Net tons collected").fill("2.5");
+  await second.getByLabel("Facility the load went to").selectOption({ label: facility });
+  await second.getByRole("button", { name: "Collect" }).click();
+  await expect(second).toContainText(`Disposal fee to pass on: 150.00 at ${facility}`);
+  await expect(second.getByRole("button", { name: "Raise invoice with the disposal fee" })).toBeVisible();
+  await expect(second.getByRole("button", { name: "Raise invoice without the disposal fee" })).toBeVisible();
+
+  // Asked for: one invoice for both cans with the fee of each on it.
+  await second.getByRole("button", { name: "Raise invoice with the disposal fee" }).click();
+  await expect(second.getByRole("status").filter({ hasText: "Draft invoice" })).toContainText("for 2 containers");
+  await expect(second.getByRole("status").filter({ hasText: "Draft invoice" })).toContainText("The disposal fee is on it.");
+  await expect(second).toContainText("Disposal fee passed on: 150.00");
 });

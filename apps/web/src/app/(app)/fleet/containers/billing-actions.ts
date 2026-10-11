@@ -64,8 +64,14 @@ export async function removeChargeAction(_previous: FormState, form: FormData): 
 
 export async function invoiceHireAction(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
-    const invoice = await rentalBilling.invoiceHire(await ctx(), { id: String(form.get("id") ?? "") });
-    return { message: `Draft invoice ${invoice.invoiceNumber} raised for ${Number(invoice.total).toFixed(2)}, on Invoices to check and issue.` };
+    const choice = field(form, "disposalFee");
+    const invoice = await rentalBilling.invoiceHire(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      ...(choice === "pass_on" || choice === "leave_off" ? { disposalFee: choice } : {}),
+    });
+    const fee = invoice.disposalFee === null ? "" : invoice.disposalFee.passedOn ? " The disposal fee is on it." : " The disposal fee is left off.";
+    const hauls = invoice.hauls > 1 ? ` for ${invoice.hauls} containers` : "";
+    return { message: `Draft invoice ${invoice.invoiceNumber}${hauls} raised for ${Number(invoice.total).toFixed(2)}, on Invoices to check and issue.${fee}` };
   });
   if (state?.done) revalidatePath("/fleet/containers");
   return state;
@@ -121,6 +127,24 @@ export async function rentalDispatchAction(_previous: FormState, form: FormData)
       yardMinutes: Number(field(form, "yardMinutes") ?? 20),
     }));
     return { message: "Saved." };
+  });
+  if (state?.done) revalidatePath("/fleet/containers");
+  return state;
+}
+
+/** How a hire is invoiced and whether its disposal fee is the customer's, for the whole swap chain. */
+export async function billingTermsAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const invoiceAs = field(form, "invoiceAs");
+    const terms = await rentalBilling.setBillingTerms(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      ...(invoiceAs === "per_haul" || invoiceAs === "chain" ? { invoiceAs } : {}),
+      disposalPassThrough: form.get("disposalPassThrough") === "on",
+    });
+    return {
+      message: `${terms.invoiceAs === "chain" ? "One invoice for the whole chain" : "One invoice for each haul"}`
+        + `${terms.disposalPassThrough ? ", and the disposal fee is offered when you raise it" : ""}.`,
+    };
   });
   if (state?.done) revalidatePath("/fleet/containers");
   return state;

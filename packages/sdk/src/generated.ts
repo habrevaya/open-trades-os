@@ -5281,6 +5281,8 @@ export interface DeliverRentalInput {
   overageRate?: string | null;
   includedTons?: string | null;
   perTonRate?: string | null;
+  invoiceAs?: "per_haul" | "chain";
+  disposalPassThrough?: boolean;
 }
 
 export interface DeliverRentalOutput {
@@ -5311,6 +5313,16 @@ export interface DeliverRentalOutput {
   collectionAgreedStart: string | null;
   collectionAgreedEnd: string | null;
   invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
 }
 
 export interface DescribeUnsubscribeOutput {
@@ -10345,6 +10357,16 @@ export interface GetRentalOutput {
   collectionAgreedStart: string | null;
   collectionAgreedEnd: string | null;
   invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
 }
 
 export interface GetRentalOverageOutput {
@@ -11215,7 +11237,9 @@ export interface InvoiceAgreementInstalmentOutput {
   total: string;
 }
 
-export type InvoiceRentalInput = Record<string, unknown>;
+export interface InvoiceRentalInput {
+  disposalFee?: "pass_on" | "leave_off";
+}
 
 export interface InvoiceRentalOutput {
   invoiceId: string;
@@ -11227,6 +11251,11 @@ export interface InvoiceRentalOutput {
     unitPrice: string;
     amount: string;
   }>;
+  hauls: number;
+  disposalFee: {
+    passedOn: boolean;
+    amount: string | null;
+  } | null;
 }
 
 export interface IssueAppTokenInput {
@@ -14681,6 +14710,16 @@ export interface ListRentalsOutput {
     collectionAgreedStart: string | null;
     collectionAgreedEnd: string | null;
     invoiceId: string | null;
+    invoiceAs: "per_haul" | "chain";
+    disposalPassThrough: boolean;
+    disposalFeePassedOn: boolean | null;
+    disposalFeeAmount: string | null;
+    disposalFeeOffer: {
+      amount: string | null;
+      source: "recorded" | "worked_out" | null;
+      why: string;
+      facility: string | null;
+    } | null;
   }>;
 }
 
@@ -16762,6 +16801,16 @@ export interface PickUpRentalOutput {
   collectionAgreedStart: string | null;
   collectionAgreedEnd: string | null;
   invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
 }
 
 export interface PinDisposalFacilityInput {
@@ -17102,6 +17151,31 @@ export interface PreviewRecurringScheduleOutput {
     sequence: number;
   }>;
   onlyOneKnowable: boolean;
+}
+
+export interface PreviewRentalInvoiceOutput {
+  refused: string | null;
+  hauls: number;
+  invoiceAs: "per_haul" | "chain";
+  lines: Array<{
+    name: string;
+    quantity: string;
+    unitPrice: string;
+    amount: string;
+  }>;
+  disposalFee: Array<{
+    rentalId: string;
+    amount: string;
+    facility: string | null;
+    ticket: string | null;
+    why: string;
+    source: "recorded" | "worked_out";
+  }>;
+  disposalFeeUnavailable: Array<{
+    rentalId: string;
+    why: string;
+  }>;
+  decisionNeeded: boolean;
 }
 
 export interface PreviewRetentionPurgeOutput {
@@ -21502,6 +21576,18 @@ export interface SetReferralSettingsOutput {
   amount: string;
 }
 
+export interface SetRentalBillingTermsInput {
+  invoiceAs?: "per_haul" | "chain";
+  disposalPassThrough?: boolean;
+}
+
+export interface SetRentalBillingTermsOutput {
+  id: string;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  hauls: number;
+}
+
 export interface SetRentalCollectionTimeInput {
   start: string | null;
   end?: string | null;
@@ -22316,6 +22402,16 @@ export interface SwapRentalOutput {
     collectionAgreedStart: string | null;
     collectionAgreedEnd: string | null;
     invoiceId: string | null;
+    invoiceAs: "per_haul" | "chain";
+    disposalPassThrough: boolean;
+    disposalFeePassedOn: boolean | null;
+    disposalFeeAmount: string | null;
+    disposalFeeOffer: {
+      amount: string | null;
+      source: "recorded" | "worked_out" | null;
+      why: string;
+      facility: string | null;
+    } | null;
   };
   opened: {
     id: string;
@@ -22345,6 +22441,16 @@ export interface SwapRentalOutput {
     collectionAgreedStart: string | null;
     collectionAgreedEnd: string | null;
     invoiceId: string | null;
+    invoiceAs: "per_haul" | "chain";
+    disposalPassThrough: boolean;
+    disposalFeePassedOn: boolean | null;
+    disposalFeeAmount: string | null;
+    disposalFeeOffer: {
+      amount: string | null;
+      source: "recorded" | "worked_out" | null;
+      why: string;
+      facility: string | null;
+    } | null;
   };
 }
 
@@ -27723,6 +27829,10 @@ export interface PreviewRecurringScheduleInput {
   to?: string;
 }
 
+export interface PreviewRentalInvoiceInput {
+  id: string;
+}
+
 export interface PreviewRetentionPurgeInput {
   policyId?: string;
   sample?: number;
@@ -28334,6 +28444,10 @@ export interface SetRateCardTermsParams {
 }
 
 export interface SetRecurringScheduleActiveParams {
+  id: string;
+}
+
+export interface SetRentalBillingTermsParams {
   id: string;
 }
 
@@ -29460,6 +29574,7 @@ export interface OperationTypes {
   previewMessageTemplate: { input: PreviewMessageTemplateInput; output: PreviewMessageTemplateOutput };
   previewPriceChange: { input: PreviewPriceChangeInput; output: PreviewPriceChangeOutput };
   previewRecurringSchedule: { input: PreviewRecurringScheduleInput; output: PreviewRecurringScheduleOutput };
+  previewRentalInvoice: { input: PreviewRentalInvoiceInput; output: PreviewRentalInvoiceOutput };
   previewRetentionPurge: { input: PreviewRetentionPurgeInput; output: PreviewRetentionPurgeOutput };
   previewScaleTickets: { input: PreviewScaleTicketsInput; output: PreviewScaleTicketsOutput };
   previewTradePackUpgrade: { input: PreviewTradePackUpgradeInput; output: PreviewTradePackUpgradeOutput };
@@ -29684,6 +29799,7 @@ export interface OperationTypes {
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
   setRecurringScheduleActive: { input: SetRecurringScheduleActiveParams & SetRecurringScheduleActiveInput; output: SetRecurringScheduleActiveOutput };
   setReferralSettings: { input: SetReferralSettingsInput; output: SetReferralSettingsOutput };
+  setRentalBillingTerms: { input: SetRentalBillingTermsParams & SetRentalBillingTermsInput; output: SetRentalBillingTermsOutput };
   setRentalCollectionTime: { input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput; output: SetRentalCollectionTimeOutput };
   setRentalDispatch: { input: SetRentalDispatchInput; output: SetRentalDispatchOutput };
   setReorderPolicy: { input: SetReorderPolicyInput; output: SetReorderPolicyOutput };
@@ -30527,6 +30643,7 @@ export const OPERATIONS = {
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending","effectiveOn"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   previewRecurringSchedule: { method: "GET", path: "/v1/recurring-schedules/{id}/preview", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  previewRentalInvoice: { method: "GET", path: "/v1/rentals/{id}/invoice-preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write","asset:read"] },
   previewRetentionPurge: { method: "GET", path: "/v1/compliance/retention/preview", pathParams: [], queryParams: ["policyId","sample"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   previewScaleTickets: { method: "POST", path: "/v1/scale-tickets/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   previewTradePackUpgrade: { method: "GET", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -30751,6 +30868,7 @@ export const OPERATIONS = {
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRecurringScheduleActive: { method: "POST", path: "/v1/recurring-schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setReferralSettings: { method: "PUT", path: "/v1/marketing/referral-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setRentalBillingTerms: { method: "PUT", path: "/v1/rentals/{id}/billing-terms", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalCollectionTime: { method: "PUT", path: "/v1/rentals/{id}/collection-time", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalDispatch: { method: "PUT", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReorderPolicy: { method: "PUT", path: "/v1/reorder-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -37159,6 +37277,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What the invoice for a hire would say, before it is raised.
+   *
+   * GET /v1/rentals/{id}/invoice-preview. Needs invoice:write, asset:read.
+   */
+  previewRentalInvoice(input: PreviewRentalInvoiceInput, options?: CallOptions): Promise<PreviewRentalInvoiceOutput> {
+    return this.call("previewRentalInvoice", input, options);
+  }
+
+  /**
    * What a purge would remove today, rule by rule.
    *
    * GET /v1/compliance/retention/preview. Needs compliance:read.
@@ -39172,6 +39299,15 @@ export abstract class GeneratedOperations {
    */
   setReferralSettings(input: SetReferralSettingsInput, options?: CallOptions): Promise<SetReferralSettingsOutput> {
     return this.call("setReferralSettings", input, options);
+  }
+
+  /**
+   * Choose how a hire is invoiced, and whether disposal is passed on.
+   *
+   * PUT /v1/rentals/{id}/billing-terms. Needs asset:write.
+   */
+  setRentalBillingTerms(input: SetRentalBillingTermsParams & SetRentalBillingTermsInput, options?: CallOptions): Promise<SetRentalBillingTermsOutput> {
+    return this.call("setRentalBillingTerms", input, options);
   }
 
   /**

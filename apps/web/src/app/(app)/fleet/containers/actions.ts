@@ -62,6 +62,8 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           overageRate: field(form, "overageRate") ?? null,
           includedTons: field(form, "includedTons") ?? null,
           perTonRate: field(form, "perTonRate") ?? null,
+          invoiceAs: field(form, "invoiceAs") === "chain" ? "chain" : "per_haul",
+          disposalPassThrough: form.get("disposalPassThrough") === "on",
         });
         return;
       case "pickup":

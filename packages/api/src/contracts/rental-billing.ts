@@ -101,12 +101,64 @@ export const invoiceRental = defineRoute({
   module: "M22",
   permissions: ["invoice:write", "asset:read"],
   idempotent: true,
-  input: z.object({ id: Uuid }),
+  input: z.object({
+    id: Uuid,
+    /**
+     * What to do with the facility's disposal fee when the hire's terms pass it on: put it on the invoice
+     * (`pass_on`) or leave it off (`leave_off`). The call is refused until one is given, because the fee is
+     * offered and never added without a person saying so. `pass_on` for a hire whose terms do not pass it on is refused.
+     */
+    disposalFee: z.enum(["pass_on", "leave_off"]).optional(),
+  }),
   output: z.object({
     invoiceId: Uuid,
     invoiceNumber: z.number().int(),
     total: MoneyString,
     lines: z.array(z.object({ name: z.string(), quantity: z.string(), unitPrice: MoneyString, amount: MoneyString })),
+    /** How many hauls it covers: one, or every can in a swap chain billed as one invoice. */
+    hauls: z.number().int(),
+    /** What was decided about the disposal fee when the terms offered it; null when they did not. */
+    disposalFee: z.object({ passedOn: z.boolean(), amount: MoneyString.nullable() }).nullable(),
+  }),
+});
+
+export const previewRentalInvoice = defineRoute({
+  method: "get",
+  path: "/v1/rentals/{id}/invoice-preview",
+  summary: "What the invoice for a hire would say, before it is raised",
+  description:
+    "The lines `POST /v1/rentals/{id}/invoice` would write, the number of hauls (a hire billed as a chain is every can in the chain not already on an invoice), and the disposal fee when the hire's terms pass it on: each haul's fee with the facility, the ticket and where the figure comes from (`recorded` is what the facility billed, `worked_out` is the ticket's weight at the facility's rate), and `decisionNeeded` when raising it must say `pass_on` or `leave_off`. A refusal that raising would give is answered in `refused` rather than as an error. Writes nothing.",
+  module: "M22",
+  permissions: ["invoice:write", "asset:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    refused: z.string().nullable(),
+    hauls: z.number().int(),
+    invoiceAs: z.enum(["per_haul", "chain"]),
+    lines: z.array(z.object({ name: z.string(), quantity: z.string(), unitPrice: MoneyString, amount: MoneyString })),
+    disposalFee: z.array(z.object({
+      rentalId: Uuid, amount: MoneyString, facility: z.string().nullable(), ticket: z.string().nullable(),
+      why: z.string(), source: z.enum(["recorded", "worked_out"]),
+    })),
+    /** Hauls whose terms pass disposal on but whose fee cannot be worked out, with why. */
+    disposalFeeUnavailable: z.array(z.object({ rentalId: Uuid, why: z.string() })),
+    decisionNeeded: z.boolean(),
+  }),
+});
+
+export const setRentalBillingTerms = defineRoute({
+  method: "put",
+  path: "/v1/rentals/{id}/billing-terms",
+  summary: "Choose how a hire is invoiced, and whether disposal is passed on",
+  description:
+    "`invoiceAs` is `per_haul` (each haul of a swap chain on its own invoice, the default) or `chain` (one invoice for the whole hire with the lines of every can on it, raised once the last can is collected). `disposalPassThrough` says the facility's disposal fee is the customer's at cost: it is then offered when the invoice is raised and added only when a person says so. Applies to every haul in the swap chain not already on a standing invoice, and is refused once all of them are. Passing disposal on is refused while a haul bills disposal by the ton, which would charge for the same load twice.",
+  module: "M22",
+  permissions: ["asset:write"],
+  input: z.object({ id: Uuid, invoiceAs: z.enum(["per_haul", "chain"]).optional(), disposalPassThrough: z.boolean().optional() }),
+  output: z.object({
+    id: Uuid, invoiceAs: z.enum(["per_haul", "chain"]), disposalPassThrough: z.boolean(),
+    /** Hauls the change applied to. */
+    hauls: z.number().int(),
   }),
 });
 
@@ -215,6 +267,6 @@ export const setRentalCollectionTime = defineRoute({
 
 export const rentalBillingRoutes = {
   scheduleRentalCollections, recordRentalCharge, listRentalCharges, removeRentalCharge,
-  invoiceRental, previewScaleTickets, applyScaleTickets,
+  invoiceRental, previewRentalInvoice, setRentalBillingTerms, previewScaleTickets, applyScaleTickets,
   getRentalDispatch, setRentalDispatch, setRentalCollectionTime,
 } as const;

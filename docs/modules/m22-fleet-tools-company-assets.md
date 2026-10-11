@@ -278,12 +278,43 @@ address from a collected hire: the rental period when the hire is priced by the
 day (days inside the included period at the day rate), each meter that went
 over (extra days at the overage rate, tonnage over the included at the per ton
 rate) and every charge found on the haul. Refused while the can is on site,
-refused with the meter's own sentence when a meter went over with no rate,
-and refused when the hire is already on an invoice that has not been voided,
-so the same extra days cannot reach two invoices. A hire priced by a flat line
-on its job has no period line here, so the period is not billed twice. It
-needs `invoice:write`, and the draft is checked and issued on Invoices like
-any other.
+refused with the meter's own sentence when a meter went over with no rate, and
+refused when the hire is already on an invoice that has not been voided, so the
+same extra days cannot reach two invoices. A hire priced by a flat line on its
+job has no period line here, so the period is not billed twice. It needs
+`invoice:write`, and the draft is checked and issued on Invoices like any other.
+`GET /v1/rentals/{id}/invoice-preview` answers what the invoice would say, and
+what raising it would refuse, without writing anything.
+
+**A swap chain, one haul at a time or as one invoice.** The company chooses per
+rental, with `PUT /v1/rentals/{id}/billing-terms` (`asset:write`) or when the
+can is delivered, and the choice is carried through every swap like the rates.
+One invoice per haul is the default: each can's row is invoiced from its own
+call, as above. Billed as a chain, one call (from any can in the chain) raises
+one invoice for the whole hire with the lines of every can on it in order, a
+group per can (its period, its meters, its charges), so a four week hire with
+three swaps is one invoice and not four. It waits for the last can to be
+collected, for the reason a single haul does, and bills the cans not already on
+a standing invoice. Changing the choice applies to every can in the chain not
+already on one, and is refused once all of them are.
+
+**Passing the facility's disposal fee on.** When the hire's terms say the
+disposal fee is the customer's (`disposalPassThrough`), the fee is OFFERED when
+the invoice is raised and never added without a person saying so. The fee is
+what was recorded on the haul (what the facility billed) or, when none was, the
+ticket's weight at the haul's facility's rate, and the offer says which; it is at
+cost, with no markup. Raising the invoice is refused until the call says
+`disposalFee: "pass_on"` (the fee goes on as a line for each can) or
+`"leave_off"`; when the terms pass it on but no figure can be worked out, the
+refusal says what is missing and `leave_off` is the only way forward. The hire
+keeps whether it was passed on, the amount that was offered, who decided and
+when (`disposalFeePassedOn`, `disposalFeeAmount`). A voided invoice raised again
+asks again. `pass_on` for a hire whose terms do not pass it on is refused, and
+the terms cannot be set while a hire bills disposal by the ton over the included
+tonnage, which would charge the customer for the same load twice. The line is
+taxed as the hire's other lines are, a judgement the product owner has not made:
+the invoice is a draft, and the office changes that line before issuing it if its
+state taxes disposal differently.
 
 ### A facility's scale tickets
 
@@ -303,13 +334,25 @@ it out again inside the write and fills only empty fields. The screen is
 exclusion the pack names, because each exclusion is the way that metric is
 usually got wrong.
 
-The other four are absent rather than approximated:
-`revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue and
-facility cost attributed per container, `hauls_per_truck_day` needs truck days
-from the driver timeclock rather than the roster, and `turnaround_hours` needs
-the moment a can was emptied at the facility, which nothing records. A KPI
-computed from the nearest available number is one an owner makes a fleet
-purchase on.
+A fifth, `hauls_per_truck_day`, is on the trade scorecard (`Reports > Trade
+scorecard`) and not in this report, because the datum it was missing now exists:
+who is a driver. A driver is a person with a vehicle that has a kind of truck
+checked out to them that day, the custody record that already says who has the
+van, and a truck day is such a person's day on the timeclock rather than the
+roster. The hauls are the completed deliveries, pickups, swaps, dump and returns
+and relocations that a driver on a truck day did; a visit where the truck
+arrived and the haul did not happen (the customer was not there, the way was
+blocked) is counted beside the number as a dry run, not as a haul.
+
+The other three are absent rather than approximated:
+`revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue
+attributed to the container and the haul, which a hire billed as a chain (several
+cans on one invoice) and a hire sold at a flat price on its job both leave
+unrecorded, even though a haul now names its facility and the facility's rate;
+and `turnaround_hours` needs the moment a can was emptied at the facility, which
+nothing records, and the cans held at a customer's request, which the definition
+leaves out and nothing marks. A KPI computed from the nearest available number is
+one an owner makes a fleet purchase on.
 
 ## Permissions
 
@@ -429,9 +472,13 @@ this product's own board first.
   The load in the morning is not recorded; for a day already under way it is
   worked out from the stops done. The rebalance across people leaves a driver's
   day with containers on it alone (M09).
-- **A hire is invoiced one haul at a time.** A swap chain is several hauls and
-  each is invoiced from its own row; the facility's disposal fee on a haul is
-  its cost, and is not passed through.
-- **Four of the eight KPIs**, listed above with what each one needs.
+- **A disposal fee is passed on at cost.** There is no markup on the facility's
+  fee, and no standing rule that adds it without being asked: it is offered
+  every time. A fee worked out from the ticket's weight is an estimate until the
+  facility's invoice is recorded on the haul, and the offer says so. A chain
+  billed as one invoice cannot be raised until its last can is collected: the
+  cans already collected are invoiced by changing the hire to one invoice per
+  haul.
+- **Three of the eight KPIs**, listed above with what each one needs.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
   good as what somebody enters.

@@ -11,7 +11,7 @@ import { ActionForm } from "./ActionForm";
 import { ActionForm as SaidForm, Select, TextField } from "@/components/ActionForm";
 import { Money } from "@opentradesos/ui";
 import {
-  collectionTimeAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
+  billingTermsAction, collectionTimeAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
 } from "./billing-actions";
 
 const CHARGE_KINDS = [
@@ -184,6 +184,7 @@ export default async function ContainersPage(
         <h2 className="text-base font-semibold">Out on hire</h2>
         {writes ? (
           <span className="flex flex-wrap gap-4">
+            <a href="/fleet/containers/trucks" className="text-sm underline underline-offset-4">Trucks</a>
             <a href="/fleet/containers/facilities" className="text-sm underline underline-offset-4">Disposal facilities</a>
             <a href="/fleet/containers/tickets" className="text-sm underline underline-offset-4">Import a facility&apos;s scale tickets</a>
           </span>
@@ -247,10 +248,51 @@ export default async function ContainersPage(
               Once it is on an invoice the row says so rather than offering a
               second one.
             */}
-            {!hire.open && invoices && !hire.invoiceId && (
-              <SaidForm action={invoiceHireAction} submit="Raise invoice" tone="quiet" className="flex flex-wrap items-center gap-2"
-                        hidden={{ id: hire.id }} />
+            {!hire.open && invoices && !hire.invoiceId && !hire.disposalFeeOffer && (
+              <SaidForm action={invoiceHireAction} submit={hire.invoiceAs === "chain" ? "Raise invoice for the chain" : "Raise invoice"} tone="quiet"
+                        className="flex flex-wrap items-center gap-2" hidden={{ id: hire.id }} />
             )}
+            {/*
+              The terms pass the facility's disposal fee on, so it is OFFERED here and
+              added only by pressing the button that says so. Both ways are a button:
+              neither is a default, and the hire records which was pressed.
+            */}
+            {!hire.open && invoices && !hire.invoiceId && hire.disposalFeeOffer ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-ink-700">
+                  {hire.disposalFeeOffer.amount
+                    ? `Disposal fee to pass on: ${Number(hire.disposalFeeOffer.amount).toFixed(2)}${hire.disposalFeeOffer.facility ? ` at ${hire.disposalFeeOffer.facility}` : ""} (${hire.disposalFeeOffer.why}).`
+                    : `Disposal fee cannot be worked out: ${hire.disposalFeeOffer.why}`}
+                </span>
+                {hire.disposalFeeOffer.amount ? (
+                  <SaidForm action={invoiceHireAction} submit="Raise invoice with the disposal fee" tone="quiet" className="inline-flex"
+                            hidden={{ id: hire.id, disposalFee: "pass_on" }} />
+                ) : null}
+                <SaidForm action={invoiceHireAction} submit="Raise invoice without the disposal fee" tone="quiet" className="inline-flex"
+                          hidden={{ id: hire.id, disposalFee: "leave_off" }} />
+              </div>
+            ) : null}
+            {hire.disposalFeePassedOn !== null && hire.disposalFeePassedOn !== undefined ? (
+              <span className="self-center text-sm text-ink-500">
+                Disposal fee {hire.disposalFeePassedOn ? "passed on" : "left off"}
+                {hire.disposalFeeAmount ? `: ${Number(hire.disposalFeeAmount).toFixed(2)}` : ""}
+              </span>
+            ) : null}
+            {/*
+              How the hire is billed, for the whole swap chain: an invoice for each
+              haul, or one for the chain. And whether the terms pass disposal on.
+            */}
+            {writes && !hire.invoiceId && hire.invoiceAs ? (
+              <SaidForm action={billingTermsAction} submit="Save billing" tone="quiet" className="flex flex-wrap items-end gap-2" hidden={{ id: hire.id }}>
+                <select name="invoiceAs" defaultValue={hire.invoiceAs} className={input} aria-label="How this hire is invoiced">
+                  <option value="per_haul">One invoice for each haul</option>
+                  <option value="chain">One invoice for the whole chain</option>
+                </select>
+                <label className="flex items-center gap-1 text-sm">
+                  <input type="checkbox" name="disposalPassThrough" defaultChecked={hire.disposalPassThrough} /> Pass the disposal fee on
+                </label>
+              </SaidForm>
+            ) : null}
             {hire.invoiceId ? <span className="self-center text-sm text-ink-500">Invoiced</span> : null}
             {hire.open && hire.collectionVisitId ? <span className="self-center text-sm text-ink-500">Collection booked</span> : null}
             {/*
@@ -385,6 +427,13 @@ export default async function ContainersPage(
                 <input name="overageRate" inputMode="decimal" placeholder="Over/day" className={`${input} w-24`} />
                 <input name="includedTons" inputMode="decimal" placeholder="Tons incl." className={`${input} w-24`} />
                 <input name="perTonRate" inputMode="decimal" placeholder="Per ton" className={`${input} w-24`} />
+                <select name="invoiceAs" className={input} aria-label="Invoice this hire as">
+                  <option value="per_haul">One invoice for each haul</option>
+                  <option value="chain">One invoice for the whole chain</option>
+                </select>
+                <label className="flex items-center gap-1 text-sm">
+                  <input type="checkbox" name="disposalPassThrough" /> Pass the disposal fee on
+                </label>
               </ActionForm>
             )}
             {container.status === "out_of_service"

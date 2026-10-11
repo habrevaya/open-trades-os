@@ -314,6 +314,12 @@ export const disposalFacility = pgTable("disposal_facility", {
     .where(sql`${t.isDefault} and ${t.active}`),
 }));
 
+/**
+ * HOW A HIRE IS INVOICED: each haul on an invoice of its own, or a swap chain
+ * on one invoice for the whole hire. `rental_invoice_mode` in the database.
+ */
+export const rentalInvoiceMode = pgEnum("rental_invoice_mode", ["per_haul", "chain"]);
+
 export const rental = pgTable("rental", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -388,6 +394,29 @@ export const rental = pgTable("rental", {
    */
   collectionAgreedStart: timestamp("collection_agreed_start", { withTimezone: true }),
   collectionAgreedEnd: timestamp("collection_agreed_end", { withTimezone: true }),
+  /**
+   * THE HIRE'S BILLING TERMS, carried forward through every swap like its rates.
+   *
+   * `invoice_as` is the company's choice per rental: a swap chain is invoiced
+   * one haul at a time (each row on its own invoice), or as one invoice for the
+   * whole hire with the lines of every haul on it.
+   *
+   * `disposal_pass_through` is the terms saying the facility's disposal fee is
+   * the customer's, at cost. It is the terms and nothing more: the fee is OFFERED
+   * when the invoice is raised and added only when a person says to.
+   */
+  invoiceAs: rentalInvoiceMode("invoice_as").notNull().default("per_haul"),
+  disposalPassThrough: boolean("disposal_pass_through").notNull().default(false),
+  /**
+   * WHETHER THE DISPOSAL FEE WAS PASSED ON. Null until somebody decided, true
+   * when it went on the invoice, false when it was left off, with who and when
+   * and the amount that was offered, so "did we charge them for the dump" has an
+   * answer that does not depend on reading invoice lines.
+   */
+  disposalFeePassedOn: boolean("disposal_fee_passed_on"),
+  disposalFeeAmount: money("disposal_fee_amount"),
+  disposalFeeDecidedAt: timestamp("disposal_fee_decided_at", { withTimezone: true }),
+  disposalFeeDecidedByUserId: uuid("disposal_fee_decided_by_user_id"),
   /**
    * The invoice this hire's period and meters were billed on. Set by raising
    * it, and read before raising another, so the same extra days cannot reach

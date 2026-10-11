@@ -9,6 +9,7 @@ import * as once from "./once";
 import * as jobs from "./jobs";
 import * as billing from "./billing";
 import { inForceAt } from "./pricebook";
+import { feeFigure } from "./disposal-facilities";
 
 /**
  * A HIRE AFTER THE CAN HAS GONE OUT
@@ -536,66 +537,151 @@ export function charges(ctx: ServiceContext, input: { rentalId?: string | undefi
 
 /* ------------------------------------------------------------------ invoicing */
 
+export interface DisposalOffer {
+  rentalId: string;
+  amount: string;
+  facility: string | null;
+  ticket: string | null;
+  /** Where the figure came from, in words. */
+  why: string;
+  source: "recorded" | "worked_out";
+}
+
 export interface HireInvoiceResult {
   invoiceId: string;
   invoiceNumber: number;
   total: string;
   lines: { name: string; quantity: string; unitPrice: string; amount: string }[];
+  /** How many hauls the invoice covers: one, or the whole of a swap chain. */
+  hauls: number;
+  /** What was decided about the facility's disposal fee when the terms offered it, and null when they did not. */
+  disposalFee: { passedOn: boolean; amount: string | null } | null;
+}
+
+type Hire = typeof schema.rental.$inferSelect;
+type DraftLine = { name: string; description?: string; quantity: string; unitPrice: string; taxable: boolean };
+
+/** An invoice that still stands: not deleted, not voided. */
+async function liveInvoice(tx: Database, invoiceId: string | null) {
+  if (!invoiceId) return null;
+  const [prior] = await tx.select({ number: schema.invoice.number, status: schema.invoice.status, deletedAt: schema.invoice.deletedAt })
+    .from(schema.invoice).where(eq(schema.invoice.id, invoiceId)).limit(1);
+  return prior && !prior.deletedAt && prior.status !== "void" ? prior : null;
 }
 
 /**
- * Raise a draft invoice from a collected hire: its period when it is priced
- * by the day, each meter that went over, and every charge on the haul.
- *
- * REFUSED WHILE THE CAN IS ON SITE, for the reason the overage call is: the
- * period is not final until it is collected. REFUSED WHEN A METER HAS NO
- * RATE, with the meter's own sentence, rather than invoicing the rest and
- * leaving the days off. ONCE PER HIRE: a second invoice for the same extra
- * days is the double charge a customer remembers, so the hire carries the
- * invoice it went on, and only a voided or deleted one frees it again.
- *
- * A DRAFT, for the office to check and issue. The invoice is the customer's
- * at the address, through `billing.createIn`, so tax, numbering and every
- * rule an invoice follows are the same as for one typed by hand.
+ * The whole swap chain a hire belongs to, first can to last: back through
+ * `previous_rental_id` to the one nothing replaced, then forward through the
+ * rows that replaced each. Bounded, because a loop in the chain must not hang a
+ * request.
  */
-export function invoiceHire(ctx: ServiceContext, input: { id: string }) {
-  assertCan(ctx.actor, "asset:read");
-  return guardedWrite(ctx, "invoice:write", async (tx): Promise<HireInvoiceResult> => {
-    const seen = await once.replayed<HireInvoiceResult>(tx, ctx, "rental_invoice");
-    if (seen) return seen;
-    const hire = await hireWithin(tx, ctx, input.id);
+async function chainOf(tx: Database, ctx: ServiceContext, hire: Hire): Promise<Hire[]> {
+  const chain: Hire[] = [hire];
+  for (let depth = 0; depth < 50; depth += 1) {
+    const first = chain[0]!;
+    if (!first.previousRentalId) break;
+    const [before] = await tx.select().from(schema.rental).where(and(
+      eq(schema.rental.organizationId, ctx.actor.organizationId), eq(schema.rental.id, first.previousRentalId))).limit(1);
+    if (!before || chain.some((c) => c.id === before.id)) break;
+    chain.unshift(before);
+  }
+  for (let depth = 0; depth < 50; depth += 1) {
+    const last = chain.at(-1)!;
+    const [after] = await tx.select().from(schema.rental).where(and(
+      eq(schema.rental.organizationId, ctx.actor.organizationId), eq(schema.rental.previousRentalId, last.id))).limit(1);
+    if (!after || chain.some((c) => c.id === after.id)) break;
+    chain.push(after);
+  }
+  return chain;
+}
 
-    if (hire.invoiceId) {
-      const [prior] = await tx.select({ number: schema.invoice.number, status: schema.invoice.status, deletedAt: schema.invoice.deletedAt })
-        .from(schema.invoice).where(eq(schema.invoice.id, hire.invoiceId)).limit(1);
-      if (prior && !prior.deletedAt && prior.status !== "void") {
-        throw new ConflictError(`This hire is already on invoice ${prior.number}. Void that one first if it was wrong.`);
-      }
+interface Draft {
+  /** The hauls this invoice covers, in order. */
+  group: Hire[];
+  lines: DraftLine[];
+  /** Charges found on the hauls, to be marked as invoiced with it. */
+  found: (typeof schema.rentalCharge.$inferSelect)[];
+  /** Hauls whose terms pass the disposal fee on, with a figure to offer. */
+  offers: DisposalOffer[];
+  /** Hauls whose terms pass it on but whose fee cannot be worked out, with why. */
+  unpriced: { rentalId: string; why: string }[];
+  /** Where each offered fee would go, kept apart from the lines until somebody says to add it. */
+  feeLines: Map<string, DraftLine>;
+  from: string;
+  to: string;
+  can: string;
+  propertyId: string;
+}
+
+/**
+ * Everything an invoice for this hire would say, worked out and not written.
+ * Raising and previewing are this function run in a write and a read, so the
+ * preview is the invoice.
+ *
+ * A HIRE BILLED AS A CHAIN is every haul in its swap chain that is not already
+ * on a standing invoice, in order, each with the lines it would have had alone:
+ * the period, the meters that went over and the charges found, so a four week
+ * hire with three swaps is one invoice with a group of lines per can. It waits
+ * for the last can to be collected, for the reason a single haul does.
+ */
+async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<Draft> {
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  let group: Hire[] = [hire];
+
+  if (hire.invoiceAs === "chain") {
+    const chain = await chainOf(tx, ctx, hire);
+    const tip = chain.at(-1)!;
+    if (tip.pickedUpAt === null) {
+      throw new ConflictError(
+        "This hire is invoiced as one invoice for the whole swap chain, and the last container in it is still on site. "
+        + "The period is not final until it is collected. To invoice the cans already collected one at a time, change the hire to one invoice per haul.",
+      );
     }
-    if (hire.deliveredAt === null) throw new ConflictError("That hire has no delivery date, so there is no period to bill.");
-    if (hire.pickedUpAt === null) {
+    group = [];
+    for (const link of chain) if (!(await liveInvoice(tx, link.invoiceId))) group.push(link);
+    if (group.length === 0) {
+      throw new ConflictError("Every haul in this swap chain is already on an invoice. Void that one first if it was wrong.");
+    }
+  } else {
+    const prior = await liveInvoice(tx, hire.invoiceId);
+    if (prior) throw new ConflictError(`This hire is already on invoice ${prior.number}. Void that one first if it was wrong.`);
+  }
+
+  const lines: DraftLine[] = [];
+  const offers: DisposalOffer[] = [];
+  const unpriced: Draft["unpriced"] = [];
+  const feeLines = new Map<string, DraftLine>();
+  const found: Draft["found"] = [];
+
+  for (const link of group) {
+    if (link.deliveredAt === null) throw new ConflictError("That hire has no delivery date, so there is no period to bill.");
+    if (link.pickedUpAt === null) {
       throw new ConflictError(
         "That container is still on site. The period is not final until it is collected, and a figure that changes every midnight is not something to invoice.",
       );
     }
-
-    const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const verdict = rt.bill({
-      deliveredAt: hire.deliveredAt, pickedUpAt: hire.pickedUpAt, zone,
-      period: { includedDays: hire.includedDays, overageRate: hire.overageRate },
-      weight: { includedTons: hire.includedTons, perTonRate: hire.perTonRate },
-      tons: hire.weightTons,
+      deliveredAt: link.deliveredAt, pickedUpAt: link.pickedUpAt, zone,
+      period: { includedDays: link.includedDays, overageRate: link.overageRate },
+      weight: { includedTons: link.includedTons, perTonRate: link.perTonRate },
+      /**
+       * A hire whose terms pass the facility's fee on bills disposal that way and not by
+       * the ton: its weight is the support behind the fee, and read as a meter with no
+       * rate it would refuse every such hire for a load over "zero tons included".
+       */
+      tons: link.disposalPassThrough ? null : link.weightTons,
     });
-    if (!verdict.ok) throw new ConflictError(verdict.refusals.map((r) => r.message).join(" "));
-
     const [asset] = await tx.select({ identifier: schema.rentableAsset.identifier, size: schema.rentableAsset.size })
-      .from(schema.rentableAsset).where(eq(schema.rentableAsset.id, hire.assetId)).limit(1);
+      .from(schema.rentableAsset).where(eq(schema.rentableAsset.id, link.assetId)).limit(1);
     const can = `Container ${asset?.identifier ?? ""}${asset?.size ? ` (${asset.size})` : ""}`;
-    const from = time.dateIn(hire.deliveredAt, zone);
-    const to = time.dateIn(hire.pickedUpAt, zone);
+    if (!verdict.ok) {
+      const said = verdict.refusals.map((r) => r.message).join(" ");
+      throw new ConflictError(group.length > 1 ? `${can}: ${said}` : said);
+    }
+    const from = time.dateIn(link.deliveredAt, zone);
+    const to = time.dateIn(link.pickedUpAt, zone);
 
-    const lines: { name: string; description?: string; quantity: string; unitPrice: string; taxable: boolean }[] = [];
-    const period = rt.periodLine({ days: verdict.days, includedDays: hire.includedDays, dailyRate: hire.dailyRate });
+    const period = rt.periodLine({ days: verdict.days, includedDays: link.includedDays, dailyRate: link.dailyRate });
     if (period) {
       lines.push({
         name: `${can}, rental ${from} to ${to}`,
@@ -605,20 +691,155 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string }) {
     }
     for (const meter of verdict.lines) {
       lines.push(meter.meter === "rental_days"
-        ? { name: `${can}, extra days`, description: `${meter.overBy} beyond the ${hire.includedDays} included`, quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true }
+        ? { name: `${can}, extra days`, description: `${meter.overBy} beyond the ${link.includedDays} included`, quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true }
         : {
             name: `${can}, disposal over the included tonnage`,
-            description: `${Number(meter.overBy)} tons over${hire.disposalTicketNumber ? `, scale ticket ${hire.disposalTicketNumber}` : ""}`,
+            description: `${Number(meter.overBy)} tons over${link.disposalTicketNumber ? `, scale ticket ${link.disposalTicketNumber}` : ""}`,
             quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true,
           });
     }
-    const found = (await chargesWithin(tx, [hire.id])).filter((c) => c.invoiceId === null);
-    for (const charge of found) {
+    const charges = (await chargesWithin(tx, [link.id])).filter((c) => c.invoiceId === null);
+    for (const charge of charges) {
       lines.push({
         name: charge.description,
         ...(charge.note ? { description: charge.note } : {}),
         quantity: charge.quantity, unitPrice: charge.unitPrice, taxable: charge.taxable,
       });
+      found.push(charge);
+    }
+
+    /**
+     * THE FACILITY'S FEE, OFFERED AND NEVER ADDED. When the terms pass it on, the
+     * line is worked out and held apart; it goes on the invoice only when a person
+     * said to. At cost: no markup is added to it.
+     */
+    if (link.disposalPassThrough) {
+      const fee = await feeFigure(tx, ctx, link);
+      if (fee.ok) {
+        offers.push({
+          rentalId: link.id, amount: fee.figure.amount, facility: fee.figure.facility,
+          ticket: link.disposalTicketNumber, why: fee.figure.why, source: fee.figure.source,
+        });
+        feeLines.set(link.id, {
+          name: `${can}, disposal${fee.figure.facility ? ` at ${fee.figure.facility}` : ""}`,
+          description: `${fee.figure.why}${link.disposalTicketNumber ? `, scale ticket ${link.disposalTicketNumber}` : ""}, at cost`,
+          quantity: "1", unitPrice: m.toString(m.money(fee.figure.amount)),
+          /** Taxed like the hire's other lines: the draft is checked before it is issued, and the office changes this line if its state taxes disposal differently. */
+          taxable: true,
+        });
+      } else {
+        unpriced.push({ rentalId: link.id, why: fee.why });
+      }
+    }
+  }
+
+  const first = group[0]!;
+  const last = group.at(-1)!;
+  const [asset] = await tx.select({ identifier: schema.rentableAsset.identifier, size: schema.rentableAsset.size })
+    .from(schema.rentableAsset).where(eq(schema.rentableAsset.id, last.assetId)).limit(1);
+  return {
+    group, lines, found, offers, unpriced, feeLines,
+    from: time.dateIn(first.deliveredAt!, zone), to: time.dateIn(last.pickedUpAt!, zone),
+    can: `Container ${asset?.identifier ?? ""}${asset?.size ? ` (${asset.size})` : ""}`,
+    propertyId: first.propertyId,
+  };
+}
+
+const amountOf = (l: { unitPrice: string; quantity: string }) =>
+  m.toString(m.round(m.multiply(m.money(l.unitPrice), l.quantity), 2));
+
+const feeWords = (offers: DisposalOffer[]) => offers
+  .map((o) => `${Number(o.amount).toFixed(2)}${o.facility ? ` at ${o.facility}` : ""}${o.ticket ? `, ticket ${o.ticket}` : ""} (${o.why})`).join("; ");
+
+/**
+ * What the invoice for this hire would be, nothing written: the lines, and the
+ * disposal fee when the terms offer it, with whether a decision is needed before
+ * it can be raised. A refusal is answered in `refused` rather than thrown, so a
+ * screen can show it beside the button.
+ */
+export function previewHireInvoice(ctx: ServiceContext, input: { id: string }) {
+  assertCan(ctx.actor, "asset:read");
+  return guardedRead(ctx, "invoice:write", async (tx) => {
+    const hire = await hireWithin(tx, ctx, input.id);
+    try {
+      const draft = await draftFor(tx, ctx, hire);
+      return {
+        refused: null as string | null,
+        hauls: draft.group.length,
+        invoiceAs: hire.invoiceAs,
+        lines: draft.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, amount: amountOf(l) })),
+        disposalFee: draft.offers,
+        disposalFeeUnavailable: draft.unpriced,
+        decisionNeeded: draft.offers.length + draft.unpriced.length > 0,
+      };
+    } catch (error) {
+      if (error instanceof ConflictError) {
+        return {
+          refused: error.message, hauls: 0, invoiceAs: hire.invoiceAs, lines: [],
+          disposalFee: [] as DisposalOffer[], disposalFeeUnavailable: [] as Draft["unpriced"], decisionNeeded: false,
+        };
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Raise a draft invoice from a collected hire: its period when it is priced
+ * by the day, each meter that went over, and every charge on the haul; for a
+ * hire billed as a chain, all of that for every can in the chain on one invoice.
+ *
+ * REFUSED WHILE THE CAN IS ON SITE, for the reason the overage call is: the
+ * period is not final until it is collected. REFUSED WHEN A METER HAS NO
+ * RATE, with the meter's own sentence, rather than invoicing the rest and
+ * leaving the days off. ONCE PER HIRE: a second invoice for the same extra
+ * days is the double charge a customer remembers, so the hire carries the
+ * invoice it went on, and only a voided or deleted one frees it again.
+ *
+ * THE DISPOSAL FEE IS OFFERED, NEVER ADDED SILENTLY. When the hire's terms pass
+ * it on, the call is refused until it says `pass_on` or `leave_off`, and the
+ * decision, who made it and the amount are kept on the hire. `pass_on` for a
+ * hire whose terms do not pass it on is refused: the terms are what make it the
+ * customer's.
+ *
+ * A DRAFT, for the office to check and issue. The invoice is the customer's
+ * at the address, through `billing.createIn`, so tax, numbering and every
+ * rule an invoice follows are the same as for one typed by hand.
+ */
+export function invoiceHire(ctx: ServiceContext, input: { id: string; disposalFee?: "pass_on" | "leave_off" | undefined }) {
+  assertCan(ctx.actor, "asset:read");
+  return guardedWrite(ctx, "invoice:write", async (tx): Promise<HireInvoiceResult> => {
+    const seen = await once.replayed<HireInvoiceResult>(tx, ctx, "rental_invoice");
+    if (seen) return seen;
+    const hire = await hireWithin(tx, ctx, input.id);
+    const draft = await draftFor(tx, ctx, hire);
+    const { group, found } = draft;
+
+    const choice = input.disposalFee;
+    const lines = [...draft.lines];
+    let decided: { passedOn: boolean; amount: string | null } | null = null;
+    if (draft.offers.length + draft.unpriced.length > 0) {
+      if (!choice) {
+        throw new ConflictError(
+          draft.unpriced.length > 0 && draft.offers.length === 0
+            ? `The terms of this hire pass the facility's disposal fee on to the customer, but it cannot be worked out: ${draft.unpriced.map((u) => u.why).join(" ")} `
+              + "Record the fee on the haul, or raise the invoice without it."
+            : `The terms of this hire pass the facility's disposal fee on to the customer: ${feeWords(draft.offers)}. `
+              + "Say whether to put it on the invoice or leave it off. It is never added without you saying so.",
+        );
+      }
+      if (choice === "pass_on" && draft.unpriced.length > 0) {
+        throw new ConflictError(`The disposal fee cannot be passed on: ${draft.unpriced.map((u) => u.why).join(" ")} Record the fee on the haul first.`);
+      }
+      if (choice === "pass_on") {
+        for (const offer of draft.offers) lines.push(draft.feeLines.get(offer.rentalId)!);
+      }
+      decided = {
+        passedOn: choice === "pass_on",
+        amount: draft.offers.length > 0 ? m.toString(m.sum(draft.offers.map((o) => m.money(o.amount)))) : null,
+      };
+    } else if (choice === "pass_on") {
+      throw new ConflictError("The terms of this hire do not pass the disposal fee on, so there is nothing to pass on. Change the hire's terms first if the customer agreed to pay it.");
     }
     if (lines.length === 0) {
       throw new ConflictError(
@@ -628,7 +849,7 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string }) {
 
     const [owner] = await tx.select({ customerId: schema.customerProperty.customerId })
       .from(schema.customerProperty)
-      .where(eq(schema.customerProperty.propertyId, hire.propertyId))
+      .where(eq(schema.customerProperty.propertyId, draft.propertyId))
       .orderBy(asc(schema.customerProperty.createdAt)).limit(1);
     if (!owner) throw new ConflictError("Nobody is recorded as the customer at that address, so there is nobody to invoice.");
 
@@ -636,7 +857,7 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string }) {
     const invoice = await billing.createIn(tx, plain, {
       customerId: owner.customerId,
       draft: true,
-      memo: `${can} at ${await addressOf(tx, hire.propertyId)}, ${from} to ${to}.`,
+      memo: `${group.length > 1 ? `${group.length} containers` : draft.can} at ${await addressOf(tx, draft.propertyId)}, ${draft.from} to ${draft.to}.`,
       lines: lines.map((l) => ({
         name: l.name, ...(l.description ? { description: l.description } : {}),
         quantity: l.quantity, unitPrice: l.unitPrice, discountAmount: "0", taxable: l.taxable,
@@ -644,24 +865,83 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string }) {
     });
 
     const now = new Date();
-    await tx.update(schema.rental).set({ invoiceId: invoice.id, updatedAt: now }).where(eq(schema.rental.id, hire.id));
+    for (const link of group) {
+      const offer = draft.offers.find((o) => o.rentalId === link.id);
+      await tx.update(schema.rental).set({
+        invoiceId: invoice.id,
+        ...(link.disposalPassThrough && decided ? {
+          disposalFeePassedOn: decided.passedOn,
+          disposalFeeAmount: offer?.amount ?? null,
+          disposalFeeDecidedAt: now,
+          disposalFeeDecidedByUserId: ctx.actor.userId,
+        } : {}),
+        updatedAt: now,
+      }).where(eq(schema.rental.id, link.id));
+    }
     if (found.length > 0) {
       await tx.update(schema.rentalCharge).set({ invoiceId: invoice.id, invoicedAt: now, updatedAt: now })
         .where(inArray(schema.rentalCharge.id, found.map((c) => c.id)));
     }
-    await audit(tx, ctx, "rental.invoiced", "rental", hire.id, null, { invoiceId: invoice.id, lines: lines.length });
+    await audit(tx, ctx, "rental.invoiced", "rental", hire.id, null, {
+      invoiceId: invoice.id, lines: lines.length, hauls: group.length, disposalFee: decided,
+    });
 
     const result: HireInvoiceResult = {
       invoiceId: invoice.id,
       invoiceNumber: invoice.number,
       total: String(invoice.total),
-      lines: lines.map((l) => ({
-        name: l.name, quantity: l.quantity, unitPrice: l.unitPrice,
-        amount: m.toString(m.round(m.multiply(m.money(l.unitPrice), l.quantity), 2)),
-      })),
+      lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, amount: amountOf(l) })),
+      hauls: group.length,
+      disposalFee: decided,
     };
     await once.remember(tx, ctx, "rental_invoice", invoice.id, result);
     return result;
+  });
+}
+
+/**
+ * How a hire is billed, for the whole swap chain it belongs to: one invoice per
+ * haul or one for the chain, and whether the terms pass the facility's disposal
+ * fee on. Applies to every haul in the chain not already on a standing invoice,
+ * because a chain half one way and half the other cannot be raised as either.
+ * Passing disposal on is refused while a haul bills disposal by the ton, which
+ * would charge for the same load twice.
+ */
+export function setBillingTerms(ctx: ServiceContext, input: {
+  id: string; invoiceAs?: "per_haul" | "chain" | undefined; disposalPassThrough?: boolean | undefined;
+}) {
+  return guardedWrite(ctx, "asset:write", async (tx) => {
+    const hire = await hireWithin(tx, ctx, input.id);
+    const chain = await chainOf(tx, ctx, hire);
+    const open: Hire[] = [];
+    for (const link of chain) if (!(await liveInvoice(tx, link.invoiceId))) open.push(link);
+    if (open.length === 0) {
+      throw new ConflictError("Every haul in this hire is already on an invoice, so its billing cannot change. Void the invoice first if it was wrong.");
+    }
+    if (input.disposalPassThrough === true) {
+      const byTon = open.find((l) => l.perTonRate !== null);
+      if (byTon) {
+        throw new ConflictError(
+          "This hire already bills disposal by the ton over the included tonnage. Passing the facility's fee on as well would charge the customer for the same load twice. "
+          + "Take the per ton rate off the hire first if the customer is to pay the facility's fee instead.",
+        );
+      }
+    }
+    const set = {
+      ...(input.invoiceAs !== undefined ? { invoiceAs: input.invoiceAs } : {}),
+      ...(input.disposalPassThrough !== undefined ? { disposalPassThrough: input.disposalPassThrough } : {}),
+      updatedAt: new Date(),
+    };
+    await tx.update(schema.rental).set(set).where(inArray(schema.rental.id, open.map((l) => l.id)));
+    await audit(tx, ctx, "rental.billing_terms_set", "rental", hire.id,
+      { invoiceAs: hire.invoiceAs, disposalPassThrough: hire.disposalPassThrough },
+      { invoiceAs: input.invoiceAs ?? hire.invoiceAs, disposalPassThrough: input.disposalPassThrough ?? hire.disposalPassThrough, hauls: open.length });
+    return {
+      id: hire.id,
+      invoiceAs: input.invoiceAs ?? hire.invoiceAs,
+      disposalPassThrough: input.disposalPassThrough ?? hire.disposalPassThrough,
+      hauls: open.length,
+    };
   });
 }
 
@@ -831,7 +1111,12 @@ export const handlers = {
   removeRentalCharge: (ctx: ServiceContext, input: { id: string }): Promise<{ id: string; removed: true }> => removeCharge(ctx, input),
   listRentalCharges: async (ctx: ServiceContext, input: { rentalId?: string | undefined }): Promise<{ charges: ChargeView[] }> =>
     ({ charges: await charges(ctx, input) }),
-  invoiceRental: (ctx: ServiceContext, input: { id: string }): Promise<HireInvoiceResult> => invoiceHire(ctx, input),
+  invoiceRental: (ctx: ServiceContext, input: { id: string; disposalFee?: "pass_on" | "leave_off" | undefined }): Promise<HireInvoiceResult> =>
+    invoiceHire(ctx, input),
+  previewRentalInvoice: (ctx: ServiceContext, input: { id: string }) => previewHireInvoice(ctx, input),
+  setRentalBillingTerms: (ctx: ServiceContext, input: {
+    id: string; invoiceAs?: "per_haul" | "chain" | undefined; disposalPassThrough?: boolean | undefined;
+  }) => setBillingTerms(ctx, input),
   previewScaleTickets: (ctx: ServiceContext, input: { csv: string }): Promise<TicketImport> => previewTickets(ctx, input),
   applyScaleTickets: (ctx: ServiceContext, input: { csv: string; skipLines?: readonly number[] | undefined }):
     Promise<TicketImport & { attached: number }> => applyTickets(ctx, input),

@@ -274,6 +274,45 @@ export async function facilityForPlan(tx: Database, organizationId: string, id: 
   return row ?? null;
 }
 
+export interface FeeFigure {
+  /** The disposal fee of one haul. */
+  amount: string;
+  /** `recorded` when somebody typed what the facility charged, `worked_out` when it comes from the ticket's weight and the facility's rate. */
+  source: "recorded" | "worked_out";
+  why: string;
+  facility: string | null;
+}
+
+/**
+ * WHAT THE FACILITY CHARGED FOR A HAUL, and where that figure came from.
+ *
+ * What was recorded on the haul wins, because it is what the facility billed.
+ * Otherwise the weight on the scale ticket at the haul's facility's rate, which
+ * is an estimate until the facility's invoice says otherwise and says so. Not
+ * written to the haul: an estimate stored as the cost would read as fact in
+ * every report afterwards.
+ *
+ * A haul with neither is not a fee of nothing: the answer says what is missing.
+ */
+export async function feeFigure(
+  tx: Database, ctx: ServiceContext,
+  hire: { disposalFee: string | null; disposalFacilityId: string | null; disposalFacility: string | null; weightTons: string | null },
+): Promise<{ ok: true; figure: FeeFigure } | { ok: false; why: string }> {
+  if (hire.disposalFee !== null) {
+    return {
+      ok: true,
+      figure: { amount: hire.disposalFee, source: "recorded", why: "the fee recorded on the haul", facility: hire.disposalFacility },
+    };
+  }
+  if (!hire.disposalFacilityId) {
+    return { ok: false, why: "No fee is recorded on the haul and it names no recorded facility, so there is no rate to work one out from." };
+  }
+  const facility = await facilityWithin(tx, ctx, hire.disposalFacilityId);
+  const verdict = rt.disposalFee(rateOf(facility), hire.weightTons);
+  if (!verdict.ok) return { ok: false, why: verdict.why };
+  return { ok: true, figure: { amount: verdict.fee, source: "worked_out", why: verdict.why, facility: facility.name } };
+}
+
 /** A facility is a pin on the map, the same pin a property has. */
 export const pinFacility = (ctx: ServiceContext, input: { id: string; latitude: number; longitude: number }) =>
   placePin(ctx, { entity: "disposal_facility", ...input });
