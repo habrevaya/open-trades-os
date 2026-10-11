@@ -66,8 +66,10 @@ refused too, since nothing new is booked against what the company has put away.
 A line that names a job and no branch takes the job's branch, as every posting
 does, and a line that names a branch keeps it, because rent for two shops is one
 bill. A reversal puts the same branch, job and customer on the line that takes
-one back, so the two net to nothing where they were. Nothing of this is sent to
-QuickBooks or Xero, which are sent each line's account and amount as before.
+one back, so the two net to nothing where they were. The branch and the
+customer go to the books where each book has a place for them (below); the job
+stays here, because neither book has a place on a journal line that means a
+job.
 
 **Every posting the product writes from a branch's job or invoice carries that
 branch.** `ledger_entry.business_unit_id` existed from the first migration and
@@ -99,6 +101,49 @@ by themselves, because a journal can give each of its lines a branch of its own;
 only the whole company's do, and only that is asserted. A posting stays in the
 branch its job was in when it was made: moving a job later does not move what
 was posted.
+
+**The books can be read by branch, once a person says what each branch is
+there.** QuickBooks calls it a class and Xero an option of a tracking category,
+and `PUT /v1/accounting/branch-mappings` maps one of the company's branches to
+one, chosen from the list the books hold (`GET /v1/accounting/branch-options`,
+a read made when a person asks and never on a sync pass). Nothing is matched by
+name. From the next pass, a document goes with the class or tracking option of
+the branch its posting carries: an invoice on every line and its tax lines, a
+credit note and the invoice that reverses a voided one, the credit memo for a
+void or write off (the invoice's branch), a refund on its expense line (and in
+Xero on both its invoice and its Spend Money), and credit paid back on its
+QuickBooks cheque. A journal sends each line's own branch, so rent for two shops
+goes as two classes, and on QuickBooks each line's customer as the line's
+`Entity`, the customer pushed first like any document's; a Xero manual journal
+line takes no contact, so none is sent and no customer is pushed for it.
+Payments and credit note applications go without one, because a QuickBooks
+payment and a Xero batch payment or allocation have no class or tracking
+field; QuickBooks reports a payment under the classes of the invoices it pays.
+Mapping is optional: a branch nobody mapped, and a posting that carries no
+branch or two, send nothing extra, exactly as before, and hold nothing back.
+QuickBooks gets the class on each line, so its class tracking has to be set to
+one class per row (see Setup).
+
+**A document deleted in the books after it was sent is noticed, flagged here,
+and handed to a person.** The read of changes that each pass already makes
+covers journals and refunds too: QuickBooks' change data capture request now
+names `JournalEntry` and `Purchase` beside the four it read, at no extra read,
+and Xero's modified since read now also walks `ManualJournals` and
+`BankTransactions` (two more calls a pass against its limits). A credit note's
+use on an invoice is a Payment in QuickBooks, already read; in Xero it is an
+allocation inside the credit note, so when a credit note read lists its
+allocations, a use sent from here that is no longer among them (matched by
+Xero's allocation id, or by invoice and amount where Xero gave none) is taken as
+removed, and a read that lists none concludes nothing. On the pass that notices
+it, the link is marked deleted with the time, a high priority task goes to the
+`books` queue saying what was deleted and the two ways out, and the record here
+says so: the journal on `/books`, the use of the credit on the credit note's
+page, and the refund on the customer's payments, with a button to send it again
+for somebody holding `accounting:sync`. Any other document deleted over there
+(an invoice, a payment, a credit note) gets the same task and stays on the
+problems list. Nothing is re-sent or reversed by itself; sending it again is
+the retry, which clears the flag, and taking it out here is the record's own
+reversal.
 
 **The audit has to be reachable or double entry is pointless.** The postings were
 written, append only and trigger enforced, and nothing could read them back: a
@@ -181,6 +226,14 @@ oldest open invoice by itself, which may not be the invoice it was used on here,
 and the application sent afterwards is then refused with QuickBooks' own reason
 and shows on the problems list.
 
+To send branches, map each one with `PUT /v1/accounting/branch-mappings`
+(`businessUnitId`, the class or option's `externalId` and `externalName`, and
+for Xero the tracking category's `groupId` and `groupName`), choosing from
+`GET /v1/accounting/branch-options`. In QuickBooks, turn on **Track classes**
+and set it to **One to each row in transaction** (Account and settings,
+Advanced): the class is sent on each line, and with one class per transaction
+QuickBooks ignores it.
+
 ## Using it
 
 ### Read the books
@@ -258,6 +311,10 @@ both grants it rather than inheriting it.
 | `POST /v1/ledger/journal-entries/{id}/reverse` | `ledger:post` |
 | `GET /v1/accounting/accounts` | `accounting:sync` |
 | `PUT /v1/accounting/mappings` | `accounting:sync` |
+| `GET /v1/accounting/branch-options` | `accounting:sync` |
+| `GET /v1/accounting/branch-mappings` | `accounting:sync` |
+| `PUT /v1/accounting/branch-mappings` | `accounting:sync` |
+| `DELETE /v1/accounting/branch-mappings/{businessUnitId}` | `accounting:sync` |
 | `POST /v1/accounting/sync` | `accounting:sync` |
 | `GET /v1/accounting/problems` | `accounting:sync` |
 | `GET /v1/accounting/periods` | `accounting:sync` |
@@ -293,30 +350,36 @@ open.
 
 ## What is not built
 
-A journal entry cannot be edited, only reversed. A journal synced to the books
-is not watched for deletion over there, and is sent with each line's account and
-amount only: the branch, job and customer a line carries stay in this ledger
-(QuickBooks classes and customers on a journal line, and Xero's tracking
-categories, are not written). A branch's books hold what can be traced to a
-job or invoice: payroll, breakage and the release of deferred revenue have no
-branch, nothing posted before branches were carried has one, and the budget
-report reads the whole company because the budget has no branch split. The
-branch on a posting is the one its job had when it was posted. A refund sent
-to the accounting system is not watched for deletion over there, and neither is a
-credit note application. A credit note used on an invoice raised to a different
-customer it pays for goes to QuickBooks under the credit note's customer and is
-refused there, because a QuickBooks payment cannot link two customers' documents.
-Credit paid back reaches QuickBooks as the cheque to the customer's receivable and
-not the receive payment that would link it to the credit memo, which QuickBooks'
-API is not documented to take: the customer's balance over there is right, and the
-credit memo shows as unapplied until a bookkeeper links the two by hand.
-Retainage held on an application for payment is booked here to retainage
-receivable against revenue (M12) and not sent: the books there carry the
-application's invoice as billed, net of retainage, and revenue there is gross only
-once a bookkeeper posts the retainage by journal. The accounting settings do not ask
-for account 1210 to be mapped, because nothing sent lands on it. Sales tax arrives in the books as lines on the liability account, so QuickBooks'
-sales tax centre and Xero's sales tax report do not show it by agency or
-jurisdiction; tax by rate for filing is read here (`/books/sales-tax`). There is no
-reconciliation screen against a bank feed, and no fixed asset or depreciation
-handling: a company that needs those does them in the accounting system, which is
-where they belong.
+A journal entry cannot be edited, only reversed. Sending branches, customers on
+journal lines and the deletion watch are tested against fakes of QuickBooks'
+and Xero's APIs (their documented request and response shapes), not against a
+live company in either. A line's job is not sent, because neither book has a
+place for it on a journal line. Payments and credit note applications carry no
+class or tracking option, because neither book's payment or allocation takes
+one. There is no screen for the account or branch mappings or for the problems
+list: they are API calls, and the only button is the one beside a deleted
+journal, refund or credit use. The deletion watch reads Xero's allocations only
+when its credit note read lists them, does not watch the settlement a void
+makes in Xero, and in Xero watches a refund through its Spend Money and not the
+invoice that puts it back on the receivable; a credit paid back in Xero is not
+watched. A branch's books hold what can be traced to a job or invoice: payroll,
+breakage and the release of deferred revenue have no branch, nothing posted
+before branches were carried has one, and the branch on a posting is the one
+its job had when it was posted. A credit note used on an invoice raised to a
+different customer it pays for goes to QuickBooks under the credit note's
+customer and is refused there, because a QuickBooks payment cannot link two
+customers' documents. Credit paid back reaches QuickBooks as the cheque to the
+customer's receivable and not the receive payment that would link it to the
+credit memo, which QuickBooks' API is not documented to take: the customer's
+balance over there is right, and the credit memo shows as unapplied until a
+bookkeeper links the two by hand. Retainage held on an application for payment
+is booked here to retainage receivable against revenue (M12) and not sent: the
+books there carry the application's invoice as billed, net of retainage, and
+revenue there is gross only once a bookkeeper posts the retainage by journal.
+The accounting settings do not ask for account 1210 to be mapped, because
+nothing sent lands on it. Sales tax arrives in the books as lines on the
+liability account, so QuickBooks' sales tax centre and Xero's sales tax report
+do not show it by agency or jurisdiction; tax by rate for filing is read here
+(`/books/sales-tax`). There is no reconciliation screen against a bank feed,
+and no fixed asset or depreciation handling: a company that needs those does
+them in the accounting system, which is where they belong.

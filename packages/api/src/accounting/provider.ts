@@ -105,6 +105,31 @@ export interface ExternalInvoiceLine {
   accountExternalKind: string;
 }
 
+/**
+ * The branch a document or a journal line belongs to, as the books know it:
+ * a QuickBooks class, or a Xero tracking option with the category it sits
+ * in. Resolved by the service from `accounting_branch_mapping`, for the
+ * reason an account is: the adapter must not read the remote list to find
+ * it. Absent, or null, when the branch is not mapped or the posting carries
+ * no branch, and then nothing extra is sent, exactly as before.
+ */
+export interface ExternalBranch {
+  externalId: string;
+  name: string;
+  /** The Xero tracking category the option belongs to. Null for a class. */
+  groupId: string | null;
+  groupName: string | null;
+}
+
+/** One thing a branch can be mapped onto, for the person choosing. */
+export interface ExternalBranchOption {
+  externalId: string;
+  name: string;
+  groupId: string | null;
+  groupName: string | null;
+  active: boolean;
+}
+
 export interface ExternalInvoice {
   idempotencyKey: string;
   /** The provider's id for the customer, from a customer push that already ran. */
@@ -118,6 +143,8 @@ export interface ExternalInvoice {
   /** Total tax as one figure, with the account it is owed to. */
   tax: ExternalTax | null;
   memo: string | null;
+  /** The branch of the invoice's posting, on every line. See `ExternalBranch`. */
+  branch?: ExternalBranch | null | undefined;
 }
 
 /**
@@ -179,6 +206,8 @@ export interface ExternalRefund {
   /** Our customer deposits account's mapping, when there is one. */
   clearingAccountExternalId: string | null;
   memo: string;
+  /** The branch of the refund's posting, on every line it makes. */
+  branch?: ExternalBranch | null | undefined;
 }
 
 export interface ExternalCredit {
@@ -190,6 +219,8 @@ export interface ExternalCredit {
    *  smaller sale: see ACCOUNTS.WRITE_OFF in packages/core/src/ledger. */
   accountExternalId: string;
   reason: string;
+  /** The branch of the invoice it reverses. */
+  branch?: ExternalBranch | null | undefined;
 }
 
 /**
@@ -213,6 +244,8 @@ export interface ExternalCreditNote {
   lines: ExternalInvoiceLine[];
   tax: ExternalTax | null;
   memo: string | null;
+  /** The branch of the credit note's posting, on every line. */
+  branch?: ExternalBranch | null | undefined;
 }
 
 /**
@@ -249,6 +282,8 @@ export interface ExternalCreditNoteRefund {
   /** Our receivable account's mapping, when there is one. */
   receivableAccountExternalId: string | null;
   memo: string;
+  /** The branch of the payout's posting, where the document has lines to carry it. */
+  branch?: ExternalBranch | null | undefined;
 }
 
 /**
@@ -269,7 +304,24 @@ export interface ExternalJournal {
   postedOn: string;
   currency: string;
   memo: string;
-  lines: { accountExternalId: string; direction: "debit" | "credit"; amount: ExternalMoney; description: string | null }[];
+  lines: ExternalJournalLine[];
+}
+
+/**
+ * One line of a manual journal. The branch and the customer are what the line
+ * here says it is about (M14), sent where the book has a place for each: a
+ * class and a customer on a QuickBooks line, a tracking option on a Xero line,
+ * which takes no contact. The job a line names stays here: neither book has a
+ * place on a journal line that means a job.
+ */
+export interface ExternalJournalLine {
+  accountExternalId: string;
+  direction: "debit" | "credit";
+  amount: ExternalMoney;
+  description: string | null;
+  branch?: ExternalBranch | null | undefined;
+  /** The customer's id over there, from a customer push that already ran. */
+  customerExternalId?: string | null | undefined;
 }
 
 /** What the provider gave the thing we pushed. */
@@ -338,6 +390,25 @@ export interface ExternalChange {
   /** The provider says this document is gone. Ours must stop claiming it exists. */
   deleted: boolean;
   changedAt: Date;
+  /**
+   * For a credit document whose read listed what it is allocated to: every
+   * allocation it still has, so an application sent from here and removed
+   * over there can be noticed. Xero keeps an allocation inside its credit
+   * note rather than as a document of its own, so a deleted one never
+   * appears in any feed by itself. Absent when the read did not list them,
+   * and then nothing is concluded from it.
+   */
+  allocations?: ExternalAllocation[] | undefined;
+}
+
+export interface ExternalAllocation {
+  /** The provider's own id for it, where it gives one. */
+  externalId: string | null;
+  invoiceExternalId: string | null;
+  /** A decimal string, as the provider stated it. */
+  amount: string;
+  /** The calendar day it was dated, where the provider says. */
+  date: string | null;
 }
 
 export interface ChangeSet {
@@ -480,6 +551,22 @@ export interface AccountingProvider {
    * applied. A refund of held money is sent only where the money went.
    */
   readonly heldMoneyReachesBooks: boolean;
+
+  /**
+   * Whether a journal line here can name a customer. QuickBooks takes one on a
+   * JournalEntry line; a Xero manual journal line takes no contact at all, so
+   * the sync does not push a customer to Xero only to have nothing refer to
+   * it. Absent is false.
+   */
+  readonly journalCustomers?: boolean;
+
+  /**
+   * What a branch can be mapped onto: QuickBooks' classes, or every option of
+   * every Xero tracking category. OPTIONAL, as a journal is: a book with no
+   * such thing leaves it out and branches are simply not sent. A metered read,
+   * made when a person is choosing and never on a sync pass.
+   */
+  branchOptions?(): Promise<ReadResult<ExternalBranchOption[]>>;
 
   /**
    * "Did a document carrying this key already land?"

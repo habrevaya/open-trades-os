@@ -9,11 +9,12 @@ import {
 } from "./context";
 import {
   AccountingNotConfiguredError, createProvider,
-  type AccountingEntityKind, type AccountingProvider, type ExternalCreditApplication,
-  type ExternalInvoiceLine, type ExternalRef, type ReadResult,
+  type AccountingEntityKind, type AccountingProvider, type ExternalAllocation, type ExternalBranch,
+  type ExternalCreditApplication, type ExternalInvoiceLine, type ExternalRef, type ReadResult,
 } from "../accounting/provider";
 import { readerFor, writerFor } from "../secrets/store";
 import * as billing from "./billing";
+import { noticeDeleted } from "./accounting-deletions";
 
 /**
  * THE ACCOUNTING BRIDGE
@@ -326,6 +327,62 @@ export async function unmappedAccountCodes(
    */
   return used.map((row) => row.accountCode)
     .filter((code) => !known.has(code) && code !== ledger.ACCOUNTS.RETAINAGE_RECEIVABLE).sort();
+}
+
+/* ------------------------------------------------------- branch mapping */
+
+/**
+ * Our branches to the books' classes or tracking options, for the ones that
+ * are mapped. A branch with no row is simply absent, and a document in it
+ * goes without one: the mapping is optional, so unlike an account code an
+ * unmapped branch stops nothing. See `accounting_branch_mapping`.
+ */
+export async function branchesFor(
+  tx: Database, connectionId: string, businessUnitIds: (string | null)[],
+): Promise<Map<string, ExternalBranch>> {
+  const ids = [...new Set(businessUnitIds.filter((id): id is string => !!id))];
+  if (ids.length === 0) return new Map();
+  const rows = await tx.select({
+    businessUnitId: schema.accountingBranchMapping.businessUnitId,
+    externalId: schema.accountingBranchMapping.externalId,
+    name: schema.accountingBranchMapping.externalName,
+    groupId: schema.accountingBranchMapping.externalGroupId,
+    groupName: schema.accountingBranchMapping.externalGroupName,
+  }).from(schema.accountingBranchMapping).where(and(
+    eq(schema.accountingBranchMapping.connectionId, connectionId),
+    inArray(schema.accountingBranchMapping.businessUnitId, ids),
+  ));
+  return new Map(rows.map((row) => [row.businessUnitId, {
+    externalId: row.externalId, name: row.name, groupId: row.groupId, groupName: row.groupName,
+  }]));
+}
+
+/**
+ * THE BRANCH A DOCUMENT GOES TO THE BOOKS IN: the one its posting carries.
+ *
+ * Read from the ledger, like the accounts are, rather than from the job as it
+ * is now: `writePosting` wrote the branch the job had when the money was
+ * posted (M14), and a job moved since must not move a document already
+ * reported in a branch. A posting that carries no branch, or two (a job moved
+ * between an invoice's first posting and a later one), goes without one,
+ * because the books are not told a branch nobody recorded.
+ */
+async function postingBranch(
+  tx: Database, organizationId: string, connectionId: string,
+  where: { sourceType: string; sourceId: string } | { transactionId: string },
+): Promise<ExternalBranch | null> {
+  const rows = await tx.selectDistinct({ businessUnitId: schema.ledgerEntry.businessUnitId })
+    .from(schema.ledgerEntry)
+    .where(and(
+      eq(schema.ledgerEntry.organizationId, organizationId),
+      "transactionId" in where
+        ? eq(schema.ledgerEntry.transactionId, where.transactionId)
+        : and(eq(schema.ledgerEntry.sourceType, where.sourceType), eq(schema.ledgerEntry.sourceId, where.sourceId)),
+      isNotNull(schema.ledgerEntry.businessUnitId),
+    ));
+  if (rows.length !== 1) return null;
+  const unit = rows[0]!.businessUnitId!;
+  return (await branchesFor(tx, connectionId, [unit])).get(unit) ?? null;
 }
 
 /* -------------------------------------------------------- period closing */
@@ -845,7 +902,7 @@ export async function sync(
       state.cursor = changes.value.cursor;
       state.changesSeen = changes.value.changes.length;
       state.more = changes.value.more;
-      await applyChanges(ctx, connection.id, changes.value.changes);
+      await applyChanges(ctx, connection, changes.value.changes);
     }
   } catch (error) {
     /**
@@ -1240,6 +1297,7 @@ async function pushOutbound(
         .where(eq(schema.invoiceLine.invoiceId, invoice.id))
         .orderBy(asc(schema.invoiceLine.sortOrder)),
       taxByRate: await taxPartsFor(tx, organizationId, "invoice", invoice.id),
+      branch: await postingBranch(tx, organizationId, connection.id, { sourceType: "invoice", sourceId: invoice.id }),
     }));
 
     if (!resolved.accounts.ok) {
@@ -1285,6 +1343,7 @@ async function pushOutbound(
           }
           : null,
         memo: invoice.memo,
+        ...(resolved.branch ? { branch: resolved.branch } : {}),
       }),
       find: (k) => deps.provider.findPushed("invoice", k),
     });
@@ -1399,8 +1458,11 @@ async function pushOutbound(
     const customerExternalId = await customerRef(credit.customerId);
     if (!customerExternalId) { state.skipped += 1; continue; }
 
-    const resolved = await guardedRead(ctx, "accounting:sync", (tx) =>
-      mappingsFor(tx, connection.id, [ledger.ACCOUNTS.WRITE_OFF]));
+    const { mapped: resolved, branch } = await guardedRead(ctx, "accounting:sync", async (tx) => ({
+      mapped: await mappingsFor(tx, connection.id, [ledger.ACCOUNTS.WRITE_OFF]),
+      /** The invoice's branch, which a void or write off follows (M14). */
+      branch: await postingBranch(tx, organizationId, connection.id, { sourceType: "invoice", sourceId: credit.id }),
+    }));
     if (!resolved.ok) {
       await recordRefusal(ctx, connection.id, "credit_memo", credit.id, creditKey(credit.number), resolved.message);
       state.failed += 1;
@@ -1436,13 +1498,14 @@ async function pushOutbound(
         },
         accountExternalId: resolved.value[ledger.ACCOUNTS.WRITE_OFF]!.externalId,
         reason: credit.status === "void" ? "Invoice voided" : "Invoice written off",
+        ...(branch ? { branch } : {}),
       }),
       find: (k) => deps.provider.findPushed("credit_memo", k),
     });
   }
 
   await pushCreditNotes(ctx, deps, connection, state, closedOn, limit, meteredRead, customerRef);
-  await pushJournals(ctx, deps, connection, state, closedOn, limit, meteredRead);
+  await pushJournals(ctx, deps, connection, state, closedOn, limit, meteredRead, customerRef);
 }
 
 /**
@@ -1463,6 +1526,7 @@ async function pushJournals(
   closedOn: string | null,
   limit: number,
   meteredRead: MeteredRead,
+  customerRef: (customerId: string) => Promise<string | null>,
 ): Promise<void> {
   const link = alias(schema.accountingEntityLink, "journal_link");
   const journals = await guardedRead(ctx, "accounting:sync", (tx) => tx.select({
@@ -1500,10 +1564,17 @@ async function pushJournals(
         direction: schema.ledgerEntry.direction,
         amount: schema.ledgerEntry.amount,
         memo: schema.ledgerEntry.memo,
+        businessUnitId: schema.ledgerEntry.businessUnitId,
+        customerId: schema.ledgerEntry.customerId,
       }).from(schema.ledgerEntry)
         .where(and(eq(schema.ledgerEntry.sourceType, "journal"), eq(schema.ledgerEntry.sourceId, journal.id)))
         .orderBy(asc(schema.ledgerEntry.createdAt));
-      return { lines, accounts: await mappingsFor(tx, connection.id, [...new Set(lines.map((l) => l.accountCode))]) };
+      return {
+        lines,
+        accounts: await mappingsFor(tx, connection.id, [...new Set(lines.map((l) => l.accountCode))]),
+        /** Each line's own branch: a journal can put rent for two shops on one entry. */
+        branches: await branchesFor(tx, connection.id, lines.map((l) => l.businessUnitId)),
+      };
     });
     if (!resolved.accounts.ok) {
       await recordRefusal(ctx, connection.id, "journal", journal.id, key, resolved.accounts.message);
@@ -1511,6 +1582,24 @@ async function pushJournals(
       continue;
     }
     const accounts = resolved.accounts.value;
+
+    /**
+     * A line's customer, where the book takes one on a journal line. Pushed
+     * first like any document's customer, and a journal whose customer did
+     * not make it waits for the next pass rather than going without it: the
+     * customer is part of what the line says, and sending it bare once means
+     * it is never sent at all.
+     */
+    const customerIds = deps.provider.journalCustomers
+      ? [...new Set(resolved.lines.map((l) => l.customerId).filter((id): id is string => !!id))]
+      : [];
+    const customerRefs = new Map<string, string>();
+    for (const customerId of customerIds) {
+      const ref = await customerRef(customerId);
+      if (ref) customerRefs.set(customerId, ref);
+    }
+    if (customerRefs.size < customerIds.length) { state.skipped += 1; continue; }
+
     await pushOne(ctx, connection.id, state, meteredRead, {
       kind: "journal",
       entityId: journal.id,
@@ -1526,6 +1615,11 @@ async function pushJournals(
           direction: line.direction,
           amount: { amount: line.amount, currency: journal.currency },
           description: line.memo,
+          /** Only what the line has, so a line with neither goes exactly as it always did. */
+          ...(line.businessUnitId && resolved.branches.has(line.businessUnitId)
+            ? { branch: resolved.branches.get(line.businessUnitId)! } : {}),
+          ...(line.customerId && customerRefs.has(line.customerId)
+            ? { customerExternalId: customerRefs.get(line.customerId)! } : {}),
         })),
       }),
       find: (k) => deps.provider.findPushed("journal", k),
@@ -1721,6 +1815,9 @@ async function pushRefunds(
     const customerExternalId = await customerRef(refund.customerId);
     if (!customerExternalId) { state.skipped += 1; continue; }
 
+    /** The branch the refund posting carries: the invoices the payment paid, when they share one. */
+    const branch = await guardedRead(ctx, "accounting:sync", (tx) =>
+      postingBranch(tx, organizationId, connection.id, { transactionId: refund.transactionId }));
     const money = (value: m.Money) => ({ amount: m.toString(value), currency });
     await pushOne(ctx, connection.id, state, meteredRead, {
       kind: "refund",
@@ -1738,6 +1835,7 @@ async function pushRefunds(
         receivableAccountExternalId: mapped(ledger.ACCOUNTS.AR),
         clearingAccountExternalId: mapped(ledger.ACCOUNTS.CUSTOMER_DEPOSITS),
         memo: `Refund of payment ${refund.paymentExternalId}`,
+        ...(branch ? { branch } : {}),
       }),
       find: (k) => deps.provider.findPushed("refund", k),
     });
@@ -1868,6 +1966,7 @@ async function pushCreditNotes(
       .from(schema.creditNoteLine)
       .where(eq(schema.creditNoteLine.creditNoteId, noteId))
       .orderBy(asc(schema.creditNoteLine.sortOrder));
+    const branch = await postingBranch(tx, organizationId, connection.id, { sourceType: posting.sourceType, sourceId: noteId });
     /** Mapped the way an invoice's lines are, by the same rule. */
     const lines: ExternalInvoiceLine[] = rows.map((line) => ({
       description: line.description ?? line.name,
@@ -1877,7 +1976,7 @@ async function pushCreditNotes(
       accountExternalId: accounts.revenue.externalId,
       accountExternalKind: accounts.revenue.kind,
     }));
-    return { ok: true as const, lines, tax: accounts.tax };
+    return { ok: true as const, lines, tax: accounts.tax, branch };
   });
 
   /** Push one application, or the settlement of one void, which is the same document. */
@@ -1938,6 +2037,7 @@ async function pushCreditNotes(
           }
           : null,
         memo: note.note,
+        ...(document.branch ? { branch: document.branch } : {}),
       }),
       find: (k) => deps.provider.findPushed("credit_note", k),
     });
@@ -1983,6 +2083,8 @@ async function pushCreditNotes(
     }
     const customerExternalId = await customerRef(payout.customerId);
     if (!customerExternalId) { state.skipped += 1; continue; }
+    const branch = await guardedRead(ctx, "accounting:sync", (tx) =>
+      postingBranch(tx, organizationId, connection.id, { sourceType: "credit_note_payout", sourceId: payout.id }));
     const how = payout.method === "card" ? "to the customer's card"
       : payout.method === "check" ? `by cheque${payout.reference ? ` ${payout.reference}` : ""}`
       : payout.method === "cash" ? "in cash" : "to the customer";
@@ -1999,6 +2101,7 @@ async function pushCreditNotes(
         bankAccountExternalId: cash,
         receivableAccountExternalId: payouts.accounts.get(ledger.ACCOUNTS.AR) ?? null,
         memo: `Credit note ${payout.number} paid back ${how}`,
+        ...(branch ? { branch } : {}),
       }),
       find: (k) => deps.provider.findPushed("credit_note_refund", k),
     });
@@ -2042,6 +2145,7 @@ async function pushCreditNotes(
           }
           : null,
         memo: `Reverses credit note ${note.number}, which was voided.`,
+        ...(document.branch ? { branch: document.branch } : {}),
       }),
       find: (k) => deps.provider.findPushed("credit_note_void", k),
     });
@@ -2362,21 +2466,42 @@ const SAME_DOCUMENT: Partial<Record<AccountingEntityKind, AccountingEntityKind[]
   credit_memo: ["credit_memo", "credit_note"],
   invoice: ["invoice", "credit_note_void"],
   payment: ["payment", "credit_note_application"],
+  /** An expense from the bank in QuickBooks is a refund or a credit paid out. */
+  refund: ["refund", "credit_note_refund"],
 };
 
+type InboundChange = {
+  kind: AccountingEntityKind; externalId: string; version: string | null; deleted: boolean;
+  allocations?: ExternalAllocation[] | undefined;
+};
+
+/**
+ * What came back, applied to the link table.
+ *
+ * A document deleted over there is marked `deleted` and never offered again,
+ * and since that is the moment a person needs to hear of it, the same write
+ * flags the record and raises a task for the bookkeeper
+ * (`accounting-deletions.ts`). Nothing is sent again and nothing is reversed
+ * here by itself.
+ */
 async function applyChanges(
   ctx: ServiceContext,
-  connectionId: string,
-  changes: { kind: AccountingEntityKind; externalId: string; version: string | null; deleted: boolean }[],
+  connection: AccountingConnection,
+  changes: InboundChange[],
 ): Promise<void> {
   if (changes.length === 0) return;
+  const organizationId = ctx.actor.organizationId;
 
   await guardedWrite(ctx, "accounting:sync", async (tx) => {
     for (const change of changes) {
-      const [row] = await tx.select({ id: schema.accountingEntityLink.id })
+      const [row] = await tx.select({
+        id: schema.accountingEntityLink.id,
+        kind: schema.accountingEntityLink.kind,
+        entityId: schema.accountingEntityLink.entityId,
+      })
         .from(schema.accountingEntityLink)
         .where(and(
-          eq(schema.accountingEntityLink.connectionId, connectionId),
+          eq(schema.accountingEntityLink.connectionId, connection.id),
           inArray(schema.accountingEntityLink.kind, SAME_DOCUMENT[change.kind] ?? [change.kind]),
           eq(schema.accountingEntityLink.externalId, change.externalId),
         )).limit(1);
@@ -2393,11 +2518,7 @@ async function applyChanges(
          * not re-sent, the reason is on the record, and putting it back is a
          * decision somebody makes.
          */
-        await tx.update(schema.accountingEntityLink).set({
-          state: "deleted",
-          lastError: "This document was deleted in the accounting system.",
-          updatedAt: new Date(),
-        }).where(eq(schema.accountingEntityLink.id, row.id));
+        await noticeDeleted(tx, organizationId, { ...row, provider: connection.provider });
         continue;
       }
 
@@ -2405,8 +2526,82 @@ async function applyChanges(
         externalVersion: change.version,
         updatedAt: new Date(),
       }).where(eq(schema.accountingEntityLink.id, row.id));
+
+      if (row.kind === "credit_note" && change.allocations) {
+        await noticeRemovedAllocations(tx, organizationId, connection, row.entityId, change.allocations);
+      }
     }
   });
+}
+
+/**
+ * Applications of one credit note that its read no longer lists.
+ *
+ * Xero keeps an allocation inside its credit note, so one deleted there
+ * appears in no feed of its own; the credit note's read lists the
+ * allocations it still has, and an application sent from here that is not
+ * among them was taken off over there. Matched by Xero's own allocation id
+ * where the link holds one, and otherwise, for an allocation Xero gave no id,
+ * by invoice and amount, each listed allocation answering for one
+ * application only, exactly as `findCreditApplication` matches a lost one.
+ */
+async function noticeRemovedAllocations(
+  tx: Database,
+  organizationId: string,
+  connection: AccountingConnection,
+  creditNoteId: string,
+  listed: ExternalAllocation[],
+): Promise<void> {
+  const applied = await tx.select({
+    id: schema.accountingEntityLink.id,
+    entityId: schema.accountingEntityLink.entityId,
+    externalId: schema.accountingEntityLink.externalId,
+    amount: schema.creditNoteApplication.amount,
+    invoiceId: schema.creditNoteApplication.invoiceId,
+  })
+    .from(schema.accountingEntityLink)
+    .innerJoin(schema.creditNoteApplication, eq(schema.creditNoteApplication.id, schema.accountingEntityLink.entityId))
+    .where(and(
+      eq(schema.accountingEntityLink.connectionId, connection.id),
+      eq(schema.accountingEntityLink.kind, "credit_note_application"),
+      eq(schema.accountingEntityLink.state, "linked"),
+      eq(schema.creditNoteApplication.creditNoteId, creditNoteId),
+    ));
+  if (applied.length === 0) return;
+
+  const invoices = await tx.select({
+    entityId: schema.accountingEntityLink.entityId, externalId: schema.accountingEntityLink.externalId,
+  }).from(schema.accountingEntityLink).where(and(
+    eq(schema.accountingEntityLink.connectionId, connection.id),
+    eq(schema.accountingEntityLink.kind, "invoice"),
+    inArray(schema.accountingEntityLink.entityId, applied.map((a) => a.invoiceId)),
+  ));
+  const invoiceRef = new Map(invoices.map((i) => [i.entityId, i.externalId]));
+
+  const unclaimed = [...listed];
+  const claimFirst = (test: (a: ExternalAllocation) => boolean): boolean => {
+    const at = unclaimed.findIndex(test);
+    if (at < 0) return false;
+    unclaimed.splice(at, 1);
+    return true;
+  };
+  const cents = (value: string) => Number(value).toFixed(2);
+
+  /** Those Xero gave an id first, so a matching by amount never takes one that is named. */
+  const ordered = [...applied].sort((a, b) =>
+    Number(listed.some((l) => l.externalId === b.externalId)) - Number(listed.some((l) => l.externalId === a.externalId)));
+  for (const application of ordered) {
+    const byId = application.externalId !== null && claimFirst((l) => l.externalId === application.externalId);
+    if (byId) continue;
+    const byMatch = claimFirst((l) =>
+      l.invoiceExternalId === (invoiceRef.get(application.invoiceId) ?? null)
+      && cents(l.amount) === cents(application.amount)
+      && (l.externalId === null || !applied.some((a) => a.externalId === l.externalId)));
+    if (byMatch) continue;
+    await noticeDeleted(tx, organizationId, {
+      id: application.id, kind: "credit_note_application", entityId: application.entityId, provider: connection.provider,
+    });
+  }
 }
 
 /* ---------------------------------------------------------- the work sets */
@@ -2768,6 +2963,9 @@ export async function retryDocument(ctx: ServiceContext, input: { linkId: string
        */
       externalId: null,
       externalVersion: null,
+      /** Sent again on purpose, so the record no longer says the books lack it. */
+      deletedNoticedAt: null,
+      deletionTaskId: null,
       updatedAt: new Date(),
     }).where(eq(schema.accountingEntityLink.id, row.id)).returning();
 

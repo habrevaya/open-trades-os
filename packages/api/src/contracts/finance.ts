@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { MoneyString, Uuid } from "./common";
+import { DeletedInBooks, MoneyString, Uuid } from "./common";
 
 /**
  * FINANCE: CONSUMER FINANCING (M13), THE COSTING RATES AND THE COMPANY BUDGET
@@ -242,10 +242,14 @@ export const getBudgetReport = defineRoute({
   path: "/v1/budgets/{year}",
   summary: "The year's budget against the ledger, by line and month, with variance",
   description:
-    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled.",
+    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; the whole company's report is the lines with no branch, and branch lines are not added into it.",
   module: "M15",
   permissions: ["report.financial:read"],
-  input: z.object({ year: Year }),
+  input: z.object({
+    year: Year,
+    /** One branch's own lines against what the ledger put in that branch. Left out is the whole company. */
+    businessUnitId: Uuid.optional(),
+  }),
   output: z.object({
     year: z.number().int(),
     through: z.number().int(),
@@ -267,6 +271,10 @@ export const getBudgetReport = defineRoute({
     })),
     net: z.object({ budget: MoneyString, actual: MoneyString }).nullable(),
     caveat: z.string(),
+    /** For a branch's report: the branch, and the year's ledger entries that carry no branch, which its actuals cannot hold. */
+    branch: z.object({
+      id: Uuid, name: z.string(), entriesWithoutBranch: z.number().int(), withoutBranchDebits: MoneyString,
+    }).nullable(),
   }),
 });
 
@@ -282,8 +290,10 @@ export const setBudgetLine = defineRoute({
     year: Year,
     line: z.string().min(1).max(40),
     amounts: z.array(z.string().max(30).nullable()).length(12),
+    /** The branch the line is for. Left out is the whole company's own line. */
+    businessUnitId: Uuid.optional(),
   }),
-  output: z.object({ year: z.number().int(), line: z.string(), months: z.number().int() }),
+  output: z.object({ year: z.number().int(), line: z.string(), months: z.number().int(), businessUnitId: Uuid.nullable() }),
 });
 
 export const removeBudgetLine = defineRoute({
@@ -292,7 +302,7 @@ export const removeBudgetLine = defineRoute({
   summary: "Take a line out of the year's budget",
   module: "M15",
   permissions: ["finance:configure"],
-  input: z.object({ year: Year, line: z.string().min(1).max(40) }),
+  input: z.object({ year: Year, line: z.string().min(1).max(40), businessUnitId: Uuid.optional() }),
   output: z.object({ year: z.number().int(), line: z.string(), removed: z.literal(true) }),
 });
 
@@ -305,7 +315,7 @@ export const importBudget = defineRoute({
   module: "M15",
   permissions: ["finance:configure"],
   idempotent: true,
-  input: z.object({ year: Year, csv: z.string().min(1).max(200_000) }),
+  input: z.object({ year: Year, csv: z.string().min(1).max(200_000), businessUnitId: Uuid.optional() }),
   output: z.object({ year: z.number().int(), lines: z.number().int(), cells: z.number().int() }),
 });
 
@@ -337,6 +347,8 @@ export const JournalEntry = z.object({
     customerId: Uuid.nullable(),
     customerName: z.string().nullable(),
   })),
+  /** Sent to the books and deleted there since. Nothing is re-sent or reversed by itself. */
+  deletedInBooks: DeletedInBooks.nullable(),
 });
 
 export const listJournalEntries = defineRoute({

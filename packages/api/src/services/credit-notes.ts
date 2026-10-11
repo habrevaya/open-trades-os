@@ -9,6 +9,7 @@ import {
 import { writePosting } from "./ledger";
 import * as billing from "./billing";
 import { nextNumber } from "./jobs";
+import { deletedInBooks } from "./accounting-deletions";
 import type {
   createCreditNote, listCreditNotes, CreditNoteReason,
 } from "../contracts/credit-notes";
@@ -96,6 +97,8 @@ async function view(
     .where(inArray(schema.creditNoteApplication.creditNoteId, ids))
     .orderBy(schema.creditNoteApplication.createdAt);
 
+  const deleted = await deletedInBooks(tx, ["credit_note_application"], applications.map((a) => a.application.id));
+
   return rows.map(({ note, customerName, invoiceNumber }) => ({
     id: note.id,
     number: note.number,
@@ -135,6 +138,8 @@ async function view(
       invoiceNumber: a.invoiceNumber,
       amount: a.application.amount,
       appliedOn: a.application.appliedOn,
+      /** Sent to the books and deleted there since (M14). */
+      deletedInBooks: deleted.get(a.application.id) ?? null,
     })),
     payouts: payouts.filter((p) => p.creditNoteId === note.id).map((p) => ({
       id: p.id,

@@ -1,7 +1,8 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
-import { organization, user, technician } from "./tenancy";
+import { organization, user, technician, businessUnit } from "./tenancy";
+import { task } from "./automation";
 import { customer, property } from "./crm";
 import { job } from "./work";
 import { marketingChannel, acquisitionCampaign } from "./acquisition";
@@ -314,6 +315,21 @@ export const accountingEntityLink = pgTable("accounting_entity_link", {
    * push time, before it sends any refund for that payment.
    */
   refundsNettedAt: timestamp("refunds_netted_at", { withTimezone: true }),
+  /**
+   * When the sync read, in the accounting system's own change feed, that the
+   * document this link names had been deleted there. Set once, on the pass
+   * that moves the link from `linked` to `deleted`, and cleared when a person
+   * puts it back through the retry surface. It is what the record here shows
+   * ("deleted in QuickBooks on the 3rd") rather than the link's `updated_at`,
+   * which every later touch moves.
+   */
+  deletedNoticedAt: timestamp("deleted_noticed_at", { withTimezone: true }),
+  /**
+   * The task raised for the bookkeeper on that pass. Nothing is re-sent or
+   * reversed by itself: deciding whether the books over there or the record
+   * here is right is a person's call, and the task is how they hear of it.
+   */
+  deletionTaskId: uuid("deletion_task_id").references(() => task.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   /** THE GUARD. One entity, one document, per connection. */
@@ -383,6 +399,44 @@ export const accountMapping = pgTable("account_mapping", {
 }, (t) => ({
   codeIdx: uniqueIndex("account_mapping_code_idx").on(t.connectionId, t.accountCode),
   orgIdx: index("account_mapping_org_idx").on(t.organizationId),
+}));
+
+/**
+ * ONE OF OUR BRANCHES, AND WHAT THE BOOKS CALL IT.
+ *
+ * A QuickBooks class, or an option of a Xero tracking category: the thing
+ * each system lets a bookkeeper read its reports by. Every posting here
+ * carries the branch of the job or invoice it came from, and a document or
+ * journal line sent to the books carries the class or tracking option this
+ * row names for that branch.
+ *
+ * OPTIONAL, AND NOTHING IS GUESSED. A branch with no row here sends nothing
+ * extra, exactly as before; a class is never matched by name, because two
+ * systems that happen to share a word are not a mapping somebody chose.
+ *
+ * Per CONNECTION, for the reason `account_mapping` is: QuickBooks class ids
+ * name nothing in Xero, and a company that moves inherits nothing.
+ */
+export const accountingBranchMapping = pgTable("accounting_branch_mapping", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull().references(() => integrationConnection.id, { onDelete: "cascade" }),
+  businessUnitId: uuid("business_unit_id").notNull().references(() => businessUnit.id, { onDelete: "cascade" }),
+  /** Theirs, opaque: a QuickBooks Class id, a Xero TrackingOptionID. */
+  externalId: text("external_id").notNull(),
+  /** What the person saw when they chose it, frozen so the list costs no reads. */
+  externalName: text("external_name").notNull(),
+  /**
+   * The group the option sits in, where the system has one: the Xero
+   * tracking category ("Region") the option ("North") belongs to, which a
+   * Xero line has to name alongside the option. Null for a QuickBooks class.
+   */
+  externalGroupId: text("external_group_id"),
+  externalGroupName: text("external_group_name"),
+  ...timestamps,
+}, (t) => ({
+  branchIdx: uniqueIndex("accounting_branch_mapping_branch_idx").on(t.connectionId, t.businessUnitId),
+  orgIdx: index("accounting_branch_mapping_org_idx").on(t.organizationId),
 }));
 
 /**

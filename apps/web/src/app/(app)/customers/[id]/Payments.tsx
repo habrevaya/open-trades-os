@@ -20,6 +20,9 @@ export interface PaymentRow {
 
 export interface OpenInvoice { id: string; number: number; balance: string }
 
+/** A refund of a payment that was sent to the books and deleted there (M14). */
+export interface RefundDeletedInBooks { books: string; noticedAt: string }
+
 /**
  * THE MONEY A CUSTOMER HAS PAID, and what is still held for them.
  *
@@ -29,7 +32,7 @@ export interface OpenInvoice { id: string; number: number; balance: string }
  * actions are passed in so this renders in a test.
  */
 export function Payments({
-  customerId, payments, open, apply, refund, canCollect, canRefund,
+  customerId, payments, open, apply, refund, canCollect, canRefund, refundsDeletedInBooks = {},
 }: {
   customerId: string;
   payments: PaymentRow[];
@@ -38,6 +41,8 @@ export function Payments({
   refund: Action;
   canCollect: boolean;
   canRefund: boolean;
+  /** By payment: its refunds the books no longer hold. Nothing is re-sent or taken back by itself. */
+  refundsDeletedInBooks?: Record<string, RefundDeletedInBooks[]>;
 }) {
   return (
     <section aria-label="Payments">
@@ -63,6 +68,11 @@ export function Payments({
                 {Number(p.refundedAmount) > 0
                   ? <span className="block text-xs text-ink-500">Refunded <Money value={p.refundedAmount} /></span>
                   : null}
+                {(refundsDeletedInBooks[p.id] ?? []).map((flag, i) => (
+                  <span key={i} role="note" className="block text-xs text-amber-700">
+                    A refund of this payment was deleted in {flag.books}. Nothing was sent again; the bookkeeper has a task.
+                  </span>
+                ))}
               </Td>
               <Td className="text-right"><Money value={p.amount} /></Td>
               <Td className="text-ink-700">

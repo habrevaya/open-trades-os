@@ -25,7 +25,7 @@ import { PortalSignIns } from "./PortalSignIns";
 import { AdData } from "./AdData";
 import { PreferredDays } from "./PreferredDays";
 import { SalesTax } from "./SalesTax";
-import { dispatchDays } from "@opentradesos/api/services";
+import { dispatchDays, accountingDeletions } from "@opentradesos/api/services";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
@@ -129,6 +129,10 @@ export default async function CustomerPage({
   const paid = can(user.actor, "payment:read")
     ? (await billing.pagePayments(ctx, { limit: 50, customerId: id, unappliedOnly: false })).data
     : null;
+  /** Refunds of these payments that the books no longer hold (M14). */
+  const refundFlags = paid && paid.length > 0
+    ? await accountingDeletions.paymentRefundFlags(ctx, { paymentIds: paid.map((p) => p.id as string) })
+    : {};
   const numberOf = new Map((invoices ?? []).map((inv) => [inv.id, inv.number]));
   const owing = (invoices ?? [])
     .filter((inv) => inv.status === "open" || inv.status === "partially_paid")
@@ -374,6 +378,7 @@ export default async function CustomerPage({
           refund={refund}
           canCollect={can(user.actor, "payment:collect")}
           canRefund={can(user.actor, "payment:refund")}
+          refundsDeletedInBooks={refundFlags}
         />
       )}
 

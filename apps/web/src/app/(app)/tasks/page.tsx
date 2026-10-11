@@ -2,7 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { tasks, obligations, visitChanges, taskRules } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
-import { LINKS } from "@/lib/record-links";
+import { LINKS, RECORD_NOUN } from "@/lib/record-links";
 import { Chip } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Empty, PageHeader } from "@/components/Table";
@@ -243,7 +243,7 @@ export default async function TasksPage({
                         : task.entityType === "equipment" ? "Open the unit"
                         : task.entityType === "task" ? "Open the late task"
                         : task.entityType === "incident_report" ? "Open the incident report"
-                        : `Open the ${task.entityType}`}
+                        : `Open the ${RECORD_NOUN[task.entityType ?? ""] ?? task.entityType}`}
                     </a>
                   )}
                 </div>

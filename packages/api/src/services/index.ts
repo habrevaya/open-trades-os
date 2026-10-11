@@ -103,6 +103,9 @@ export * as sandbox from "./sandbox";
 export * as payments from "./payments";
 export * as email from "./email";
 export * as accounting from "./accounting";
+/** Branches sent to the books as classes or tracking options, and documents deleted there (M14). */
+export * as accountingBranches from "./accounting-branches";
+export * as accountingDeletions from "./accounting-deletions";
 export * as organizations from "./organizations";
 export * as operator from "./operator";
 export * as setupTokens from "./setup-tokens";

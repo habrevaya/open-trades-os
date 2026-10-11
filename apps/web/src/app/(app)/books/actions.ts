@@ -80,6 +80,7 @@ export async function saveBudgetLine(_previous: FormState, form: FormData): Prom
       year: field(form, "year"),
       line: field(form, "line") ?? "",
       amounts: Array.from({ length: 12 }, (_, i) => field(form, `month:${i + 1}`) ?? null),
+      ...(field(form, "businessUnitId") ? { businessUnitId: field(form, "businessUnitId") } : {}),
     });
     await budgets.setLine(await ctx(), input);
   });
@@ -92,7 +93,10 @@ export async function importBudgetFile(_previous: FormState, form: FormData): Pr
   const result = await attempt(form, async () => {
     const file = form.get("file");
     const text = file instanceof File && file.size > 0 ? await file.text() : field(form, "csv") ?? "";
-    const input = parsed(importBudget.input, { year: field(form, "year"), csv: text });
+    const input = parsed(importBudget.input, {
+      year: field(form, "year"), csv: text,
+      ...(field(form, "businessUnitId") ? { businessUnitId: field(form, "businessUnitId") } : {}),
+    });
     const done = await budgets.importCsv(await ctx(), input);
     return { message: `Loaded ${done.lines} ${done.lines === 1 ? "line" : "lines"}, ${done.cells} months.` };
   });

@@ -252,6 +252,445 @@
         ]
       }
     },
+    "/v1/accounting/branch-mappings": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "listAccountingBranchMappings",
+        "summary": "Which branches go to the books as which class or tracking option",
+        "description": "Requires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which branches go to the books as which class or tracking option",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountingBranchMappingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      },
+      "put": {
+        "operationId": "setAccountingBranchMapping",
+        "summary": "Send one branch to the books as a class or tracking option",
+        "description": "Optional: a branch with no mapping sends nothing extra. From the next pass, invoices, credit notes, write offs, refunds and journal lines in the branch carry the class (QuickBooks) or tracking option (Xero). Payments and credit applications do not, because neither book takes one on them. Audited.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAccountingBranchMappingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Send one branch to the books as a class or tracking option",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAccountingBranchMappingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/branch-mappings/{businessUnitId}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeAccountingBranchMapping",
+        "summary": "Stop sending a branch to the books",
+        "description": "Documents already sent keep the class they went with.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "businessUnitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveAccountingBranchMappingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop sending a branch to the books",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveAccountingBranchMappingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/branch-options": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listAccountingBranchOptions",
+        "summary": "The classes or tracking options a branch can be mapped onto",
+        "description": "QuickBooks classes, or every option of every Xero tracking category with its category. A read of the books, metered on QuickBooks, made when a person is choosing and never on a sync pass, which is why the mapping stores what was chosen.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "The classes or tracking options a branch can be mapped onto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountingBranchOptionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
     "/v1/accounting/mappings": {
       "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -14522,7 +14961,7 @@
       "get": {
         "operationId": "getBudgetReport",
         "summary": "The year's budget against the ledger, by line and month, with variance",
-        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled.\n\nRequires a session holding: report.financial:read.",
+        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; the whole company's report is the lines with no branch, and branch lines are not added into it.\n\nRequires a session holding: report.financial:read.",
         "tags": [
           "M15"
         ],
@@ -14535,6 +14974,15 @@
               "type": "integer",
               "minimum": 2000,
               "maximum": 2100
+            }
+          },
+          {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -132800,6 +133248,38 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -132807,7 +133287,8 @@
                 "invoiceId",
                 "invoiceNumber",
                 "amount",
-                "appliedOn"
+                "appliedOn",
+                "deletedInBooks"
               ]
             }
           },
@@ -143148,6 +143629,38 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -143155,7 +143668,8 @@
                 "invoiceId",
                 "invoiceNumber",
                 "amount",
-                "appliedOn"
+                "appliedOn",
+                "deletedInBooks"
               ]
             }
           },
@@ -146429,6 +146943,38 @@
                 "customerName"
               ]
             }
+          },
+          "deletedInBooks": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "linkId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "books": {
+                "type": "string"
+              },
+              "noticedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "taskId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "linkId",
+              "books",
+              "noticedAt",
+              "taskId"
+            ]
           }
         },
         "required": [
@@ -146444,7 +146990,8 @@
           "reversedByNumber",
           "createdByUserId",
           "createdAt",
-          "lines"
+          "lines",
+          "deletedInBooks"
         ]
       },
       "CreateKnowledgeNoteInput": {
@@ -161212,6 +161759,34 @@
           },
           "caveat": {
             "type": "string"
+          },
+          "branch": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "entriesWithoutBranch": {
+                "type": "integer"
+              },
+              "withoutBranchDebits": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "entriesWithoutBranch",
+              "withoutBranchDebits"
+            ]
           }
         },
         "required": [
@@ -161219,7 +161794,8 @@
           "through",
           "lines",
           "net",
-          "caveat"
+          "caveat",
+          "branch"
         ]
       },
       "GetCallOutput": {
@@ -163281,6 +163857,38 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -163288,7 +163896,8 @@
                 "invoiceId",
                 "invoiceNumber",
                 "amount",
-                "appliedOn"
+                "appliedOn",
+                "deletedInBooks"
               ]
             }
           },
@@ -172549,6 +173158,38 @@
                 "customerName"
               ]
             }
+          },
+          "deletedInBooks": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "linkId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "books": {
+                "type": "string"
+              },
+              "noticedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "taskId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "linkId",
+              "books",
+              "noticedAt",
+              "taskId"
+            ]
           }
         },
         "required": [
@@ -172564,7 +173205,8 @@
           "reversedByNumber",
           "createdByUserId",
           "createdAt",
-          "lines"
+          "lines",
+          "deletedInBooks"
         ]
       },
       "GetKpiRecordsOutput": {
@@ -186370,6 +187012,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200000
+          },
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -187121,6 +187767,38 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -187128,7 +187806,8 @@
                 "invoiceId",
                 "invoiceNumber",
                 "amount",
-                "appliedOn"
+                "appliedOn",
+                "deletedInBooks"
               ]
             }
           },
@@ -188125,6 +188804,120 @@
           "blocked",
           "retryAfterSeconds",
           "accounts",
+          "error"
+        ]
+      },
+      "ListAccountingBranchMappingsOutput": {
+        "type": "object",
+        "properties": {
+          "mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "businessUnitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string"
+                },
+                "externalName": {
+                  "type": "string"
+                },
+                "groupId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "groupName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "businessUnitId",
+                "branchName",
+                "externalId",
+                "externalName",
+                "groupId",
+                "groupName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "mappings"
+        ]
+      },
+      "ListAccountingBranchOptionsOutput": {
+        "type": "object",
+        "properties": {
+          "blocked": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retryAfterSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "externalId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "groupId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "groupName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "externalId",
+                "name",
+                "groupId",
+                "groupName",
+                "active"
+              ]
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "blocked",
+          "retryAfterSeconds",
+          "options",
           "error"
         ]
       },
@@ -193647,6 +194440,38 @@
                           "null"
                         ],
                         "format": "date"
+                      },
+                      "deletedInBooks": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "properties": {
+                          "linkId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "books": {
+                            "type": "string"
+                          },
+                          "noticedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "taskId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "uuid"
+                          }
+                        },
+                        "required": [
+                          "linkId",
+                          "books",
+                          "noticedAt",
+                          "taskId"
+                        ]
                       }
                     },
                     "required": [
@@ -193654,7 +194479,8 @@
                       "invoiceId",
                       "invoiceNumber",
                       "amount",
-                      "appliedOn"
+                      "appliedOn",
+                      "deletedInBooks"
                     ]
                   }
                 },
@@ -199181,6 +200007,38 @@
                       "customerName"
                     ]
                   }
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -199196,7 +200054,8 @@
                 "reversedByNumber",
                 "createdByUserId",
                 "createdAt",
-                "lines"
+                "lines",
+                "deletedInBooks"
               ]
             }
           }
@@ -214879,6 +215738,38 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -214886,7 +215777,8 @@
                 "invoiceId",
                 "invoiceNumber",
                 "amount",
-                "appliedOn"
+                "appliedOn",
+                "deletedInBooks"
               ]
             }
           },
@@ -224832,9 +225724,37 @@
           "movements"
         ]
       },
-      "RemoveBudgetLineInput": {
+      "RemoveAccountingBranchMappingInput": {
         "type": "object",
         "properties": {}
+      },
+      "RemoveAccountingBranchMappingOutput": {
+        "type": "object",
+        "properties": {
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "businessUnitId",
+          "removed"
+        ]
+      },
+      "RemoveBudgetLineInput": {
+        "type": "object",
+        "properties": {
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "RemoveBudgetLineOutput": {
         "type": "object",
@@ -229721,6 +230641,38 @@
                 "customerName"
               ]
             }
+          },
+          "deletedInBooks": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "linkId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "books": {
+                "type": "string"
+              },
+              "noticedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "taskId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "linkId",
+              "books",
+              "noticedAt",
+              "taskId"
+            ]
           }
         },
         "required": [
@@ -229736,7 +230688,8 @@
           "reversedByNumber",
           "createdByUserId",
           "createdAt",
-          "lines"
+          "lines",
+          "deletedInBooks"
         ]
       },
       "ReversePriceChangeInput": {
@@ -234207,6 +235160,78 @@
           "externalKind"
         ]
       },
+      "SetAccountingBranchMappingInput": {
+        "type": "object",
+        "properties": {
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "externalName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "groupName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "businessUnitId",
+          "externalId",
+          "externalName"
+        ]
+      },
+      "SetAccountingBranchMappingOutput": {
+        "type": "object",
+        "properties": {
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalName": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "businessUnitId",
+          "branchName",
+          "externalId",
+          "externalName",
+          "groupId",
+          "groupName"
+        ]
+      },
       "SetAfterHoursRatesInput": {
         "type": "object",
         "properties": {
@@ -234675,6 +235700,10 @@
               ],
               "maxLength": 30
             }
+          },
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -234693,12 +235722,20 @@
           },
           "months": {
             "type": "integer"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
           "year",
           "line",
-          "months"
+          "months",
+          "businessUnitId"
         ]
       },
       "SetBusinessHoursInput": {
@@ -256100,6 +257137,38 @@
                     "null"
                   ],
                   "format": "date"
+                },
+                "deletedInBooks": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "linkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "books": {
+                      "type": "string"
+                    },
+                    "noticedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "taskId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "linkId",
+                    "books",
+                    "noticedAt",
+                    "taskId"
+                  ]
                 }
               },
               "required": [
@@ -256107,7 +257176,8 @@
                 "invoiceId",
                 "invoiceNumber",
                 "amount",
-                "appliedOn"
+                "appliedOn",
+                "deletedInBooks"
               ]
             }
           },

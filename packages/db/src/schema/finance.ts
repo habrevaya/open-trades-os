@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timestamp, date, check } from "drizzle-orm/pg-core";
 import { pk, money, currency } from "./_shared";
-import { organization, user } from "./tenancy";
+import { organization, user, businessUnit } from "./tenancy";
 import { customer } from "./crm";
 import { estimate, invoice, payment } from "./billing";
 import { integrationConnection } from "./integrations";
@@ -146,13 +146,29 @@ export const budgetLine = pgTable("budget_line", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   budgetId: uuid("budget_id").notNull().references(() => budget.id, { onDelete: "cascade" }),
+  /**
+   * The branch this figure is for, or null for the whole company's own line.
+   *
+   * The two are kept apart rather than added together. A company that sets
+   * Revenue for the whole company and Revenue for each shop has said two
+   * things, and whether the shops add up to the company is its own business:
+   * adding them would count the money twice for one company and not at all
+   * for another. Every line written before branches had budgets is the
+   * company's, and nothing old is moved.
+   */
+  businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
   line: text("line").notNull(),
   month: integer("month").notNull(),
   amount: money("amount").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  cellIdx: uniqueIndex("budget_line_cell_idx").on(t.budgetId, t.line, t.month),
+  /** One figure per line per month for the whole company... */
+  cellIdx: uniqueIndex("budget_line_cell_idx").on(t.budgetId, t.line, t.month)
+    .where(sql`${t.businessUnitId} is null`),
+  /** ...and one per line per month for each branch. Two indexes, because a null branch is not equal to itself. */
+  branchCellIdx: uniqueIndex("budget_line_branch_cell_idx").on(t.budgetId, t.businessUnitId, t.line, t.month)
+    .where(sql`${t.businessUnitId} is not null`),
   monthCheck: check("budget_line_month", sql`${t.month} between 1 and 12`),
 }));
 

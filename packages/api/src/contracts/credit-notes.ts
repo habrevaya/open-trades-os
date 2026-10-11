@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, DeletedInBooks } from "./common";
 
 /**
  * CREDIT NOTES
@@ -45,6 +45,8 @@ export const CreditNoteApplication = z.object({
   invoiceNumber: z.number().int(),
   amount: MoneyString,
   appliedOn: z.string().date().nullable(),
+  /** Sent to the books and deleted there since. */
+  deletedInBooks: DeletedInBooks.nullable(),
 });
 
 export const CreditNotePayoutMethod = z.enum(["card", "cash", "check", "other"]);

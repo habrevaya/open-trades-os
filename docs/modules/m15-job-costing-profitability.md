@@ -93,6 +93,20 @@ wages itself, and posts to materials only freight or duty billed after a
 delivery (M16), so those lines are only as complete as the journals an
 accountant posts (M14), and the report says so.
 
+**A branch has a budget of its own.** A budget line can be one branch's, and
+the report can be read for one branch: that branch's lines against the ledger
+entries that carry that branch, which is every posting made from a job or
+invoice in it since branches were carried (M14). The whole company's report is
+the lines set for the company against everything, as it always was; a branch's
+lines are not added into it, because a company that budgets Revenue for itself
+and for each shop has said two things, and adding them would count the money
+twice. A branch's report says how many of the year's ledger entries carry no
+branch and what their debits add up to (payroll, a payment spread over two
+branches, and everything from before branches were recorded), because none of
+that can be in a branch's figures. Nothing old is moved: every line written
+before this is the company's. A retired branch's year can be read and is given
+no new lines.
+
 **Material cost is the job's lines plus the cost posted on the job.** A job's
 material cost is what its lines cost, and on top of that its cost of goods sold
 entries in the ledger: the share of a freight or duty bill that arrived after a
@@ -169,10 +183,14 @@ labour burden, overhead and the fully loaded margin; the profitability dataset h
 actual, the difference and whether it is better or worse, and year to date. A
 line is set there all twelve months at once, or the year is loaded from a CSV
 with a header row of months (`Line,Jan,...,Dec`), where each line in the file
-replaces that line and nothing loads unless the whole file reads.
+replaces that line and nothing loads unless the whole file reads. A Branch
+choice above the table reads and sets one branch's budget instead of the
+company's, and a CSV loaded while a branch is chosen goes into that branch.
 `GET /v1/budgets/{year}` is the report, `PUT /v1/budgets/{year}/lines` sets a
 line, `DELETE /v1/budgets/{year}/lines/{line}` removes one and
-`POST /v1/budgets/{year}/import` loads a CSV.
+`POST /v1/budgets/{year}/import` loads a CSV; each takes `businessUnitId` for a
+branch's own lines, and the report then carries `branch` with the count of
+entries that carry no branch.
 
 ## Permissions
 
@@ -225,8 +243,11 @@ Overhead has one basis at a time: a company that wants part per hour and part
 per job picks the one that matters most. The overtime premium is still not on a
 job, for the reason above. Burden and overhead are applied in reporting only;
 nothing posts them to the ledger, which keeps them as the company's choice
-rather than an entry in its books. The budget has no per branch or per job type
-split and no forecast; labour and materials actuals depend on journals, because
+rather than an entry in its books. The budget can be set per branch (and read
+per branch against what the ledger put in that branch), but not per job type,
+and there is no forecast. A branch's budget is not read for a branch manager's
+own branch automatically: the report is a company financial report under
+`report.financial:read`, and whoever holds that chooses the branch. Labour and materials actuals depend on journals, because
 nothing here posts wages or supplier bills. A journal can now put a supplier
 bill or a subcontractor's cost on a job, and the margin counts it, but nothing
 checks it against the job's own lines: a cost entered on a line and journalled to
