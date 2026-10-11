@@ -784,7 +784,14 @@ describe("the change window, which has no cursor behind it", () => {
     const calls: Call[] = [];
     await changing([() => BATCH], calls).changes(null);
     const paths = calls.slice(1).map((c) => new URL(c.url).pathname);
-    expect(paths).toEqual(["/Contacts", "/Invoices", "/BatchPayments", "/CreditNotes"]);
+    /**
+     * The four document endpoints, each once, first. Manual journals and bank
+     * transactions are read after them, once each, so that a journal or a
+     * refund deleted in Xero is noticed (M14); test/accounting-branches
+     * asserts the whole list.
+     */
+    expect(paths.slice(0, 4)).toEqual(["/Contacts", "/Invoices", "/BatchPayments", "/CreditNotes"]);
+    expect(new Set(paths).size).toBe(paths.length);
   });
 
   it("starts a first sync inside a bounded window, not at the beginning of time", async () => {

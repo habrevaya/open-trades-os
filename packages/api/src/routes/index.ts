@@ -7,7 +7,7 @@ import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, fieldDevices, fieldPayments, knowledge, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
-  roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
+  roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting, accountingBranches,
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
@@ -446,6 +446,7 @@ export const handlers = {
   listAccountingPeriods: accounting.handlers.listAccountingPeriods,
   closeAccountingPeriod: accounting.handlers.closeAccountingPeriod,
   reopenAccountingPeriod: accounting.handlers.reopenAccountingPeriod,
+  ...accountingBranches.handlers,
 
   listConversations: comms.handlers.listConversations,
   getConversation: comms.handlers.getConversation,

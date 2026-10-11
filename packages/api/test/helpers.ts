@@ -260,7 +260,7 @@ const ORDER = [
    * is deliberate: a filed quarter outlives whichever accounting system
    * the company was using when it filed.
    */
-  "accounting_entity_link", "account_mapping", "accounting_period",
+  "accounting_entity_link", "account_mapping", "accounting_branch_mapping", "accounting_period",
   /**
    * The agents' log, drafts, chats and settings first, because a draft points
    * at the usage row it came from. Then model spend, before the connection

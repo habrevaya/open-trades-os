@@ -4,6 +4,7 @@ import {
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
   type ExternalCreditApplication, type ExternalCreditNote, type ExternalCreditNoteRefund, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalJournal, type ExternalPayment, type ExternalRef, type HttpTransport,
+  type ExternalBranch, type ExternalBranchOption,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
 
@@ -95,14 +96,26 @@ const DEFAULT_MINOR_VERSION = "75";
  */
 const FIRST_SYNC_WINDOW_DAYS = 29;
 
-/** The entities the bridge moves, in the order `/cdc` wants them. */
-const CDC_ENTITIES = ["Customer", "Invoice", "Payment", "CreditMemo"] as const;
+/**
+ * The entities the bridge moves, in the order `/cdc` wants them.
+ *
+ * `JournalEntry` and `Purchase` are read so that a journal, a refund or a
+ * credit paid out deleted by a bookkeeper after it was sent is noticed: each
+ * goes as one of those, and `/cdc` returns a deleted object with its id and a
+ * `status` of `Deleted`. They ride the same single metered request as the
+ * other four, so watching them costs no extra read. A credit note's
+ * application is a Payment, which was already here.
+ */
+const CDC_ENTITIES = ["Customer", "Invoice", "Payment", "CreditMemo", "JournalEntry", "Purchase"] as const;
 
 const KIND_BY_ENTITY: Record<string, AccountingEntityKind> = {
   Customer: "customer",
   Invoice: "invoice",
   Payment: "payment",
   CreditMemo: "credit_memo",
+  JournalEntry: "journal",
+  /** An expense from the bank: a refund, or a credit paid out. See `pushRefund`. */
+  Purchase: "refund",
 };
 
 /** Where the deterministic key lives on each kind, and it has to be a field
@@ -228,8 +241,22 @@ function retryAfterOf(response: { headers: { get(name: string): string | null } 
  * A credit memo is the same document pointing the other way, so its lines are
  * built by the same code rather than by a copy that drifts.
  */
+/**
+ * A class reference for a line, or nothing.
+ *
+ * On the LINE rather than the transaction, which is the setting this asks a
+ * company to choose in QuickBooks ("Track classes", "One to each row in
+ * transaction"): a JournalEntry and an expense take a class only per line,
+ * and one setting for every document is one thing for a bookkeeper to get
+ * right. With classes assigned per transaction instead, QuickBooks ignores a
+ * line's class; the accounting settings say which to pick.
+ */
+function classOf(branch: ExternalBranch | null | undefined): Record<string, unknown> {
+  return branch ? { ClassRef: { value: branch.externalId, name: branch.name } } : {};
+}
+
 function salesLines(
-  documentLines: ExternalInvoice["lines"], tax: ExternalInvoice["tax"],
+  documentLines: ExternalInvoice["lines"], tax: ExternalInvoice["tax"], branch?: ExternalBranch | null,
 ): Record<string, unknown>[] {
   const lines = documentLines.map((line) => ({
     Amount: amountOf(line.amount),
@@ -246,6 +273,7 @@ function salesLines(
       ItemRef: { value: line.accountExternalId },
       Qty: Number(line.quantity),
       UnitPrice: amountOf(line.unitPrice),
+      ...classOf(branch),
     },
   }));
 
@@ -266,7 +294,7 @@ function salesLines(
     Amount: amountOf(part.amount),
     DetailType: "SalesItemLineDetail",
     Description: part.description,
-    SalesItemLineDetail: { ItemRef: { value: tax!.accountExternalId }, Qty: 1 },
+    SalesItemLineDetail: { ItemRef: { value: tax!.accountExternalId }, Qty: 1, ...classOf(branch) },
   }));
   return [...lines, ...taxLine];
 }
@@ -537,7 +565,7 @@ export function createQuickBooksProvider(
         TxnDate: invoice.issuedOn,
         ...(invoice.dueOn ? { DueDate: invoice.dueOn } : {}),
         CurrencyRef: { value: invoice.currency },
-        Line: salesLines(invoice.lines, invoice.tax),
+        Line: salesLines(invoice.lines, invoice.tax, invoice.branch),
         ...(invoice.memo ? { CustomerMemo: { value: invoice.memo } } : {}),
       });
     },
@@ -565,7 +593,7 @@ export function createQuickBooksProvider(
           Amount: amountOf(credit.amount),
           DetailType: "SalesItemLineDetail",
           Description: credit.reason,
-          SalesItemLineDetail: { ItemRef: { value: credit.accountExternalId }, Qty: 1 },
+          SalesItemLineDetail: { ItemRef: { value: credit.accountExternalId }, Qty: 1, ...classOf(credit.branch) },
         }],
       });
     },
@@ -592,7 +620,7 @@ export function createQuickBooksProvider(
         CustomerRef: { value: note.customerExternalId },
         TxnDate: note.issuedOn,
         CurrencyRef: { value: note.currency },
-        Line: salesLines(note.lines, note.tax),
+        Line: salesLines(note.lines, note.tax, note.branch),
         ...(note.memo ? { CustomerMemo: { value: note.memo } } : {}),
       });
     },
@@ -675,6 +703,7 @@ export function createQuickBooksProvider(
           AccountBasedExpenseLineDetail: {
             AccountRef: { value: refund.receivableAccountExternalId },
             CustomerRef: { value: refund.customerExternalId },
+            ...classOf(refund.branch),
           },
         }],
       });
@@ -721,6 +750,7 @@ export function createQuickBooksProvider(
           AccountBasedExpenseLineDetail: {
             AccountRef: { value: refund.receivableAccountExternalId },
             CustomerRef: { value: refund.customerExternalId },
+            ...classOf(refund.branch),
           },
         }],
       });
@@ -733,6 +763,10 @@ export function createQuickBooksProvider(
      * ledger refuses a journal to the receivable before it gets here, and a
      * line to a payable account mapped over there is refused by QuickBooks
      * with its own reason, which lands on the problems list.
+     *
+     * A line that names a branch carries its class, and one that names a
+     * customer carries it as the line's `Entity`, which is where QuickBooks'
+     * JournalEntryLineDetail takes a name. A line's job has nowhere to go.
      */
     async pushJournal(journal: ExternalJournal): Promise<PushResult> {
       return create("JournalEntry", {
@@ -747,12 +781,47 @@ export function createQuickBooksProvider(
           JournalEntryLineDetail: {
             PostingType: line.direction === "debit" ? "Debit" : "Credit",
             AccountRef: { value: line.accountExternalId },
+            ...classOf(line.branch),
+            ...(line.customerExternalId
+              ? { Entity: { Type: "Customer", EntityRef: { value: line.customerExternalId } } }
+              : {}),
           },
         })),
       });
     },
 
     heldMoneyReachesBooks: true,
+
+    journalCustomers: true,
+
+    /**
+     * Every class, for the person mapping branches. One metered read, made
+     * when they open the choice, never on a sync pass. A sub class is shown by
+     * its full name ("Texas:Round Rock"), which is how QuickBooks reports it.
+     */
+    async branchOptions(): Promise<ReadResult<ExternalBranchOption[]>> {
+      const result = await call({
+        path: `/query?query=${encodeURIComponent("select * from Class maxresults 1000")}`,
+        method: "GET",
+        metered: true,
+      });
+      if (!result.ok) return readFailure(result);
+      const rows = ((result.payload["QueryResponse"] as Record<string, unknown> | undefined)?.["Class"] ?? []) as {
+        Id?: string; Name?: string; FullyQualifiedName?: string; Active?: boolean;
+      }[];
+      const options: ExternalBranchOption[] = [];
+      for (const row of rows) {
+        if (!row.Id) continue;
+        options.push({
+          externalId: row.Id,
+          name: row.FullyQualifiedName ?? row.Name ?? row.Id,
+          groupId: null,
+          groupName: null,
+          active: row.Active !== false,
+        });
+      }
+      return { ok: true, value: options };
+    },
 
     findPushed,
 

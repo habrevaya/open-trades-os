@@ -168,6 +168,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   agreement_term_idx: "A term's row is written by the code that writes the term, numbered from the renewal count, and a legacy term's row is added with on conflict do nothing. Nobody types a term number.",
   budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
   budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
+  budget_line_branch_cell_idx: "A branch's month, written with on conflict do update like the company's: setting it again replaces the figure.",
   /* --- numbers and sequences this product generates --- */
   invoice_number_idx: "The invoice number is allocated by the numbering service under a lock.",
   estimate_number_idx: "Allocated by the numbering service.",
@@ -344,6 +345,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   integration_connection_uniq_idx: "One connection per provider and capability, upserted.",
   integration_secret_org_name_idx: "One secret per company and name, upserted: pasting again replaces it.",
   account_mapping_code_idx: "One mapping per account code, upserted.",
+  accounting_branch_mapping_branch_idx: "One class or tracking option per branch, upserted.",
   accounting_entity_link_entity_idx: "One link per local record, upserted by the sync.",
   accounting_entity_link_external_idx: "One link per remote record, upserted by the sync.",
   accounting_period_end_idx: "One period per end date, and the close path checks the range first.",

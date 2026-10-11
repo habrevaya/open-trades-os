@@ -4,6 +4,7 @@ import {
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
   type ExternalCreditApplication, type ExternalCreditNote, type ExternalCreditNoteRefund, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalJournal, type ExternalPayment, type ExternalRef, type HttpTransport,
+  type ExternalAllocation, type ExternalBranch, type ExternalBranchOption,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
 
@@ -131,12 +132,24 @@ const PAGE_SIZE = 100;
  */
 const MAX_PAGES_PER_PASS = 5;
 
-/** The four kinds, and the endpoint each lives behind. */
+/**
+ * The kinds read for changes, and the endpoint each lives behind.
+ *
+ * `ManualJournals` and `BankTransactions` are read so that a journal or a
+ * refund deleted in Xero after it was sent is noticed: a journal goes as a
+ * manual journal, and a refund's cash goes as Spend Money, which is the half
+ * that says the money left. Each is one more request on every pass, under
+ * the same `If-Modified-Since` window, against the sixty a minute and five
+ * thousand a day the push half shares. A credit note's applications are its
+ * Allocations, read off the credit note itself (see `allocationsOf`).
+ */
 const ENTITIES = [
   { kind: "customer", path: "Contacts", collection: "Contacts" },
   { kind: "invoice", path: "Invoices", collection: "Invoices" },
   { kind: "payment", path: "BatchPayments", collection: "BatchPayments" },
   { kind: "credit_memo", path: "CreditNotes", collection: "CreditNotes" },
+  { kind: "journal", path: "ManualJournals", collection: "ManualJournals" },
+  { kind: "refund", path: "BankTransactions", collection: "BankTransactions" },
 ] as const satisfies readonly { kind: AccountingEntityKind; path: string; collection: string }[];
 
 /**
@@ -332,6 +345,28 @@ function classify(type: string | undefined): ExternalAccount["classification"] {
 function exhausted(problem: string | null): boolean {
   if (!problem) return true;
   return problem.trim().toLowerCase() === "day";
+}
+
+/**
+ * A line's tracking: the option a branch is mapped to, in the category it
+ * belongs to, or nothing.
+ *
+ * By both ids and both names, the four fields Xero's LineItemTracking holds.
+ * Xero matches a line's tracking on the category and option, and a mapping
+ * whose category was not recorded cannot say which category the option is
+ * in, so it is sent as it is and Xero's own refusal lands on the problems
+ * list rather than a category being guessed.
+ */
+export function trackingOf(branch: ExternalBranch | null | undefined): Record<string, unknown> {
+  if (!branch) return {};
+  return {
+    Tracking: [{
+      ...(branch.groupId ? { TrackingCategoryID: branch.groupId } : {}),
+      ...(branch.groupName ? { Name: branch.groupName } : {}),
+      TrackingOptionID: branch.externalId,
+      Option: branch.name,
+    }],
+  };
 }
 
 export function createXeroProvider(
@@ -619,7 +654,7 @@ export function createXeroProvider(
   }
 
   /** A line, with the mapped account resolved into whichever field it names. */
-  function lineOf(line: ExternalInvoice["lines"][number]): Record<string, unknown> {
+  function lineOf(line: ExternalInvoice["lines"][number], branch?: ExternalBranch | null): Record<string, unknown> {
     return {
       Description: line.description,
       Quantity: Number(line.quantity),
@@ -647,11 +682,12 @@ export function createXeroProvider(
        */
       TaxType: "NONE",
       TaxAmount: 0,
+      ...trackingOf(branch),
     };
   }
 
   /** Tax as its own line against the mapped account, for the reason `lineOf` gives. */
-  function taxLineOf(tax: ExternalInvoice["tax"]): Record<string, unknown>[] {
+  function taxLineOf(tax: ExternalInvoice["tax"], branch?: ExternalBranch | null): Record<string, unknown>[] {
     if (!tax) return [];
     /** One line per rate when the document charged several, on the same account. */
     const parts = tax.byRate && tax.byRate.length > 1 ? tax.byRate : [{ description: "Sales tax", amount: tax.amount }];
@@ -663,6 +699,7 @@ export function createXeroProvider(
       AccountID: tax.accountExternalId,
       TaxType: "NONE",
       TaxAmount: 0,
+      ...trackingOf(branch),
     }));
   }
 
@@ -742,9 +779,9 @@ export function createXeroProvider(
     },
 
     async pushInvoice(invoice: ExternalInvoice): Promise<PushResult> {
-      const lines = invoice.lines.map(lineOf);
+      const lines = invoice.lines.map((line) => lineOf(line, invoice.branch));
 
-      const taxLine = taxLineOf(invoice.tax);
+      const taxLine = taxLineOf(invoice.tax, invoice.branch);
 
       return create(KEY_FIELD.invoice, {
         Invoices: [{
@@ -852,6 +889,7 @@ export function createXeroProvider(
             AccountID: credit.accountExternalId,
             TaxType: "NONE",
             TaxAmount: 0,
+            ...trackingOf(credit.branch),
           }],
         }],
       }, credit.idempotencyKey, "&unitdp=4");
@@ -878,7 +916,7 @@ export function createXeroProvider(
           CurrencyCode: note.currency,
           LineAmountTypes: "Exclusive",
           Status: "AUTHORISED",
-          LineItems: [...note.lines.map(lineOf), ...taxLineOf(note.tax)],
+          LineItems: [...note.lines.map((line) => lineOf(line, note.branch)), ...taxLineOf(note.tax, note.branch)],
         }],
       }, note.idempotencyKey, "&unitdp=4");
     },
@@ -1007,6 +1045,7 @@ export function createXeroProvider(
         AccountID: refund.clearingAccountExternalId,
         TaxType: "NONE",
         TaxAmount: 0,
+        ...trackingOf(refund.branch),
       };
 
       const charge = await create(REFUND_CHARGE, {
@@ -1064,6 +1103,10 @@ export function createXeroProvider(
      * positive for a debit and negative for a credit, and the lines must sum
      * to zero, which the ledger guarantees. The account is sent by id, as
      * every other line this adapter writes is.
+     *
+     * A line's branch goes as its tracking option. Its customer does not go:
+     * a Xero manual journal line has no contact, which is why this adapter
+     * does not say `journalCustomers`.
      */
     async pushJournal(journal: ExternalJournal): Promise<PushResult> {
       return create(KEY_FIELD.journal, {
@@ -1076,12 +1119,41 @@ export function createXeroProvider(
             LineAmount: line.direction === "debit" ? lineAmount(line.amount) : -lineAmount(line.amount),
             AccountID: line.accountExternalId,
             Description: (line.description ?? journal.memo).slice(0, 4000),
+            ...trackingOf(line.branch),
           })),
         }],
       }, journal.idempotencyKey);
     },
 
     heldMoneyReachesBooks: false,
+
+    /**
+     * Every active option of every tracking category, each with its category,
+     * for the person mapping branches. One call, made when they open the
+     * choice, never on a sync pass.
+     */
+    async branchOptions(): Promise<ReadResult<ExternalBranchOption[]>> {
+      const result = await call({ path: "/TrackingCategories", method: "GET" });
+      if (!result.ok) return readFailure(result);
+      const categories = (result.payload["TrackingCategories"] ?? []) as {
+        TrackingCategoryID?: string; Name?: string; Status?: string;
+        Options?: { TrackingOptionID?: string; Name?: string; Status?: string }[];
+      }[];
+      const out: ExternalBranchOption[] = [];
+      for (const category of categories) {
+        for (const option of category.Options ?? []) {
+          if (!option.TrackingOptionID) continue;
+          out.push({
+            externalId: option.TrackingOptionID,
+            name: option.Name ?? option.TrackingOptionID,
+            groupId: category.TrackingCategoryID ?? null,
+            groupName: category.Name ?? null,
+            active: category.Status !== "ARCHIVED" && option.Status !== "ARCHIVED",
+          });
+        }
+      }
+      return { ok: true, value: out };
+    },
 
     findPushed,
 
@@ -1139,11 +1211,13 @@ export function createXeroProvider(
           for (const row of rows) {
             const id = row[KEY_FIELD[entity.kind].id];
             if (typeof id !== "string" || id === "") continue;
+            const allocations = entity.kind === "credit_memo" ? allocationsOf(row) : undefined;
             changes.push({
               kind: entity.kind,
               externalId: id,
               version: null,
               deleted: isGone(entity.kind, row),
+              ...(allocations ? { allocations } : {}),
               /**
                * Their timestamp when it parses, and the start of this pass
                * when it does not. Never `new Date()` at the moment of
@@ -1256,6 +1330,31 @@ function isGone(kind: AccountingEntityKind, row: Record<string, unknown>): boole
   if (kind === "customer") return row["ContactStatus"] === "GDPRREQUEST";
   const status = row["Status"];
   return status === "DELETED" || status === "VOIDED";
+}
+
+/**
+ * The allocations a credit note read lists, or undefined when the read did not
+ * list them at all: a credit note with no `Allocations` field says nothing
+ * about whether one was removed, and concluding that one was would flag an
+ * application that is still there. One marked `IsDeleted` is left out, as one
+ * that is no longer there.
+ */
+function allocationsOf(row: Record<string, unknown>): ExternalAllocation[] | undefined {
+  const listed = row["Allocations"];
+  if (!Array.isArray(listed)) return undefined;
+  const out: ExternalAllocation[] = [];
+  for (const raw of listed as Record<string, unknown>[]) {
+    if (raw["IsDeleted"] === true) continue;
+    const invoice = raw["Invoice"] as { InvoiceID?: unknown } | undefined;
+    const on = parseXeroDate(raw["Date"]);
+    out.push({
+      externalId: typeof raw["AllocationID"] === "string" && raw["AllocationID"] !== "" ? raw["AllocationID"] as string : null,
+      invoiceExternalId: typeof invoice?.InvoiceID === "string" ? invoice.InvoiceID : null,
+      amount: String(raw["Amount"] ?? "0"),
+      date: on ? on.toISOString().slice(0, 10) : null,
+    });
+  }
+  return out;
 }
 
 /**

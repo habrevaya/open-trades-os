@@ -130,6 +130,77 @@ export const setAccountMapping = defineRoute({
   }),
 });
 
+const BranchMapping = z.object({
+  businessUnitId: Uuid,
+  branchName: z.string(),
+  externalId: z.string(),
+  externalName: z.string(),
+  /** The Xero tracking category the option is in. Null for a QuickBooks class. */
+  groupId: z.string().nullable(),
+  groupName: z.string().nullable(),
+});
+
+export const listAccountingBranchOptions = defineRoute({
+  method: "get",
+  path: "/v1/accounting/branch-options",
+  summary: "The classes or tracking options a branch can be mapped onto",
+  description:
+    "QuickBooks classes, or every option of every Xero tracking category with its category. A read of the books, metered on QuickBooks, made when a person is choosing and never on a sync pass, which is why the mapping stores what was chosen.",
+  module: "M14",
+  permissions: ["accounting:sync"],
+  input: z.object({}),
+  output: ReadBlock.extend({
+    options: z.array(z.object({
+      externalId: z.string(),
+      name: z.string(),
+      groupId: z.string().nullable(),
+      groupName: z.string().nullable(),
+      active: z.boolean(),
+    })),
+    error: z.string().nullable(),
+  }),
+});
+
+export const listAccountingBranchMappings = defineRoute({
+  method: "get",
+  path: "/v1/accounting/branch-mappings",
+  summary: "Which branches go to the books as which class or tracking option",
+  module: "M14",
+  permissions: ["accounting:sync"],
+  input: z.object({}),
+  output: z.object({ mappings: z.array(BranchMapping) }),
+});
+
+export const setAccountingBranchMapping = defineRoute({
+  method: "put",
+  path: "/v1/accounting/branch-mappings",
+  summary: "Send one branch to the books as a class or tracking option",
+  description:
+    "Optional: a branch with no mapping sends nothing extra. From the next pass, invoices, credit notes, write offs, refunds and journal lines in the branch carry the class (QuickBooks) or tracking option (Xero). Payments and credit applications do not, because neither book takes one on them. Audited.",
+  module: "M14",
+  permissions: ["accounting:sync"],
+  idempotent: true,
+  input: z.object({
+    businessUnitId: Uuid,
+    externalId: z.string().min(1).max(200),
+    externalName: z.string().min(1).max(500),
+    groupId: z.string().min(1).max(200).optional(),
+    groupName: z.string().min(1).max(500).optional(),
+  }),
+  output: BranchMapping,
+});
+
+export const removeAccountingBranchMapping = defineRoute({
+  method: "delete",
+  path: "/v1/accounting/branch-mappings/{businessUnitId}",
+  summary: "Stop sending a branch to the books",
+  description: "Documents already sent keep the class they went with.",
+  module: "M14",
+  permissions: ["accounting:sync"],
+  input: z.object({ businessUnitId: Uuid }),
+  output: z.object({ businessUnitId: Uuid, removed: z.literal(true) }),
+});
+
 export const runAccountingSync = defineRoute({
   method: "post",
   path: "/v1/accounting/sync",
@@ -293,6 +364,7 @@ export const reopenAccountingPeriod = defineRoute({
 
 export const accountingRoutes = {
   getAccountingStatus, listAccountingAccounts, listAccountMappings, setAccountMapping,
+  listAccountingBranchOptions, listAccountingBranchMappings, setAccountingBranchMapping, removeAccountingBranchMapping,
   runAccountingSync, listAccountingRuns, listAccountingProblems, retryAccountingDocument,
   listAccountingPeriods, closeAccountingPeriod, reopenAccountingPeriod,
 } as const;

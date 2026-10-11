@@ -140,3 +140,16 @@ export const CompanyContact = z.object({
   state: z.string().nullable(),
   postalCode: z.string().nullable(),
 });
+
+/**
+ * A record sent to QuickBooks or Xero and deleted there since (M14). Nothing
+ * is re-sent or reversed by itself: `linkId` is what the retry on the
+ * accounting problems list takes, and `taskId` the task the bookkeeper was
+ * given when the sync noticed.
+ */
+export const DeletedInBooks = z.object({
+  linkId: Uuid,
+  books: z.string(),
+  noticedAt: z.string().datetime(),
+  taskId: Uuid.nullable(),
+});

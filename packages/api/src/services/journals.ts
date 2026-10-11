@@ -8,6 +8,7 @@ import {
 } from "./context";
 import { writePosting } from "./ledger";
 import { nextNumber } from "./jobs";
+import { deletedInBooks, type DeletedInBooks } from "./accounting-deletions";
 
 /**
  * M14. MANUAL JOURNAL ENTRIES
@@ -58,8 +59,9 @@ import { nextNumber } from "./jobs";
  * is in its costs the same day). Each is checked to be THIS company's before
  * anything is written, naming the line: a foreign key alone would accept
  * another company's job, because a foreign key is not row level security.
- * Nothing is sent to the books about them: QuickBooks and Xero are sent each
- * line's account and amount, as before.
+ * They go to the books too where the books have a place for them: a line's
+ * branch as its QuickBooks class or Xero tracking option, once the branch is
+ * mapped, and its customer on a QuickBooks line (M14).
  */
 
 export interface JournalView {
@@ -76,6 +78,11 @@ export interface JournalView {
   createdByUserId: string | null;
   createdAt: string;
   lines: JournalLineView[];
+  /**
+   * Set when the entry was sent to the books and deleted there since. Nothing
+   * is re-sent or reversed by itself; the screen says so beside the entry.
+   */
+  deletedInBooks: DeletedInBooks | null;
 }
 
 export interface JournalLineView {
@@ -104,6 +111,7 @@ async function views(tx: Database, ctx: ServiceContext, rows: (typeof schema.jou
   }).from(schema.journalEntry).where(inArray(schema.journalEntry.reversesJournalId, ids));
   const originals = rows.map((r) => r.reversesJournalId).filter((x): x is string => !!x);
   const names = await aboutNames(tx, ctx, entries);
+  const deleted = await deletedInBooks(tx, ["journal"], ids);
   const reversed = originals.length
     ? await tx.select({ id: schema.journalEntry.id, number: schema.journalEntry.number })
       .from(schema.journalEntry).where(inArray(schema.journalEntry.id, originals))
@@ -132,6 +140,7 @@ async function views(tx: Database, ctx: ServiceContext, rows: (typeof schema.jou
         customerId: e.customerId,
         customerName: e.customerId ? names.customers.get(e.customerId) ?? null : null,
       })),
+      deletedInBooks: deleted.get(r.id) ?? null,
     };
   });
 }

@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { budget as b, money as m } from "@opentradesos/core";
 import {
@@ -20,6 +20,15 @@ import {
  * because nothing can be posted into it.
  *
  * `finance:configure` writes it, `report.financial:read` reads it.
+ *
+ * BY BRANCH, TOO. A line can be one branch's, and the report can be read for
+ * one branch: that branch's own lines against what the ledger put in that
+ * branch (every posting carries the branch of the job or invoice it came
+ * from, M14). The whole company's report is the lines with no branch against
+ * everything, as it always was; a branch's lines are not added into it,
+ * because a company that budgets Revenue for itself and for each shop has
+ * said two things, and adding them would count the money twice. Nothing old
+ * is moved: every line written before this is the company's.
  */
 
 const YEAR = (year: number) => {
@@ -47,35 +56,74 @@ async function budgetFor(tx: Database, organizationId: string, year: number): Pr
   return row!.id;
 }
 
+/** The company's own lines, or one branch's. */
+const ofBranch = (businessUnitId: string | null) => businessUnitId
+  ? eq(schema.budgetLine.businessUnitId, businessUnitId)
+  : isNull(schema.budgetLine.businessUnitId);
+
+/**
+ * A branch a budget is for: the company's own, or refused as not found. A
+ * retired branch can be read, because its year may have actuals in it, and
+ * cannot be given a new budget, because nothing new is put in a branch the
+ * company has put away.
+ */
+async function branchFor(
+  tx: Database, organizationId: string, businessUnitId: string | undefined, writing: boolean,
+): Promise<{ id: string; name: string } | null> {
+  if (!businessUnitId) return null;
+  const [unit] = await tx.select({ id: schema.businessUnit.id, name: schema.businessUnit.name, active: schema.businessUnit.active })
+    .from(schema.businessUnit)
+    .where(and(eq(schema.businessUnit.id, businessUnitId), eq(schema.businessUnit.organizationId, organizationId)))
+    .limit(1);
+  if (!unit) throw new NotFoundError("Branch");
+  if (writing && !unit.active) {
+    throw new UnprocessableError("A retired branch", [{
+      path: "businessUnitId", message: `${unit.name} has been retired, so nothing new is budgeted for it.`,
+    }]);
+  }
+  return { id: unit.id, name: unit.name };
+}
+
 /**
  * Write one line's twelve months. A blank month is no budget for it and is
  * removed, so the screen's grid is the whole truth about the line.
  */
-async function writeLine(tx: Database, organizationId: string, budgetId: string, line: b.LineKey, amounts: (string | null)[]) {
+async function writeLine(
+  tx: Database, organizationId: string, budgetId: string, businessUnitId: string | null, line: b.LineKey, amounts: (string | null)[],
+) {
   for (let month = 1; month <= 12; month += 1) {
     const raw = amounts[month - 1]?.trim() ?? "";
     if (raw === "") {
       await tx.delete(schema.budgetLine).where(and(
-        eq(schema.budgetLine.budgetId, budgetId), eq(schema.budgetLine.line, line), eq(schema.budgetLine.month, month),
+        eq(schema.budgetLine.budgetId, budgetId), ofBranch(businessUnitId),
+        eq(schema.budgetLine.line, line), eq(schema.budgetLine.month, month),
       ));
       continue;
     }
     const amount = m.toString(m.money(raw.replace(/[$,\s]/g, "")));
-    await tx.insert(schema.budgetLine).values({ organizationId, budgetId, line, month, amount })
-      .onConflictDoUpdate({
-        target: [schema.budgetLine.budgetId, schema.budgetLine.line, schema.budgetLine.month],
+    const insert = tx.insert(schema.budgetLine).values({ organizationId, budgetId, businessUnitId, line, month, amount });
+    /** One index for the company's cells and one for a branch's, so the conflict names whichever this is. */
+    await (businessUnitId
+      ? insert.onConflictDoUpdate({
+        target: [schema.budgetLine.budgetId, schema.budgetLine.businessUnitId, schema.budgetLine.line, schema.budgetLine.month],
+        targetWhere: sql`${schema.budgetLine.businessUnitId} is not null`,
         set: { amount, updatedAt: new Date() },
-      });
+      })
+      : insert.onConflictDoUpdate({
+        target: [schema.budgetLine.budgetId, schema.budgetLine.line, schema.budgetLine.month],
+        targetWhere: sql`${schema.budgetLine.businessUnitId} is null`,
+        set: { amount, updatedAt: new Date() },
+      }));
   }
 }
 
 const AMOUNT = /^-?\$?\s*[\d,]*\d(\.\d{1,4})?$/;
 
-/** Set one line of a year's budget, all twelve months at once. */
+/** Set one line of a year's budget, all twelve months at once: the company's, or one branch's. */
 export async function setLine(
   ctx: ServiceContext,
-  input: { year: number; line: string; amounts: (string | null)[] },
-): Promise<{ year: number; line: string; months: number }> {
+  input: { year: number; line: string; amounts: (string | null)[]; businessUnitId?: string | undefined },
+): Promise<{ year: number; line: string; months: number; businessUnitId: string | null }> {
   return guardedWrite(ctx, "finance:configure", async (tx) => {
     const year = YEAR(input.year);
     const line = lineOf(input.line);
@@ -87,22 +135,30 @@ export async function setLine(
         throw new UnprocessableError("Not an amount", [{ path: `amounts.${i}`, message: `"${amount}" is not an amount.` }]);
       }
     });
+    const branch = await branchFor(tx, ctx.actor.organizationId, input.businessUnitId, true);
     const budgetId = await budgetFor(tx, ctx.actor.organizationId, year);
-    await writeLine(tx, ctx.actor.organizationId, budgetId, line, input.amounts);
-    await audit(tx, ctx, "budget.line_set", "budget", budgetId, null, { year, line, amounts: input.amounts });
-    return { year, line, months: input.amounts.filter((a) => a !== null && a.trim() !== "").length };
+    await writeLine(tx, ctx.actor.organizationId, budgetId, branch?.id ?? null, line, input.amounts);
+    await audit(tx, ctx, "budget.line_set", "budget", budgetId, null, {
+      year, line, amounts: input.amounts, ...(branch ? { businessUnitId: branch.id } : {}),
+    });
+    return {
+      year, line, months: input.amounts.filter((a) => a !== null && a.trim() !== "").length, businessUnitId: branch?.id ?? null,
+    };
   });
 }
 
-/** Take a line out of the budget altogether. */
-export async function removeLine(ctx: ServiceContext, input: { year: number; line: string }) {
+/** Take a line out of the budget altogether: the company's, or one branch's. */
+export async function removeLine(ctx: ServiceContext, input: { year: number; line: string; businessUnitId?: string | undefined }) {
   return guardedWrite(ctx, "finance:configure", async (tx) => {
     const line = lineOf(input.line);
+    const branch = await branchFor(tx, ctx.actor.organizationId, input.businessUnitId, false);
     const [row] = await tx.select({ id: schema.budget.id }).from(schema.budget)
       .where(and(eq(schema.budget.organizationId, ctx.actor.organizationId), eq(schema.budget.year, YEAR(input.year)))).limit(1);
     if (!row) throw new NotFoundError("Budget");
-    await tx.delete(schema.budgetLine).where(and(eq(schema.budgetLine.budgetId, row.id), eq(schema.budgetLine.line, line)));
-    await audit(tx, ctx, "budget.line_removed", "budget", row.id, { line }, null);
+    await tx.delete(schema.budgetLine).where(and(
+      eq(schema.budgetLine.budgetId, row.id), ofBranch(branch?.id ?? null), eq(schema.budgetLine.line, line),
+    ));
+    await audit(tx, ctx, "budget.line_removed", "budget", row.id, { line, ...(branch ? { businessUnitId: branch.id } : {}) }, null);
     return { year: input.year, line, removed: true as const };
   });
 }
@@ -113,21 +169,24 @@ export async function removeLine(ctx: ServiceContext, input: { year: number; lin
  * revenue from one sheet and costs from another. Nothing is written unless
  * the whole file reads, and every problem in it is reported at once.
  */
-export async function importCsv(ctx: ServiceContext, input: { year: number; csv: string }) {
+export async function importCsv(ctx: ServiceContext, input: { year: number; csv: string; businessUnitId?: string | undefined }) {
   return guardedWrite(ctx, "finance:configure", async (tx) => {
     const year = YEAR(input.year);
     const parsed = b.parseBudgetCsv(input.csv);
     if (!parsed.ok) {
       throw new UnprocessableError("The file has problems", parsed.problems.map((message) => ({ path: "csv", message })));
     }
+    const branch = await branchFor(tx, ctx.actor.organizationId, input.businessUnitId, true);
     const budgetId = await budgetFor(tx, ctx.actor.organizationId, year);
     const lines = [...new Set(parsed.cells.map((cell) => cell.line))];
     for (const line of lines) {
       const amounts: (string | null)[] = Array.from({ length: 12 }, () => null);
       for (const cell of parsed.cells.filter((x) => x.line === line)) amounts[cell.month - 1] = cell.amount;
-      await writeLine(tx, ctx.actor.organizationId, budgetId, line, amounts);
+      await writeLine(tx, ctx.actor.organizationId, budgetId, branch?.id ?? null, line, amounts);
     }
-    await audit(tx, ctx, "budget.imported", "budget", budgetId, null, { year, lines, cells: parsed.cells.length });
+    await audit(tx, ctx, "budget.imported", "budget", budgetId, null, {
+      year, lines, cells: parsed.cells.length, ...(branch ? { businessUnitId: branch.id } : {}),
+    });
     return { year, lines: lines.length, cells: parsed.cells.length };
   });
 }
@@ -151,6 +210,14 @@ export interface BudgetReport {
   net: { budget: string; actual: string } | null;
   /** Said on the report, because a labour line with no journals behind it reads as a saving. */
   caveat: string;
+  /**
+   * The branch the report is for, and what its actuals cannot include: the
+   * year's ledger entries that carry no branch (payroll, the release of
+   * deferred revenue, a payment spread over two branches, and everything
+   * posted before branches were carried), counted and added up so a branch
+   * that looks under budget can be read for why. Null for the whole company.
+   */
+  branch: { id: string; name: string; entriesWithoutBranch: number; withoutBranchDebits: string } | null;
 }
 
 const CAVEAT =
@@ -165,14 +232,18 @@ const CAVEAT =
  * Months after `through` show the budget and no variance, because a month
  * that has not happened is not under budget.
  */
-export async function report(ctx: ServiceContext, input: { year: number }): Promise<BudgetReport> {
+export async function report(
+  ctx: ServiceContext, input: { year: number; businessUnitId?: string | undefined },
+): Promise<BudgetReport> {
   return guardedRead(ctx, "report.financial:read", async (tx) => {
     const year = YEAR(input.year);
     const tz = await timezoneOf(tx, ctx.actor.organizationId);
+    const branch = await branchFor(tx, ctx.actor.organizationId, input.businessUnitId, false);
     const [budgetRow] = await tx.select().from(schema.budget)
       .where(and(eq(schema.budget.organizationId, ctx.actor.organizationId), eq(schema.budget.year, year))).limit(1);
     const cells = budgetRow
-      ? await tx.select().from(schema.budgetLine).where(eq(schema.budgetLine.budgetId, budgetRow.id))
+      ? await tx.select().from(schema.budgetLine)
+        .where(and(eq(schema.budgetLine.budgetId, budgetRow.id), ofBranch(branch?.id ?? null)))
         .orderBy(asc(schema.budgetLine.line), asc(schema.budgetLine.month))
       : [];
 
@@ -185,8 +256,20 @@ export async function report(ctx: ServiceContext, input: { year: number }): Prom
       from public.ledger_entry le
       where le.organization_id = ${ctx.actor.organizationId}
         and extract(year from le.occurred_at at time zone ${tz}) = ${year}
+        ${branch ? sql`and le.business_unit_id = ${branch.id}` : sql``}
       group by le.account_code, 2
     `);
+    /** What a branch's actuals cannot hold: the year's entries that carry no branch at all. */
+    const [unbranched] = branch
+      ? await tx.execute<{ entries: number; debits: string }>(sql`
+        select count(*)::int as entries,
+               coalesce(sum(case when le.direction = 'debit' then le.amount end), 0)::numeric(14,4)::text as debits
+        from public.ledger_entry le
+        where le.organization_id = ${ctx.actor.organizationId}
+          and extract(year from le.occurred_at at time zone ${tz}) = ${year}
+          and le.business_unit_id is null
+      `)
+      : [];
     const byMonth = new Map<number, Map<string, b.AccountSums>>();
     for (const row of sums) {
       const month = Number(row.month);
@@ -251,7 +334,15 @@ export async function report(ctx: ServiceContext, input: { year: number }): Prom
       }, { budget: "0", actual: "0" })
       : null;
 
-    return { year, through, lines, net, caveat: CAVEAT };
+    return {
+      year, through, lines, net, caveat: CAVEAT,
+      branch: branch
+        ? {
+          id: branch.id, name: branch.name,
+          entriesWithoutBranch: Number(unbranched?.entries ?? 0), withoutBranchDebits: unbranched?.debits ?? "0.0000",
+        }
+        : null,
+    };
   });
 }
 
@@ -260,9 +351,11 @@ function order(key: b.LineKey): number {
   return 10 + Number(key.slice(8));
 }
 
+type Branch = { businessUnitId?: string | undefined };
+
 export const handlers = {
-  getBudgetReport: (ctx: ServiceContext, input: { year: number }) => report(ctx, input),
-  setBudgetLine: (ctx: ServiceContext, input: { year: number; line: string; amounts: (string | null)[] }) => setLine(ctx, input),
-  removeBudgetLine: (ctx: ServiceContext, input: { year: number; line: string }) => removeLine(ctx, input),
-  importBudget: (ctx: ServiceContext, input: { year: number; csv: string }) => importCsv(ctx, input),
+  getBudgetReport: (ctx: ServiceContext, input: { year: number } & Branch) => report(ctx, input),
+  setBudgetLine: (ctx: ServiceContext, input: { year: number; line: string; amounts: (string | null)[] } & Branch) => setLine(ctx, input),
+  removeBudgetLine: (ctx: ServiceContext, input: { year: number; line: string } & Branch) => removeLine(ctx, input),
+  importBudget: (ctx: ServiceContext, input: { year: number; csv: string } & Branch) => importCsv(ctx, input),
 } as const;

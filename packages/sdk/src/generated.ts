@@ -626,6 +626,12 @@ export interface ApplyCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
   payouts: Array<{
     id: string;
@@ -2701,6 +2707,12 @@ export interface CreateCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
   payouts: Array<{
     id: string;
@@ -3319,6 +3331,12 @@ export interface CreateJournalEntryOutput {
     customerId: string | null;
     customerName: string | null;
   }>;
+  deletedInBooks: {
+    linkId: string;
+    books: string;
+    noticedAt: string;
+    taskId: string | null;
+  } | null;
 }
 
 export interface CreateKnowledgeNoteInput {
@@ -6247,6 +6265,12 @@ export interface GetBudgetReportOutput {
     actual: string;
   } | null;
   caveat: string;
+  branch: {
+    id: string;
+    name: string;
+    entriesWithoutBranch: number;
+    withoutBranchDebits: string;
+  } | null;
 }
 
 export interface GetCallAssistantOutput {
@@ -6632,6 +6656,12 @@ export interface GetCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
   payouts: Array<{
     id: string;
@@ -8371,6 +8401,12 @@ export interface GetJournalEntryOutput {
     customerId: string | null;
     customerName: string | null;
   }>;
+  deletedInBooks: {
+    linkId: string;
+    books: string;
+    noticedAt: string;
+    taskId: string | null;
+  } | null;
 }
 
 export interface GetKpiRecordsOutput {
@@ -10994,6 +11030,7 @@ export interface HandOverOnCallOutput {
 
 export interface ImportBudgetInput {
   csv: string;
+  businessUnitId?: string;
 }
 
 export interface ImportBudgetOutput {
@@ -11170,6 +11207,12 @@ export interface IssueCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
   payouts: Array<{
     id: string;
@@ -11356,6 +11399,30 @@ export interface ListAccountingAccountsOutput {
     kind: string;
     classification: "income" | "expense" | "asset" | "liability" | "equity" | "other";
     number: string | null;
+    active: boolean;
+  }>;
+  error: string | null;
+}
+
+export interface ListAccountingBranchMappingsOutput {
+  mappings: Array<{
+    businessUnitId: string;
+    branchName: string;
+    externalId: string;
+    externalName: string;
+    groupId: string | null;
+    groupName: string | null;
+  }>;
+}
+
+export interface ListAccountingBranchOptionsOutput {
+  blocked: string | null;
+  retryAfterSeconds: number | null;
+  options: Array<{
+    externalId: string;
+    name: string;
+    groupId: string | null;
+    groupName: string | null;
     active: boolean;
   }>;
   error: string | null;
@@ -12374,6 +12441,12 @@ export interface ListCreditNotesOutput {
       invoiceNumber: number;
       amount: string;
       appliedOn: string | null;
+      deletedInBooks: {
+        linkId: string;
+        books: string;
+        noticedAt: string;
+        taskId: string | null;
+      } | null;
     }>;
     payouts: Array<{
       id: string;
@@ -13394,6 +13467,12 @@ export interface ListJournalEntriesOutput {
       customerId: string | null;
       customerName: string | null;
     }>;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
 }
 
@@ -16472,6 +16551,12 @@ export interface PayOutCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
   payouts: Array<{
     id: string;
@@ -18445,7 +18530,16 @@ export interface ReleaseStockOutput {
   }>;
 }
 
-export type RemoveBudgetLineInput = Record<string, unknown>;
+export type RemoveAccountingBranchMappingInput = Record<string, unknown>;
+
+export interface RemoveAccountingBranchMappingOutput {
+  businessUnitId: string;
+  removed: true;
+}
+
+export interface RemoveBudgetLineInput {
+  businessUnitId?: string;
+}
 
 export interface RemoveBudgetLineOutput {
   year: number;
@@ -19521,6 +19615,12 @@ export interface ReverseJournalEntryOutput {
     customerId: string | null;
     customerName: string | null;
   }>;
+  deletedInBooks: {
+    linkId: string;
+    books: string;
+    noticedAt: string;
+    taskId: string | null;
+  } | null;
 }
 
 export type ReversePriceChangeInput = Record<string, unknown>;
@@ -20435,6 +20535,23 @@ export interface SetAccountMappingOutput {
   externalKind: string;
 }
 
+export interface SetAccountingBranchMappingInput {
+  businessUnitId: string;
+  externalId: string;
+  externalName: string;
+  groupId?: string;
+  groupName?: string;
+}
+
+export interface SetAccountingBranchMappingOutput {
+  businessUnitId: string;
+  branchName: string;
+  externalId: string;
+  externalName: string;
+  groupId: string | null;
+  groupName: string | null;
+}
+
 export interface SetAfterHoursRatesInput {
   afterHoursItemId: string | null;
   holidayItemId: string | null;
@@ -20542,12 +20659,14 @@ export interface SetBranchNumberingOutput {
 export interface SetBudgetLineInput {
   line: string;
   amounts: Array<string | null>;
+  businessUnitId?: string;
 }
 
 export interface SetBudgetLineOutput {
   year: number;
   line: string;
   months: number;
+  businessUnitId: string | null;
 }
 
 export interface SetBusinessHoursInput {
@@ -24849,6 +24968,12 @@ export interface VoidCreditNoteOutput {
     invoiceNumber: number;
     amount: string;
     appliedOn: string | null;
+    deletedInBooks: {
+      linkId: string;
+      books: string;
+      noticedAt: string;
+      taskId: string | null;
+    } | null;
   }>;
   payouts: Array<{
     id: string;
@@ -25720,6 +25845,7 @@ export type GetBranchOverviewInput = Record<string, never>;
 
 export interface GetBudgetReportInput {
   year: number;
+  businessUnitId?: string;
 }
 
 export interface GetCallInput {
@@ -26352,6 +26478,10 @@ export interface LinkCustomerToPropertyParams {
 export type ListAccountMappingsInput = Record<string, never>;
 
 export type ListAccountingAccountsInput = Record<string, never>;
+
+export type ListAccountingBranchMappingsInput = Record<string, never>;
+
+export type ListAccountingBranchOptionsInput = Record<string, never>;
 
 export type ListAccountingPeriodsInput = Record<string, never>;
 
@@ -27570,6 +27700,10 @@ export interface ReleasePhoneNumberParams {
 
 export interface ReleaseRetentionHoldParams {
   id: string;
+}
+
+export interface RemoveAccountingBranchMappingParams {
+  businessUnitId: string;
 }
 
 export interface RemoveBudgetLineParams {
@@ -28867,6 +29001,8 @@ export interface OperationTypes {
   linkCustomerToProperty: { input: LinkCustomerToPropertyParams & LinkCustomerToPropertyInput; output: LinkCustomerToPropertyOutput };
   listAccountMappings: { input: ListAccountMappingsInput; output: ListAccountMappingsOutput };
   listAccountingAccounts: { input: ListAccountingAccountsInput; output: ListAccountingAccountsOutput };
+  listAccountingBranchMappings: { input: ListAccountingBranchMappingsInput; output: ListAccountingBranchMappingsOutput };
+  listAccountingBranchOptions: { input: ListAccountingBranchOptionsInput; output: ListAccountingBranchOptionsOutput };
   listAccountingPeriods: { input: ListAccountingPeriodsInput; output: ListAccountingPeriodsOutput };
   listAccountingProblems: { input: ListAccountingProblemsInput; output: ListAccountingProblemsOutput };
   listAccountingRuns: { input: ListAccountingRunsInput; output: ListAccountingRunsOutput };
@@ -29197,6 +29333,7 @@ export interface OperationTypes {
   releasePhoneNumber: { input: ReleasePhoneNumberParams & ReleasePhoneNumberInput; output: ReleasePhoneNumberOutput };
   releaseRetentionHold: { input: ReleaseRetentionHoldParams & ReleaseRetentionHoldInput; output: ReleaseRetentionHoldOutput };
   releaseStock: { input: ReleaseStockInput; output: ReleaseStockOutput };
+  removeAccountingBranchMapping: { input: RemoveAccountingBranchMappingParams & RemoveAccountingBranchMappingInput; output: RemoveAccountingBranchMappingOutput };
   removeBudgetLine: { input: RemoveBudgetLineParams & RemoveBudgetLineInput; output: RemoveBudgetLineOutput };
   removeChangeOrderLine: { input: RemoveChangeOrderLineParams & RemoveChangeOrderLineInput; output: RemoveChangeOrderLineOutput };
   removeContact: { input: RemoveContactParams & RemoveContactInput; output: RemoveContactOutput };
@@ -29302,6 +29439,7 @@ export interface OperationTypes {
   sendQueuedEmail: { input: SendQueuedEmailInput; output: SendQueuedEmailOutput };
   sendReportScheduleNow: { input: SendReportScheduleNowParams & SendReportScheduleNowInput; output: SendReportScheduleNowOutput };
   setAccountMapping: { input: SetAccountMappingInput; output: SetAccountMappingOutput };
+  setAccountingBranchMapping: { input: SetAccountingBranchMappingInput; output: SetAccountingBranchMappingOutput };
   setAfterHoursRates: { input: SetAfterHoursRatesInput; output: SetAfterHoursRatesOutput };
   setAiSpendLimit: { input: SetAiSpendLimitInput; output: SetAiSpendLimitOutput };
   setAnsweringPhone: { input: SetAnsweringPhoneParams & SetAnsweringPhoneInput; output: SetAnsweringPhoneOutput };
@@ -29754,7 +29892,7 @@ export const OPERATIONS = {
   getBackupDestination: { method: "GET", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getBranchNumbering: { method: "GET", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
-  getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
+  getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: ["businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getCall: { method: "GET", path: "/v1/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallAssistant: { method: "GET", path: "/v1/calls/{id}/assistant", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -29922,6 +30060,8 @@ export const OPERATIONS = {
   linkCustomerToProperty: { method: "POST", path: "/v1/properties/{id}/customers", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   listAccountMappings: { method: "GET", path: "/v1/accounting/mappings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   listAccountingAccounts: { method: "GET", path: "/v1/accounting/accounts", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
+  listAccountingBranchMappings: { method: "GET", path: "/v1/accounting/branch-mappings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
+  listAccountingBranchOptions: { method: "GET", path: "/v1/accounting/branch-options", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   listAccountingPeriods: { method: "GET", path: "/v1/accounting/periods", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   listAccountingProblems: { method: "GET", path: "/v1/accounting/problems", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   listAccountingRuns: { method: "GET", path: "/v1/accounting/runs", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
@@ -30252,6 +30392,7 @@ export const OPERATIONS = {
   releasePhoneNumber: { method: "POST", path: "/v1/marketing/tracking-numbers/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   releaseRetentionHold: { method: "POST", path: "/v1/compliance/retention/holds/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   releaseStock: { method: "POST", path: "/v1/stock/releases", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  removeAccountingBranchMapping: { method: "DELETE", path: "/v1/accounting/branch-mappings/{businessUnitId}", pathParams: ["businessUnitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   removeBudgetLine: { method: "DELETE", path: "/v1/budgets/{year}/lines/{line}", pathParams: ["year","line"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeChangeOrderLine: { method: "DELETE", path: "/v1/project-change-orders/{changeOrderId}/lines/{lineId}", pathParams: ["changeOrderId","lineId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   removeContact: { method: "POST", path: "/v1/contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
@@ -30357,6 +30498,7 @@ export const OPERATIONS = {
   sendQueuedEmail: { method: "POST", path: "/v1/email/send-queued", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendReportScheduleNow: { method: "POST", path: "/v1/report-schedules/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   setAccountMapping: { method: "PUT", path: "/v1/accounting/mappings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
+  setAccountingBranchMapping: { method: "PUT", path: "/v1/accounting/branch-mappings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   setAfterHoursRates: { method: "PUT", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setAiSpendLimit: { method: "PUT", path: "/v1/ai/spend-limit", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   setAnsweringPhone: { method: "PUT", path: "/v1/answering-phones/{userId}", pathParams: ["userId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -34326,6 +34468,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Which branches go to the books as which class or tracking option.
+   *
+   * GET /v1/accounting/branch-mappings. Needs accounting:sync.
+   */
+  listAccountingBranchMappings(input: ListAccountingBranchMappingsInput = {} as ListAccountingBranchMappingsInput, options?: CallOptions): Promise<ListAccountingBranchMappingsOutput> {
+    return this.call("listAccountingBranchMappings", input, options);
+  }
+
+  /**
+   * The classes or tracking options a branch can be mapped onto.
+   *
+   * GET /v1/accounting/branch-options. Needs accounting:sync.
+   */
+  listAccountingBranchOptions(input: ListAccountingBranchOptionsInput = {} as ListAccountingBranchOptionsInput, options?: CallOptions): Promise<ListAccountingBranchOptionsOutput> {
+    return this.call("listAccountingBranchOptions", input, options);
+  }
+
+  /**
    * Which periods are closed.
    *
    * GET /v1/accounting/periods. Needs accounting:sync.
@@ -37296,6 +37456,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Stop sending a branch to the books.
+   *
+   * DELETE /v1/accounting/branch-mappings/{businessUnitId}. Needs accounting:sync.
+   */
+  removeAccountingBranchMapping(input: RemoveAccountingBranchMappingParams & RemoveAccountingBranchMappingInput, options?: CallOptions): Promise<RemoveAccountingBranchMappingOutput> {
+    return this.call("removeAccountingBranchMapping", input, options);
+  }
+
+  /**
    * Take a line out of the year's budget.
    *
    * DELETE /v1/budgets/{year}/lines/{line}. Needs finance:configure.
@@ -38238,6 +38407,15 @@ export abstract class GeneratedOperations {
    */
   setAccountMapping(input: SetAccountMappingInput, options?: CallOptions): Promise<SetAccountMappingOutput> {
     return this.call("setAccountMapping", input, options);
+  }
+
+  /**
+   * Send one branch to the books as a class or tracking option.
+   *
+   * PUT /v1/accounting/branch-mappings. Needs accounting:sync.
+   */
+  setAccountingBranchMapping(input: SetAccountingBranchMappingInput, options?: CallOptions): Promise<SetAccountingBranchMappingOutput> {
+    return this.call("setAccountingBranchMapping", input, options);
   }
 
   /**
