@@ -11,6 +11,7 @@ import { label, tone } from "@/lib/labels";
 import { formatDay, formatIn, todayIn } from "@/lib/dates";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE } from "../labels";
 import { actOnCreditNote } from "../actions";
+import { DeletedInBooks } from "@/components/DeletedInBooks";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +129,12 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
               </tr>
             ))}
           </Table>
+          {note.applications.filter((a) => a.deletedInBooks).map((a) => (
+            <DeletedInBooks key={`books-${a.id}`} flag={a.deletedInBooks!}
+                            what={`The use of this credit on invoice ${a.invoiceNumber}`}
+                            path={`/invoices/credit-notes/${note.id}`} timezone={tz}
+                            canSend={can(user.actor, "accounting:sync")} />
+          ))}
         </section>
       )}
 

@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { budgets } from "@opentradesos/api/services";
+import { branches, budgets } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
@@ -26,6 +26,11 @@ function Verdict({ favourable, children }: { favourable: boolean | null; childre
  * The year's budget beside what the ledger says happened, by line and month,
  * with how far off each is and whether that is good. Entered here a line at a
  * time, or loaded from a spreadsheet.
+ *
+ * For the whole company or one branch. A branch's budget is its own lines
+ * against what the ledger put in that branch, and the page says how much of
+ * the year's ledger carries no branch, because a branch that looks under
+ * budget may only be missing the postings nobody could trace to it.
  */
 export default async function BudgetPage(
   { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
@@ -45,21 +50,57 @@ export default async function BudgetPage(
     );
   }
 
-  const report = await budgets.report({ actor: user.actor, db: getDb() }, { year });
+  const ctx = { actor: user.actor, db: getDb() };
+  /** The branch choice is offered only to somebody who may list branches, and only when there are some. */
+  const options = (["job:read", "customer:read", "invoice:read", "estimate:read", "report:read"] as const).some((p) => can(user.actor, p))
+    ? (await branches.options(ctx)).branches
+    : [];
+  const picked = typeof query["branch"] === "string" ? query["branch"] : "";
+  const businessUnitId = options.some((b) => b.id === picked) ? picked : "";
+  const report = await budgets.report(ctx, { year, ...(businessUnitId ? { businessUnitId } : {}) });
   const writes = can(user.actor, "finance:configure");
+  const branchHidden: Record<string, string> = businessUnitId ? { businessUnitId } : {};
+  const here = (y: number) => `/books/budget?year=${y}${businessUnitId ? `&branch=${businessUnitId}` : ""}`;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
-      <PageHeader title={`Budget ${year}`} action={
+      <PageHeader title={`Budget ${year}${report.branch ? `, ${report.branch.name}` : ""}`} action={
         <nav aria-label="Year" className="flex gap-3 text-sm">
-          <a href={`/books/budget?year=${year - 1}`} className="underline underline-offset-4">{year - 1}</a>
-          <a href={`/books/budget?year=${year + 1}`} className="underline underline-offset-4">{year + 1}</a>
+          <a href={here(year - 1)} className="underline underline-offset-4">{year - 1}</a>
+          <a href={here(year + 1)} className="underline underline-offset-4">{year + 1}</a>
         </nav>
       } />
+      {options.length > 0 ? (
+        <form method="get" action="/books/budget" className="mt-4 flex flex-wrap items-end gap-3">
+          <input type="hidden" name="year" value={String(year)} />
+          <label className="text-sm">
+            <span className="block text-ink-700">Branch</span>
+            <select name="branch" defaultValue={businessUnitId} className="mt-1 h-9 rounded border border-steel-300 bg-canvas px-2">
+              <option value="">The whole company</option>
+              {options.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
+          <button type="submit" className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+            Show
+          </button>
+        </form>
+      ) : null}
       <p className="mt-2 max-w-3xl text-sm text-ink-700">{report.caveat}</p>
+      {report.branch ? (
+        <p className="mt-2 max-w-3xl text-sm text-ink-700" data-testid="budget-branch-coverage">
+          This is {report.branch.name}&apos;s own budget against what the books put in {report.branch.name}. In {year},{" "}
+          {report.branch.entriesWithoutBranch} ledger {report.branch.entriesWithoutBranch === 1 ? "entry carries" : "entries carry"} no
+          branch (debits of <Money value={report.branch.withoutBranchDebits} />): payroll, payments spread over two branches and
+          anything from before branches were recorded. None of that is in these figures.
+        </p>
+      ) : options.length > 0 ? (
+        <p className="mt-2 max-w-3xl text-sm text-ink-700">
+          The whole company&apos;s budget is the lines set for the company. A branch&apos;s lines are its own and are not added in here.
+        </p>
+      ) : null}
 
       {report.lines.length === 0 ? (
-        <Empty title={`No budget for ${year} yet`}>Add a line below, or load the year from a spreadsheet.</Empty>
+        <Empty title={`No budget for ${year}${report.branch ? ` for ${report.branch.name}` : ""} yet`}>Add a line below, or load the year from a spreadsheet.</Empty>
       ) : (
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[60rem] text-sm" aria-label={`Budget against actual, ${year}`}>
@@ -113,7 +154,7 @@ export default async function BudgetPage(
               Revenue, Materials, Labour, Overhead, or an account number such as 6100. Setting a line again replaces
               all twelve months; leave a month empty for no budget in it.
             </p>
-            <ActionForm action={saveBudgetLine} submit="Save line" hidden={{ year: String(year) }} className="mt-3 space-y-3">
+            <ActionForm action={saveBudgetLine} submit="Save line" hidden={{ year: String(year), ...branchHidden }} className="mt-3 space-y-3">
               <TextField label="Line" name="line" placeholder="Revenue" required className="block max-w-xs" />
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-12">
                 {MONTHS.map((m, i) => (
@@ -126,7 +167,7 @@ export default async function BudgetPage(
                 <summary className="cursor-pointer text-sm font-medium">Change a line already in the budget</summary>
                 {report.lines.map((line) => (
                   <ActionForm key={line.line} action={saveBudgetLine} submit={`Save ${line.label}`}
-                              hidden={{ year: String(year), line: line.line }} className="mt-3 space-y-2">
+                              hidden={{ year: String(year), line: line.line, ...branchHidden }} className="mt-3 space-y-2">
                     <p className="text-sm font-medium">{line.label}</p>
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-12">
                       {line.months.map((month) => (
@@ -146,7 +187,7 @@ export default async function BudgetPage(
               A CSV with a header row of months and one row per line: <code className="text-xs">Line,Jan,Feb,...,Dec</code>.
               Each line in the file replaces that line; lines not in it are kept. Nothing is loaded unless the whole file reads.
             </p>
-            <ActionForm action={importBudgetFile} submit="Load the budget" hidden={{ year: String(year) }} className="mt-3 space-y-3">
+            <ActionForm action={importBudgetFile} submit="Load the budget" hidden={{ year: String(year), ...branchHidden }} className="mt-3 space-y-3">
               <label className="block text-sm">
                 <span className="font-medium text-ink-700">File</span>
                 <input type="file" name="file" accept=".csv,text/csv" className="mt-1 block text-sm" />

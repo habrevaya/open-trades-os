@@ -8,6 +8,7 @@ import { ActionForm, TextField } from "@/components/ActionForm";
 import { formatDay, formatIn } from "@/lib/dates";
 import { postJournal, reverseJournal } from "./actions";
 import { JOURNAL_ROWS } from "./rows";
+import { DeletedInBooks } from "@/components/DeletedInBooks";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +119,7 @@ export default async function BooksPage() {
       ) : (
         <ul className="mt-6 space-y-4">
           {entries.map((entry) => (
-            <li key={entry.id} className="rounded-md border border-steel-200 p-4">
+            <li key={entry.id} id={`journal-${entry.id}`} className="rounded-md border border-steel-200 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-3">
                 <p className="font-medium">
                   Journal <span className="font-mono tabular-nums">{entry.number}</span>, {formatDay(entry.occurredOn, tz)}
@@ -154,6 +155,10 @@ export default async function BooksPage() {
                   ))}
                 </tbody>
               </table>
+              {entry.deletedInBooks ? (
+                <DeletedInBooks flag={entry.deletedInBooks} what={`Journal ${entry.number}`} path="/books"
+                                timezone={tz} canSend={can(user.actor, "accounting:sync")} />
+              ) : null}
               {posts && entry.reversesJournalId === null && entry.reversedByJournalId === null ? (
                 <ActionForm action={reverseJournal} submit="Reverse it" tone="quiet" hidden={{ id: entry.id }} className="mt-2 flex items-center gap-3" />
               ) : null}
