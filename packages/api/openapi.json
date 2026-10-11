@@ -59247,8 +59247,8 @@
       ],
       "get": {
         "operationId": "getJobRateOffers",
-        "summary": "The after hours or holiday rate to offer on this job's invoice",
-        "description": "One offer per item: the holiday rate for each visit booked on a date in the holiday list, and the after hours rate for each visit booked outside the hours kept that day, by the start of the window it was booked into. Cancelled visits are not counted, and an item already on another of the job's invoices that was not voided is not offered again (`exceptInvoiceId` is the draft being edited). Empty when no rates are chosen. Nothing is added to an invoice by this.\n\nRequires a session holding: job:read.",
+        "summary": "The after hours or holiday rate to offer on this job's invoice or estimate",
+        "description": "One offer per item: the holiday rate for each visit booked on a date in the holiday list, and the after hours rate for each visit booked outside the hours kept that day, by the start of the window it was booked into. Cancelled visits are not counted, and an item already on another of the job's invoices that was not voided is not offered again (`exceptInvoiceId` is the draft being edited). `for` says what the offer is for, `invoice` by default: an invoice does not offer what an approved estimate for the job already carries, and an estimate (`for=estimate`) does not offer what another live estimate for the job carries (`exceptEstimateId` is the one being revised). Empty when no rates are chosen. Nothing is added to an invoice or an estimate by this.\n\nRequires a session holding: job:read.",
         "tags": [
           "M13"
         ],
@@ -59263,7 +59263,28 @@
             }
           },
           {
+            "name": "for",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "invoice",
+                "estimate"
+              ]
+            }
+          },
+          {
             "name": "exceptInvoiceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "exceptEstimateId",
             "in": "query",
             "required": false,
             "schema": {
@@ -59274,7 +59295,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The after hours or holiday rate to offer on this job's invoice",
+            "description": "The after hours or holiday rate to offer on this job's invoice or estimate",
             "content": {
               "application/json": {
                 "schema": {
@@ -174725,6 +174746,91 @@
                     ]
                   }
                 },
+                "rateOffers": {
+                  "type": "object",
+                  "properties": {
+                    "forEstimate": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "after_hours",
+                              "holiday"
+                            ]
+                          },
+                          "itemId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "integer"
+                          },
+                          "because": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "itemId",
+                          "name",
+                          "quantity",
+                          "because"
+                        ]
+                      }
+                    },
+                    "forInvoice": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "after_hours",
+                              "holiday"
+                            ]
+                          },
+                          "itemId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "integer"
+                          },
+                          "because": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "itemId",
+                          "name",
+                          "quantity",
+                          "because"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "forEstimate",
+                    "forInvoice"
+                  ]
+                },
                 "invoices": {
                   "type": "array",
                   "items": {
@@ -174827,6 +174933,7 @@
                 "tax",
                 "estimates",
                 "billable",
+                "rateOffers",
                 "invoices"
               ]
             }

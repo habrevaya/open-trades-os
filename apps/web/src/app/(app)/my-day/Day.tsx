@@ -555,7 +555,7 @@ export function Day({
                       <Ask onAsk={(question) => askAssistant({ question, visitId: v.id })} />
                     )}
                     <SellPanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />
-                    <InvoicePanel visit={projectedVisit(v.id)!} abilities={can} handlers={sellHandlers(v.id)} />
+                    <InvoicePanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />
                   </>
                 ) : null}
                 cashTip={projectedVisit(v.id) ? (

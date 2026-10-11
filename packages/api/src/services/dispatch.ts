@@ -1034,6 +1034,11 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
   const [row] = await tx.execute(sql`
     select coalesce(extract(epoch from greatest(
       (select max(updated_at) from public.visit where id in ${visits}),
+      -- The after hours offer reads every visit on the job and the company's hours, holidays and chosen rates.
+      (select max(updated_at) from public.visit where job_id in ${jobs}),
+      (select max(updated_at) from public.business_hours),
+      (select max(updated_at) from public.company_holiday),
+      (select max(updated_at) from public.after_hours_rate),
       (select max(updated_at) from public.invoice where job_id in ${jobs}),
       (select max(updated_at) from public.estimate where job_id in ${jobs} or customer_id in ${customers}),
       (select max(updated_at) from public.job_line where job_id in ${jobs}),
@@ -1057,6 +1062,9 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
     + (select count(*) from public.job_line where job_id in ${jobs})
     + (select count(*) from public.task where status in ('open', 'in_progress'))
     + (select count(*) from public.visit where id in ${visits})
+    + (select count(*) from public.visit where job_id in ${jobs})
+    + (select count(*) from public.business_hours)
+    + (select count(*) from public.company_holiday)
     + (select count(*) from public.job_line where visit_id in ${visits})
     + (select count(*) from public.service_report_field f
          join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}) as revision

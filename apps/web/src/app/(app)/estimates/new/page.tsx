@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agreements, customers, priceBook, properties, NotFoundError } from "@opentradesos/api/services";
+import { afterHours, agreements, customers, priceBook, properties, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { EstimateComposer } from "../Composer";
@@ -42,6 +42,17 @@ export default async function NewEstimatePage({
       .sort((a, b) => a.name.localeCompare(b.name))
     : [];
 
+  /**
+   * The after hours or holiday rate, when one of the job's visits was booked
+   * outside the hours or on a holiday. Offered with why, never added.
+   */
+  const offers = job && can(user.actor, "pricebook:read") && can(user.actor, "job:read")
+    ? await afterHours.offersForJob(ctx, { jobId: job, for: "estimate" }).catch((error: unknown) => {
+      if (error instanceof NotFoundError) return [];
+      throw error;
+    })
+    : [];
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <Crumb href={`/customers/${customerId}`}>{customer.name}</Crumb>
@@ -69,7 +80,9 @@ export default async function NewEstimatePage({
           hidden={{ customerId, ...(job ? { jobId: job } : {}) }}
           properties={addresses.map((p) => ({ id: p.id, label: [p.addressLine1, p.city].filter(Boolean).join(", ") }))}
           defaultPropertyId={property}
-          items={items}
+          items={[...items, ...offers.map((o) => ({ id: o.item.id, name: o.item.name, price: o.item.price }))
+            .filter((o) => !items.some((i) => i.id === o.id))].sort((a, b) => a.name.localeCompare(b.name))}
+          offers={offers}
         />
       )}
     </div>

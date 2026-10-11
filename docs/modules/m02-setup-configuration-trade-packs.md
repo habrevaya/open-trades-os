@@ -276,11 +276,34 @@ the choice with `pricebook:read` and `PUT /v1/after-hours-rates` sets it with
 
 The rate is offered, never added. When a job's visit was booked (by the start of
 the window it was booked into) on a date in the holiday list, or outside the hours
-kept that day, the new invoice for that job and the draft being edited show the
-item, how many visits it is for, and one sentence per visit ("2026-10-06 at 19:00,
-after the 17:00 close"), with a button that puts it on as a line from the price
-book. `GET /v1/jobs/{id}/rate-offers` is the same offer. An item already on
-another of the job's invoices that was not voided is not offered again.
+kept that day, the rate is offered in four places, each with the item, how many
+visits it is for, and one sentence per visit ("2026-10-06 at 19:00, after the 17:00
+close"), and each with a button that puts it on as a line from the price book:
+
+- The office's new invoice for the job, and the draft being edited.
+- The office's new estimate for the job (`/estimates/new?job=...`, reached from "Write
+  an estimate for this job" on the job's page), where the button puts it on every
+  option, because the call out is for the visit and is owed whichever option the
+  customer chooses.
+- The phone's estimate builder and `/my-day`'s, from the day the phone carries, so it
+  works with no signal. The phone prices it from the price book it holds, and a member
+  whose plan waives the after hours rate is shown it waived.
+- The phone's and `/my-day`'s invoice for the work recorded on the visit (M11), where
+  "Add" puts it on the invoice and the figure the customer signs includes it. The
+  server checks it is still on offer when the invoice lands. If it is not (the office
+  billed it meanwhile, or an approved estimate carries it), the invoice is refused in
+  words rather than charging the customer twice, and the work stays unbilled for the
+  office. An invoice made from the option the customer signed for does not offer it,
+  because that estimate was where it was offered.
+
+`GET /v1/jobs/{id}/rate-offers` is the same offer for another client (`for=estimate`
+for an estimate, the default is an invoice). An item already on another of the job's
+invoices that was not voided is not offered again, on an invoice or an estimate. An
+invoice does not offer what an approved estimate for the job carries, because that
+estimate is what will be billed, and an estimate does not offer what another live
+estimate for the job carries (draft, sent, viewed or approved), because the office is
+more likely revising it than charging twice; the item can still be added by hand from
+the price book.
 
 ### Divide the company up
 
@@ -361,12 +384,11 @@ the week's hours a branch has (`business_hours` carries a business unit) are not
 read per branch by the holiday list's readers either. A holiday that moves is
 entered each year; nothing works out the fourth Thursday of November. The route
 density figures (M09) read the week's hours for a weekday, not a date, so a
-holiday does not change them. Task escalation counts hours, not working hours
-(M34), so a holiday does not pause it.
+holiday does not change them. Task escalation counts clock hours unless a rule is set to
+count working hours (M34), in which case it reads this week and this holiday list.
 
-The after hours rate is offered on the office's invoice screens only: an invoice
-raised on the phone from the visit's work (M11) does not offer it, and neither does
-an estimate. Whether a visit was after hours is read from the window it was booked
+The after hours rate is offered on an invoice or an estimate for a job, never on one
+with no job, and never on an invoice made from an option the customer signed for. Whether a visit was after hours is read from the window it was booked
 into, not from when the technician arrived or punched in, because the arrival
 window is what the customer was promised. A holiday rate on an item not marked as
 the after hours rate cannot be chosen, deliberately: a plan that waives the after

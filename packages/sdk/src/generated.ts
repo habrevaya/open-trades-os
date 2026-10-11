@@ -7843,6 +7843,22 @@ export interface GetFieldSnapshotOutput {
       feeRole: string | null;
       itemId: string | null;
     }>;
+    rateOffers: {
+      forEstimate: Array<{
+        kind: "after_hours" | "holiday";
+        itemId: string;
+        name: string;
+        quantity: number;
+        because: string[];
+      }>;
+      forInvoice: Array<{
+        kind: "after_hours" | "holiday";
+        itemId: string;
+        name: string;
+        quantity: number;
+        because: string[];
+      }>;
+    };
     invoices: Array<{
       id: string;
       number: number;
@@ -27291,7 +27307,9 @@ export interface GetJobProfitabilityInput {
 
 export interface GetJobRateOffersInput {
   id: string;
+  for?: "invoice" | "estimate";
   exceptInvoiceId?: string;
+  exceptEstimateId?: string;
 }
 
 export interface GetJobSkillsInput {
@@ -31305,7 +31323,7 @@ export const OPERATIONS = {
   getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
-  getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["exceptInvoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["for","exceptInvoiceId","exceptEstimateId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
@@ -34920,7 +34938,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The after hours or holiday rate to offer on this job's invoice.
+   * The after hours or holiday rate to offer on this job's invoice or estimate.
    *
    * GET /v1/jobs/{id}/rate-offers. Needs job:read.
    */

@@ -23,9 +23,11 @@ import { loadHolidays } from "./holidays";
  *
  * OFFERED, NEVER ADDED. A visit booked at seven in the evening or on
  * Christmas Day is a reason to ask, not an answer: the customer's emergency
- * and the company running late look the same in the data. The invoice
- * screens show the offer with the sentence that says why, and the office
- * adds the line or does not.
+ * and the company running late look the same in the data. The screens show
+ * the offer with the sentence that says why, and whoever is writing adds the
+ * line or does not. The screens are the office's invoice and estimate, and
+ * the phone's estimate and its invoice for recorded work, which is served the
+ * offer with the day so it works with no signal.
  *
  * Read with `pricebook:read`, changed with `pricebook:write`, because which
  * item a company charges is a pricing decision.
@@ -153,62 +155,99 @@ export async function weekOf(tx: Database): Promise<holidayRules.WeekHours | nul
   });
 }
 
+/** What the offer is for: the bill, or the estimate that comes before it. */
+export type OfferFor = "invoice" | "estimate";
+
 /**
- * What to offer on an invoice for this job: the holiday rate for each visit
- * booked on a date in the holiday list, and the after hours rate for each
- * booked outside the hours kept that day (on a holiday only when there is no
- * holiday rate, so one visit is never offered both).
+ * What to offer on an invoice or an estimate for this job: the holiday rate
+ * for each visit booked on a date in the holiday list, and the after hours
+ * rate for each booked outside the hours kept that day (on a holiday only
+ * when there is no holiday rate, so one visit is never offered both).
  *
  * A visit counts by the start of the window it was booked into, because that
- * is what the customer was promised. Cancelled visits are not counted. An
- * item already on another of the job's invoices that was not voided is not
- * offered again; the invoice being edited is left out of that, because its
- * own lines are on the screen.
+ * is what the customer was promised. Cancelled visits are not counted.
+ *
+ * NEVER OFFERED TWICE. An item already on another of the job's invoices that
+ * was not voided is not offered again, on an invoice or on an estimate (the
+ * invoice being edited is left out, because its own lines are on the
+ * screen). An invoice does not offer what an approved estimate for the job
+ * already carries, because that estimate is what will be billed. An estimate
+ * does not offer what another live estimate for the job already carries,
+ * because the office is more likely revising it than charging twice, and the
+ * item can still be added by hand from the price book.
  */
-export async function offersForJob(
-  ctx: ServiceContext, input: { jobId: string; exceptInvoiceId?: string | undefined },
+export async function offersWithin(
+  tx: Database, organizationId: string,
+  input: { jobId: string; for?: OfferFor | undefined; exceptInvoiceId?: string | undefined; exceptEstimateId?: string | undefined },
 ): Promise<RateOffer[]> {
-  return guardedRead(ctx, "job:read", async (tx) => {
-    const row = await settingsRow(tx);
-    if (!row || (!row.afterHoursItemId && !row.holidayItemId)) return [];
-    const [job] = await tx.select({ id: schema.job.id }).from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1);
-    if (!job) throw new NotFoundError("Job");
+  const row = await settingsRow(tx);
+  if (!row || (!row.afterHoursItemId && !row.holidayItemId)) return [];
+  const [job] = await tx.select({ id: schema.job.id }).from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1);
+  if (!job) throw new NotFoundError("Job");
 
-    const visits = await tx.select({ windowStart: schema.visit.windowStart }).from(schema.visit)
-      .where(and(eq(schema.visit.jobId, input.jobId), ne(schema.visit.status, "cancelled")))
-      .orderBy(asc(schema.visit.windowStart));
-    const zone = await timezoneOf(tx, ctx.actor.organizationId);
-    const week = await weekOf(tx);
-    const holidays = await loadHolidays(tx, ctx.actor.organizationId);
+  const visits = await tx.select({ windowStart: schema.visit.windowStart }).from(schema.visit)
+    .where(and(eq(schema.visit.jobId, input.jobId), ne(schema.visit.status, "cancelled")))
+    .orderBy(asc(schema.visit.windowStart));
+  const zone = await timezoneOf(tx, organizationId);
+  const week = await weekOf(tx);
+  const holidays = await loadHolidays(tx, organizationId);
 
-    const found = { after_hours: [] as string[], holiday: [] as string[] };
-    for (const visit of visits) {
-      if (!visit.windowStart) continue;
-      const booked = holidayRules.bookedAt({
-        week, holidays, date: time.dateIn(visit.windowStart, zone), minute: time.minutesInDay(visit.windowStart, zone),
-      });
-      if (booked.holiday && row.holidayItemId) found.holiday.push(booked.why);
-      else if (booked.outsideHours && row.afterHoursItemId) found.after_hours.push(booked.why);
+  const found = { after_hours: [] as string[], holiday: [] as string[] };
+  for (const visit of visits) {
+    if (!visit.windowStart) continue;
+    const booked = holidayRules.bookedAt({
+      week, holidays, date: time.dateIn(visit.windowStart, zone), minute: time.minutesInDay(visit.windowStart, zone),
+    });
+    if (booked.holiday && row.holidayItemId) found.holiday.push(booked.why);
+    else if (booked.outsideHours && row.afterHoursItemId) found.after_hours.push(booked.why);
+  }
+
+  const billed = await billedItems(tx, input.jobId, input.exceptInvoiceId);
+  const carried = await estimatedItems(tx, input.jobId, input.for ?? "invoice", input.exceptEstimateId);
+  const items = await itemsByIds(tx, [row.afterHoursItemId, row.holidayItemId].filter((id): id is string => id !== null));
+  const offers: RateOffer[] = [];
+  for (const kind of ["holiday", "after_hours"] as const) {
+    const itemId = kind === "holiday" ? row.holidayItemId : row.afterHoursItemId;
+    const item = itemId ? items.get(itemId) : undefined;
+    if (!item || found[kind].length === 0 || billed.has(item.id) || carried.has(item.id)) continue;
+    const existing = offers.find((o) => o.item.id === item.id);
+    /** One item for both, when the company charges the same rate: one offer, every visit under it. */
+    if (existing) {
+      existing.quantity += found[kind].length;
+      existing.because.push(...found[kind]);
+      continue;
     }
+    offers.push({ kind, item, quantity: found[kind].length, because: found[kind] });
+  }
+  return offers;
+}
 
-    const billed = await billedItems(tx, input.jobId, input.exceptInvoiceId);
-    const items = await itemsByIds(tx, [row.afterHoursItemId, row.holidayItemId].filter((id): id is string => id !== null));
-    const offers: RateOffer[] = [];
-    for (const kind of ["holiday", "after_hours"] as const) {
-      const itemId = kind === "holiday" ? row.holidayItemId : row.afterHoursItemId;
-      const item = itemId ? items.get(itemId) : undefined;
-      if (!item || found[kind].length === 0 || billed.has(item.id)) continue;
-      const existing = offers.find((o) => o.item.id === item.id);
-      /** One item for both, when the company charges the same rate: one offer, every visit under it. */
-      if (existing) {
-        existing.quantity += found[kind].length;
-        existing.because.push(...found[kind]);
-        continue;
-      }
-      offers.push({ kind, item, quantity: found[kind].length, because: found[kind] });
-    }
-    return offers;
-  });
+export async function offersForJob(
+  ctx: ServiceContext,
+  input: { jobId: string; for?: OfferFor | undefined; exceptInvoiceId?: string | undefined; exceptEstimateId?: string | undefined },
+): Promise<RateOffer[]> {
+  return guardedRead(ctx, "job:read", (tx) => offersWithin(tx, ctx.actor.organizationId, input));
+}
+
+/**
+ * The price book items on the job's estimates that count against an offer.
+ * For an invoice, the approved estimates that have not been billed yet. For
+ * an estimate, every live one: drafts, sent, viewed and approved.
+ */
+async function estimatedItems(
+  tx: Database, jobId: string, purpose: OfferFor, exceptEstimateId: string | undefined,
+): Promise<Set<string>> {
+  const rows = await tx.select({ itemId: schema.priceBookItemVersion.itemId })
+    .from(schema.estimateLine)
+    .innerJoin(schema.estimateOption, eq(schema.estimateOption.id, schema.estimateLine.optionId))
+    .innerJoin(schema.estimate, eq(schema.estimate.id, schema.estimateOption.estimateId))
+    .innerJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.estimateLine.priceBookItemVersionId))
+    .where(and(
+      eq(schema.estimate.jobId, jobId),
+      inArray(schema.estimate.status, purpose === "invoice" ? ["approved"] : ["draft", "sent", "viewed", "approved"]),
+      exceptEstimateId ? ne(schema.estimate.id, exceptEstimateId) : undefined,
+    ));
+  return new Set(rows.map((r) => r.itemId));
 }
 
 /** The price book items already billed on this job's invoices that were not voided. */
@@ -232,6 +271,12 @@ export const handlers = {
   getAfterHoursRates: (ctx: ServiceContext) => rates(ctx),
   setAfterHoursRates: (ctx: ServiceContext, input: { afterHoursItemId: string | null; holidayItemId: string | null }) =>
     setRates(ctx, input),
-  getJobRateOffers: async (ctx: ServiceContext, input: { id: string; exceptInvoiceId?: string | undefined }) =>
-    ({ offers: await offersForJob(ctx, { jobId: input.id, exceptInvoiceId: input.exceptInvoiceId }) }),
+  getJobRateOffers: async (
+    ctx: ServiceContext,
+    input: { id: string; for?: OfferFor | undefined; exceptInvoiceId?: string | undefined; exceptEstimateId?: string | undefined },
+  ) => ({
+    offers: await offersForJob(ctx, {
+      jobId: input.id, for: input.for, exceptInvoiceId: input.exceptInvoiceId, exceptEstimateId: input.exceptEstimateId,
+    }),
+  }),
 } as const;

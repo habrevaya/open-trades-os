@@ -13,25 +13,47 @@ import type { FormState } from "@/lib/actions";
  * which is the upsell. Totals are the server's, for the reason the invoice
  * composer gives.
  */
-interface Row { key: number; priceBookItemId?: string | undefined }
+interface Row { key: number; priceBookItemId?: string | undefined; quantity?: string | undefined }
 interface Option { key: number; name: string; rows: Row[] }
 
 const NAMES = ["Good", "Better", "Best", "Option 4", "Option 5"];
 
+/**
+ * The after hours or holiday rate, offered because one of the job's visits
+ * was booked outside the company's hours or on a holiday. Shown with why, and
+ * added only when somebody presses the button.
+ */
+export interface EstimateOffer {
+  kind: "after_hours" | "holiday";
+  item: { id: string; name: string; price: string };
+  quantity: number;
+  because: string[];
+}
+
 export function EstimateComposer({
-  action, hidden, properties, items, defaultPropertyId,
+  action, hidden, properties, items, defaultPropertyId, offers = [],
 }: {
   action: (previous: FormState, form: FormData) => Promise<FormState>;
   hidden: Record<string, string>;
   properties: { id: string; label: string }[];
   items: { id: string; name: string; price: string }[];
   defaultPropertyId?: string | undefined;
+  offers?: EstimateOffer[] | undefined;
 }) {
   const [state, runForm, pending] = useKeptAction(action, null);
   const counter = useRef(100);
   const [options, setOptions] = useState<Option[]>([{ key: 0, name: NAMES[0]!, rows: [{ key: 0 }] }]);
   const nextKey = () => { counter.current += 1; return counter.current; };
   const itemById = new Map(items.map((i) => [i.id, i]));
+  /**
+   * An offered rate as a line from the price book, on every option: the call
+   * out is for the visit and is owed whichever option the customer chooses.
+   */
+  const take = (offer: EstimateOffer) => setOptions((all) => all.map((o) => ({
+    ...o,
+    rows: [...o.rows, { key: nextKey(), priceBookItemId: offer.item.id, quantity: String(offer.quantity) }],
+  })));
+  const waiting = offers.filter((offer) => !options.some((o) => o.rows.some((r) => r.priceBookItemId === offer.item.id)));
 
   const addOption = () => setOptions((all) => all.length >= 5 ? all
     : [...all, { key: nextKey(), name: NAMES[all.length] ?? `Option ${all.length + 1}`, rows: [{ key: nextKey() }] }]);
@@ -76,6 +98,26 @@ export function EstimateComposer({
         </label>
       </div>
 
+      {waiting.map((offer) => (
+        <section key={offer.item.id} aria-label={offer.kind === "holiday" ? "Holiday rate" : "After hours rate"}
+                 className="rounded-md border border-amber-700/20 bg-amber-tint p-3 text-sm">
+          <p className="font-medium text-ink-900">
+            {offer.kind === "holiday" ? "Booked on a holiday" : "Booked outside your hours"}
+          </p>
+          <ul className="mt-1 list-disc pl-5 text-ink-700">
+            {offer.because.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+          <p className="mt-1 text-ink-700">
+            Your {offer.kind === "holiday" ? "holiday" : "after hours"} rate is {offer.item.name},
+            ${Number(offer.item.price).toFixed(2)}. It is not on this estimate unless you add it.
+          </p>
+          <button type="button" onClick={() => take(offer)}
+                  className="mt-2 inline-flex h-8 items-center rounded border border-steel-300 bg-canvas px-2.5 text-sm font-medium hover:bg-steel-100">
+            Add {offer.item.name} to every option
+          </button>
+        </section>
+      ))}
+
       {options.map((option, oi) => (
         <fieldset key={option.key} className="space-y-3 rounded-md border border-steel-200 p-4">
           <legend className="px-1 text-sm font-medium">Option {oi + 1}</legend>
@@ -105,7 +147,7 @@ export function EstimateComposer({
             return (
               <div key={row.key} className="grid gap-2 border-t border-steel-200 pt-3 sm:grid-cols-12">
                 {items.length > 0 && (
-                  <select name={`${at}.priceBookItemId`} aria-label={`Price book item, ${n}`} defaultValue=""
+                  <select name={`${at}.priceBookItemId`} aria-label={`Price book item, ${n}`} defaultValue={row.priceBookItemId ?? ""}
                           onChange={(e) => setItem(option.key, row.key, e.target.value)}
                           className="h-9 rounded border border-steel-300 bg-canvas px-2 text-sm sm:col-span-12">
                     <option value="">Typed by hand</option>
@@ -115,7 +157,7 @@ export function EstimateComposer({
                 <input name={`${at}.name`} aria-label={`Description, ${n}`} disabled={Boolean(fromBook)}
                        placeholder={fromBook?.name ?? "What is done or supplied"}
                        className="h-9 rounded border border-steel-300 bg-canvas px-2 text-sm disabled:bg-steel-100 sm:col-span-5" />
-                <input name={`${at}.quantity`} aria-label={`Quantity, ${n}`} defaultValue="1" inputMode="decimal"
+                <input name={`${at}.quantity`} aria-label={`Quantity, ${n}`} defaultValue={row.quantity ?? "1"} inputMode="decimal"
                        className="h-9 rounded border border-steel-300 bg-canvas px-2 text-sm sm:col-span-1" />
                 <input name={`${at}.unitPrice`} aria-label={`Unit price, ${n}`} inputMode="decimal"
                        disabled={Boolean(fromBook)}

@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import {
-  MAX_OPTIONS, addBookLine, addOption, addTypedLine, builderProblem, builderTaxRate, decidable, draftTotals,
-  findInPriceBook, formatAmount, invoiceFromEstimate, invoiceFromWork, newBuilder, optionTotal, parseAmount,
-  presentationOrder, recommend, removeLine, removeOption, renameOption, setOptional,
+  MAX_OPTIONS, addBookLine, addOption, addRate, addTypedLine, builderProblem, builderTaxRate, carries, decidable, draftTotals,
+  findInPriceBook, formatAmount, invoiceFromEstimate, invoiceFromWork, newBuilder, offersInBook, optionTotal, parseAmount,
+  presentationOrder, rateAsBillable, recommend, removeLine, removeOption, renameOption, setOptional,
   type Builder, type DayTask, type DayVisit, type FieldAbilities, type FieldEstimateOption, type PriceBookEntry,
 } from "@opentradesos/field-client";
 import { SignaturePad } from "./SignaturePad";
@@ -38,7 +38,9 @@ export interface SellHandlers {
   decline: (estimateId: string, reason: string) => Promise<void>;
   raiseInvoice: (input: {
     shownTotal: string; signerName: string | null; signature: string | null;
-  } & ({ source: "estimate"; estimateId: string } | { source: "work"; jobLineIds: string[] })) => Promise<string | null>;
+  } & ({ source: "estimate"; estimateId: string } | {
+    source: "work"; jobLineIds: string[]; rates?: readonly { itemId: string; quantity: number }[] | undefined;
+  })) => Promise<string | null>;
 }
 
 /* ------------------------------------------------------------- estimates */
@@ -115,6 +117,8 @@ function EstimateBuilder({ visit, priceBook, onSave, onCancel }: {
   const taxRate = builderTaxRate(builder) ?? "0";
   const active = builder.options[builder.active]!;
   const matches = findInPriceBook(priceBook, query);
+  /** The after hours or holiday rate, offered and never added by itself, until somebody puts it on. */
+  const offers = offersInBook(visit.rateOffers.forEstimate, priceBook).filter((o) => !carries(builder, o.entry.id));
 
   const added = (result: { ok: true; builder: Builder } | { ok: false; problem: string }) => {
     if (!result.ok) { setProblem(result.problem); return; }
@@ -162,6 +166,24 @@ function EstimateBuilder({ visit, priceBook, onSave, onCancel }: {
           <button type="button" className={button} onClick={() => setBuilder(removeOption(builder, builder.active))}>Remove option</button>
         )}
       </div>
+
+      {offers.map((picked) => (
+        <div key={picked.entry.id} className="space-y-2 rounded border border-amber-700/20 bg-amber-tint p-3 text-sm">
+          <p className="font-medium text-ink-900">
+            {picked.offer.kind === "holiday" ? "Booked on a holiday" : "Booked outside your hours"}
+          </p>
+          <ul className="list-disc pl-5 text-ink-700">
+            {picked.offer.because.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+          <p className="text-ink-700">
+            Your {picked.offer.kind === "holiday" ? "holiday" : "after hours"} rate is {picked.entry.name},{" "}
+            {formatAmount(picked.entry.unitPrice)}. It is not on this estimate unless you add it.
+          </p>
+          <button type="button" className={button} onClick={() => setBuilder(addRate(builder, picked, newId))}>
+            Add {picked.entry.name} to every option
+          </button>
+        </div>
+      ))}
 
       <ul className="space-y-2">
         {active.lines.length === 0 && <li className="text-sm text-ink-500">Nothing on it yet. Find something below.</li>}
@@ -388,9 +410,13 @@ function Present({ visit, estimateId, handlers, onDone }: {
  * and signed for. A figure the office's prices disagree with is kept as a
  * draft by the server rather than issued, and the day says so.
  */
-export function InvoicePanel({ visit, abilities, handlers }: { visit: DayVisit; abilities: FieldAbilities; handlers: SellHandlers }) {
+export function InvoicePanel({ visit, priceBook, abilities, handlers }: {
+  visit: DayVisit; priceBook: PriceBookEntry[]; abilities: FieldAbilities; handlers: SellHandlers;
+}) {
   const [source, setSource] = useState<string | null>(null);
   const [leftOut, setLeftOut] = useState<string[]>([]);
+  /** The after hours or holiday rates added, by price book item. Offered, never added by itself. */
+  const [rated, setRated] = useState<string[]>([]);
   const [stage, setStage] = useState<"list" | "choose" | "show">("list");
   const [name, setName] = useState(visit.customer.name);
   const [problem, setProblem] = useState<string | null>(null);
@@ -402,7 +428,9 @@ export function InvoicePanel({ visit, abilities, handlers }: { visit: DayVisit; 
     .map((e) => ({ estimate: e, invoice: invoiceFromEstimate(e) }))
     .filter((x) => x.invoice !== null);
   const work = visit.billable.filter((b) => !leftOut.includes(b.id));
-  const priced = invoiceFromWork(work, visit.member, visit.tax.rate);
+  const offered = offersInBook(visit.rateOffers.forInvoice, priceBook);
+  const rates = offered.filter((o) => rated.includes(o.entry.id));
+  const priced = invoiceFromWork([...work, ...rates.map(rateAsBillable)], visit.member, visit.tax.rate);
   const chosen = signedFor.find((x) => x.estimate.id === source) ?? null;
   const total = chosen ? chosen.invoice!.total : priced.totals.total;
   const canBill = signedFor.length > 0 || visit.billable.length > 0;
@@ -412,7 +440,10 @@ export function InvoicePanel({ visit, abilities, handlers }: { visit: DayVisit; 
     const signerName = signature ? name.trim() : null;
     const failed = chosen
       ? await handlers.raiseInvoice({ source: "estimate", estimateId: chosen.estimate.id, shownTotal: total, signerName, signature })
-      : await handlers.raiseInvoice({ source: "work", jobLineIds: work.map((w) => w.id), shownTotal: total, signerName, signature });
+      : await handlers.raiseInvoice({
+        source: "work", jobLineIds: work.map((w) => w.id), shownTotal: total, signerName, signature,
+        rates: rates.map((r) => ({ itemId: r.entry.id, quantity: r.offer.quantity })),
+      });
     setPending(false);
     setProblem(failed);
     if (!failed) { setStage("list"); setSource(null); }
@@ -458,6 +489,22 @@ export function InvoicePanel({ visit, abilities, handlers }: { visit: DayVisit; 
                      onChange={() => setLeftOut((l) => (l.includes(b.id) ? l.filter((x) => x !== b.id) : [...l, b.id]))} />
               {Number(b.quantity)} x {b.name}
             </label>
+          ))}
+          {source === "work" && offered.map(({ offer, entry }) => (
+            <div key={entry.id} className="space-y-2 rounded border border-amber-700/20 bg-amber-tint p-3 text-sm">
+              <p className="font-medium text-ink-900">{offer.kind === "holiday" ? "Booked on a holiday" : "Booked outside your hours"}</p>
+              <ul className="list-disc pl-5 text-ink-700">
+                {offer.because.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+              <p className="text-ink-700">
+                Your {offer.kind === "holiday" ? "holiday" : "after hours"} rate is {entry.name}, {formatAmount(entry.unitPrice)}.
+                It is not on this invoice unless you add it.
+              </p>
+              <button type="button" className={button}
+                      onClick={() => setRated((r) => (r.includes(entry.id) ? r.filter((x) => x !== entry.id) : [...r, entry.id]))}>
+                {rated.includes(entry.id) ? `Added: ${entry.name}. Take it off` : `Add ${entry.name}`}
+              </button>
+            </div>
           ))}
           {signedFor.length > 0 && visit.billable.length > 0 && (
             <p className="text-sm text-ink-500">Parts used for an option they signed for are usually covered by its price. Leave them for the office.</p>

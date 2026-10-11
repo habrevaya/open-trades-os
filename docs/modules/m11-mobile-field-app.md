@@ -269,6 +269,19 @@ not see), the invoice is kept as a DRAFT for the office, never issued at a
 figure the customer did not sign for, and the operation is recorded as a
 conflict the office sees and the phone says in the office's words.
 
+**The after hours or holiday rate.** When a visit on the job was booked outside the
+company's hours or on a holiday (M02), the day carries the rate on offer for an
+estimate and for an invoice (`rateOffers` on each visit in `GET /v1/field/snapshot`),
+with the sentence that says why, so it shows with no signal. It is offered and never
+added: on the estimate builder a button puts it on every option, and on the invoice for
+recorded work a button adds it to the invoice and to the figure the customer signs
+(`rateItems` on `invoice.raise`, by price book item and quantity). The phone prices it
+from the price book it carries, with the plan's waiver of the after hours rate. The server
+checks it is still on offer when the invoice lands, and an invoice naming a rate that is
+not (billed meanwhile, or carried by an approved estimate) is refused in words and the
+work stays unbilled. The day's revision moves when the company's hours, holidays or
+chosen rates, or any visit on the job, change.
+
 **Taking the money, and a tip.** Cash or a check against the invoice raised
 there, through `payment.collect` as before, now with a tip on top when the
 company takes tips (the setting on `/settings/portal`, the same one the

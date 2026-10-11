@@ -224,8 +224,10 @@ When one of the job's visits was booked outside the company's hours or on a
 holiday, and the company has chosen an after hours or holiday rate (M02), the new
 invoice and the draft being edited offer that item above the lines, saying which
 visits and why ("2026-10-06 at 19:00, after the 17:00 close"). It goes on only
-when somebody presses "Add" and then saves; nothing adds it by itself.
-`GET /v1/jobs/{id}/rate-offers` is the same offer for another client.
+when somebody presses "Add" and then saves; nothing adds it by itself. The same offer,
+with the same sentence, is on an estimate for the job and on the phone's and
+`/my-day`'s invoice for recorded work (M02 says how each is held to what is offered
+now). `GET /v1/jobs/{id}/rate-offers` is the same offer for another client.
 
 ### Take money
 

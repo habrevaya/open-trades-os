@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  formatAmount, invoiceFromEstimate, invoiceFromWork, type DayEstimate,
+  formatAmount, invoiceFromEstimate, invoiceFromWork, offersInBook, rateAsBillable, type DayEstimate,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { recordInvoice } from "../lib/sell";
@@ -28,6 +28,8 @@ export function InvoiceScreen({ visitId, nav }: { visitId: string; nav: Navigate
   const visit = field.view?.day.visits.find((v) => v.id === visitId);
   const [source, setSource] = useState<string | null>(null);
   const [leftOut, setLeftOut] = useState<string[]>([]);
+  /** The after hours or holiday rates the technician added, by price book item. Offered, never added by itself. */
+  const [rated, setRated] = useState<string[]>([]);
   const [stage, setStage] = useState<"choose" | "show">("choose");
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -45,7 +47,9 @@ export function InvoiceScreen({ visitId, nav }: { visitId: string; nav: Navigate
     .map((e) => ({ estimate: e, invoice: invoiceFromEstimate(e) }))
     .filter((x) => x.invoice !== null);
   const work = visit.billable.filter((b) => !leftOut.includes(b.id));
-  const priced = invoiceFromWork(work, visit.member, visit.tax.rate);
+  const offered = offersInBook(visit.rateOffers.forInvoice, field.view?.priceBook ?? []);
+  const rates = offered.filter((o) => rated.includes(o.entry.id));
+  const priced = invoiceFromWork([...work, ...rates.map(rateAsBillable)], visit.member, visit.tax.rate);
   const chosenEstimate = signedFor.find((x) => x.estimate.id === source) ?? null;
   const total = chosenEstimate ? chosenEstimate.invoice!.total : priced.totals.total;
   const nothing = signedFor.length === 0 && visit.billable.length === 0;
@@ -66,6 +70,7 @@ export function InvoiceScreen({ visitId, nav }: { visitId: string; nav: Navigate
       if (work.length === 0) return "Nothing is left to bill.";
       await field.perform((phone) => recordInvoice(phone, {
         visitId, invoiceId, shownTotal: total, signerName, signature, source: "work", jobLineIds: work.map((w) => w.id),
+        rates: rates.map((r) => ({ itemId: r.entry.id, quantity: r.offer.quantity })),
       }));
     }
     nav.back();
@@ -99,6 +104,17 @@ export function InvoiceScreen({ visitId, nav }: { visitId: string; nav: Navigate
               <Button key={b.id} kind="secondary"
                       label={`${leftOut.includes(b.id) ? "Left out: " : ""}${Number(b.quantity)} x ${b.name}`}
                       onPress={() => setLeftOut((l) => (l.includes(b.id) ? l.filter((x) => x !== b.id) : [...l, b.id]))} />
+            )) : null}
+            {source === "work" ? offered.map(({ offer, entry }) => (
+              <View key={entry.id} style={{ gap: space.xs }}>
+                <Notice tone="amber">
+                  {`${offer.kind === "holiday" ? "Booked on a holiday" : "Booked outside your hours"}: ${offer.because.join("; ")}. `
+                    + `Your ${offer.kind === "holiday" ? "holiday" : "after hours"} rate is ${entry.name}, ${formatAmount(entry.unitPrice)}. `
+                    + "It is not on this invoice unless you add it."}
+                </Notice>
+                <Button kind="secondary" label={rated.includes(entry.id) ? `Added: ${entry.name}. Take it off` : `Add ${entry.name}`}
+                        onPress={() => setRated((r) => (r.includes(entry.id) ? r.filter((x) => x !== entry.id) : [...r, entry.id]))} />
+              </View>
             )) : null}
             {signedFor.length > 0 && visit.billable.length > 0 ? (
               <Text style={type.soft}>Parts recorded for an option they signed for are usually covered by its price. Leave them for the office.</Text>

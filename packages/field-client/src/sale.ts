@@ -195,7 +195,11 @@ export async function recordDecline(phone: Phone, input: { visitId: string; esti
 export async function recordInvoice(phone: Phone, input: {
   visitId: string; invoiceId: string; shownTotal: string;
   signerName: string | null; signature: KeptSignature | null; at?: Date | undefined;
-} & ({ source: "estimate"; estimateId: string } | { source: "work"; jobLineIds: string[] })) {
+} & ({ source: "estimate"; estimateId: string } | {
+  source: "work"; jobLineIds: string[];
+  /** The after hours or holiday rate the technician added, by price book item. */
+  rates?: readonly { itemId: string; quantity: number }[] | undefined;
+})) {
   const at = input.at ?? new Date();
   if (input.signature && input.signerName) {
     await keep(phone, input.visitId, input.signature, `Invoice signed by ${input.signerName.trim()}`, at);
@@ -209,7 +213,7 @@ export async function recordInvoice(phone: Phone, input: {
     kind: "invoice.raise", subjectId: input.invoiceId, occurredAt: at,
     payload: input.source === "estimate"
       ? invoicePayload({ ...base, source: "estimate", estimateId: input.estimateId })
-      : invoicePayload({ ...base, source: "work", jobLineIds: input.jobLineIds }),
+      : invoicePayload({ ...base, source: "work", jobLineIds: input.jobLineIds, rates: input.rates }),
   });
 }
 
