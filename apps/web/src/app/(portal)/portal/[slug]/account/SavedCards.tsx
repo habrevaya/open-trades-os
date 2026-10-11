@@ -60,6 +60,8 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
   company?: string | undefined;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "saving">("idle");
+  /** The one card that pays bills automatically now, if any: turning it on for another moves it. */
+  const payingWith = cards.find((c) => c.agreement?.autopay) ?? null;
   const [kind, setKind] = useState<"card" | "bank_account">("card");
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -160,7 +162,8 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
                 </button>
               </div>
               {agreements && card.wording && (
-                <CardAgreement card={card} wording={card.wording} actions={agreements} company={company ?? "The company"} />
+                <CardAgreement card={card} wording={card.wording} actions={agreements} company={company ?? "The company"}
+                               instead={payingWith && payingWith.id !== card.id ? cardLabel(payingWith) : null} />
               )}
             </li>
           ))}
@@ -226,11 +229,13 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
  * second step. Paying automatically is a second yes, with its own words.
  * Stopping either is one press.
  */
-function CardAgreement({ card, wording, actions, company }: {
+function CardAgreement({ card, wording, actions, company, instead }: {
   card: CardRow;
   wording: { agreement: string; autopay: string };
   actions: AgreementActions;
   company: string;
+  /** The card that pays automatically now, when it is another one. Choosing this one moves it here. */
+  instead: string | null;
 }) {
   const [open, setOpen] = useState<"agree" | "autopay" | null>(null);
   const [ticked, setTicked] = useState(false);
@@ -274,7 +279,7 @@ function CardAgreement({ card, wording, actions, company }: {
             ) : open !== "autopay" && (
               <button type="button" disabled={busy} onClick={() => { setOpen("autopay"); setTicked(false); }}
                       className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
-                Pay my bills automatically with {label}
+                {instead ? `Pay my bills automatically with ${label} instead of ${instead}` : `Pay my bills automatically with ${label}`}
               </button>
             )}
             <button type="button" disabled={busy} onClick={() => void run(() => actions.withdraw(card.id))}
@@ -292,6 +297,12 @@ function CardAgreement({ card, wording, actions, company }: {
       {open && (
         <div className="mt-3">
           <p className="rounded bg-steel-100 p-3 text-ink-900">{words}</p>
+          {open === "autopay" && instead && (
+            <p className="mt-2 text-ink-700">
+              Only one card pays automatically. {instead} stops paying automatically, and {company} can still charge it
+              for your bills as you agreed.
+            </p>
+          )}
           <label className="mt-2 flex items-start gap-2">
             <input type="checkbox" checked={ticked} onChange={(e) => setTicked(e.target.checked)} className="mt-1" />
             <span>I have read this and I agree.</span>
@@ -301,7 +312,7 @@ function CardAgreement({ card, wording, actions, company }: {
                     onClick={() => void run(() => (open === "agree" ? actions.agree(card.id, words) : actions.autopay(card.id, true, words)))}
                     style={{ backgroundColor: "var(--brand, #111827)", color: "var(--brand-on, #ffffff)" }}
                     className="h-10 rounded px-4 text-sm font-medium disabled:opacity-40">
-              {busy ? "Saving…" : open === "agree" ? "Agree" : "Turn on automatic payments"}
+              {busy ? "Saving…" : open === "agree" ? "Agree" : instead ? `Pay automatically with ${label}` : "Turn on automatic payments"}
             </button>
             <button type="button" disabled={busy} onClick={() => setOpen(null)}
                     className="text-sm text-ink-700 underline underline-offset-4">

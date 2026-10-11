@@ -717,9 +717,17 @@ export interface ChargeResult {
  * paying this invoice, only with a live agreement, only what the invoice
  * owes. The person is named on the charge and in the audit log. A double
  * press with the same request key is the same charge.
+ *
+ * PART OF THE BALANCE, when `amount` says so: a customer paying a large bill
+ * over two months, or the half they agreed on the phone. Whole cents, more
+ * than nothing and never more than is owed, and the charge row keeps the
+ * figure the person typed, so the processor is asked for exactly that and
+ * the money lands on this invoice and no other. Never a tip: a tip is the
+ * customer's to add on the page, and `payments.intent` refuses one without
+ * them whoever asks.
  */
 export async function charge(
-  ctx: ServiceContext, input: { invoiceId: string; cardId: string }, deps?: payments.PaymentDeps,
+  ctx: ServiceContext, input: { invoiceId: string; cardId: string; amount?: string | undefined }, deps?: payments.PaymentDeps,
 ): Promise<ChargeResult> {
   const row = await guardedWrite(ctx, "payment:charge_saved", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -728,10 +736,11 @@ export async function charge(
       if (seen) return { row: seen, replay: true };
     }
     const invoice = await chargeableInvoice(tx, ctx, input.invoiceId);
-    if ((invoice.status !== "open" && invoice.status !== "partially_paid")
-      || !m.isPositive(m.money(invoice.balance, invoice.currency))) {
+    const balance = m.money(invoice.balance, invoice.currency);
+    if ((invoice.status !== "open" && invoice.status !== "partially_paid") || !m.isPositive(balance)) {
       throw new ConflictError(`Invoice ${invoice.number} has nothing outstanding to charge.`);
     }
+    const part = input.amount === undefined ? null : partOf(input.amount, balance, invoice.number);
     const [card] = await tx.select({ id: schema.savedPaymentMethod.id }).from(schema.savedPaymentMethod)
       .where(and(
         eq(schema.savedPaymentMethod.id, input.cardId),
@@ -777,7 +786,7 @@ export async function charge(
       savedPaymentMethodId: card.id,
       trigger: "office",
       requestedByUserId: isPerson(ctx.actor) ? ctx.actor.userId : null,
-      amount: invoice.balance,
+      amount: part ? m.toString(part) : invoice.balance,
       idempotencyKey: ctx.idempotencyKey ?? null,
     }).returning();
     return { row: created!, replay: false };
@@ -801,6 +810,27 @@ export async function charge(
 }
 
 const isPerson = (actor: Actor) => actor.userId !== SYSTEM_USER_ID && !actor.userId.startsWith("portal:");
+
+/**
+ * The part of the balance the office typed, checked: dollars and cents, more
+ * than nothing, and no more than is owed. The whole balance typed out is the
+ * whole balance, and charged as one.
+ */
+function partOf(typed: string, balance: m.Money, number: number): m.Money {
+  const text = typed.trim().replace(/^\$/, "").replace(/,/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) {
+    throw new ConflictError("Write the amount to charge in dollars and cents, like 250.00.");
+  }
+  const amount = m.money(text, balance.currency);
+  if (!m.isPositive(amount)) throw new ConflictError("Charge more than nothing.");
+  if (m.compare(amount, balance) > 0) {
+    throw new ConflictError(
+      `Invoice ${number} has ${m.format(balance)} owing, so no more than that can be charged. `
+      + "Money beyond what a bill owes is not taken from a saved card.",
+    );
+  }
+  return amount;
+}
 
 function resultOf(row: typeof schema.cardOnFileCharge.$inferSelect): ChargeResult {
   const message = row.status === "submitted" || row.status === "paid"
@@ -867,6 +897,12 @@ async function attempt(
         savedCardId: row.savedPaymentMethodId,
         offSession: { agreementId: row.agreementId },
         processorKey: row.id,
+        /**
+         * The office asks for the figure on its button, part or whole, and is
+         * refused if less is owed by now. An automatic payment takes what the
+         * bill owes when it is charged.
+         */
+        ...(row.trigger === "office" && row.amount ? { partOfBalance: row.amount } : {}),
       },
       deps,
     );
@@ -1097,11 +1133,25 @@ export async function autopayFor(
     const second = await inTenant(ctx, async (tx) => {
       await tx.update(schema.cardOnFileCharge).set({ retryAt: null, updatedAt: new Date() })
         .where(eq(schema.cardOnFileCharge.id, first.id));
-      const live = await liveAgreement(tx, first.savedPaymentMethodId);
-      if (!live || live.autopayAt === null) return null;
+      /**
+       * Tried on the card the customer pays automatically with NOW, which is
+       * not always the one that was declined: a customer told their card was
+       * declined often answers by choosing another card to pay with, and the
+       * second try should be on the card they chose. No card paying
+       * automatically any more, no second try.
+       */
+      const [live] = await tx.select({ agreement: schema.paymentAgreement }).from(schema.paymentAgreement)
+        .innerJoin(schema.savedPaymentMethod, eq(schema.savedPaymentMethod.id, schema.paymentAgreement.savedPaymentMethodId))
+        .where(and(
+          eq(schema.paymentAgreement.customerId, first.customerId),
+          isNull(schema.paymentAgreement.withdrawnAt),
+          sql`${schema.paymentAgreement.autopayAt} is not null`,
+          isNull(schema.savedPaymentMethod.removedAt),
+        )).limit(1);
+      if (!live) return null;
       const [row] = await tx.insert(schema.cardOnFileCharge).values({
-        organizationId, invoiceId: first.invoiceId, customerId: first.customerId, agreementId: live.id,
-        savedPaymentMethodId: first.savedPaymentMethodId, trigger: "autopay", attempt: 2, amount: first.amount,
+        organizationId, invoiceId: first.invoiceId, customerId: first.customerId, agreementId: live.agreement.id,
+        savedPaymentMethodId: live.agreement.savedPaymentMethodId, trigger: "autopay", attempt: 2, amount: first.amount,
       }).onConflictDoNothing().returning();
       return row ?? null;
     });
@@ -1242,8 +1292,8 @@ export const handlers = {
     setAutopay(db, input),
   withdrawPortalCardAgreement: (db: Database, input: { token: string; cardId: string }) => withdraw(db, input),
   listInvoiceCardsOnFile: (ctx: ServiceContext, input: { id: string }) => forInvoice(ctx, { invoiceId: input.id }),
-  chargeInvoiceCardOnFile: (ctx: ServiceContext, input: { id: string; cardId: string }) =>
-    charge(ctx, { invoiceId: input.id, cardId: input.cardId }),
+  chargeInvoiceCardOnFile: (ctx: ServiceContext, input: { id: string; cardId: string; amount?: string | undefined }) =>
+    charge(ctx, { invoiceId: input.id, cardId: input.cardId, amount: input.amount }),
   listCustomerCardAgreements: (ctx: ServiceContext, input: { id: string }) => officeCardsFor(ctx, { customerId: input.id }),
   recordCustomerCardAgreement: (ctx: ServiceContext, input: Omit<RecordAgreementInput, "customerId"> & { id: string }) => {
     const { id, ...rest } = input;

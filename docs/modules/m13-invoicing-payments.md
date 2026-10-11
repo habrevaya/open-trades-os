@@ -127,13 +127,17 @@ the invoice themselves; the office is told so, never left with a silent
 failure.
 
 **Paying automatically is a second agreement on the first.** A customer who
-agreed can turn on paying each bill as it is issued, in words of its own.
+agreed can turn on paying each bill as it is issued, in words of its own. A
+customer can keep agreements on several cards and chooses which one pays
+automatically; choosing another moves it there.
 The worker charges every bill they are the one paying that was issued after
 they turned it on, a plan's instalments included (M08 invoices those
 straight to open), once per invoice under a unique index. A charge that
 does not go through sends the customer the link to pay and puts a task in
 the office queue. A declined card is tried once more the next day and never
-again; a bank asking the customer to confirm, a card that is expired, lost
+again, on whichever card the customer pays automatically with by then (a
+customer told of a decline often answers by choosing another card), and not
+at all if none does any more; a bank asking the customer to confirm, a card that is expired, lost
 or wrong, and a bank payment that fails days later are not tried again at
 all, because tomorrow will not change the answer. These are the only
 retries there are.
@@ -275,7 +279,15 @@ cards the customer lets you charge**, each with who agreed and when, and
 (office manager and accountant presets; owner and admin hold everything; a
 technician does not). It is `POST /v1/invoices/{id}/charge-card`, which also
 needs `payment:collect`, and the person charging is named on the charge and
-in the audit log. The same panel lists every charge of a saved card on the
+in the audit log. **Charge part of it to Visa ending 4242**, under the button,
+charges part of the balance instead (`amount` on the same call): dollars and
+cents, more than nothing and never more than is owed, refused in words
+otherwise. The processor is asked for exactly that figure, it goes on this
+invoice when the webhook says the money moved, and the rest stays owed and can
+be charged the same way later. The office charges the figure on its button:
+if less is owed by the moment the processor is asked, nothing is charged and
+the office is told. A tip is never part of an office charge, part or whole;
+only the customer adds one, on the page. The same panel lists every charge of a saved card on the
 invoice: by whom or by the automatic payment, and what became of it, read
 from the payment attempt, so it says paid as soon as the webhook has said
 so. A second charge is refused while one is still with the processor.
@@ -601,8 +613,10 @@ to pay, and the card is not saved again. Paying automatically charges bills
 issued after it was turned on, judged by when the invoice was issued (or,
 for an invoice that was never a draft, written) and by its issue date, so a
 bill backdated before that day is not charged; nothing already owed is swept
-up when it is turned on. One card pays automatically per customer. A charge
-on file takes the whole balance and no tip. The customer is told of a
+up when it is turned on. One card pays automatically per customer, of the
+several they may have agreed, and an automatic payment takes the whole balance
+of each bill; only the office charges part of one. No charge on file carries
+a tip. The customer is told of a
 failure by email to the address on their record, or by text when the email
 cannot go and it is not quiet hours; when neither can go, the office task
 says so. A bank payment returned days later sends the link and leaves the

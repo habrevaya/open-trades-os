@@ -290,8 +290,18 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                       {card.autopay && <Chip tone="recurring" className="ml-2">Pays bills automatically</Chip>}
                     </span>
                     {owed && !onItsWay && !chargeWaiting && can(user.actor, "payment:charge_saved") && can(user.actor, "payment:collect") && (
-                      <ActionForm action={chargeCardOnFile} className="flex flex-col items-end gap-1" submit={`Charge $${Number(invoice.balance ?? "0").toFixed(2)} to ${card.label}`}
-                                  hidden={{ invoiceId: invoice.id, cardId: card.cardId, formKey: crypto.randomUUID() }} />
+                      <div className="flex flex-col items-end gap-2">
+                        <ActionForm action={chargeCardOnFile} className="flex flex-col items-end gap-1" submit={`Charge $${Number(invoice.balance ?? "0").toFixed(2)} to ${card.label}`}
+                                    hidden={{ invoiceId: invoice.id, cardId: card.cardId, formKey: crypto.randomUUID() }} />
+                        <details className="text-sm">
+                          <summary className="cursor-pointer text-ink-700">Charge part of it to {card.label}</summary>
+                          <ActionForm action={chargeCardOnFile} className="mt-2 flex flex-wrap items-end gap-2" submit={`Charge this amount to ${card.label}`}
+                                      hidden={{ invoiceId: invoice.id, cardId: card.cardId, formKey: crypto.randomUUID() }}>
+                            <TextField label={`Amount to charge to ${card.label}`} name="amount" inputMode="decimal" required
+                                       placeholder={Number(invoice.balance ?? "0").toFixed(2)} className="w-48" />
+                          </ActionForm>
+                        </details>
+                      </div>
                     )}
                   </li>
                 ))}

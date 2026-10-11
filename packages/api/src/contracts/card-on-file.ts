@@ -105,13 +105,13 @@ export const listInvoiceCardsOnFile = defineRoute({
 export const chargeInvoiceCardOnFile = defineRoute({
   method: "post",
   path: "/v1/invoices/{id}/charge-card",
-  summary: "Charge the invoice's balance to a saved card the payer agreed may be charged",
+  summary: "Charge the invoice's balance, or part of it, to a saved card the payer agreed may be charged",
   description:
-    "Refused for a card without the customer's live agreement, a card that is not the payer's, and an invoice with nothing owed. Charged off session through the processor; the invoice shows paid when its signed webhook says the money moved. When the bank wants the customer to confirm it themselves, the customer is sent the link to pay and the answer says so. The person charging is named on the charge and in the audit log.",
+    "The whole balance, or `amount` of it (dollars and cents, more than nothing, never more than is owed). Refused for a card without the customer's live agreement, a card that is not the payer's, and an invoice with nothing owed. Charged off session through the processor, for exactly the figure asked, and refused if less is owed by the time the processor is asked; the money goes on this invoice when its signed webhook says it moved. Never a tip: a tip is the customer's to add. When the bank wants the customer to confirm it themselves, the customer is sent the link to pay and the answer says so. The person charging is named on the charge and in the audit log.",
   module: "M13",
   permissions: ["payment:charge_saved", "payment:collect"],
   idempotent: true,
-  input: z.object({ id: Uuid, cardId: Uuid }),
+  input: z.object({ id: Uuid, cardId: Uuid, amount: z.string().max(20).optional() }),
   output: z.object({ chargeId: Uuid, status: z.string(), message: z.string() }),
 });
 

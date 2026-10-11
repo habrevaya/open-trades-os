@@ -300,8 +300,13 @@ contact when a contact signed in as the customer, and where they agreed
 from. A link is refused: only the customer's own sign in can agree.
 
 Once agreed, **Pay my bills automatically with Visa ending 4242** offers its
-own words in the same way (`POST /v1/portal/cards/{cardId}/autopay`); one
-card pays automatically at a time. **Stop paying automatically** and **Stop
+own words in the same way (`POST /v1/portal/cards/{cardId}/autopay`). A
+customer can keep agreements on several cards, and one of them pays
+automatically: when another card already does, the button says **Pay my bills
+automatically with Visa ending 5556 instead of Visa ending 4242**, the page
+says the first card stops paying automatically and can still be charged as
+agreed, and choosing it moves paying automatically to the new card in one
+step. **Stop paying automatically** and **Stop
 {company} charging Visa ending 4242** (`POST
 /v1/portal/cards/{cardId}/agreement/withdraw`) end them at once. Removing the
 card ends its agreement too. `GET /v1/portal/cards` says, for each card,

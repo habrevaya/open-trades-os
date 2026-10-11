@@ -239,6 +239,14 @@ export interface IntentInput {
    */
   offSession?: { agreementId: string } | undefined;
   /**
+   * Charge this much of ONE invoice's balance rather than all of it: the
+   * office charging part of a bill to a card the customer agreed may be
+   * charged. Only off session, so a customer's browser can never name its
+   * own figure; whole cents, more than nothing and never more than the
+   * invoice owes now, checked here against the balance in the database.
+   */
+  partOfBalance?: string | undefined;
+  /**
    * The key the processor deduplicates on, when the caller has one that
    * outlives this transaction (a charge on file, written down before it is
    * tried). Absent, the attempt's own id is used. A worker that dies after
@@ -306,6 +314,10 @@ export async function intent(
     if (input.tip !== undefined && (input.depositId || !input.invoiceIds || input.invoiceIds.length !== 1)) {
       throw new ConflictError("A tip goes with paying one invoice, and nothing else.");
     }
+    if (input.partOfBalance !== undefined
+      && (!input.offSession || input.depositId || !input.invoiceIds || input.invoiceIds.length !== 1 || input.tip !== undefined)) {
+      throw new ConflictError("Part of a bill is charged to a saved card by the office, one invoice at a time, with no tip.");
+    }
 
     if (input.depositId) {
       if (input.invoiceIds && input.invoiceIds.length > 0) {
@@ -343,6 +355,20 @@ export async function intent(
           throw new ConflictError(
             `Invoice ${invoice.id} has nothing outstanding, so there is nothing to pay.`,
           );
+        }
+        if (input.partOfBalance !== undefined) {
+          const part = usd(input.partOfBalance);
+          if (!m.isPositive(part) || part.amount % 100n !== 0n) {
+            throw new ConflictError("Part of a bill is charged in whole cents, and more than nothing.");
+          }
+          if (m.compare(part, balance) > 0) {
+            throw new ConflictError(
+              `The invoice has ${m.format(balance)} owing now, less than the ${m.format(part)} asked for. Nothing was charged.`,
+            );
+          }
+          allocations.push({ invoiceId: invoice.id, amount: m.toString(part) });
+          total = m.add(total, part);
+          continue;
         }
         allocations.push({ invoiceId: invoice.id, amount: m.toString(balance) });
         total = m.add(total, balance);
