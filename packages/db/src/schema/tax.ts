@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, boolean, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, index, uniqueIndex, timestamp, date, jsonb } from "drizzle-orm/pg-core";
 import { pk, rate } from "./_shared";
 import { organization, user } from "./tenancy";
 
@@ -53,6 +53,17 @@ export const taxRateVersion = pgTable("tax_rate_version", {
   rate: rate("rate").notNull(),
   /** The first day, in the company's calendar, this percentage is charged. */
   effectiveFrom: date("effective_from").notNull(),
+  /**
+   * The jurisdictions the percentage is made of, when the company wrote it
+   * down in parts: `[{ name: "Texas", rate: "0.0625" }, { name: "Travis
+   * County", rate: "0.01" }, ...]`, fractions like `rate`, in the order the
+   * office typed them. Their sum is `rate`, checked by the service
+   * (`core/tax.checkParts`) before anything is written. Empty for a rate
+   * written as one figure. Never edited, like the rest of the version: a
+   * county changing its share is a new version from a day, so a posting
+   * split by these parts can always be split the same way again.
+   */
+  parts: jsonb("parts").$type<Array<{ name: string; rate: string }>>().notNull().default([]),
   note: text("note"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

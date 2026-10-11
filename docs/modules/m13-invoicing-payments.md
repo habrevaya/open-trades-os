@@ -158,8 +158,9 @@ screen says so.
 
 The sales tax rates the company charges are set up on `/settings/tax`, and on
 the setup wizard's tax step (`/setup/tax`), by somebody holding
-`settings:write`: a name and a percentage from a day for each rate, which one
-is usual, and whether the company charges sales tax at all.
+`settings:write`: a name and a percentage from a day for each rate, or its
+parts (state, county, city) that add up to it, which one is usual, and whether
+the company charges sales tax at all.
 
 ## Using it
 
@@ -212,7 +213,34 @@ charged on; a void and a credit note take back exactly what was posted.
 `/books/sales-tax` and `GET /v1/reports/sales-tax` read tax collected by rate
 from those entries for any period (`report.financial:read`), net of voids and
 credits, with anything else on the account (a payment to the state journalled
-by hand) shown so it reconciles to the ledger.
+by hand) shown so it reconciles to the ledger. An agreement's instalment posts
+through the same by rate path as an invoice, so it is never a row of its own;
+an instalment is not taxed today (see below).
+
+**A rate can be written down in parts.** Most returns ask for the state, the
+county and the city separately, so a rate on `/settings/tax` can be entered as
+its parts ("Split into parts": Texas 6.25%, Travis County 1%, City of Austin
+1%), and the rate charged is their sum, 8.25%, exactly as if it had been typed
+as one figure (`parts` on `POST /v1/tax-rates` and
+`POST /v1/tax-rates/{id}/versions`). A whole percentage typed beside the parts
+must be their sum or the form refuses it, in words; two parts with one name, a
+part of nothing and parts of 100% or more are refused too. The parts belong to
+the version, so a county changing its share is a new version from a day, like a
+new percentage. Nothing looks a part up: they are the company's own figures.
+
+Parts change nothing the customer pays. They decide how the tax already worked
+out is owed: each rate's tax on a document is shared between its parts in
+proportion to their percentages, by largest remainder, so the parts add up to
+the cent, and sales tax payable is posted one entry per part, each naming its
+jurisdiction, its percentage and the sales it was charged on. The parts are
+those of the version in force on the document's date that charged that
+percentage. A void takes back each part exactly as it was posted, read from
+the ledger; a credit note on an invoice gives each jurisdiction back its share
+in the invoice's own proportions. `/books/sales-tax` then shows the same tax a
+second time, **By state, county and city**: one row per part, the state's
+share of every rate on one row, and a rate written as one figure under its own
+name, so the rows add up to the total collected (`byPart` on
+`GET /v1/reports/sales-tax`).
 
 ### Raise and issue
 
@@ -579,14 +607,24 @@ failure by email to the address on their record, or by text when the email
 cannot go and it is not quiet hours; when neither can go, the office task
 says so. A bank payment returned days later sends the link and leaves the
 office the bank payment's own task. Tax rate determination is deliberately not
-built: the company writes down the rates it charges, a rate is never looked up
-from an address, and BUILD.md says why. A rate is one percentage per sale: a
-county and a city rate charged together are written down as one combined rate,
-and a filing report that splits them by jurisdiction is not built. An item is
-taxed or not, whatever the rate; a reduced rate for one kind of item is the
-office choosing that rate on the line. The report reads only what was posted
-with its rate: invoices issued before rates were recorded on the ledger, and
-agreement billing, are a row of their own rather than placed on a rate. Overdue
+built: the company writes down the rates it charges and their parts, a rate or
+a part is never looked up from an address, and BUILD.md says why. A sale is
+charged one rate; its parts only share that rate's tax between jurisdictions,
+so a part cannot be exempted or charged on its own (a county that taxes labour
+when the state does not is the office choosing another rate for that line).
+The parts are shared from the rounded tax, so a jurisdiction's share is within
+a cent of its own percentage of the sales, not that percentage worked out and
+rounded on its own; a state that wants each part rounded separately would see
+a cent's difference. A document posted before its rate was written down in
+parts stays posted as one figure, and is shown under the rate's name in the
+report by part; nothing is split again after the fact. An item is taxed or
+not, whatever the rate; a reduced rate for one kind of item is the office
+choosing that rate on the line. The report reads only what was posted with its
+rate: invoices issued before rates were recorded on the ledger are a row of
+their own rather than placed on a rate. An agreement's instalment posts by rate
+like an invoice, but is never taxed: whether a service plan is taxable is a
+question of each state's law that nobody has answered here, so an instalment
+carries no tax, as it never has. Overdue
 invoices are chased by the collections agent (M27): a reminder per step the
 company sets, drafted on the company's model key and sent from
 `/invoices/reminders` by a person or on its own when the company lets it. It

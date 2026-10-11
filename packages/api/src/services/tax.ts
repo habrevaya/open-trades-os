@@ -48,9 +48,36 @@ export async function tableWithin(tx: Database, organizationId: string): Promise
       id: r.id,
       name: r.name,
       retired: r.retiredAt !== null,
-      versions: versions.filter((v) => v.taxRateId === r.id).map((v) => ({ rate: v.rate, effectiveFrom: v.effectiveFrom })),
+      versions: versions.filter((v) => v.taxRateId === r.id)
+        .map((v) => ({ rate: v.rate, effectiveFrom: v.effectiveFrom, parts: v.parts })),
     })),
   };
+}
+
+/**
+ * A document's tax by rate, each row shared between the parts of its rate
+ * when the company wrote that rate down in parts (`tax.withParts`), for
+ * posting. `on` is the document's date, which picks the version whose parts
+ * apply when a rate's percentage has had more than one split.
+ *
+ * Read as the document is posted, and never again: a void or a credit note
+ * void takes back what the ledger says was posted (`billing.postedTaxByRate`),
+ * parts included, so changing a rate's parts later cannot make a reversal
+ * disagree with what it reverses.
+ */
+export async function withPartsWithin(
+  tx: Database, organizationId: string, rows: readonly tax.RateTotal[], on: string,
+): Promise<tax.RateTotal[]> {
+  const ids = [...new Set(rows.map((r) => r.taxRateId).filter((x): x is string => x !== null))];
+  if (ids.length === 0) return [...rows];
+  const versions = await tx.select({
+    taxRateId: schema.taxRateVersion.taxRateId, rate: schema.taxRateVersion.rate,
+    effectiveFrom: schema.taxRateVersion.effectiveFrom, parts: schema.taxRateVersion.parts,
+  }).from(schema.taxRateVersion)
+    .where(and(eq(schema.taxRateVersion.organizationId, organizationId), inArray(schema.taxRateVersion.taxRateId, ids)));
+  return rows.map((row) => row.taxRateId
+    ? tax.withParts(row, tax.partsFor(versions.filter((v) => v.taxRateId === row.taxRateId), row.rate, on))
+    : row);
 }
 
 /**
@@ -185,11 +212,22 @@ export interface TaxRateView {
   versions: Array<{
     id: string; rate: string; percent: string; effectiveFrom: string; note: string | null;
     state: "past" | "current" | "scheduled";
+    /** The jurisdictions the percentage is made of, when it was written down in parts. */
+    parts: RatePartView[];
   }>;
   /** How many customers and addresses name it, so retiring it is not a surprise. */
   customers: number;
   addresses: number;
 }
+
+export interface RatePartView {
+  name: string;
+  rate: string;
+  percent: string;
+}
+
+const partViews = (parts: readonly tax.RatePart[]): RatePartView[] =>
+  parts.map((p) => ({ name: p.name, rate: tax.canonical(p.rate), percent: tax.rateToPercent(p.rate) }));
 
 export interface TaxSettingsView {
   today: string;
@@ -244,6 +282,7 @@ async function viewWithin(tx: Database, organizationId: string): Promise<TaxSett
           percent: tax.rateToPercent(v.rate),
           effectiveFrom: v.effectiveFrom,
           note: v.note,
+          parts: partViews(v.parts),
           state: v.effectiveFrom > today ? "scheduled" as const
             : current && v.effectiveFrom === current.effectiveFrom ? "current" as const : "past" as const,
         })),
@@ -261,6 +300,32 @@ function percentOrRefuse(percent: string, path: string): string {
   if (!checked.ok) throw new UnprocessableError("That is not a rate", [{ path, message: checked.reason }]);
   return checked.rate;
 }
+
+/** A part as it is typed: a jurisdiction's name and its percentage, "Texas" and "6.25". */
+export interface PartInput { name: string; percent: string }
+
+/**
+ * The rate a version charges and the parts it is made of. With parts, the
+ * rate is their sum, and a whole percentage typed beside them must be that
+ * sum; without, the percentage is the rate, as it always was.
+ */
+function rateOrRefuse(
+  input: { percent?: string | undefined; parts?: readonly PartInput[] | undefined },
+): { rate: string; parts: tax.RatePart[] } {
+  if (input.parts && input.parts.length > 0) {
+    const checked = tax.checkParts(input.parts, input.percent);
+    if (!checked.ok) throw new UnprocessableError("Those parts are not a rate", [{ path: "parts", message: checked.reason }]);
+    return { rate: checked.rate, parts: checked.parts };
+  }
+  if (!input.percent || input.percent.trim() === "") {
+    throw new UnprocessableError("A rate needs a percent", [{ path: "percent", message: "Give the percent, like 8.25, or its parts." }]);
+  }
+  return { rate: percentOrRefuse(input.percent, "percent"), parts: [] };
+}
+
+/** Whether two versions were written down in the same parts, in the same order. */
+const sameParts = (a: readonly tax.RatePart[], b: readonly tax.RatePart[]): boolean =>
+  a.length === b.length && a.every((p, i) => p.name === b[i]!.name && tax.sameRate(p.rate, b[i]!.rate));
 
 function dateOrRefuse(date: string, path: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
@@ -281,15 +346,20 @@ async function settingWithin(tx: Database, organizationId: string) {
  * to `tax_rate_name_idx`. The same name and percentage sent again is the same
  * request retried, and returns the rate already there.
  */
-export async function create(
-  ctx: ServiceContext,
-  input: { name: string; percent: string; effectiveFrom?: string | undefined; makeDefault?: boolean | undefined },
-): Promise<TaxSettingsView> {
+export interface CreateRateInput {
+  name: string;
+  percent?: string | undefined;
+  parts?: readonly PartInput[] | undefined;
+  effectiveFrom?: string | undefined;
+  makeDefault?: boolean | undefined;
+}
+
+export async function create(ctx: ServiceContext, input: CreateRateInput): Promise<TaxSettingsView> {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const org = ctx.actor.organizationId;
     const name = input.name.trim();
     if (name === "") throw new UnprocessableError("A rate needs a name", [{ path: "name", message: "Name it, like Travis County." }]);
-    const rate = percentOrRefuse(input.percent, "percent");
+    const { rate, parts } = rateOrRefuse(input);
     const effectiveFrom = input.effectiveFrom ?? time.dateIn(new Date(), await timezoneOf(tx, org));
     dateOrRefuse(effectiveFrom, "effectiveFrom");
 
@@ -300,13 +370,13 @@ export async function create(
       const [same] = await tx.select().from(schema.taxRateVersion)
         .where(and(eq(schema.taxRateVersion.taxRateId, clash.id), eq(schema.taxRateVersion.effectiveFrom, effectiveFrom)))
         .limit(1);
-      if (!same || !tax.sameRate(same.rate, rate)) {
+      if (!same || !tax.sameRate(same.rate, rate) || !sameParts(same.parts, parts)) {
         throw new ConflictError(`There is already a rate called ${clash.name}. Give its new percentage a date on it instead.`);
       }
     } else {
       const [row] = await tx.insert(schema.taxRate).values({ organizationId: org, name }).returning();
       const [version] = await tx.insert(schema.taxRateVersion).values({
-        organizationId: org, taxRateId: row!.id, rate, effectiveFrom,
+        organizationId: org, taxRateId: row!.id, rate, parts, effectiveFrom,
         createdByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
       }).returning();
       await audit(tx, ctx, "tax.rate_created", "tax_rate", row!.id, null, { ...row!, version: version! });
@@ -328,28 +398,33 @@ export async function create(
  * first. Every document already written keeps what it charged; a draft
  * issued on or after the day is checked against it.
  */
-export async function addVersion(
-  ctx: ServiceContext,
-  input: { id: string; percent: string; effectiveFrom: string; note?: string | undefined },
-): Promise<TaxSettingsView> {
+export interface AddVersionInput {
+  id: string;
+  percent?: string | undefined;
+  parts?: readonly PartInput[] | undefined;
+  effectiveFrom: string;
+  note?: string | undefined;
+}
+
+export async function addVersion(ctx: ServiceContext, input: AddVersionInput): Promise<TaxSettingsView> {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const org = ctx.actor.organizationId;
     const row = await rateWithin(tx, org, input.id);
     if (row.retiredAt) throw new ConflictError(`${row.name} is retired. Add a new rate instead.`);
-    const rate = percentOrRefuse(input.percent, "percent");
+    const { rate, parts } = rateOrRefuse(input);
     dateOrRefuse(input.effectiveFrom, "effectiveFrom");
 
     const [clash] = await tx.select().from(schema.taxRateVersion)
       .where(and(eq(schema.taxRateVersion.taxRateId, row.id), eq(schema.taxRateVersion.effectiveFrom, input.effectiveFrom)))
       .limit(1);
-    if (clash && tax.sameRate(clash.rate, rate)) return viewWithin(tx, org);
+    if (clash && tax.sameRate(clash.rate, rate) && sameParts(clash.parts, parts)) return viewWithin(tx, org);
     if (clash) {
       throw new ConflictError(
         `${row.name} already has a percentage from ${input.effectiveFrom}. Start the new one on a different day.`,
       );
     }
     const [version] = await tx.insert(schema.taxRateVersion).values({
-      organizationId: org, taxRateId: row.id, rate, effectiveFrom: input.effectiveFrom,
+      organizationId: org, taxRateId: row.id, rate, parts, effectiveFrom: input.effectiveFrom,
       note: input.note?.trim() || null,
       createdByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
     }).returning();
@@ -448,10 +523,28 @@ export interface SalesTaxRow {
   taxCollected: string;
 }
 
+/** Tax collected for one jurisdiction, from the rates written down in parts. */
+export interface SalesTaxPartRow {
+  /** The part's name ("Texas"), or the rate's name for tax from a rate written as one figure. */
+  name: string;
+  /** False for a rate written as one figure, which cannot be put on a jurisdiction. */
+  inParts: boolean;
+  rate: string | null;
+  percent: string | null;
+  taxableSales: string;
+  taxCollected: string;
+}
+
 export interface SalesTaxReport {
   from: string;
   to: string;
   rows: SalesTaxRow[];
+  /**
+   * The same tax by jurisdiction: each part of a rate written down in parts,
+   * the same part on several rates on one row, and a rate written as one
+   * figure on a row of its own. Adds up to `totalCollected`.
+   */
+  byPart: SalesTaxPartRow[];
   totalCollected: string;
   /**
    * Everything else that moved sales tax payable in the period: a payment to
@@ -469,9 +562,16 @@ export interface SalesTaxReport {
  * Read from the ledger, which is what every financial report here reads:
  * each sales document's entries on sales tax payable, credits as collected
  * and debits (a void, a credit note) as given back, grouped by the rate the
- * entry carries. A document posted before rates were recorded on the ledger,
- * or an agreement billed with its tax as one figure, is a row of its own
- * rather than guessed onto a rate. Days are the company's.
+ * entry carries. A document posted before rates were recorded on the ledger
+ * is a row of its own rather than guessed onto a rate; an agreement's
+ * instalment posts by rate like an invoice and lands on its rate. Days are
+ * the company's.
+ *
+ * And by jurisdiction (`byPart`): a rate written down in parts posted an
+ * entry per part, each naming its jurisdiction, so the state's share of
+ * every rate is one row however many rates include it. Tax from a rate
+ * written as one figure cannot be put on a jurisdiction and is shown under
+ * the rate's own name, so the jurisdiction rows still add up to the total.
  */
 export async function report(ctx: ServiceContext, input: { from: string; to: string }): Promise<SalesTaxReport> {
   return guardedRead(ctx, "report.financial:read", async (tx) => {
@@ -506,7 +606,20 @@ export async function report(ctx: ServiceContext, input: { from: string; to: str
     const [other] = await tx.select({ total: signed }).from(schema.ledgerEntry)
       .where(and(inPeriod, sql`${schema.ledgerEntry.sourceType} not in (${sql.join(SALES_SOURCES.map((s) => sql`${s}`), sql`, `)})`));
 
-    const ids = grouped.map((g) => g.taxRateId).filter((x): x is string => x !== null);
+    /** The same entries by jurisdiction, for the rates written down in parts. */
+    const partBase = sql<string>`sum(case when ${schema.ledgerEntry.direction} = 'credit' then 1 else -1 end * coalesce((${schema.ledgerEntry.metadata}->>'partBase')::numeric, (${schema.ledgerEntry.metadata}->>'taxableBase')::numeric, 0))`;
+    const byPartGrouped = await tx.select({
+      part: sql<string | null>`${schema.ledgerEntry.metadata}->>'part'`,
+      partRate: sql<string | null>`${schema.ledgerEntry.metadata}->>'partRate'`,
+      taxRateId: sql<string | null>`${schema.ledgerEntry.metadata}->>'taxRateId'`,
+      rate: sql<string | null>`${schema.ledgerEntry.metadata}->>'taxRate'`,
+      collected: signed,
+      base: partBase,
+    }).from(schema.ledgerEntry)
+      .where(and(inPeriod, inArray(schema.ledgerEntry.sourceType, [...SALES_SOURCES])))
+      .groupBy(sql`1`, sql`2`, sql`3`, sql`4`);
+
+    const ids = [...new Set([...grouped, ...byPartGrouped].map((g) => g.taxRateId).filter((x): x is string => x !== null))];
     const names = ids.length === 0 ? new Map<string, string>() : new Map(
       (await tx.select({ id: schema.taxRate.id, name: schema.taxRate.name }).from(schema.taxRate)
         .where(inArray(schema.taxRate.id, ids))).map((r) => [r.id, r.name]),
@@ -526,12 +639,37 @@ export async function report(ctx: ServiceContext, input: { from: string; to: str
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || Number(a.rate ?? 0) - Number(b.rate ?? 0));
 
+    const rateName = (taxRateId: string | null, rate: string | null) => taxRateId
+      ? names.get(taxRateId) ?? "A rate since removed"
+      : rate ? "Typed by hand or recorded from another system" : "Not recorded by rate";
+    const parts = new Map<string, { name: string; inParts: boolean; rate: string | null; base: m.Money; collected: m.Money }>();
+    for (const g of byPartGrouped) {
+      const inParts = g.part !== null;
+      const key = inParts ? `part|${g.part!.toLowerCase()}|${g.partRate ?? ""}` : `rate|${g.taxRateId ?? ""}|${g.rate ?? ""}`;
+      const at = parts.get(key) ?? {
+        name: inParts ? g.part! : rateName(g.taxRateId, g.rate),
+        inParts, rate: inParts ? g.partRate : g.rate, base: m.zero("USD"), collected: m.zero("USD"),
+      };
+      at.base = m.add(at.base, usd(g.base));
+      at.collected = m.add(at.collected, usd(g.collected));
+      parts.set(key, at);
+    }
+    const byPart: SalesTaxPartRow[] = [...parts.values()]
+      .filter((p) => !m.isZero(p.collected) || !m.isZero(p.base))
+      .map((p) => ({
+        name: p.name, inParts: p.inParts, rate: p.rate, percent: p.rate ? tax.rateToPercent(p.rate) : null,
+        taxableSales: m.toString(m.round(p.base, 2)), taxCollected: m.toString(p.collected),
+      }))
+      .sort((a, b) => Number(b.inParts) - Number(a.inParts) || a.name.localeCompare(b.name)
+        || Number(a.rate ?? 0) - Number(b.rate ?? 0));
+
     const collected = m.sum(rows.map((r) => usd(r.taxCollected)), "USD");
     const others = usd(other?.total);
     return {
       from: input.from,
       to: input.to,
       rows,
+      byPart,
       totalCollected: m.toString(collected),
       otherMovements: m.toString(others),
       accountMovement: m.toString(m.add(collected, others)),
@@ -543,10 +681,8 @@ export async function report(ctx: ServiceContext, input: { from: string; to: str
 
 export const handlers = {
   listTaxRates: (ctx: ServiceContext) => list(ctx),
-  createTaxRate: (ctx: ServiceContext, input: { name: string; percent: string; effectiveFrom?: string | undefined; makeDefault?: boolean | undefined }) =>
-    create(ctx, input),
-  addTaxRateVersion: (ctx: ServiceContext, input: { id: string; percent: string; effectiveFrom: string; note?: string | undefined }) =>
-    addVersion(ctx, input),
+  createTaxRate: (ctx: ServiceContext, input: CreateRateInput) => create(ctx, input),
+  addTaxRateVersion: (ctx: ServiceContext, input: AddVersionInput) => addVersion(ctx, input),
   retireTaxRate: (ctx: ServiceContext, input: { id: string }) => retire(ctx, input),
   updateTaxSettings: (ctx: ServiceContext, input: { chargesTax?: boolean | undefined; defaultTaxRateId?: string | null | undefined }) =>
     updateSettings(ctx, input),

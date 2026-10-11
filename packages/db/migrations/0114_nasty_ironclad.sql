@@ -1,0 +1,1 @@
+ALTER TABLE "tax_rate_version" ADD COLUMN "parts" jsonb DEFAULT '[]'::jsonb NOT NULL;

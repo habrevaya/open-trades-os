@@ -22,11 +22,27 @@ function refresh() {
 
 const percentOf = (form: FormData) => (field(form, "percent") ?? "").replace(/[%\s]/g, "");
 
+/** The parts typed on the form, the rows with anything in them, in order. Undefined when none were. */
+function partsOf(form: FormData): Array<{ name: string; percent: string }> | undefined {
+  const parts: Array<{ name: string; percent: string }> = [];
+  for (let i = 0; i < 8; i += 1) {
+    const name = (field(form, `partName${i}`) ?? "").trim();
+    const percent = (field(form, `partPercent${i}`) ?? "").replace(/[%\s]/g, "");
+    if (name === "" && percent === "") continue;
+    parts.push({ name, percent });
+  }
+  return parts.length > 0 ? parts : undefined;
+}
+
+/** The whole percent, or nothing when the parts say it. */
+const wholeOf = (form: FormData) => percentOf(form) || undefined;
+
 export async function addRate(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
     const input = parsed(createTaxRate.input, {
       name: field(form, "name"),
-      percent: percentOf(form),
+      percent: wholeOf(form),
+      parts: partsOf(form),
       effectiveFrom: field(form, "effectiveFrom"),
       makeDefault: form.get("makeDefault") === "1",
     });
@@ -41,7 +57,8 @@ export async function changeRate(_previous: FormState, form: FormData): Promise<
   const result = await attempt(form, async () => {
     const input = parsed(addTaxRateVersion.input, {
       id: field(form, "id"),
-      percent: percentOf(form),
+      percent: wholeOf(form),
+      parts: partsOf(form),
       effectiveFrom: field(form, "effectiveFrom"),
       note: field(form, "note"),
     });

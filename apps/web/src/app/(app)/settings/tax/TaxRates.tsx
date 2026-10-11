@@ -75,6 +75,11 @@ export async function TaxRatesSection({ ctx, timeZone }: { ctx: ServiceContext; 
                         {v.percent}% from {formatDay(v.effectiveFrom, timeZone)}
                         {v.state === "scheduled" ? " (coming)" : v.state === "current" ? " (now)" : ""}
                         {v.note ? `, ${v.note}` : ""}
+                        {v.parts.length > 0 ? (
+                          <span className="block text-xs text-ink-500">
+                            {v.parts.map((p) => `${p.name} ${p.percent}%`).join(" + ")}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -87,8 +92,12 @@ export async function TaxRatesSection({ ctx, timeZone }: { ctx: ServiceContext; 
                     <div className="space-y-2">
                       <ActionForm action={changeRate} submit="Change from a day" tone="quiet" hidden={{ id: r.id }}
                                   className="flex flex-wrap items-end gap-2">
-                        <TextField label={`New percent for ${r.name}`} name="percent" inputMode="decimal" placeholder="8.25" required className="w-28" />
+                        <TextField label={`New percent for ${r.name}`} name="percent" inputMode="decimal" placeholder="8.25" className="w-28" />
                         <TextField label="From" name="effectiveFrom" type="date" defaultValue={view.today} required className="w-40" />
+                        <details className="w-full text-sm">
+                          <summary className="cursor-pointer text-ink-700">Split into parts</summary>
+                          <PartFields rate={r.name} />
+                        </details>
                       </ActionForm>
                       {!r.isDefault ? (
                         <ActionForm action={retireRate} submit={`Retire ${r.name}`} tone="danger" hidden={{ id: r.id }} className="flex" />
@@ -111,17 +120,48 @@ export async function TaxRatesSection({ ctx, timeZone }: { ctx: ServiceContext; 
           <h2 id="tax-add" className="text-base font-semibold">Add a rate</h2>
           <ActionForm action={addRate} submit="Add rate" className="mt-3 grid gap-3 sm:grid-cols-2">
             <TextField label="Name" name="name" placeholder="Travis County" required maxLength={100} />
-            <TextField label="Percent" name="percent" inputMode="decimal" placeholder="8.25" required />
+            <TextField label="Percent" name="percent" inputMode="decimal" placeholder="8.25" />
             <TextField label="Charged from" name="effectiveFrom" type="date" defaultValue={view.today} required />
             <label className="flex items-end gap-2 pb-2 text-sm">
               <input type="checkbox" name="makeDefault" value="1" />
               Make this the usual rate
             </label>
+            <div className="sm:col-span-2">
+              <h3 className="text-sm font-medium text-ink-700">Split into parts (optional)</h3>
+              <p className="mt-1 max-w-2xl text-xs text-ink-500">
+                If your return asks for the state, county and city separately, enter each part here. The rate charged is
+                the parts added up, so you can leave Percent empty. Customers pay the same either way.
+              </p>
+              <PartFields rate="the new rate" />
+            </div>
           </ActionForm>
         </section>
       ) : (
         <p className="text-sm text-ink-500">Changing these needs the Edit company settings permission.</p>
       )}
     </div>
+  );
+}
+
+/** How many parts a rate can be entered in on the screen: state, county, city and one special district. */
+const PART_ROWS = 4;
+
+/**
+ * The boxes for a rate's parts: a name and a percent each. Rows left empty
+ * are not parts. The server adds them up and refuses parts that do not make
+ * a rate, in words, under the form.
+ */
+function PartFields({ rate }: { rate: string }) {
+  return (
+    <fieldset className="mt-2 grid gap-2 sm:grid-cols-2">
+      <legend className="sr-only">The parts of {rate}</legend>
+      {Array.from({ length: PART_ROWS }, (_, i) => (
+        <div key={i} className="flex items-end gap-2">
+          <TextField label={`Part ${i + 1}`} name={`partName${i}`} placeholder={["Texas", "Travis County", "City of Austin", "Transit"][i]}
+                     maxLength={100} className="flex-1" />
+          <TextField label={`Part ${i + 1} %`} name={`partPercent${i}`} inputMode="decimal" placeholder={["6.25", "1", "1", "0.5"][i]} className="w-24" />
+        </div>
+      ))}
+    </fieldset>
   );
 }

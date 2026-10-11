@@ -72,6 +72,13 @@ export const SOURCE_LABEL: Record<TaxSource, string> = {
 export interface RateVersion {
   rate: string;
   effectiveFrom: string;
+  /**
+   * The jurisdictions the percentage is made of, when the company wrote it
+   * down in parts: Texas 6.25%, Travis County 1%, Austin 1%. Their sum is
+   * `rate` (`checkParts` refuses anything else). Empty or absent, the rate
+   * is one figure, as every rate was before parts.
+   */
+  parts?: readonly RatePart[] | undefined;
 }
 
 export interface CompanyRate {
@@ -342,6 +349,19 @@ export interface RateTotal {
   /** Sales the rate was charged on. */
   base: Money;
   tax: Money;
+  /**
+   * The row's tax by jurisdiction, when the rate is written down in parts
+   * (`withParts`). Adds up to `tax` exactly; the ledger refuses it otherwise.
+   */
+  parts?: readonly PartTotal[] | undefined;
+}
+
+/** One jurisdiction's share of a row's tax. */
+export interface PartTotal {
+  name: string;
+  /** The part's own fraction: "0.0625" for the state's 6.25%. */
+  rate: string;
+  tax: Money;
 }
 
 /**
@@ -387,6 +407,182 @@ export function byRate(lines: readonly TaxedLine[], taxTotal: Money): RateTotal[
 /** A row as it rides on a ledger entry's metadata, so the filing report reads it back. */
 export function asMetadata(row: RateTotal): Record<string, string | null> {
   return { taxRateId: row.taxRateId, taxRate: row.rate, taxableBase: toString(row.base) };
+}
+
+/**
+ * A part's entry's metadata: the row's, plus which jurisdiction it is, its
+ * own percentage and the sales it was charged on.
+ *
+ * Only one part carries `taxableBase` (`carriesBase`, the first that posts
+ * anything). Every part was charged on the same sales, and the report by
+ * rate sums `taxableBase` across a rate's entries, so carrying it on each
+ * part would count the sales once per jurisdiction. `partBase` is the same
+ * figure for the report by jurisdiction, where each part's sales are its own.
+ */
+export function asPartMetadata(row: RateTotal, part: PartTotal, carriesBase: boolean): Record<string, string | null> {
+  const base = toString(row.base);
+  return {
+    taxRateId: row.taxRateId,
+    taxRate: row.rate,
+    ...(carriesBase ? { taxableBase: base } : {}),
+    part: part.name,
+    partRate: canonical(part.rate),
+    partBase: base,
+  };
+}
+
+/* ------------------------------------------------------ a rate in parts */
+
+/**
+ * A RATE WRITTEN DOWN IN PARTS.
+ *
+ * In most states the rate a sale is charged is several rates added up: the
+ * state's, the county's, the city's, a transit district's. A return asks
+ * for each separately. The company may write a rate down as its parts, and
+ * the rate charged is their sum, exactly as a rate written as one figure is
+ * charged; nothing here looks a part up (BUILD.md, "Tax rate determination").
+ *
+ * The parts never change what the customer pays. They decide only how the
+ * tax already worked out is shared between jurisdictions on the ledger:
+ * `splitTax` takes the row's rounded tax and shares it in proportion to each
+ * part's percentage, by largest remainder, so the parts add up to the cent.
+ * Working each part out from the sales instead and rounding each on its own
+ * would leave the parts a cent away from the tax the customer was charged,
+ * which is a cent the ledger cannot post.
+ */
+export interface RatePart {
+  name: string;
+  /** A fraction, as every rate here is: "0.0625" for 6.25%. */
+  rate: string;
+}
+
+export type PartsCheck =
+  | { ok: true; rate: string; parts: RatePart[] }
+  | { ok: false; reason: string };
+
+/** A fraction in millionths, which is exactly what the rate column holds. */
+const micros = (fraction: string): bigint => {
+  const [whole = "0", frac = ""] = canonical(fraction).split(".");
+  return BigInt(whole) * 1_000_000n + BigInt(frac.padEnd(6, "0").slice(0, 6));
+};
+
+const fromMicros = (value: bigint): string => {
+  const text = value.toString().padStart(7, "0");
+  return canonical(`${text.slice(0, -6) || "0"}.${text.slice(-6)}`);
+};
+
+/**
+ * The parts somebody typed, checked, and the rate they add up to.
+ *
+ * Each part needs a name and a percentage above nothing, and two parts with
+ * one name is a filing report with two rows for one jurisdiction, so it is
+ * refused. When a percentage for the whole rate is typed as well it must be
+ * the sum: a rate of 8.25% whose parts add up to 8.5% is a typo somewhere,
+ * and guessing which figure was meant would charge one and file the other.
+ */
+export function checkParts(
+  typed: readonly { name: string; percent: string }[], total?: string | undefined,
+): PartsCheck {
+  if (typed.length === 0) return { ok: false, reason: "Give at least one part, with a name and a percent." };
+  const parts: RatePart[] = [];
+  const seen = new Set<string>();
+  for (const [i, one] of typed.entries()) {
+    const name = one.name.trim();
+    if (name === "") return { ok: false, reason: `Part ${i + 1} needs a name, like Texas or Travis County.` };
+    if (name.length > 100) return { ok: false, reason: `Part ${i + 1}'s name is too long.` };
+    const key = name.toLowerCase();
+    if (seen.has(key)) return { ok: false, reason: `There are two parts called ${name}. Each part is one place.` };
+    seen.add(key);
+    const checked = percentToRate(one.percent);
+    if (!checked.ok) return { ok: false, reason: `${name}: ${checked.reason}` };
+    if (micros(checked.rate) === 0n) return { ok: false, reason: `${name} is 0%. Leave out a part that charges nothing.` };
+    parts.push({ name, rate: checked.rate });
+  }
+  const sumMicros = parts.reduce((acc, p) => acc + micros(p.rate), 0n);
+  if (sumMicros >= 1_000_000n) return { ok: false, reason: "The parts add up to 100% or more. Check each percent." };
+  const rate = fromMicros(sumMicros);
+  if (total !== undefined && total.trim() !== "") {
+    const whole = percentToRate(total);
+    if (!whole.ok) return whole;
+    if (!sameRate(whole.rate, rate)) {
+      return {
+        ok: false,
+        reason: `The parts add up to ${rateToPercent(rate)}%, not the ${rateToPercent(whole.rate)}% given for the whole rate. `
+          + "Leave the whole rate empty to charge the sum, or fix the part that is wrong.",
+      };
+    }
+  }
+  return { ok: true, rate, parts };
+}
+
+/**
+ * Which parts a row's tax is shared by: those of the rate's version that
+ * charged this very percentage, the one in force on the day first, else the
+ * latest that charged it. A percentage none of the versions charged (typed
+ * by hand on an estimate, say) is not split, because the parts of some
+ * other percentage do not describe it.
+ */
+export function partsFor(versions: readonly RateVersion[], charged: string, on: string): RatePart[] {
+  const matching = versions.filter((v) => sameRate(v.rate, charged) && (v.parts?.length ?? 0) > 0);
+  if (matching.length === 0) return [];
+  const inForce = versionOn(versions, on);
+  if (inForce && sameRate(inForce.rate, charged) && (inForce.parts?.length ?? 0) > 0) return [...inForce.parts!];
+  const latest = [...matching].sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]!;
+  return [...latest.parts!];
+}
+
+/**
+ * A row's tax shared between its parts, to the cent, by largest remainder.
+ *
+ * Each part's exact share is the row's tax times its percentage over the
+ * rate's; each gets that rounded down to the cent, and the cents left over
+ * go one each to the parts with the largest fraction left, the first part
+ * on a tie. The parts then add up to the row's tax exactly and each is
+ * within a cent of its exact share. A negative tax (history's stray cent)
+ * is shared the same way with the sign put back. Anything below a cent in
+ * the tax itself, which only history recorded at four places can carry,
+ * rides on the part with the largest remainder rather than disappearing.
+ */
+export function splitTax(tax: Money, parts: readonly RatePart[]): Money[] {
+  if (parts.length === 0) return [];
+  const currency = tax.currency;
+  const negative = tax.amount < 0n;
+  const total = negative ? -tax.amount : tax.amount;
+  const weights = parts.map((p) => micros(p.rate));
+  const sumWeights = weights.reduce((a, b) => a + b, 0n);
+  if (sumWeights === 0n) throw new RangeError("Parts that charge nothing cannot share a tax.");
+  const cent = money("0.01", currency).amount;
+
+  const exact = weights.map((w) => total * w);
+  const floors = exact.map((x) => ((x / sumWeights) / cent) * cent);
+  const rests = exact.map((x, i) => x - floors[i]! * sumWeights);
+  const order = rests.map((rest, i) => ({ rest, i }))
+    .sort((a, b) => (b.rest > a.rest ? 1 : b.rest < a.rest ? -1 : a.i - b.i));
+
+  const out = [...floors];
+  let left = total - floors.reduce((a, b) => a + b, 0n);
+  for (let k = 0; left >= cent; k += 1) {
+    out[order[k % order.length]!.i]! += cent;
+    left -= cent;
+  }
+  if (left > 0n) out[order[0]!.i]! += left;
+  return out.map((amount) => ({ amount: negative ? -amount : amount, currency }));
+}
+
+/**
+ * A row with its tax shared between the parts of its rate. Parts that do
+ * not add up to the row's percentage are not this row's (`partsFor` already
+ * keeps those out); the row is returned as it was, posted as one figure.
+ */
+export function withParts(row: RateTotal, parts: readonly RatePart[]): RateTotal {
+  if (parts.length === 0) return row;
+  const sumMicros = parts.reduce((acc, p) => acc + micros(p.rate), 0n);
+  if (sumMicros !== micros(row.rate)) return row;
+  const shares = splitTax(row.tax, parts);
+  return {
+    ...row,
+    parts: parts.map((p, i) => ({ name: p.name, rate: canonical(p.rate), tax: shares[i]! })),
+  };
 }
 
 /* ---------------------------------------------------- the provider seam */

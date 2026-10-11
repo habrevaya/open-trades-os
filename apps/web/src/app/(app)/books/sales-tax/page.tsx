@@ -18,6 +18,8 @@ const isDay = (value: unknown): value is string => typeof value === "string" && 
  * from the ledger (`GET /v1/reports/sales-tax`), so it agrees with sales tax
  * payable on the trial balance; anything else that moved the account (a
  * payment to the state, journalled) is shown under the rows so the two add up.
+ * When a rate is written down in parts, the same tax is shown again by part
+ * (state, county, city), which is how most returns ask for it.
  */
 export default async function SalesTaxReportPage(
   { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
@@ -82,6 +84,37 @@ export default async function SalesTaxReportPage(
           </Table>
         </div>
       )}
+
+      {report.byPart.some((p) => p.inParts) ? (
+        <section className="mt-8" aria-labelledby="by-part">
+          <h2 id="by-part" className="text-base font-semibold">By state, county and city</h2>
+          <p className="mt-1 max-w-3xl text-sm text-ink-700">
+            The same tax split into the parts you entered for each rate on Settings, Sales tax. A part that is on more than
+            one rate, like the state, is one row. A rate you entered as one number has no parts, so it shows under its own name.
+          </p>
+          <div className="mt-3">
+            <Table label="Sales tax collected by part" head={
+              <><Th>Part</Th><Th className="text-right">Percent</Th><Th className="text-right">Taxable sales</Th><Th className="text-right">Tax collected</Th></>
+            }>
+              {report.byPart.map((row) => (
+                <tr key={`${row.inParts ? "part" : "rate"}-${row.name}-${row.rate ?? "none"}`}>
+                  <Td className="font-medium">
+                    {row.name}
+                    {row.inParts ? null : <span className="ml-2 text-xs font-normal text-ink-500">not split into parts</span>}
+                  </Td>
+                  <Td className="text-right font-mono tabular-nums">{row.percent ? `${row.percent}%` : ""}</Td>
+                  <Td className="text-right"><Money value={row.taxableSales} /></Td>
+                  <Td className="text-right"><Money value={row.taxCollected} /></Td>
+                </tr>
+              ))}
+              <tr>
+                <Td className="font-semibold">Collected</Td><Td>{""}</Td><Td>{""}</Td>
+                <Td className="text-right font-semibold"><Money value={report.totalCollected} /></Td>
+              </tr>
+            </Table>
+          </div>
+        </section>
+      ) : null}
       <dl className="mt-4 grid max-w-md grid-cols-2 gap-y-1 text-sm">
         <dt className="text-ink-700">Other entries on sales tax owed</dt>
         <dd className="text-right"><Money value={report.otherMovements} /></dd>

@@ -360,7 +360,11 @@ export interface AddTaskChecklistItemOutput {
 }
 
 export interface AddTaxRateVersionInput {
-  percent: string;
+  percent?: string;
+  parts?: Array<{
+    name: string;
+    percent: string;
+  }>;
   effectiveFrom: string;
   note?: string;
 }
@@ -387,6 +391,11 @@ export interface AddTaxRateVersionOutput {
       effectiveFrom: string;
       note: string | null;
       state: "past" | "current" | "scheduled";
+      parts: Array<{
+        name: string;
+        rate: string;
+        percent: string;
+      }>;
     }>;
     customers: number;
     addresses: number;
@@ -4396,7 +4405,11 @@ export interface CreateTaskTemplateOutput {
 
 export interface CreateTaxRateInput {
   name: string;
-  percent: string;
+  percent?: string;
+  parts?: Array<{
+    name: string;
+    percent: string;
+  }>;
   effectiveFrom?: string;
   makeDefault?: boolean;
 }
@@ -4423,6 +4436,11 @@ export interface CreateTaxRateOutput {
       effectiveFrom: string;
       note: string | null;
       state: "past" | "current" | "scheduled";
+      parts: Array<{
+        name: string;
+        rate: string;
+        percent: string;
+      }>;
     }>;
     customers: number;
     addresses: number;
@@ -10749,6 +10767,14 @@ export interface GetSalesTaxReportOutput {
     taxableSales: string;
     taxCollected: string;
   }>;
+  byPart: Array<{
+    name: string;
+    inParts: boolean;
+    rate: string | null;
+    percent: string | null;
+    taxableSales: string;
+    taxCollected: string;
+  }>;
   totalCollected: string;
   otherMovements: string;
   accountMovement: string;
@@ -15836,6 +15862,11 @@ export interface ListTaxRatesOutput {
       effectiveFrom: string;
       note: string | null;
       state: "past" | "current" | "scheduled";
+      parts: Array<{
+        name: string;
+        rate: string;
+        percent: string;
+      }>;
     }>;
     customers: number;
     addresses: number;
@@ -20375,6 +20406,11 @@ export interface RetireTaxRateOutput {
       effectiveFrom: string;
       note: string | null;
       state: "past" | "current" | "scheduled";
+      parts: Array<{
+        name: string;
+        rate: string;
+        percent: string;
+      }>;
     }>;
     customers: number;
     addresses: number;
@@ -25397,6 +25433,11 @@ export interface UpdateTaxSettingsOutput {
       effectiveFrom: string;
       note: string | null;
       state: "past" | "current" | "scheduled";
+      parts: Array<{
+        name: string;
+        rate: string;
+        percent: string;
+      }>;
     }>;
     customers: number;
     addresses: number;

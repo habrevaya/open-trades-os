@@ -445,7 +445,8 @@ async function postIssue(
     totals: input.totals,
     customerId: input.customerId,
     jobId: input.jobId ?? undefined,
-    taxByRate: input.taxByRate,
+    /** Each rate the company wrote down in parts is posted per part, by the parts in force on the issue date. */
+    taxByRate: await taxRates.withPartsWithin(tx, ctx.actor.organizationId, input.taxByRate, input.issuedOn),
   }));
 
   if (input.jobId) {
@@ -706,12 +707,31 @@ export async function postedTaxByRate(
     eq(schema.ledgerEntry.accountCode, ledger.ACCOUNTS.TAX_PAYABLE),
   ));
   if (entries.length === 0 || entries.some((e) => typeof e.metadata["taxRate"] !== "string")) return undefined;
-  return entries.map((e) => ({
-    taxRateId: typeof e.metadata["taxRateId"] === "string" ? e.metadata["taxRateId"] : null,
-    rate: String(e.metadata["taxRate"]),
-    base: m.money(typeof e.metadata["taxableBase"] === "string" ? e.metadata["taxableBase"] : "0", e.currency),
-    tax: m.money(e.amount, e.currency),
-  }));
+  /**
+   * A rate written down in parts posted an entry per part, so the entries
+   * are put back together by rate with their parts inside: a reversal then
+   * takes back each jurisdiction's share exactly as it was posted, and
+   * everything that reads a document by rate (the books sync) still sees
+   * one row per rate.
+   */
+  const rows = new Map<string, tax.RateTotal & { parts?: tax.PartTotal[] }>();
+  for (const e of entries) {
+    const taxRateId = typeof e.metadata["taxRateId"] === "string" ? e.metadata["taxRateId"] : null;
+    const rate = String(e.metadata["taxRate"]);
+    const key = `${taxRateId ?? ""}|${rate}`;
+    const at = rows.get(key) ?? { taxRateId, rate, base: m.zero(e.currency), tax: m.zero(e.currency) };
+    if (typeof e.metadata["taxableBase"] === "string") at.base = m.add(at.base, m.money(e.metadata["taxableBase"], e.currency));
+    at.tax = m.add(at.tax, m.money(e.amount, e.currency));
+    if (typeof e.metadata["part"] === "string") {
+      at.parts = [...(at.parts ?? []), {
+        name: e.metadata["part"],
+        rate: typeof e.metadata["partRate"] === "string" ? e.metadata["partRate"] : "0",
+        tax: m.money(e.amount, e.currency),
+      }];
+    }
+    rows.set(key, at);
+  }
+  return [...rows.values()];
 }
 
 /**

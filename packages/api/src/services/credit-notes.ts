@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { isSystem, ledger, money as m, time } from "@opentradesos/core";
+import { isSystem, ledger, money as m, tax, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, decodeCursor, paginate,
@@ -8,6 +8,7 @@ import {
 } from "./context";
 import { writePosting } from "./ledger";
 import * as billing from "./billing";
+import * as taxRates from "./tax";
 import { nextNumber } from "./jobs";
 import { deletedInBooks } from "./accounting-deletions";
 import type {
@@ -452,8 +453,9 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createCr
  * (issued before rates were recorded on the ledger), so a rate's row in the
  * filing report is never taken down by more than it was put up by.
  */
-async function creditedByRate(tx: Database, ctx: ServiceContext, note: Note) {
-  if (note.invoiceId && !(await billing.postedTaxByRate(tx, ctx.actor.organizationId, note.invoiceId))) return undefined;
+async function creditedByRate(tx: Database, ctx: ServiceContext, note: Note, on: string) {
+  const posted = note.invoiceId ? await billing.postedTaxByRate(tx, ctx.actor.organizationId, note.invoiceId) : undefined;
+  if (note.invoiceId && !posted) return undefined;
   const lines = await tx.select({
     taxable: schema.creditNoteLine.taxable, taxRate: schema.creditNoteLine.taxRate,
     taxAmount: schema.creditNoteLine.taxAmount, lineTotal: schema.creditNoteLine.lineTotal,
@@ -461,7 +463,17 @@ async function creditedByRate(tx: Database, ctx: ServiceContext, note: Note) {
   }).from(schema.creditNoteLine)
     .leftJoin(schema.invoiceLine, eq(schema.invoiceLine.id, schema.creditNoteLine.invoiceLineId))
     .where(eq(schema.creditNoteLine.creditNoteId, note.id));
-  return billing.taxByRateOf(lines, usd(note.taxTotal));
+  const rows = billing.taxByRateOf(lines, usd(note.taxTotal));
+  /**
+   * A rate the invoice posted in parts is credited back in those same parts,
+   * so each jurisdiction gets back its share of what it was given. A credit
+   * not about one invoice takes the parts in force on the day it is issued.
+   */
+  const split = await taxRates.withPartsWithin(tx, ctx.actor.organizationId, rows, on);
+  return split.map((row, i) => {
+    const same = posted?.find((p) => p.taxRateId === row.taxRateId && tax.sameRate(p.rate, row.rate));
+    return same?.parts && same.parts.length > 0 ? tax.withParts(rows[i]!, same.parts) : row;
+  });
 }
 
 async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: boolean): Promise<void> {
@@ -478,7 +490,7 @@ async function issueInTx(tx: Database, ctx: ServiceContext, note: Note, apply: b
     customerId: note.customerId,
     ...(note.invoiceId ? { invoiceId: note.invoiceId } : {}),
     ...(invoice?.jobId ? { jobId: invoice.jobId } : {}),
-    taxByRate: await creditedByRate(tx, ctx, note),
+    taxByRate: await creditedByRate(tx, ctx, note, issuedOn),
   }));
 
   const [issued] = await tx.update(schema.creditNote).set({
