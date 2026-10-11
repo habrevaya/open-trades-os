@@ -25,6 +25,9 @@ describe("the job's work", () => {
       .toContain("Mark job complete");
     expect(renderToStaticMarkup(<JobLifecycle action={action} jobId="j" status="scheduled" openVisits={1} />)).toBe("");
     expect(renderToStaticMarkup(<JobLifecycle action={action} jobId="j" status="paid" openVisits={0} />)).toBe("");
+    /** A lead and a job on hold cannot go straight to completed, so pressing it would always be refused. */
+    expect(renderToStaticMarkup(<JobLifecycle action={action} jobId="j" status="lead" openVisits={0} />)).toBe("");
+    expect(renderToStaticMarkup(<JobLifecycle action={action} jobId="j" status="on_hold" openVisits={0} />)).toBe("");
   });
 
   it("lists what was used with whether it is billed yet", () => {

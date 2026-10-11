@@ -83,7 +83,12 @@ export function JobLifecycle({
       </ActionForm>
     );
   }
-  if (openVisits === 0 && ["lead", "scheduled", "in_progress", "on_hold"].includes(status)) {
+  /**
+   * Only from where a job may go straight to completed (`canTransition` in
+   * the jobs service): a lead has had no work, and a job on hold is taken
+   * off hold first, so offering the button there would always be refused.
+   */
+  if (openVisits === 0 && ["scheduled", "in_progress"].includes(status)) {
     return (
       <ActionForm action={action} submit="Mark job complete" tone="quiet"
                   hidden={{ jobId, status: "completed" }} className="mt-4">
