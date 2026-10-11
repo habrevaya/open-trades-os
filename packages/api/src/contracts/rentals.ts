@@ -53,6 +53,8 @@ const RentalView = z.object({
   divertedTons: MoneyString.nullable(),
   disposalTicketNumber: z.string().nullable(),
   disposalFacility: z.string().nullable(),
+  /** The recorded facility the load went to, when it is one. Its name is `disposalFacility`. */
+  disposalFacilityId: Uuid.nullable(),
   materialType: z.string().nullable(),
   disposalFee: MoneyString.nullable(),
   previousRentalId: Uuid.nullable(),
@@ -63,6 +65,25 @@ const RentalView = z.object({
   collectionAgreedEnd: z.string().datetime().nullable(),
   /** The invoice its period, meters and charges went on, once raised. */
   invoiceId: Uuid.nullable(),
+  /** One invoice per haul, or one for the whole swap chain. Carried through every swap. */
+  invoiceAs: z.enum(["per_haul", "chain"]),
+  /** The terms pass the facility's disposal fee on to the customer, at cost, when a person says to on the invoice. */
+  disposalPassThrough: z.boolean(),
+  /** Whether the disposal fee went on the invoice: null until somebody decided, false when it was left off. */
+  disposalFeePassedOn: z.boolean().nullable(),
+  /** The amount that was offered when it was decided. */
+  disposalFeeAmount: MoneyString.nullable(),
+  /**
+   * While a collected hire whose terms pass disposal on is undecided: the fee that would be offered
+   * and where it comes from (`recorded` is what the facility billed, `worked_out` is the ticket's
+   * weight at the facility's rate), or why there is no figure (`amount` null).
+   */
+  disposalFeeOffer: z.object({
+    amount: MoneyString.nullable(),
+    source: z.enum(["recorded", "worked_out"]).nullable(),
+    why: z.string(),
+    facility: z.string().nullable(),
+  }).nullable(),
 });
 
 /* ------------------------------------------------------------- the fleet */
@@ -164,6 +185,10 @@ export const deliverRental = defineRoute({
     overageRate: MoneyString.nullable().optional(),
     includedTons: Tons.nullable().optional(),
     perTonRate: MoneyString.nullable().optional(),
+    /** One invoice per haul (the default) or one for the whole swap chain, the company's choice per rental. */
+    invoiceAs: z.enum(["per_haul", "chain"]).optional(),
+    /** The terms pass the facility's disposal fee on, at cost, when a person says to on the invoice. Refused with a per ton rate. */
+    disposalPassThrough: z.boolean().optional(),
   }),
   output: RentalView,
 });
@@ -192,6 +217,8 @@ export const pickUpRental = defineRoute({
     materialType: z.string().max(100).nullable().optional(),
     disposalFee: MoneyString.nullable().optional(),
     backInService: z.boolean().optional(),
+    /** A facility recorded on `/v1/disposal-facilities`. Its name replaces `facility`. A closed one is refused. */
+    facilityId: Uuid.nullable().optional(),
   }),
   output: RentalView,
 });
@@ -213,6 +240,8 @@ export const swapRental = defineRoute({
     ticketNumber: z.string().max(100).nullable().optional(),
     facility: z.string().max(200).nullable().optional(),
     materialType: z.string().max(100).nullable().optional(),
+    /** A facility recorded on `/v1/disposal-facilities` for the full can. Its name replaces `facility`. */
+    facilityId: Uuid.nullable().optional(),
   }),
   output: z.object({ closed: RentalView, opened: RentalView }),
 });

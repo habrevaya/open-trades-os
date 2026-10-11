@@ -1465,7 +1465,7 @@ grant execute on function app.dwell_workflows(int) to background;
 -- a failure that might clear has passed its back off. The same rule as
 -- `geo.geocodeDue` in core, which the worker checks again inside the tenant.
 --
--- Within a company, locations first, because a technician's day cannot be
+-- Within a company, locations and disposal facilities first, because a technician's day cannot be
 -- ordered without where it starts; then properties with work in the coming week, because
 -- those are the pins a dispatcher is about to look for; then the newest,
 -- because a customer added this morning is likelier to be booked than one
@@ -1514,6 +1514,20 @@ returns table (organization_id uuid, entity text, entity_id uuid)
         and p.located_address is distinct from p.address_key
         and (p.geocode_attempted_address is distinct from p.address_key
              or (p.geocode_retry_at is not null and p.geocode_retry_at <= now()))
+      union all
+      -- A disposal facility is where a full can is tipped, so the route cannot
+      -- run through it without a pin. Ahead of properties, and behind
+      -- locations, for the same reason a location comes first: a day cannot be
+      -- ordered without it.
+      select d.organization_id, 'disposal_facility'::text, d.id, 0, d.created_at
+      from public.disposal_facility d
+      join geocoding g on g.organization_id = d.organization_id
+      where d.active
+        and coalesce(btrim(d.address_line1), '') <> ''
+        and d.location_source is distinct from 'manual'
+        and d.located_address is distinct from d.address_key
+        and (d.geocode_attempted_address is distinct from d.address_key
+             or (d.geocode_retry_at is not null and d.geocode_retry_at <= now()))
     )
     -- Round robin across companies, so one company whose geocoder is broken,
     -- or who connected one with forty thousand customers on file, cannot

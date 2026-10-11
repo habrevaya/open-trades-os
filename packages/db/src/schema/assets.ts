@@ -4,6 +4,7 @@ import {
 import { pk, timestamps, money, currency } from "./_shared";
 import { organization, user } from "./tenancy";
 import { recurrenceModel } from "./agreements";
+import { sql } from "drizzle-orm";
 
 /**
  * FLEET, TOOLS AND COMPANY ASSETS: THE STORAGE
@@ -107,6 +108,49 @@ export const assetReadingSource = pgEnum("asset_reading_source", [
 export const assetIntervalBasis = pgEnum("asset_interval_basis", ["time", "meter"]);
 
 // ---------------------------------------------------------------------------
+// Truck kinds
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT A KIND OF TRUCK CAN DO, so a driver's day is planned on the truck the
+ * driver has rather than on one company wide guess.
+ *
+ * A hook lift that carries two small cans and a roll off truck that carries
+ * one big one are different machines, and "Optimise route" used to plan every
+ * driver as if they drove the same one. A kind says how many containers the
+ * truck carries at once, which sizes (cubic yards) it can lift, and how long
+ * a run to the yard takes it. The company's own figures
+ * (`organization.settings.rentalDispatch`) stay as the default for a truck
+ * nobody has given a kind.
+ *
+ * A row is retired by `deleted_at`, which `services/trucks.ts` writes, and it
+ * is refused while a truck still has the kind, so no truck is left planned on
+ * a kind that no longer exists.
+ */
+export const truckKind = pgTable("truck_kind", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** What a person calls it: "Roll off", "Hook lift". */
+  name: text("name").notNull(),
+  /** Containers carried at once. One to four, the range the planner can reason about. */
+  containersCarried: integer("containers_carried").notNull(),
+  /**
+   * Cubic yards of the containers it can lift, one number each. Empty means
+   * it is not limited to any, which is also what the planner assumes for a
+   * can whose size nobody wrote down.
+   */
+  containerSizes: jsonb("container_sizes").$type<number[]>().notNull().default([]),
+  /** Minutes at the yard to tip what is full and load what is needed. */
+  yardMinutes: integer("yard_minutes").notNull(),
+  notes: text("notes"),
+  ...timestamps,
+}, (t) => ({
+  /** Two kinds called the same read as one on the list and plan two different trucks. */
+  nameIdx: uniqueIndex("truck_kind_name_idx").on(t.organizationId, t.name)
+    .where(sql`${t.deletedAt} is null`),
+}));
+
+// ---------------------------------------------------------------------------
 // The register
 // ---------------------------------------------------------------------------
 
@@ -184,6 +228,15 @@ export const companyAsset = pgTable("company_asset", {
    */
   quantity: integer("quantity").notNull().default(1),
   acquiredOn: date("acquired_on"),
+  /**
+   * What this unit is as a TRUCK, when it hauls containers: how many it
+   * carries, which sizes and how long the yard takes it. Null for everything
+   * that is not one (a chipper, a van, a torque wrench) and for a truck
+   * nobody has given a kind, which is planned on the company's figures.
+   * Only a `vehicle` can have one, which the service enforces because the
+   * column cannot.
+   */
+  truckKindId: uuid("truck_kind_id").references(() => truckKind.id, { onDelete: "set null" }),
   /**
    * THE RETIREMENT, which is this module's delete.
    *

@@ -238,7 +238,10 @@ const ORDER = [
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   /** A charge found on a haul points at the hire and at the fee it was priced from. */
   "rental_charge",
-  "rental", "rentable_asset", "territory", "business_hours", "company_holiday",
+  "rental",
+  /** A haul points at the facility it went to, so the facility goes after the hauls. */
+  "disposal_facility",
+  "rentable_asset", "territory", "business_hours", "company_holiday",
   /**
    * The company's own tools, children first. Every one of these cascades
    * from `company_asset`, which cascades from the organization, but a scoped
@@ -249,6 +252,8 @@ const ORDER = [
    */
   "asset_cost", "asset_compliance", "asset_maintenance_plan",
   "asset_meter_reading", "asset_custody", "company_asset",
+  /** A truck points at its kind, so the kind goes after the trucks. */
+  "truck_kind",
   /** A lead's messages and the inbox's emails point at the offer; the offer at its connector. */
   "lead_offer_message", "lead_email", "lead_inbox",
   "lead_offer", "lead_source_connector", "sync_run",

@@ -195,6 +195,72 @@ tipped and what is loaded. The leg comes from the hire's own record on the
 stop, or from the pack's job type (delivery, final pickup, swap, dump and
 return) before the hire exists.
 
+### Each truck its own kind
+
+A hook lift that carries two small cans and a roll off truck that carries one
+big one are different machines, so a truck has a kind of its own on
+`/fleet/containers/trucks`: how many containers it carries at once (one to
+four), which sizes in cubic yards it can lift (none listed means any), and
+how long the yard takes it. `GET /v1/truck-kinds` lists them with the trucks
+that have each, `POST /v1/truck-kinds` adds one, `PATCH /v1/truck-kinds/{id}`
+changes one, `DELETE /v1/truck-kinds/{id}` takes one off the list (refused
+while a truck has it, naming the trucks) and
+`PUT /v1/assets/{assetId}/truck-kind` says what kind a vehicle is, or that it
+has none. Only a vehicle that has not been retired can be a truck, and all of
+it needs `asset:write` (`asset:read` to look).
+
+The truck a driver has on a day is the vehicle with a kind that is checked out
+to them that day, which is the same custody record that already says who has
+the van (half open, so on the day a truck is handed back it is the next
+driver's). A driver holding two such vehicles is planned on the one they were
+handed most recently. "Optimise route" plans that day on the truck's own
+figures, and the company's one figure under "Collections and the truck" is the
+default for a driver with no truck of a kind, not a ceiling. The proposal says
+which it used (`GET /v1/dispatch/optimise` answers `source`, the truck's label
+and kind), and a stop about a container of a size the truck does not lift is
+named on the proposal and ordered as plain driving, rather than driven as if
+the truck could take it: it needs another truck. A can with no number in its
+size, or a drop booked before a can is chosen, is never refused for its size.
+A kind's figures change the next proposal only; a day already ordered is not
+reordered behind anybody's back.
+
+### Disposal facilities
+
+A full can is tipped at a landfill or a transfer station, and on
+`/fleet/containers/facilities` the company records each one: its name, its
+address (put on the map by the worker like a property's, or pinned by hand and
+then never moved), the days and hours it takes loads (a day left empty is a day
+it is closed; none at all means the hours are not recorded, which is never a
+reason to refuse a trip), what it charges (by the ton or by the load, with a
+minimum when it has one) and the minutes a tip takes there. `GET
+/v1/disposal-facilities` lists them, `POST /v1/disposal-facilities` records one,
+`PATCH /v1/disposal-facilities/{id}` changes one, `DELETE
+/v1/disposal-facilities/{id}` stops using one (closed, never deleted: every haul
+that went there keeps naming it), `PUT /v1/disposal-facilities/{id}/pin` and
+`DELETE /v1/disposal-facilities/{id}/pin` place and take off a pin, and `GET
+/v1/disposal-facilities/{id}/open` says whether it takes loads at a time, and in
+words why not. They need `asset:write` (`asset:read` to look). The first one a
+company records is its default, and a company has one default at a time.
+
+"Optimise route" runs a driver's day through the default facility, or the one
+asked for with `facilityId`: yard to customer to facility to the next stop. A
+full can is tipped there and not at the yard, the empty it leaves with goes
+straight to the next drop, and the yard is still where empties are loaded and
+where a truck leaves one for room. The time at the gate is counted, a truck
+early for it waits, and a run that would arrive after it has closed, or on a day
+it keeps no hours, is refused in words on the proposal (`Austin Transfer is
+closed at 5:40 PM on Tuesday: it is open 7:00 AM to 4:30 PM that day`). The
+search counts a closed gate as a broken promise, so it drives further to avoid
+one where any order could. A facility with no pin on the map cannot be driven to
+in the arithmetic, and the proposal says the day was planned with the yard
+tipping. Public holidays are not known, so a facility shut for one looks open.
+
+A pickup or a swap names the facility the load went to with `facilityId` (the
+screen offers the company's facilities beside the ticket); its name becomes the
+haul's facility, and a closed facility is refused. A scale ticket file's
+facility is matched to a recorded one only when the name is the same, case
+ignored, and left as words otherwise.
+
 ### Charges found on a haul
 
 `POST /v1/rentals/{id}/charges` records a contaminated load, a prohibited
@@ -212,12 +278,43 @@ address from a collected hire: the rental period when the hire is priced by the
 day (days inside the included period at the day rate), each meter that went
 over (extra days at the overage rate, tonnage over the included at the per ton
 rate) and every charge found on the haul. Refused while the can is on site,
-refused with the meter's own sentence when a meter went over with no rate,
-and refused when the hire is already on an invoice that has not been voided,
-so the same extra days cannot reach two invoices. A hire priced by a flat line
-on its job has no period line here, so the period is not billed twice. It
-needs `invoice:write`, and the draft is checked and issued on Invoices like
-any other.
+refused with the meter's own sentence when a meter went over with no rate, and
+refused when the hire is already on an invoice that has not been voided, so the
+same extra days cannot reach two invoices. A hire priced by a flat line on its
+job has no period line here, so the period is not billed twice. It needs
+`invoice:write`, and the draft is checked and issued on Invoices like any other.
+`GET /v1/rentals/{id}/invoice-preview` answers what the invoice would say, and
+what raising it would refuse, without writing anything.
+
+**A swap chain, one haul at a time or as one invoice.** The company chooses per
+rental, with `PUT /v1/rentals/{id}/billing-terms` (`asset:write`) or when the
+can is delivered, and the choice is carried through every swap like the rates.
+One invoice per haul is the default: each can's row is invoiced from its own
+call, as above. Billed as a chain, one call (from any can in the chain) raises
+one invoice for the whole hire with the lines of every can on it in order, a
+group per can (its period, its meters, its charges), so a four week hire with
+three swaps is one invoice and not four. It waits for the last can to be
+collected, for the reason a single haul does, and bills the cans not already on
+a standing invoice. Changing the choice applies to every can in the chain not
+already on one, and is refused once all of them are.
+
+**Passing the facility's disposal fee on.** When the hire's terms say the
+disposal fee is the customer's (`disposalPassThrough`), the fee is OFFERED when
+the invoice is raised and never added without a person saying so. The fee is
+what was recorded on the haul (what the facility billed) or, when none was, the
+ticket's weight at the haul's facility's rate, and the offer says which; it is at
+cost, with no markup. Raising the invoice is refused until the call says
+`disposalFee: "pass_on"` (the fee goes on as a line for each can) or
+`"leave_off"`; when the terms pass it on but no figure can be worked out, the
+refusal says what is missing and `leave_off` is the only way forward. The hire
+keeps whether it was passed on, the amount that was offered, who decided and
+when (`disposalFeePassedOn`, `disposalFeeAmount`). A voided invoice raised again
+asks again. `pass_on` for a hire whose terms do not pass it on is refused, and
+the terms cannot be set while a hire bills disposal by the ton over the included
+tonnage, which would charge the customer for the same load twice. The line is
+taxed as the hire's other lines are, a judgement the product owner has not made:
+the invoice is a draft, and the office changes that line before issuing it if its
+state taxes disposal differently.
 
 ### A facility's scale tickets
 
@@ -237,13 +334,25 @@ it out again inside the write and fills only empty fields. The screen is
 exclusion the pack names, because each exclusion is the way that metric is
 usually got wrong.
 
-The other four are absent rather than approximated:
-`revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue and
-facility cost attributed per container, `hauls_per_truck_day` needs truck days
-from the driver timeclock rather than the roster, and `turnaround_hours` needs
-the moment a can was emptied at the facility, which nothing records. A KPI
-computed from the nearest available number is one an owner makes a fleet
-purchase on.
+A fifth, `hauls_per_truck_day`, is on the trade scorecard (`Reports > Trade
+scorecard`) and not in this report, because the datum it was missing now exists:
+who is a driver. A driver is a person with a vehicle that has a kind of truck
+checked out to them that day, the custody record that already says who has the
+van, and a truck day is such a person's day on the timeclock rather than the
+roster. The hauls are the completed deliveries, pickups, swaps, dump and returns
+and relocations that a driver on a truck day did; a visit where the truck
+arrived and the haul did not happen (the customer was not there, the way was
+blocked) is counted beside the number as a dry run, not as a haul.
+
+The other three are absent rather than approximated:
+`revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue
+attributed to the container and the haul, which a hire billed as a chain (several
+cans on one invoice) and a hire sold at a flat price on its job both leave
+unrecorded, even though a haul now names its facility and the facility's rate;
+and `turnaround_hours` needs the moment a can was emptied at the facility, which
+nothing records, and the cans held at a customer's request, which the definition
+leaves out and nothing marks. A KPI computed from the nearest available number is
+one an owner makes a fleet purchase on.
 
 ## Permissions
 
@@ -355,17 +464,21 @@ this product's own board first.
   by "Optimise route". A collection the customer moves after it is under way
   is the office's to rearrange by hand.
 - **Scale tickets come from a file.** A photograph of a ticket is not read.
-- **The truck is one kind for the whole company.** How many containers a
-  truck carries and how long the yard takes are company wide; a fleet with a
-  hook lift and roll off trucks is planned as if every truck were the same.
-  The yard is where the driver's day starts: a disposal facility apart from
-  the yard is not a place the plan knows. The load in the morning is not
-  recorded; for a day already under way it is worked out from the stops done.
-  The rebalance across people leaves a driver's day with containers on it
-  alone (M09).
-- **A hire is invoiced one haul at a time.** A swap chain is several hauls and
-  each is invoiced from its own row; the facility's disposal fee on a haul is
-  its cost, and is not passed through.
-- **Four of the eight KPIs**, listed above with what each one needs.
+- **The truck has one capacity figure.** A kind says how many containers a
+  truck carries at once, whatever their size: a hook lift that takes two small
+  cans or one large one is two kinds. The disposal facility is one per day: a
+  day is planned through the default (or the one asked for), not choosing among
+  several by which is nearest or open, and facilities' holidays are not known.
+  The load in the morning is not recorded; for a day already under way it is
+  worked out from the stops done. The rebalance across people leaves a driver's
+  day with containers on it alone (M09).
+- **A disposal fee is passed on at cost.** There is no markup on the facility's
+  fee, and no standing rule that adds it without being asked: it is offered
+  every time. A fee worked out from the ticket's weight is an estimate until the
+  facility's invoice is recorded on the haul, and the offer says so. A chain
+  billed as one invoice cannot be raised until its last can is collected: the
+  cans already collected are invoiced by changing the hire to one invoice per
+  haul.
+- **Three of the eight KPIs**, listed above with what each one needs.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
   good as what somebody enters.

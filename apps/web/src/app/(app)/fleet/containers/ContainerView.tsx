@@ -40,6 +40,14 @@ export interface HireRow {
   collectionAgreedStart?: string | null;
   collectionAgreedEnd?: string | null;
   invoiceId?: string | null;
+  /** How the hire is invoiced, and whether its terms pass the facility's disposal fee on. */
+  invoiceAs?: "per_haul" | "chain";
+  disposalPassThrough?: boolean;
+  /** Whether the disposal fee went on the invoice: null until somebody decided. */
+  disposalFeePassedOn?: boolean | null;
+  disposalFeeAmount?: string | null;
+  /** The fee the terms would pass on, with where it comes from, or why there is no figure (`amount` null). */
+  disposalFeeOffer?: { amount: string | null; source: "recorded" | "worked_out" | null; why: string; facility: string | null } | null;
 }
 
 export interface Report {

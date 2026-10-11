@@ -62,6 +62,8 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           overageRate: field(form, "overageRate") ?? null,
           includedTons: field(form, "includedTons") ?? null,
           perTonRate: field(form, "perTonRate") ?? null,
+          invoiceAs: field(form, "invoiceAs") === "chain" ? "chain" : "per_haul",
+          disposalPassThrough: form.get("disposalPassThrough") === "on",
         });
         return;
       case "pickup":
@@ -71,6 +73,7 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           tons: field(form, "tons") ?? null,
           ticketNumber: field(form, "ticketNumber") ?? null,
           facility: field(form, "facility") ?? null,
+          facilityId: field(form, "facilityId") ?? null,
           /** Unticked means the can came back needing work, not that it vanished. */
           backInService: form.get("backInService") !== null,
         });
@@ -82,6 +85,7 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           ...(field(form, "at") ? { at: atNoon(field(form, "at")!) } : {}),
           tons: field(form, "tons") ?? null,
           ticketNumber: field(form, "ticketNumber") ?? null,
+          facilityId: field(form, "facilityId") ?? null,
         });
         return;
       default:

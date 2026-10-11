@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty three of the forty seven are computed here, four are
- * M22's, and the twenty that are not each name what they still lack.)
+ * (They are read now. Twenty four of the forty seven are computed here, four are
+ * M22's, and the nineteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -227,6 +227,79 @@ const technicianDays = (): Records => (from, to, zone) => sql`
       and te.started_at < ${dayAfter(to, zone)}
   ) as days
   join public.technician t on t.id = days.technician_id
+`;
+
+/**
+ * A DRIVER'S DAY ON A TRUCK: the person was holding a truck on that day, and
+ * their timeclock says they worked it.
+ *
+ * Who is a driver is not a flag on the person. It is that a vehicle with a kind
+ * of truck (M22) was checked out to them that day, the same custody record that
+ * already says who has the van, and half open like every custody period, so on
+ * the day a truck is handed back it is the next driver's. A retired truck is no
+ * truck a day after its retirement. The day worked is the timeclock's, by the
+ * same rule `technicianDays` uses, because a roster would count the days off.
+ */
+const onATruck = (technician: SQL, day: SQL) => sql`
+  exists (
+    select 1 from public.asset_custody ac
+    join public.company_asset ca on ca.id = ac.asset_id
+    where ac.custodian_kind = 'technician' and ac.custodian_id = ${technician}
+      and ca.truck_kind_id is not null
+      and ac.held_from <= ${day}
+      and (ac.held_until is null or ac.held_until > ${day})
+      and (ca.retired_on is null or ca.retired_on > ${day})
+  )`;
+
+const truckDays = (): Records => (from, to, zone) => sql`
+  select 'technician_day'::text as kind,
+         concat(days.technician_id, ':', days.d) as id,
+         concat(t.display_name, ', ', to_char(days.d, 'Mon FMDD')) as label,
+         to_char(days.d, 'YYYY-MM-DD') as on_day,
+         1::numeric as value,
+         '/timesheets?week=' || to_char(days.d, 'YYYY-MM-DD') as href
+  from (
+    select distinct te.technician_id, (te.started_at at time zone ${zone})::date as d
+    from public.timeclock_entry te
+    where te.deleted_at is null
+      and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])
+      and te.started_at >= ${dayStart(from, zone)}
+      and te.started_at < ${dayAfter(to, zone)}
+  ) as days
+  join public.technician t on t.id = days.technician_id
+  where ${onATruck(sql`days.technician_id`, sql`days.d`)}
+`;
+
+/** The haul events of the pack: a delivery, a pickup, a swap, a dump and return, a relocation. */
+const HAULS = ["delivery", "pickup", "swap", "dump-return", "relocate"];
+
+/**
+ * Haul visits done by a driver on a truck day. `completed` ones are the hauls;
+ * the visits where the truck went and the haul did not happen (the customer was
+ * not there, the way was blocked) are the dry runs the definition says to track
+ * apart, because they use the same slot.
+ */
+const haulVisits = (done: boolean): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' ', coalesce(v.rental_event, jt.code), ', ', c.name) as label,
+         to_char(${done ? sql`v.completed_at` : sql`coalesce(v.arrived_at, v.window_start)`} at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  join public.job_type jt on jt.id = j.job_type_id
+  join public.customer c on c.id = j.customer_id
+  where v.deleted_at is null
+    and ${done ? sql`v.status = 'completed'
+        and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}`
+      : sql`v.status = 'no_show' and v.arrived_at is not null
+        and v.arrived_at >= ${dayStart(from, zone)} and v.arrived_at < ${dayAfter(to, zone)}`}
+    and (v.rental_event is not null or jt.capacity_model = 'asset_rental')
+    and coalesce(v.rental_event, jt.code) = any(${sql.param(HAULS)}::text[])
+    and exists (
+      select 1 from public.visit_assignment va
+      where va.visit_id = v.id
+        and ${onATruck(sql`va.technician_id`, sql`((${done ? sql`v.completed_at` : sql`v.arrived_at`}) at time zone ${zone})::date`)}
+    )
 `;
 
 /** An agreement as a row: the plan, for whom, from when. */
@@ -1549,7 +1622,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "have several containers on it in a swap chain. The ratio needs each "
       + "container's share of a job's revenue, which nothing records, so the "
       + "figure would be fleet revenue divided by fleet months rather than per "
-      + "container, which is the comparison the number exists to make.",
+      + "container, which is the comparison the number exists to make. A hire "
+      + "billed as a swap chain puts several cans on one invoice, so even a "
+      + "hire's own invoice no longer belongs to one container.",
   },
   disposal_cost_pct: {
     state: "needs",
@@ -1563,16 +1638,35 @@ export const CATALOGUE: Record<string, Entry> = {
       + "HAULS, which for a hire sold at a flat price is on the job, shared by "
       + "every container in a swap chain, and nothing records a haul's share. "
       + "Dividing by the hire invoice alone would read as a disposal cost several "
-      + "times the truth.",
+      + "times the truth. A haul now names its facility and the facility's rate, "
+      + "which firms up the cost half, and a fee passed on to the customer is a "
+      + "line on the hire's invoice, but that is the cost recovered and not the "
+      + "revenue the definition divides by.",
   },
   hauls_per_truck_day: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "Which technicians are drivers. The definition takes truck days 'from the "
-      + "driver timeclock rather than from the roster', and the timeclock has no "
-      + "truck and no driver flag: counting every technician's day would include "
-      + "the office and report a fraction of the real figure.",
+    measure: {
+      /**
+       * "Completed haul events, meaning deliveries, pickups, swaps, dump and
+       * returns and relocations, divided by truck days worked taken from the driver
+       * timeclock rather than the roster. Dry runs and blocked trips do NOT count as
+       * hauls, but track them separately because they consume the same slot."
+       *
+       * All of it implemented. A DRIVER is a person with a vehicle that has a kind of
+       * truck (M22) checked out to them that day, which is what was missing: the
+       * timeclock has no truck and no driver flag, and counting every technician's
+       * day would include the office. A truck day is such a person's day on the
+       * timeclock. A haul counts only when it was completed by a driver on a truck
+       * day, and the visits where the truck arrived and the haul did not happen (the
+       * customer was not there, the way was blocked) are counted beside the number.
+       */
+      numerator: { label: "completed hauls by drivers on a truck", records: haulVisits(true) },
+      denominator: { label: "truck days on the clock", records: truckDays() },
+      besides: {
+        excluded: { label: "dry runs and blocked trips, not counted as hauls, that used the same slot", records: haulVisits(false) },
+      },
+    },
   },
   turnaround_hours: {
     state: "needs",
@@ -1582,7 +1676,10 @@ export const CATALOGUE: Record<string, Entry> = {
       + "scale ticket, which is the weighbridge rather than the tip, and the "
       + "definition measures from emptied to next placement. Using the pickup "
       + "time instead would include the drive and the queue at the gate and "
-      + "report a worse figure than the fleet achieves.",
+      + "report a worse figure than the fleet achieves. A haul now names the "
+      + "facility it went to, but not the time it was tipped there, and nothing "
+      + "records a can held at the customer's request, the other exclusion the "
+      + "definition makes.",
   },
 };
 

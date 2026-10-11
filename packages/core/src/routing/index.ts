@@ -191,15 +191,20 @@ export function construct(plan: DayPlan): string[] {
  * service day and the result at the bound is still a valid order, just not
  * the last word.
  */
-export function improve<P extends DayPlan = DayPlan>(
+export function improve<P extends DayPlan = DayPlan, E extends Evaluation = Evaluation>(
   plan: P, start: readonly string[], maxPasses = 200, pinned: ReadonlySet<string> = new Set(),
   /**
    * How an order is walked. The plain day by default; a truck that has to
    * go back to the yard between some stops walks its own way (`truck.ts`),
    * and the search is the same search over a different arithmetic.
    */
-  walk: (plan: P, order: readonly string[]) => Evaluation = evaluate,
-): Evaluation {
+  walk: (plan: P, order: readonly string[]) => E = evaluate as unknown as (plan: P, order: readonly string[]) => E,
+  /**
+   * What counts as better. `better` unless the walk measures something the
+   * plain day does not, like a facility reached after it has closed.
+   */
+  beats: (a: E, b: E) => boolean = better,
+): E {
   let current = walk(plan, start);
   const n = start.length;
   /**
@@ -218,7 +223,7 @@ export function improve<P extends DayPlan = DayPlan>(
         const order = [...current.order.slice(0, i), ...current.order.slice(i, j + 1).reverse(), ...current.order.slice(j + 1)];
         if (!keeps(order)) continue;
         const candidate = walk(plan, order);
-        if (better(candidate, current)) {
+        if (beats(candidate, current)) {
           current = candidate;
           moved = true;
           break twoOpt;
@@ -236,7 +241,7 @@ export function improve<P extends DayPlan = DayPlan>(
           const order = [...rest.slice(0, k), ...segment, ...rest.slice(k)];
           if (!keeps(order)) continue;
           const candidate = walk(plan, order);
-          if (better(candidate, current)) {
+          if (beats(candidate, current)) {
             current = candidate;
             moved = true;
             break orOpt;

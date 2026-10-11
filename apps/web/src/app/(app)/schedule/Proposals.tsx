@@ -68,6 +68,16 @@ export function RoutePreview({
               ? ` ${yardRunsLine(proposal.truck.currentYardRuns, proposal.truck.yardRuns.filter((r) => r.beforeVisitId !== null).length)}`
               : ""}
           </p>
+          {proposal.truck.facility && proposal.truck.byTruck && (
+            <p className={proposal.truck.facility.used ? "mt-1 text-ink-700" : "mt-1 text-amber-700"}>{proposal.truck.facility.note}</p>
+          )}
+          {proposal.truck.facilityRuns.length > 0 && (
+            <ul aria-label="Runs to the disposal facility" className="mt-1 space-y-0.5 text-ink-700">
+              {proposal.truck.facilityRuns.map((r, i) => (
+                <li key={i} className={r.closed ? "rounded bg-red-tint px-2 py-1 text-red-600" : undefined}>{facilityRunText(r, name, proposal.truck?.facility?.name ?? "the facility")}</li>
+              ))}
+            </ul>
+          )}
           {proposal.truck.yardRuns.length > 0 && (
             <ul aria-label="Runs to the yard" className="mt-1 space-y-0.5 text-ink-700">
               {proposal.truck.yardRuns.map((r, i) => (
@@ -112,6 +122,20 @@ export function RoutePreview({
 }
 
 type YardRun = NonNullable<Proposal["truck"]>["yardRuns"][number];
+
+type FacilityRun = NonNullable<Proposal["truck"]>["facilityRuns"][number];
+
+/** One run to the disposal facility, in a driver's words, with the refusal when it would be closed. */
+function facilityRunText(run: FacilityRun, name: (id: string) => string, facility: string): string {
+  const at = new Date(run.arriveAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const after = run.afterVisitId ? `After ${name(run.afterVisitId)}` : "First";
+  const what = run.tipped === 1 ? "tip the full container" : `tip ${run.tipped} full containers`;
+  const head = run.beforeVisitId
+    ? `${after}: to ${facility} to ${what}, there about ${at}, then ${name(run.beforeVisitId)}.`
+    : `${after}: to ${facility} to ${what} at the end of the day, there about ${at}.`;
+  const wait = run.waitMinutes > 0 ? ` About ${run.waitMinutes} min waiting for the gate to open.` : "";
+  return `${head}${wait}${run.closed ? ` ${run.closed}` : ""}`;
+}
 
 /** The runs to the yard in the middle of the day, as it is and as proposed. */
 function yardRunsLine(now: number, proposed: number): string {

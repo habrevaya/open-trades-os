@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty seven of the forty seven are answered: twenty three computed here, four
-by M22's fleet report. The other twenty each name what they still lack.
+Twenty eight of the forty seven are answered: twenty four computed here, four
+by M22's fleet report. The other nineteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -586,7 +586,7 @@ prefix off.
 
 ## What is not built
 
-Twenty of the forty seven declared KPIs cannot be computed, and each one
+Nineteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. The records behind a KPI are listed only for a

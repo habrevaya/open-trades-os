@@ -11608,6 +11608,135 @@
         ]
       }
     },
+    "/v1/assets/{assetId}/truck-kind": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setAssetTruckKind",
+        "summary": "Say what kind of truck a vehicle is",
+        "description": "`truckKindId: null` says it has none, and a driver holding it is planned on the company's figures. Only a vehicle that has not been retired can have a kind. The driver's truck on a day is the vehicle with a kind that is in their custody that day (`POST /v1/assets/{assetId}/check-out`), and `GET /v1/dispatch/optimise` says which truck and which figures it used.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAssetTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say what kind of truck a vehicle is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAssetTruckKindOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/assets/{id}": {
       "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -39844,7 +39973,7 @@
       "get": {
         "operationId": "getRouteProposal",
         "summary": "Propose a better order for one technician's day",
-        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck, with the runs to the yard it needs, when the yard is on the map. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -39862,6 +39991,15 @@
             "name": "technicianId",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "facilityId",
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -41198,6 +41336,860 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:write"
+        ]
+      }
+    },
+    "/v1/disposal-facilities": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createDisposalFacility",
+        "summary": "Record a landfill or transfer station",
+        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDisposalFacilityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record a landfill or transfer station",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDisposalFacilityOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "get": {
+        "operationId": "listDisposalFacilities",
+        "summary": "The landfills and transfer stations the company uses",
+        "description": "Each with its address and pin, the hours it takes loads, its rate by the ton or by the load, and whether it is the facility a day is planned around. Closed ones are left out unless asked for.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "includeClosed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The landfills and transfer stations the company uses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDisposalFacilitiesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      }
+    },
+    "/v1/disposal-facilities/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "closeDisposalFacility",
+        "summary": "Stop using a facility",
+        "description": "Closes it: it leaves the lists and the plan, and every haul that went there still names it. It is never deleted.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseDisposalFacilityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop using a facility",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseDisposalFacilityOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "patch": {
+        "operationId": "updateDisposalFacility",
+        "summary": "Change a facility's address, hours or rate",
+        "description": "Any field left out keeps its value. A new address is put on the map again by the worker unless the pin was placed by hand. A rate changed here applies to loads weighed from then on: a fee already recorded on a haul is left as it was. `active: false` closes it (it leaves the lists and the plan, and the hauls that went there still name it).\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDisposalFacilityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a facility's address, hours or rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDisposalFacilityOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
+    "/v1/disposal-facilities/{id}/open": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getDisposalFacilityOpen",
+        "summary": "Whether a facility takes loads at a time",
+        "description": "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether a facility takes loads at a time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDisposalFacilityOpenOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      }
+    },
+    "/v1/disposal-facilities/{id}/pin": {
+      "description": "Served at this path: DELETE, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PUT"
+      ],
+      "put": {
+        "operationId": "pinDisposalFacility",
+        "summary": "Place a facility's pin by hand",
+        "description": "For a gate the geocoder puts on the wrong road. It wins from then on: the worker never moves a pin placed by hand.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinDisposalFacilityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Place a facility's pin by hand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinDisposalFacilityOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "delete": {
+        "operationId": "unpinDisposalFacility",
+        "summary": "Take a placed pin off a facility",
+        "description": "Hands the facility back to the geocoder, which puts it on the map again on its next pass.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinDisposalFacilityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a placed pin off a facility",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnpinDisposalFacilityOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
         ]
       }
     },
@@ -101997,6 +102989,135 @@
         ]
       }
     },
+    "/v1/rentals/{id}/billing-terms": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setRentalBillingTerms",
+        "summary": "Choose how a hire is invoiced, and whether disposal is passed on",
+        "description": "`invoiceAs` is `per_haul` (each haul of a swap chain on its own invoice, the default) or `chain` (one invoice for the whole hire with the lines of every can on it, raised once the last can is collected). `disposalPassThrough` says the facility's disposal fee is the customer's at cost: it is then offered when the invoice is raised and added only when a person says so. Applies to every haul in the swap chain not already on a standing invoice, and is refused once all of them are. Passing disposal on is refused while a haul bills disposal by the ton, which would charge for the same load twice.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRentalBillingTermsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose how a hire is invoiced, and whether disposal is passed on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRentalBillingTermsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/rentals/{id}/charges": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -102323,6 +103444,116 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write",
+          "asset:read"
+        ]
+      }
+    },
+    "/v1/rentals/{id}/invoice-preview": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "previewRentalInvoice",
+        "summary": "What the invoice for a hire would say, before it is raised",
+        "description": "The lines `POST /v1/rentals/{id}/invoice` would write, the number of hauls (a hire billed as a chain is every can in the chain not already on an invoice), and the disposal fee when the hire's terms pass it on: each haul's fee with the facility, the ticket and where the figure comes from (`recorded` is what the facility billed, `worked_out` is the ticket's weight at the facility's rate), and `decisionNeeded` when raising it must say `pass_on` or `leave_off`. A refusal that raising would give is answered in `refused` rather than as an error. Writes nothing.\n\nRequires a session holding: invoice:write, asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the invoice for a hire would say, before it is raised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewRentalInvoiceOutput"
                 }
               }
             }
@@ -125171,6 +126402,480 @@
         ]
       }
     },
+    "/v1/truck-kinds": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createTruckKind",
+        "summary": "Add a kind of truck",
+        "description": "A name, how many containers it carries at once (one to four), the sizes in cubic yards it can lift (none listed means any) and the minutes the yard takes it. Two kinds with one name are refused.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a kind of truck",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTruckKindOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "get": {
+        "operationId": "listTruckKinds",
+        "summary": "The kinds of truck the company runs",
+        "description": "How many containers each kind of truck carries, which sizes it lifts and how long the yard takes it, with how many trucks on the register have it. The company's own figures (`GET /v1/rental-dispatch`) are the default for a truck with no kind.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "responses": {
+          "200": {
+            "description": "The kinds of truck the company runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTruckKindsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      }
+    },
+    "/v1/truck-kinds/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "retireTruckKind",
+        "summary": "Take a kind of truck off the list",
+        "description": "Refused while a truck on the register still has the kind, naming the trucks.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a kind of truck off the list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireTruckKindOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      },
+      "patch": {
+        "operationId": "updateTruckKind",
+        "summary": "Change a kind of truck",
+        "description": "Any field left out keeps its value. Every truck of this kind is planned on the new figures the next time a day is optimised; a day already ordered is not reordered.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTruckKindInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a kind of truck",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateTruckKindOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/truck-minimums": {
       "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -141294,6 +142999,26 @@
           "closedAt"
         ]
       },
+      "CloseDisposalFacilityInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "CloseDisposalFacilityOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "closed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "closed"
+        ]
+      },
       "CloseIncidentInput": {
         "type": "object",
         "properties": {
@@ -146911,6 +148636,288 @@
           "decidedByUserId",
           "decidedAt",
           "createdAt"
+        ]
+      },
+      "CreateDisposalFacilityInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opens": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "closes": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              },
+              "required": [
+                "day",
+                "opens",
+                "closes"
+              ]
+            },
+            "maxItems": 7
+          },
+          "feeBasis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "per_ton",
+              "per_load"
+            ]
+          },
+          "feeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "minimumFee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 180
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "CreateDisposalFacilityOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "onTheMap": {
+            "type": "boolean"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opens": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "closes": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              },
+              "required": [
+                "day",
+                "opens",
+                "closes"
+              ]
+            }
+          },
+          "hoursText": {
+            "type": "string"
+          },
+          "feeBasis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "per_ton",
+              "per_load"
+            ]
+          },
+          "feeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "minimumFee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "feeText": {
+            "type": "string"
+          },
+          "tipMinutes": {
+            "type": "integer"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "address",
+          "addressLine1",
+          "addressLine2",
+          "city",
+          "state",
+          "postalCode",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource",
+          "onTheMap",
+          "hours",
+          "hoursText",
+          "feeBasis",
+          "feeAmount",
+          "minimumFee",
+          "feeText",
+          "tipMinutes",
+          "isDefault",
+          "active",
+          "notes"
         ]
       },
       "CreateEstimateInput": {
@@ -154772,6 +156779,109 @@
           "archived"
         ]
       },
+      "CreateTruckKindInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "maxItems": 12
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "name",
+          "containersCarried",
+          "yardMinutes"
+        ]
+      },
+      "CreateTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trucks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "containersCarried",
+          "containerSizes",
+          "yardMinutes",
+          "notes",
+          "trucks"
+        ]
+      },
       "CreateVendorInput": {
         "type": "object",
         "properties": {
@@ -159077,6 +161187,16 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -159198,6 +161318,13 @@
               "null"
             ]
           },
+          "disposalFacilityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "materialType": {
             "type": [
               "string",
@@ -159245,6 +161372,69 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
+          },
+          "disposalFeePassedOn": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "disposalFeeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "disposalFeeOffer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "recorded",
+                  "worked_out"
+                ]
+              },
+              "why": {
+                "type": "string"
+              },
+              "facility": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "source",
+              "why",
+              "facility"
+            ]
           }
         },
         "required": [
@@ -159267,13 +161457,19 @@
           "divertedTons",
           "disposalTicketNumber",
           "disposalFacility",
+          "disposalFacilityId",
           "materialType",
           "disposalFee",
           "previousRentalId",
           "collectionVisitId",
           "collectionAgreedStart",
           "collectionAgreedEnd",
-          "invoiceId"
+          "invoiceId",
+          "invoiceAs",
+          "disposalPassThrough",
+          "disposalFeePassedOn",
+          "disposalFeeAmount",
+          "disposalFeeOffer"
         ]
       },
       "DescribeUnsubscribeOutput": {
@@ -168870,6 +171066,42 @@
           "geocoder",
           "routing",
           "live"
+        ]
+      },
+      "GetDisposalFacilityOpenOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hoursKnown": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "at",
+          "open",
+          "why",
+          "hoursKnown"
         ]
       },
       "GetEquipmentOutput": {
@@ -186034,6 +188266,13 @@
               "null"
             ]
           },
+          "disposalFacilityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "materialType": {
             "type": [
               "string",
@@ -186081,6 +188320,69 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
+          },
+          "disposalFeePassedOn": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "disposalFeeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "disposalFeeOffer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "recorded",
+                  "worked_out"
+                ]
+              },
+              "why": {
+                "type": "string"
+              },
+              "facility": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "source",
+              "why",
+              "facility"
+            ]
           }
         },
         "required": [
@@ -186103,13 +188405,19 @@
           "divertedTons",
           "disposalTicketNumber",
           "disposalFacility",
+          "disposalFacilityId",
           "materialType",
           "disposalFee",
           "previousRentalId",
           "collectionVisitId",
           "collectionAgreedStart",
           "collectionAgreedEnd",
-          "invoiceId"
+          "invoiceId",
+          "invoiceAs",
+          "disposalPassThrough",
+          "disposalFeePassedOn",
+          "disposalFeeAmount",
+          "disposalFeeOffer"
         ]
       },
       "GetRentalDispatchOutput": {
@@ -186468,6 +188776,123 @@
               "yardMinutes": {
                 "type": "integer"
               },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "truck",
+                  "company"
+                ]
+              },
+              "truckLabel": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kindName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sizes": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "notCarried": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "facility": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "hoursText": {
+                    "type": "string"
+                  },
+                  "tipMinutes": {
+                    "type": "integer"
+                  },
+                  "used": {
+                    "type": "boolean"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "address",
+                  "hoursText",
+                  "tipMinutes",
+                  "used",
+                  "note"
+                ]
+              },
+              "facilityRuns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "afterVisitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "beforeVisitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "tipped": {
+                      "type": "integer"
+                    },
+                    "arriveAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "waitMinutes": {
+                      "type": "integer"
+                    },
+                    "closed": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "afterVisitId",
+                    "beforeVisitId",
+                    "tipped",
+                    "arriveAt",
+                    "waitMinutes",
+                    "closed"
+                  ]
+                }
+              },
               "currentYardRuns": {
                 "type": [
                   "integer",
@@ -186537,6 +188962,13 @@
               "note",
               "containersPerTruck",
               "yardMinutes",
+              "source",
+              "truckLabel",
+              "kindName",
+              "sizes",
+              "notCarried",
+              "facility",
+              "facilityRuns",
               "currentYardRuns",
               "yardRuns",
               "startLoad"
@@ -190375,7 +192807,15 @@
       },
       "InvoiceRentalInput": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "disposalFee": {
+            "type": "string",
+            "enum": [
+              "pass_on",
+              "leave_off"
+            ]
+          }
+        }
       },
       "InvoiceRentalOutput": {
         "type": "object",
@@ -190418,13 +192858,40 @@
                 "amount"
               ]
             }
+          },
+          "hauls": {
+            "type": "integer"
+          },
+          "disposalFee": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "passedOn": {
+                "type": "boolean"
+              },
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "passedOn",
+              "amount"
+            ]
           }
         },
         "required": [
           "invoiceId",
           "invoiceNumber",
           "total",
-          "lines"
+          "lines",
+          "hauls",
+          "disposalFee"
         ]
       },
       "IssueAppTokenInput": {
@@ -199516,6 +201983,185 @@
         },
         "required": [
           "drafts"
+        ]
+      },
+      "ListDisposalFacilitiesOutput": {
+        "type": "object",
+        "properties": {
+          "facilities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "addressLine1": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "addressLine2": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "postalCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "latitude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "longitude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "locationPrecision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "locationSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "onTheMap": {
+                  "type": "boolean"
+                },
+                "hours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "day": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      },
+                      "opens": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "closes": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      }
+                    },
+                    "required": [
+                      "day",
+                      "opens",
+                      "closes"
+                    ]
+                  }
+                },
+                "hoursText": {
+                  "type": "string"
+                },
+                "feeBasis": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "per_ton",
+                    "per_load"
+                  ]
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "minimumFee": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "feeText": {
+                  "type": "string"
+                },
+                "tipMinutes": {
+                  "type": "integer"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "address",
+                "addressLine1",
+                "addressLine2",
+                "city",
+                "state",
+                "postalCode",
+                "latitude",
+                "longitude",
+                "locationPrecision",
+                "locationSource",
+                "onTheMap",
+                "hours",
+                "hoursText",
+                "feeBasis",
+                "feeAmount",
+                "minimumFee",
+                "feeText",
+                "tipMinutes",
+                "isDefault",
+                "active",
+                "notes"
+              ]
+            }
+          }
+        },
+        "required": [
+          "facilities"
         ]
       },
       "ListDueRequestsOutput": {
@@ -209229,6 +211875,13 @@
                     "null"
                   ]
                 },
+                "disposalFacilityId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "materialType": {
                   "type": [
                     "string",
@@ -209276,6 +211929,69 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "invoiceAs": {
+                  "type": "string",
+                  "enum": [
+                    "per_haul",
+                    "chain"
+                  ]
+                },
+                "disposalPassThrough": {
+                  "type": "boolean"
+                },
+                "disposalFeePassedOn": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "disposalFeeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "disposalFeeOffer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "amount": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "source": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "recorded",
+                        "worked_out"
+                      ]
+                    },
+                    "why": {
+                      "type": "string"
+                    },
+                    "facility": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "source",
+                    "why",
+                    "facility"
+                  ]
                 }
               },
               "required": [
@@ -209298,13 +212014,19 @@
                 "divertedTons",
                 "disposalTicketNumber",
                 "disposalFacility",
+                "disposalFacilityId",
                 "materialType",
                 "disposalFee",
                 "previousRentalId",
                 "collectionVisitId",
                 "collectionAgreedStart",
                 "collectionAgreedEnd",
-                "invoiceId"
+                "invoiceId",
+                "invoiceAs",
+                "disposalPassThrough",
+                "disposalFeePassedOn",
+                "disposalFeeAmount",
+                "disposalFeeOffer"
               ]
             }
           }
@@ -214178,6 +216900,79 @@
         },
         "required": [
           "fills"
+        ]
+      },
+      "ListTruckKindsOutput": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "containersCarried": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                },
+                "containerSizes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "yardMinutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "trucks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "containersCarried",
+                "containerSizes",
+                "yardMinutes",
+                "notes",
+                "trucks"
+              ]
+            }
+          }
+        },
+        "required": [
+          "kinds"
         ]
       },
       "ListTruckMinimumsOutput": {
@@ -219949,6 +222744,13 @@
           },
           "backInService": {
             "type": "boolean"
+          },
+          "facilityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -220066,6 +222868,13 @@
               "null"
             ]
           },
+          "disposalFacilityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "materialType": {
             "type": [
               "string",
@@ -220113,6 +222922,69 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
+          },
+          "disposalFeePassedOn": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "disposalFeeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "disposalFeeOffer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "recorded",
+                  "worked_out"
+                ]
+              },
+              "why": {
+                "type": "string"
+              },
+              "facility": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "source",
+              "why",
+              "facility"
+            ]
           }
         },
         "required": [
@@ -220135,13 +223007,78 @@
           "divertedTons",
           "disposalTicketNumber",
           "disposalFacility",
+          "disposalFacilityId",
           "materialType",
           "disposalFee",
           "previousRentalId",
           "collectionVisitId",
           "collectionAgreedStart",
           "collectionAgreedEnd",
-          "invoiceId"
+          "invoiceId",
+          "invoiceAs",
+          "disposalPassThrough",
+          "disposalFeePassedOn",
+          "disposalFeeAmount",
+          "disposalFeeOffer"
+        ]
+      },
+      "PinDisposalFacilityInput": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "PinDisposalFacilityOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
         ]
       },
       "PinLocationInput": {
@@ -221779,6 +224716,132 @@
           "scheduleId",
           "occurrences",
           "onlyOneKnowable"
+        ]
+      },
+      "PreviewRentalInvoiceOutput": {
+        "type": "object",
+        "properties": {
+          "refused": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hauls": {
+            "type": "integer"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "name",
+                "quantity",
+                "unitPrice",
+                "amount"
+              ]
+            }
+          },
+          "disposalFee": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rentalId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "facility": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ticket": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "why": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "recorded",
+                    "worked_out"
+                  ]
+                }
+              },
+              "required": [
+                "rentalId",
+                "amount",
+                "facility",
+                "ticket",
+                "why",
+                "source"
+              ]
+            }
+          },
+          "disposalFeeUnavailable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rentalId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rentalId",
+                "why"
+              ]
+            }
+          },
+          "decisionNeeded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "refused",
+          "hauls",
+          "invoiceAs",
+          "lines",
+          "disposalFee",
+          "disposalFeeUnavailable",
+          "decisionNeeded"
         ]
       },
       "PreviewRetentionPurgeOutput": {
@@ -234551,6 +237614,26 @@
           "rates"
         ]
       },
+      "RetireTruckKindInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetireTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "retired"
+        ]
+      },
       "RetireWageScaleInput": {
         "type": "object",
         "properties": {
@@ -240271,6 +243354,45 @@
           "expiresOn"
         ]
       },
+      "SetAssetTruckKindInput": {
+        "type": "object",
+        "properties": {
+          "truckKindId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "truckKindId"
+        ]
+      },
+      "SetAssetTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "truckKindId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "truckKindId"
+        ]
+      },
       "SetBranchNumberingInput": {
         "type": "object",
         "properties": {
@@ -243882,6 +247004,49 @@
         "required": [
           "reward",
           "amount"
+        ]
+      },
+      "SetRentalBillingTermsInput": {
+        "type": "object",
+        "properties": {
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetRentalBillingTermsOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
+          },
+          "hauls": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceAs",
+          "disposalPassThrough",
+          "hauls"
         ]
       },
       "SetRentalCollectionTimeInput": {
@@ -247556,6 +250721,13 @@
               "null"
             ],
             "maxLength": 100
+          },
+          "facilityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -247679,6 +250851,13 @@
                   "null"
                 ]
               },
+              "disposalFacilityId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "materialType": {
                 "type": [
                   "string",
@@ -247726,6 +250905,69 @@
                   "null"
                 ],
                 "format": "uuid"
+              },
+              "invoiceAs": {
+                "type": "string",
+                "enum": [
+                  "per_haul",
+                  "chain"
+                ]
+              },
+              "disposalPassThrough": {
+                "type": "boolean"
+              },
+              "disposalFeePassedOn": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "disposalFeeAmount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "disposalFeeOffer": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "source": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "recorded",
+                      "worked_out"
+                    ]
+                  },
+                  "why": {
+                    "type": "string"
+                  },
+                  "facility": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "amount",
+                  "source",
+                  "why",
+                  "facility"
+                ]
               }
             },
             "required": [
@@ -247748,13 +250990,19 @@
               "divertedTons",
               "disposalTicketNumber",
               "disposalFacility",
+              "disposalFacilityId",
               "materialType",
               "disposalFee",
               "previousRentalId",
               "collectionVisitId",
               "collectionAgreedStart",
               "collectionAgreedEnd",
-              "invoiceId"
+              "invoiceId",
+              "invoiceAs",
+              "disposalPassThrough",
+              "disposalFeePassedOn",
+              "disposalFeeAmount",
+              "disposalFeeOffer"
             ]
           },
           "opened": {
@@ -247871,6 +251119,13 @@
                   "null"
                 ]
               },
+              "disposalFacilityId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "materialType": {
                 "type": [
                   "string",
@@ -247918,6 +251173,69 @@
                   "null"
                 ],
                 "format": "uuid"
+              },
+              "invoiceAs": {
+                "type": "string",
+                "enum": [
+                  "per_haul",
+                  "chain"
+                ]
+              },
+              "disposalPassThrough": {
+                "type": "boolean"
+              },
+              "disposalFeePassedOn": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "disposalFeeAmount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "disposalFeeOffer": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "source": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "recorded",
+                      "worked_out"
+                    ]
+                  },
+                  "why": {
+                    "type": "string"
+                  },
+                  "facility": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "amount",
+                  "source",
+                  "why",
+                  "facility"
+                ]
               }
             },
             "required": [
@@ -247940,13 +251258,19 @@
               "divertedTons",
               "disposalTicketNumber",
               "disposalFacility",
+              "disposalFacilityId",
               "materialType",
               "disposalFee",
               "previousRentalId",
               "collectionVisitId",
               "collectionAgreedStart",
               "collectionAgreedEnd",
-              "invoiceId"
+              "invoiceId",
+              "invoiceAs",
+              "disposalPassThrough",
+              "disposalFeePassedOn",
+              "disposalFeeAmount",
+              "disposalFeeOffer"
             ]
           }
         },
@@ -249416,6 +252740,50 @@
         },
         "required": [
           "movements"
+        ]
+      },
+      "UnpinDisposalFacilityInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "UnpinDisposalFacilityOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
         ]
       },
       "UnpinLocationInput": {
@@ -252991,6 +256359,288 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "UpdateDisposalFacilityInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opens": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "closes": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              },
+              "required": [
+                "day",
+                "opens",
+                "closes"
+              ]
+            },
+            "maxItems": 7
+          },
+          "feeBasis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "per_ton",
+              "per_load"
+            ]
+          },
+          "feeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "minimumFee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 180
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateDisposalFacilityOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "onTheMap": {
+            "type": "boolean"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opens": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "closes": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              },
+              "required": [
+                "day",
+                "opens",
+                "closes"
+              ]
+            }
+          },
+          "hoursText": {
+            "type": "string"
+          },
+          "feeBasis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "per_ton",
+              "per_load"
+            ]
+          },
+          "feeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "minimumFee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "feeText": {
+            "type": "string"
+          },
+          "tipMinutes": {
+            "type": "integer"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "address",
+          "addressLine1",
+          "addressLine2",
+          "city",
+          "state",
+          "postalCode",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource",
+          "onTheMap",
+          "hours",
+          "hoursText",
+          "feeBasis",
+          "feeAmount",
+          "minimumFee",
+          "feeText",
+          "tipMinutes",
+          "isDefault",
+          "active",
+          "notes"
         ]
       },
       "UpdateEquipmentInput": {
@@ -258992,6 +262642,104 @@
           "utmCampaign",
           "notes",
           "archived"
+        ]
+      },
+      "UpdateTruckKindInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "maxItems": 12
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        }
+      },
+      "UpdateTruckKindOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "containersCarried": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "containerSizes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trucks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "containersCarried",
+          "containerSizes",
+          "yardMinutes",
+          "notes",
+          "trucks"
         ]
       },
       "UpdateWebhookEndpointInput": {

@@ -6,6 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
+import { facilityOf, feeFigure } from "./disposal-facilities";
 
 /**
  * A TRADE PACK THAT SHIPPED, AND THE THING IT RENTS
@@ -276,7 +277,14 @@ export interface DeliverInput {
   overageRate?: string | null | undefined;
   includedTons?: string | null | undefined;
   perTonRate?: string | null | undefined;
+  /** One invoice per haul (the default) or one for the whole swap chain. */
+  invoiceAs?: "per_haul" | "chain" | undefined;
+  /** The terms pass the facility's disposal fee on to the customer, at cost, when a person says to on the invoice. */
+  disposalPassThrough?: boolean | undefined;
 }
+
+/** Disposal billed by the ton and passed on at cost are the same load charged twice. */
+const TWICE = "A hire that bills disposal by the ton over the included tonnage cannot also pass the facility's fee on: that charges the customer for the same load twice. Give it one or the other.";
 
 /**
  * Put a container on a site.
@@ -300,6 +308,8 @@ export function deliver(ctx: ServiceContext, input: DeliverInput) {
 
     if (input.jobId) await assertJob(tx, ctx, input.jobId);
 
+    if (input.disposalPassThrough === true && input.perTonRate != null) throw new ConflictError(TWICE);
+
     const deliveredAt = input.deliveredAt ? new Date(input.deliveredAt) : new Date();
     await moveAsset(tx, ctx, asset, "on_site", input.propertyId);
 
@@ -313,6 +323,8 @@ export function deliver(ctx: ServiceContext, input: DeliverInput) {
       overageRate: input.overageRate ?? null,
       includedTons: input.includedTons ?? null,
       perTonRate: input.perTonRate ?? null,
+      invoiceAs: input.invoiceAs ?? "per_haul",
+      disposalPassThrough: input.disposalPassThrough ?? false,
     }).returning();
 
     if (input.jobId) {
@@ -386,6 +398,11 @@ export interface PickUpInput {
   disposalFee?: string | null | undefined;
   /** False when the can went straight to the repair bay. */
   backInService?: boolean | undefined;
+  /**
+   * The facility the load went to, when it is one the company has recorded.
+   * Its name is written as the haul's facility, replacing any typed.
+   */
+  facilityId?: string | null | undefined;
 }
 
 /**
@@ -418,6 +435,7 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
     assertTons(input.tons, "net");
     assertTons(input.divertedTons, "diverted");
 
+    const facility = await tippedAt(tx, ctx, input.facilityId);
     const asset = await assetWithin(tx, ctx, hire.assetId);
     await moveAsset(tx, ctx, asset, input.backInService === false ? "out_of_service" : "available", null);
 
@@ -426,7 +444,8 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
       weightTons: input.tons ?? null,
       divertedTons: input.divertedTons ?? null,
       disposalTicketNumber: input.ticketNumber?.trim() ?? null,
-      disposalFacility: input.facility?.trim() ?? null,
+      disposalFacility: facility?.name ?? input.facility?.trim() ?? null,
+      disposalFacilityId: facility?.id ?? null,
       materialType: input.materialType?.trim() ?? null,
       disposalFee: input.disposalFee ?? null,
       updatedAt: new Date(),
@@ -435,6 +454,20 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
     await audit(tx, ctx, "rental.pickup", "rental", input.id, hire, row);
     return rentalViewWithin(tx, ctx, row!);
   });
+}
+
+/**
+ * The facility a load went to, when one is named: a recorded one that is still
+ * in use. A closed facility is refused in words rather than recorded against a
+ * place the company has stopped using, and nothing is guessed from a name.
+ */
+async function tippedAt(tx: Database, ctx: ServiceContext, facilityId: string | null | undefined) {
+  if (!facilityId) return null;
+  const facility = await facilityOf(tx, ctx, facilityId);
+  if (!facility.active) {
+    throw new ConflictError(`${facility.name} has been closed on Disposal facilities. Choose where the load went, or reopen it first.`);
+  }
+  return facility;
 }
 
 function assertTons(value: string | null | undefined, which: "net" | "diverted") {
@@ -457,6 +490,8 @@ export interface SwapInput {
   ticketNumber?: string | null | undefined;
   facility?: string | null | undefined;
   materialType?: string | null | undefined;
+  /** The recorded facility the full can went to. Its name replaces any typed. */
+  facilityId?: string | null | undefined;
 }
 
 /**
@@ -491,6 +526,7 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       throw new ConflictError("That swap is before the delivery it would close.");
     }
     assertTons(input.tons, "net");
+    const facility = await tippedAt(tx, ctx, input.facilityId);
 
     const outgoing = await assetWithin(tx, ctx, hire.assetId);
     const incoming = await assetWithin(tx, ctx, input.replacementAssetId);
@@ -502,7 +538,8 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       pickedUpAt: at,
       weightTons: input.tons ?? null,
       disposalTicketNumber: input.ticketNumber?.trim() ?? null,
-      disposalFacility: input.facility?.trim() ?? null,
+      disposalFacility: facility?.name ?? input.facility?.trim() ?? null,
+      disposalFacilityId: facility?.id ?? null,
       materialType: input.materialType?.trim() ?? null,
       updatedAt: new Date(),
     }).where(eq(schema.rental.id, input.id)).returning();
@@ -523,6 +560,8 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       overageRate: hire.overageRate,
       includedTons: hire.includedTons,
       perTonRate: hire.perTonRate,
+      invoiceAs: hire.invoiceAs,
+      disposalPassThrough: hire.disposalPassThrough,
       previousRentalId: input.id,
     }).returning();
 
@@ -633,8 +672,16 @@ async function rentalViewWithin(
     divertedTons: row.divertedTons,
     disposalTicketNumber: row.disposalTicketNumber,
     disposalFacility: row.disposalFacility,
+    disposalFacilityId: row.disposalFacilityId,
     materialType: row.materialType,
     disposalFee: row.disposalFee,
+    invoiceAs: row.invoiceAs,
+    disposalPassThrough: row.disposalPassThrough,
+    /** Whether the disposal fee went on the invoice: null until somebody decided. */
+    disposalFeePassedOn: row.disposalFeePassedOn,
+    disposalFeeAmount: row.disposalFeeAmount,
+    /** The fee the terms would pass on, with where it comes from, while it is undecided. */
+    disposalFeeOffer: await offerOf(tx, ctx, row),
     previousRentalId: row.previousRentalId,
     /** The stop that will collect it, once the collection scheduler has booked one. */
     collectionVisitId: row.collectionVisitId,
@@ -644,6 +691,13 @@ async function rentalViewWithin(
     /** The invoice its period and meters went on, once raised. */
     invoiceId: row.invoiceId,
   };
+}
+
+/** The disposal fee an undecided, collected hire whose terms pass it on would offer, or null. */
+async function offerOf(tx: Database, ctx: ServiceContext, row: typeof schema.rental.$inferSelect) {
+  if (!row.disposalPassThrough || row.pickedUpAt === null || row.disposalFeePassedOn !== null) return null;
+  const fee = await feeFigure(tx, ctx, row);
+  return fee.ok ? fee.figure : { amount: null, source: null, why: fee.why, facility: row.disposalFacility };
 }
 
 export function getRental(ctx: ServiceContext, input: { id: string }) {
@@ -715,7 +769,8 @@ export function overage(ctx: ServiceContext, input: { id: string }) {
       zone,
       period: { includedDays: hire.includedDays, overageRate: hire.overageRate },
       weight: { includedTons: hire.includedTons, perTonRate: hire.perTonRate },
-      tons: hire.weightTons,
+      /** A hire that passes the facility's fee on bills disposal that way, not by the ton. */
+      tons: hire.disposalPassThrough ? null : hire.weightTons,
     });
 
     if (!verdict.ok) {
@@ -755,11 +810,13 @@ export interface FleetReport {
  *
  * The pack declares eight. Four of them need joins this module does not have:
  * `revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue
- * and facility cost attributed per container, `hauls_per_truck_day` needs truck
- * days from the driver timeclock rather than the roster, and `turnaround_hours`
- * needs the moment a can was emptied at the facility, which nothing records.
- * They are absent rather than approximated, because a KPI computed from the
- * nearest available number is one an owner makes a fleet purchase on.
+ * and facility cost attributed per container, and `turnaround_hours` needs the
+ * moment a can was emptied at the facility, which nothing records, and the cans
+ * held at a customer's request, which it must leave out. They are absent rather
+ * than approximated, because a KPI computed from the nearest available number is
+ * one an owner makes a fleet purchase on. `hauls_per_truck_day` is the scorecard's
+ * (`kpi-catalogue.ts`): who drives is the custody of a vehicle with a kind of
+ * truck, and the days worked are the timeclock's.
  *
  * EVERY EXCLUSION THE PACK NAMES IS IMPLEMENTED AND TESTED, because each one is
  * the way the metric is usually got wrong.
@@ -865,6 +922,7 @@ export function fleetReport(ctx: ServiceContext, input: { from: string; to: stri
       includedTons: schema.rental.includedTons,
       overageRate: schema.rental.overageRate,
       perTonRate: schema.rental.perTonRate,
+      disposalPassThrough: schema.rental.disposalPassThrough,
     })
       .from(schema.rental)
       .where(and(
@@ -918,7 +976,8 @@ export function fleetReport(ctx: ServiceContext, input: { from: string; to: stri
       const over = rt.exceeded({
         days,
         includedDays: row.includedDays,
-        tons: row.weightTons,
+        /** A hire that passes the facility's fee on has no tonnage meter to go over. */
+        tons: row.disposalPassThrough ? null : row.weightTons,
         includedTons: row.includedTons,
       });
       if (!over.either) continue;

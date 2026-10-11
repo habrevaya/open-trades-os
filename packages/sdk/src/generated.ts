@@ -1834,6 +1834,13 @@ export interface CloseAccountingPeriodOutput {
   closedAt: string;
 }
 
+export type CloseDisposalFacilityInput = Record<string, unknown>;
+
+export interface CloseDisposalFacilityOutput {
+  id: string;
+  closed: boolean;
+}
+
 export interface CloseIncidentInput {
   closingNote: string;
 }
@@ -2934,6 +2941,56 @@ export interface CreateDispatchPlanOutput {
   decidedByUserId: string | null;
   decidedAt: string | null;
   createdAt: string;
+}
+
+export interface CreateDisposalFacilityInput {
+  name: string;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  hours?: Array<{
+    day: number;
+    opens: string;
+    closes: string;
+  }>;
+  feeBasis?: "per_ton" | "per_load" | null;
+  feeAmount?: string | null;
+  minimumFee?: string | null;
+  tipMinutes?: number;
+  isDefault?: boolean;
+  notes?: string | null;
+}
+
+export interface CreateDisposalFacilityOutput {
+  id: string;
+  name: string;
+  address: string;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  locationPrecision: string | null;
+  locationSource: string | null;
+  onTheMap: boolean;
+  hours: Array<{
+    day: number;
+    opens: string;
+    closes: string;
+  }>;
+  hoursText: string;
+  feeBasis: "per_ton" | "per_load" | null;
+  feeAmount: string | null;
+  minimumFee: string | null;
+  feeText: string;
+  tipMinutes: number;
+  isDefault: boolean;
+  active: boolean;
+  notes: string | null;
 }
 
 export interface CreateEstimateDraftInput {
@@ -4412,6 +4469,27 @@ export interface CreateTrackingCampaignOutput {
   archived: boolean;
 }
 
+export interface CreateTruckKindInput {
+  name: string;
+  containersCarried: number;
+  containerSizes?: number[];
+  yardMinutes: number;
+  notes?: string | null;
+}
+
+export interface CreateTruckKindOutput {
+  id: string;
+  name: string;
+  containersCarried: number;
+  containerSizes: number[];
+  yardMinutes: number;
+  notes: string | null;
+  trucks: Array<{
+    id: string;
+    label: string;
+  }>;
+}
+
 export interface CreateVendorInput {
   name: string;
   accountNumber?: string;
@@ -5293,6 +5371,8 @@ export interface DeliverRentalInput {
   overageRate?: string | null;
   includedTons?: string | null;
   perTonRate?: string | null;
+  invoiceAs?: "per_haul" | "chain";
+  disposalPassThrough?: boolean;
 }
 
 export interface DeliverRentalOutput {
@@ -5315,6 +5395,7 @@ export interface DeliverRentalOutput {
   divertedTons: string | null;
   disposalTicketNumber: string | null;
   disposalFacility: string | null;
+  disposalFacilityId: string | null;
   materialType: string | null;
   disposalFee: string | null;
   previousRentalId: string | null;
@@ -5322,6 +5403,16 @@ export interface DeliverRentalOutput {
   collectionAgreedStart: string | null;
   collectionAgreedEnd: string | null;
   invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
 }
 
 export interface DescribeUnsubscribeOutput {
@@ -7226,6 +7317,15 @@ export interface GetDispatchMapOutput {
       }>;
     }>;
   } | null;
+}
+
+export interface GetDisposalFacilityOpenOutput {
+  id: string;
+  name: string;
+  at: string;
+  open: boolean;
+  why: string | null;
+  hoursKnown: boolean;
 }
 
 export interface GetEquipmentHistoryOutput {
@@ -10450,6 +10550,7 @@ export interface GetRentalOutput {
   divertedTons: string | null;
   disposalTicketNumber: string | null;
   disposalFacility: string | null;
+  disposalFacilityId: string | null;
   materialType: string | null;
   disposalFee: string | null;
   previousRentalId: string | null;
@@ -10457,6 +10558,16 @@ export interface GetRentalOutput {
   collectionAgreedStart: string | null;
   collectionAgreedEnd: string | null;
   invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
 }
 
 export interface GetRentalOverageOutput {
@@ -10531,6 +10642,28 @@ export interface GetRouteProposalOutput {
     note: string;
     containersPerTruck: number;
     yardMinutes: number;
+    source: "truck" | "company";
+    truckLabel: string | null;
+    kindName: string | null;
+    sizes: number[];
+    notCarried: string[];
+    facility: {
+      id: string;
+      name: string;
+      address: string;
+      hoursText: string;
+      tipMinutes: number;
+      used: boolean;
+      note: string;
+    } | null;
+    facilityRuns: Array<{
+      afterVisitId: string | null;
+      beforeVisitId: string | null;
+      tipped: number;
+      arriveAt: string;
+      waitMinutes: number;
+      closed: string | null;
+    }>;
     currentYardRuns: number | null;
     yardRuns: Array<{
       afterVisitId: string | null;
@@ -11306,7 +11439,9 @@ export interface InvoiceAgreementInstalmentOutput {
   total: string;
 }
 
-export type InvoiceRentalInput = Record<string, unknown>;
+export interface InvoiceRentalInput {
+  disposalFee?: "pass_on" | "leave_off";
+}
 
 export interface InvoiceRentalOutput {
   invoiceId: string;
@@ -11318,6 +11453,11 @@ export interface InvoiceRentalOutput {
     unitPrice: string;
     amount: string;
   }>;
+  hauls: number;
+  disposalFee: {
+    passedOn: boolean;
+    amount: string | null;
+  } | null;
 }
 
 export interface IssueAppTokenInput {
@@ -13023,6 +13163,38 @@ export interface ListDispatchPlansOutput {
     decidedByUserId: string | null;
     decidedAt: string | null;
     createdAt: string;
+  }>;
+}
+
+export interface ListDisposalFacilitiesOutput {
+  facilities: Array<{
+    id: string;
+    name: string;
+    address: string;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    latitude: string | null;
+    longitude: string | null;
+    locationPrecision: string | null;
+    locationSource: string | null;
+    onTheMap: boolean;
+    hours: Array<{
+      day: number;
+      opens: string;
+      closes: string;
+    }>;
+    hoursText: string;
+    feeBasis: "per_ton" | "per_load" | null;
+    feeAmount: string | null;
+    minimumFee: string | null;
+    feeText: string;
+    tipMinutes: number;
+    isDefault: boolean;
+    active: boolean;
+    notes: string | null;
   }>;
 }
 
@@ -14851,6 +15023,7 @@ export interface ListRentalsOutput {
     divertedTons: string | null;
     disposalTicketNumber: string | null;
     disposalFacility: string | null;
+    disposalFacilityId: string | null;
     materialType: string | null;
     disposalFee: string | null;
     previousRentalId: string | null;
@@ -14858,6 +15031,16 @@ export interface ListRentalsOutput {
     collectionAgreedStart: string | null;
     collectionAgreedEnd: string | null;
     invoiceId: string | null;
+    invoiceAs: "per_haul" | "chain";
+    disposalPassThrough: boolean;
+    disposalFeePassedOn: boolean | null;
+    disposalFeeAmount: string | null;
+    disposalFeeOffer: {
+      amount: string | null;
+      source: "recorded" | "worked_out" | null;
+      why: string;
+      facility: string | null;
+    } | null;
   }>;
 }
 
@@ -15810,6 +15993,21 @@ export interface ListTruckFillsOutput {
       fromLocationName: string;
       tracking: "serial" | "lot" | null;
       why: string;
+    }>;
+  }>;
+}
+
+export interface ListTruckKindsOutput {
+  kinds: Array<{
+    id: string;
+    name: string;
+    containersCarried: number;
+    containerSizes: number[];
+    yardMinutes: number;
+    notes: string | null;
+    trucks: Array<{
+      id: string;
+      label: string;
     }>;
   }>;
 }
@@ -16985,6 +17183,7 @@ export interface PickUpRentalInput {
   materialType?: string | null;
   disposalFee?: string | null;
   backInService?: boolean;
+  facilityId?: string | null;
 }
 
 export interface PickUpRentalOutput {
@@ -17007,6 +17206,7 @@ export interface PickUpRentalOutput {
   divertedTons: string | null;
   disposalTicketNumber: string | null;
   disposalFacility: string | null;
+  disposalFacilityId: string | null;
   materialType: string | null;
   disposalFee: string | null;
   previousRentalId: string | null;
@@ -17014,6 +17214,29 @@ export interface PickUpRentalOutput {
   collectionAgreedStart: string | null;
   collectionAgreedEnd: string | null;
   invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
+}
+
+export interface PinDisposalFacilityInput {
+  latitude: number;
+  longitude: number;
+}
+
+export interface PinDisposalFacilityOutput {
+  id: string;
+  latitude: string | null;
+  longitude: string | null;
+  locationPrecision: string | null;
+  locationSource: string | null;
 }
 
 export interface PinLocationInput {
@@ -17341,6 +17564,31 @@ export interface PreviewRecurringScheduleOutput {
     sequence: number;
   }>;
   onlyOneKnowable: boolean;
+}
+
+export interface PreviewRentalInvoiceOutput {
+  refused: string | null;
+  hauls: number;
+  invoiceAs: "per_haul" | "chain";
+  lines: Array<{
+    name: string;
+    quantity: string;
+    unitPrice: string;
+    amount: string;
+  }>;
+  disposalFee: Array<{
+    rentalId: string;
+    amount: string;
+    facility: string | null;
+    ticket: string | null;
+    why: string;
+    source: "recorded" | "worked_out";
+  }>;
+  disposalFeeUnavailable: Array<{
+    rentalId: string;
+    why: string;
+  }>;
+  decisionNeeded: boolean;
 }
 
 export interface PreviewRetentionPurgeOutput {
@@ -19994,6 +20242,13 @@ export interface RetireTaxRateOutput {
   }>;
 }
 
+export type RetireTruckKindInput = Record<string, unknown>;
+
+export interface RetireTruckKindOutput {
+  id: string;
+  retired: boolean;
+}
+
 export interface RetireWageScaleInput {
   effectiveTo: string;
 }
@@ -21173,6 +21428,16 @@ export interface SetAssetObligationOutput {
   expiresOn: string;
 }
 
+export interface SetAssetTruckKindInput {
+  truckKindId: string | null;
+}
+
+export interface SetAssetTruckKindOutput {
+  id: string;
+  label: string;
+  truckKindId: string | null;
+}
+
 export interface SetBranchNumberingInput {
   jobs: boolean;
   invoices: boolean;
@@ -21956,6 +22221,18 @@ export interface SetReferralSettingsInput {
 export interface SetReferralSettingsOutput {
   reward: "credit_note" | "owed" | "none";
   amount: string;
+}
+
+export interface SetRentalBillingTermsInput {
+  invoiceAs?: "per_haul" | "chain";
+  disposalPassThrough?: boolean;
+}
+
+export interface SetRentalBillingTermsOutput {
+  id: string;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  hauls: number;
 }
 
 export interface SetRentalCollectionTimeInput {
@@ -22792,6 +23069,7 @@ export interface SwapRentalInput {
   ticketNumber?: string | null;
   facility?: string | null;
   materialType?: string | null;
+  facilityId?: string | null;
 }
 
 export interface SwapRentalOutput {
@@ -22815,6 +23093,7 @@ export interface SwapRentalOutput {
     divertedTons: string | null;
     disposalTicketNumber: string | null;
     disposalFacility: string | null;
+    disposalFacilityId: string | null;
     materialType: string | null;
     disposalFee: string | null;
     previousRentalId: string | null;
@@ -22822,6 +23101,16 @@ export interface SwapRentalOutput {
     collectionAgreedStart: string | null;
     collectionAgreedEnd: string | null;
     invoiceId: string | null;
+    invoiceAs: "per_haul" | "chain";
+    disposalPassThrough: boolean;
+    disposalFeePassedOn: boolean | null;
+    disposalFeeAmount: string | null;
+    disposalFeeOffer: {
+      amount: string | null;
+      source: "recorded" | "worked_out" | null;
+      why: string;
+      facility: string | null;
+    } | null;
   };
   opened: {
     id: string;
@@ -22843,6 +23132,7 @@ export interface SwapRentalOutput {
     divertedTons: string | null;
     disposalTicketNumber: string | null;
     disposalFacility: string | null;
+    disposalFacilityId: string | null;
     materialType: string | null;
     disposalFee: string | null;
     previousRentalId: string | null;
@@ -22850,6 +23140,16 @@ export interface SwapRentalOutput {
     collectionAgreedStart: string | null;
     collectionAgreedEnd: string | null;
     invoiceId: string | null;
+    invoiceAs: "per_haul" | "chain";
+    disposalPassThrough: boolean;
+    disposalFeePassedOn: boolean | null;
+    disposalFeeAmount: string | null;
+    disposalFeeOffer: {
+      amount: string | null;
+      source: "recorded" | "worked_out" | null;
+      why: string;
+      facility: string | null;
+    } | null;
   };
 }
 
@@ -23145,6 +23445,16 @@ export interface TransferStockOutput {
     sequence: number;
     occurredAt: string;
   }>;
+}
+
+export type UnpinDisposalFacilityInput = Record<string, unknown>;
+
+export interface UnpinDisposalFacilityOutput {
+  id: string;
+  latitude: string | null;
+  longitude: string | null;
+  locationPrecision: string | null;
+  locationSource: string | null;
 }
 
 export type UnpinLocationInput = Record<string, unknown>;
@@ -23824,6 +24134,57 @@ export interface UpdateCustomerOutput {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UpdateDisposalFacilityInput {
+  name?: string;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  hours?: Array<{
+    day: number;
+    opens: string;
+    closes: string;
+  }>;
+  feeBasis?: "per_ton" | "per_load" | null;
+  feeAmount?: string | null;
+  minimumFee?: string | null;
+  tipMinutes?: number;
+  isDefault?: boolean;
+  notes?: string | null;
+  active?: boolean;
+}
+
+export interface UpdateDisposalFacilityOutput {
+  id: string;
+  name: string;
+  address: string;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  locationPrecision: string | null;
+  locationSource: string | null;
+  onTheMap: boolean;
+  hours: Array<{
+    day: number;
+    opens: string;
+    closes: string;
+  }>;
+  hoursText: string;
+  feeBasis: "per_ton" | "per_load" | null;
+  feeAmount: string | null;
+  minimumFee: string | null;
+  feeText: string;
+  tipMinutes: number;
+  isDefault: boolean;
+  active: boolean;
+  notes: string | null;
 }
 
 export interface UpdateEquipmentInput {
@@ -24938,6 +25299,27 @@ export interface UpdateTrackingCampaignOutput {
   utmCampaign: string | null;
   notes: string | null;
   archived: boolean;
+}
+
+export interface UpdateTruckKindInput {
+  name?: string;
+  containersCarried?: number;
+  containerSizes?: number[];
+  yardMinutes?: number;
+  notes?: string | null;
+}
+
+export interface UpdateTruckKindOutput {
+  id: string;
+  name: string;
+  containersCarried: number;
+  containerSizes: number[];
+  yardMinutes: number;
+  notes: string | null;
+  trucks: Array<{
+    id: string;
+    label: string;
+  }>;
 }
 
 export interface UpdateWebhookEndpointInput {
@@ -26120,6 +26502,10 @@ export interface ClearTruckMinimumParams {
   id: string;
 }
 
+export interface CloseDisposalFacilityParams {
+  id: string;
+}
+
 export interface CloseIncidentParams {
   id: string;
 }
@@ -26587,6 +26973,11 @@ export interface GetDispatchMapInput {
   date: string;
 }
 
+export interface GetDisposalFacilityOpenInput {
+  id: string;
+  at: string;
+}
+
 export interface GetEquipmentInput {
   id: string;
   on?: string;
@@ -26947,6 +27338,7 @@ export type GetReviewWorkListInput = Record<string, never>;
 export interface GetRouteProposalInput {
   date: string;
   technicianId: string;
+  facilityId?: string;
 }
 
 export interface GetSafetyMeetingInput {
@@ -27402,6 +27794,10 @@ export type ListDevicesInput = Record<string, never>;
 export interface ListDispatchPlansInput {
   date?: string;
   limit?: number;
+}
+
+export interface ListDisposalFacilitiesInput {
+  includeClosed?: boolean;
 }
 
 export type ListDueRequestsInput = Record<string, never>;
@@ -27969,6 +28365,8 @@ export type ListTradePacksInput = Record<string, never>;
 
 export type ListTruckFillsInput = Record<string, never>;
 
+export type ListTruckKindsInput = Record<string, never>;
+
 export type ListTruckMinimumsInput = Record<string, never>;
 
 export interface ListUndeliveredInvoicesInput {
@@ -28147,6 +28545,10 @@ export interface PickUpRentalParams {
   id: string;
 }
 
+export interface PinDisposalFacilityParams {
+  id: string;
+}
+
 export interface PinLocationParams {
   id: string;
 }
@@ -28198,6 +28600,10 @@ export interface PreviewRecurringScheduleInput {
   id: string;
   from?: string;
   to?: string;
+}
+
+export interface PreviewRentalInvoiceInput {
+  id: string;
 }
 
 export interface PreviewRetentionPurgeInput {
@@ -28539,6 +28945,10 @@ export interface RetireTaxRateParams {
   id: string;
 }
 
+export interface RetireTruckKindParams {
+  id: string;
+}
+
 export interface RetireWageScaleParams {
   id: string;
 }
@@ -28676,6 +29086,10 @@ export interface SetAssetMaintenancePlanParams {
 export interface SetAssetObligationParams {
   assetId: string;
   kind: "registration" | "inspection" | "insurance" | "calibration";
+}
+
+export interface SetAssetTruckKindParams {
+  assetId: string;
 }
 
 export interface SetBudgetLineParams {
@@ -28822,6 +29236,10 @@ export interface SetRecurringScheduleActiveParams {
   id: string;
 }
 
+export interface SetRentalBillingTermsParams {
+  id: string;
+}
+
 export interface SetRentalCollectionTimeParams {
   id: string;
 }
@@ -28951,6 +29369,10 @@ export interface TranscribeCallParams {
   id: string;
 }
 
+export interface UnpinDisposalFacilityParams {
+  id: string;
+}
+
 export interface UnpinLocationParams {
   id: string;
 }
@@ -29030,6 +29452,10 @@ export interface UpdateCustomRecordParams {
 }
 
 export interface UpdateCustomerParams {
+  id: string;
+}
+
+export interface UpdateDisposalFacilityParams {
   id: string;
 }
 
@@ -29142,6 +29568,10 @@ export interface UpdateTerritoryParams {
 }
 
 export interface UpdateTrackingCampaignParams {
+  id: string;
+}
+
+export interface UpdateTruckKindParams {
   id: string;
 }
 
@@ -29322,6 +29752,7 @@ export interface OperationTypes {
   clearReorderPolicy: { input: ClearReorderPolicyInput; output: ClearReorderPolicyOutput };
   clearTruckMinimum: { input: ClearTruckMinimumParams & ClearTruckMinimumInput; output: ClearTruckMinimumOutput };
   closeAccountingPeriod: { input: CloseAccountingPeriodInput; output: CloseAccountingPeriodOutput };
+  closeDisposalFacility: { input: CloseDisposalFacilityParams & CloseDisposalFacilityInput; output: CloseDisposalFacilityOutput };
   closeIncident: { input: CloseIncidentParams & CloseIncidentInput; output: CloseIncidentOutput };
   closePayPeriod: { input: ClosePayPeriodInput; output: ClosePayPeriodOutput };
   closeSafetyMeeting: { input: CloseSafetyMeetingParams & CloseSafetyMeetingInput; output: CloseSafetyMeetingOutput };
@@ -29356,6 +29787,7 @@ export interface OperationTypes {
   createCustomRecord: { input: CreateCustomRecordInput; output: CreateCustomRecordOutput };
   createCustomer: { input: CreateCustomerInput; output: CreateCustomerOutput };
   createDispatchPlan: { input: CreateDispatchPlanInput; output: CreateDispatchPlanOutput };
+  createDisposalFacility: { input: CreateDisposalFacilityInput; output: CreateDisposalFacilityOutput };
   createEstimate: { input: CreateEstimateInput; output: CreateEstimateOutput };
   createEstimateDraft: { input: CreateEstimateDraftInput; output: CreateEstimateDraftOutput };
   createHoliday: { input: CreateHolidayInput; output: CreateHolidayOutput };
@@ -29394,6 +29826,7 @@ export interface OperationTypes {
   createTaxRate: { input: CreateTaxRateInput; output: CreateTaxRateOutput };
   createTerritory: { input: CreateTerritoryInput; output: CreateTerritoryOutput };
   createTrackingCampaign: { input: CreateTrackingCampaignInput; output: CreateTrackingCampaignOutput };
+  createTruckKind: { input: CreateTruckKindInput; output: CreateTruckKindOutput };
   createVendor: { input: CreateVendorInput; output: CreateVendorOutput };
   createVendorReturn: { input: CreateVendorReturnInput; output: CreateVendorReturnOutput };
   createWorkflow: { input: CreateWorkflowInput; output: CreateWorkflowOutput };
@@ -29521,6 +29954,7 @@ export interface OperationTypes {
   getDiscountPolicy: { input: GetDiscountPolicyInput; output: GetDiscountPolicyOutput };
   getDispatchBoard: { input: GetDispatchBoardInput; output: GetDispatchBoardOutput };
   getDispatchMap: { input: GetDispatchMapInput; output: GetDispatchMapOutput };
+  getDisposalFacilityOpen: { input: GetDisposalFacilityOpenInput; output: GetDisposalFacilityOpenOutput };
   getEquipment: { input: GetEquipmentInput; output: GetEquipmentOutput };
   getEquipmentHistory: { input: GetEquipmentHistoryInput; output: GetEquipmentHistoryOutput };
   getEstimate: { input: GetEstimateInput; output: GetEstimateOutput };
@@ -29727,6 +30161,7 @@ export interface OperationTypes {
   listDeposits: { input: ListDepositsInput; output: ListDepositsOutput };
   listDevices: { input: ListDevicesInput; output: ListDevicesOutput };
   listDispatchPlans: { input: ListDispatchPlansInput; output: ListDispatchPlansOutput };
+  listDisposalFacilities: { input: ListDisposalFacilitiesInput; output: ListDisposalFacilitiesOutput };
   listDueRequests: { input: ListDueRequestsInput; output: ListDueRequestsOutput };
   listEmailMessages: { input: ListEmailMessagesInput; output: ListEmailMessagesOutput };
   listEmailSuppressions: { input: ListEmailSuppressionsInput; output: ListEmailSuppressionsOutput };
@@ -29866,6 +30301,7 @@ export interface OperationTypes {
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
+  listTruckKinds: { input: ListTruckKindsInput; output: ListTruckKindsOutput };
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
   listUndeliveredInvoices: { input: ListUndeliveredInvoicesInput; output: ListUndeliveredInvoicesOutput };
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
@@ -29926,6 +30362,7 @@ export interface OperationTypes {
   payTips: { input: PayTipsInput; output: PayTipsOutput };
   pendingTimeOff: { input: PendingTimeOffInput; output: PendingTimeOffOutput };
   pickUpRental: { input: PickUpRentalParams & PickUpRentalInput; output: PickUpRentalOutput };
+  pinDisposalFacility: { input: PinDisposalFacilityParams & PinDisposalFacilityInput; output: PinDisposalFacilityOutput };
   pinLocation: { input: PinLocationParams & PinLocationInput; output: PinLocationOutput };
   pinProperty: { input: PinPropertyParams & PinPropertyInput; output: PinPropertyOutput };
   placePriceBookCategory: { input: PlacePriceBookCategoryParams & PlacePriceBookCategoryInput; output: PlacePriceBookCategoryOutput };
@@ -29939,6 +30376,7 @@ export interface OperationTypes {
   previewMessageTemplate: { input: PreviewMessageTemplateInput; output: PreviewMessageTemplateOutput };
   previewPriceChange: { input: PreviewPriceChangeInput; output: PreviewPriceChangeOutput };
   previewRecurringSchedule: { input: PreviewRecurringScheduleInput; output: PreviewRecurringScheduleOutput };
+  previewRentalInvoice: { input: PreviewRentalInvoiceInput; output: PreviewRentalInvoiceOutput };
   previewRetentionPurge: { input: PreviewRetentionPurgeInput; output: PreviewRetentionPurgeOutput };
   previewScaleTickets: { input: PreviewScaleTicketsInput; output: PreviewScaleTicketsOutput };
   previewTradePackUpgrade: { input: PreviewTradePackUpgradeInput; output: PreviewTradePackUpgradeOutput };
@@ -30065,6 +30503,7 @@ export interface OperationTypes {
   retireReportType: { input: RetireReportTypeParams & RetireReportTypeInput; output: RetireReportTypeOutput };
   retireStaffDocument: { input: RetireStaffDocumentParams & RetireStaffDocumentInput; output: RetireStaffDocumentOutput };
   retireTaxRate: { input: RetireTaxRateParams & RetireTaxRateInput; output: RetireTaxRateOutput };
+  retireTruckKind: { input: RetireTruckKindParams & RetireTruckKindInput; output: RetireTruckKindOutput };
   retireWageScale: { input: RetireWageScaleParams & RetireWageScaleInput; output: RetireWageScaleOutput };
   retryAccountingDocument: { input: RetryAccountingDocumentParams & RetryAccountingDocumentInput; output: RetryAccountingDocumentOutput };
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
@@ -30118,6 +30557,7 @@ export interface OperationTypes {
   setArrivalWindows: { input: SetArrivalWindowsInput; output: SetArrivalWindowsOutput };
   setAssetMaintenancePlan: { input: SetAssetMaintenancePlanParams & SetAssetMaintenancePlanInput; output: SetAssetMaintenancePlanOutput };
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
+  setAssetTruckKind: { input: SetAssetTruckKindParams & SetAssetTruckKindInput; output: SetAssetTruckKindOutput };
   setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
@@ -30169,6 +30609,7 @@ export interface OperationTypes {
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
   setRecurringScheduleActive: { input: SetRecurringScheduleActiveParams & SetRecurringScheduleActiveInput; output: SetRecurringScheduleActiveOutput };
   setReferralSettings: { input: SetReferralSettingsInput; output: SetReferralSettingsOutput };
+  setRentalBillingTerms: { input: SetRentalBillingTermsParams & SetRentalBillingTermsInput; output: SetRentalBillingTermsOutput };
   setRentalCollectionTime: { input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput; output: SetRentalCollectionTimeOutput };
   setRentalDispatch: { input: SetRentalDispatchInput; output: SetRentalDispatchOutput };
   setReorderPolicy: { input: SetReorderPolicyInput; output: SetReorderPolicyOutput };
@@ -30233,6 +30674,7 @@ export interface OperationTypes {
   traceStockUnit: { input: TraceStockUnitInput; output: TraceStockUnitOutput };
   transcribeCall: { input: TranscribeCallParams & TranscribeCallInput; output: TranscribeCallOutput };
   transferStock: { input: TransferStockInput; output: TransferStockOutput };
+  unpinDisposalFacility: { input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput; output: UnpinDisposalFacilityOutput };
   unpinLocation: { input: UnpinLocationParams & UnpinLocationInput; output: UnpinLocationOutput };
   unpinProperty: { input: UnpinPropertyParams & UnpinPropertyInput; output: UnpinPropertyOutput };
   unpublishServiceReport: { input: UnpublishServiceReportParams & UnpublishServiceReportInput; output: UnpublishServiceReportOutput };
@@ -30256,6 +30698,7 @@ export interface OperationTypes {
   updateCustomObject: { input: UpdateCustomObjectParams & UpdateCustomObjectInput; output: UpdateCustomObjectOutput };
   updateCustomRecord: { input: UpdateCustomRecordParams & UpdateCustomRecordInput; output: UpdateCustomRecordOutput };
   updateCustomer: { input: UpdateCustomerParams & UpdateCustomerInput; output: UpdateCustomerOutput };
+  updateDisposalFacility: { input: UpdateDisposalFacilityParams & UpdateDisposalFacilityInput; output: UpdateDisposalFacilityOutput };
   updateEquipment: { input: UpdateEquipmentParams & UpdateEquipmentInput; output: UpdateEquipmentOutput };
   updateHoliday: { input: UpdateHolidayParams & UpdateHolidayInput; output: UpdateHolidayOutput };
   updateInvoice: { input: UpdateInvoiceParams & UpdateInvoiceInput; output: UpdateInvoiceOutput };
@@ -30285,6 +30728,7 @@ export interface OperationTypes {
   updateTechnician: { input: UpdateTechnicianParams & UpdateTechnicianInput; output: UpdateTechnicianOutput };
   updateTerritory: { input: UpdateTerritoryParams & UpdateTerritoryInput; output: UpdateTerritoryOutput };
   updateTrackingCampaign: { input: UpdateTrackingCampaignParams & UpdateTrackingCampaignInput; output: UpdateTrackingCampaignOutput };
+  updateTruckKind: { input: UpdateTruckKindParams & UpdateTruckKindInput; output: UpdateTruckKindOutput };
   updateWebhookEndpoint: { input: UpdateWebhookEndpointParams & UpdateWebhookEndpointInput; output: UpdateWebhookEndpointOutput };
   upgradeTradePack: { input: UpgradeTradePackParams & UpgradeTradePackInput; output: UpgradeTradePackOutput };
   uploadAttachment: { input: UploadAttachmentInput; output: UploadAttachmentOutput };
@@ -30399,6 +30843,7 @@ export const OPERATIONS = {
   clearReorderPolicy: { method: "POST", path: "/v1/reorder-policies/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   clearTruckMinimum: { method: "POST", path: "/v1/truck-minimums/{id}/clear", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   closeAccountingPeriod: { method: "POST", path: "/v1/accounting/periods/close", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:close"] },
+  closeDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   closeIncident: { method: "POST", path: "/v1/safety/incidents/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   closePayPeriod: { method: "POST", path: "/v1/payroll/periods/close", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   closeSafetyMeeting: { method: "POST", path: "/v1/safety/meetings/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
@@ -30433,6 +30878,7 @@ export const OPERATIONS = {
   createCustomRecord: { method: "POST", path: "/v1/custom-records", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   createCustomer: { method: "POST", path: "/v1/customers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   createDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  createDisposalFacility: { method: "POST", path: "/v1/disposal-facilities", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   createEstimate: { method: "POST", path: "/v1/estimates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   createEstimateDraft: { method: "POST", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   createHoliday: { method: "POST", path: "/v1/holidays", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -30471,6 +30917,7 @@ export const OPERATIONS = {
   createTaxRate: { method: "POST", path: "/v1/tax-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTerritory: { method: "POST", path: "/v1/territories", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTrackingCampaign: { method: "POST", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  createTruckKind: { method: "POST", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   createVendor: { method: "POST", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   createVendorReturn: { method: "POST", path: "/v1/vendor-returns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write","inventory:adjust"] },
   createWorkflow: { method: "POST", path: "/v1/workflows", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
@@ -30598,6 +31045,7 @@ export const OPERATIONS = {
   getDiscountPolicy: { method: "GET", path: "/v1/estimate-discount-policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getDispatchBoard: { method: "GET", path: "/v1/dispatch/board", pathParams: [], queryParams: ["date","businessUnitId","territoryId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getDispatchMap: { method: "GET", path: "/v1/dispatch/map", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getDisposalFacilityOpen: { method: "GET", path: "/v1/disposal-facilities/{id}/open", pathParams: ["id"], queryParams: ["at"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getEquipment: { method: "GET", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: ["on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEquipmentHistory: { method: "GET", path: "/v1/equipment/{id}/history", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEstimate: { method: "GET", path: "/v1/estimates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
@@ -30687,7 +31135,7 @@ export const OPERATIONS = {
   getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
-  getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId","facilityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getSafetyMeeting: { method: "GET", path: "/v1/safety/meetings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   getSalesTaxReport: { method: "GET", path: "/v1/reports/sales-tax", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getSandbox: { method: "GET", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -30804,6 +31252,7 @@ export const OPERATIONS = {
   listDeposits: { method: "GET", path: "/v1/deposits", pathParams: [], queryParams: ["customerId","jobId","estimateId","status","outstandingOnly"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:read"] },
   listDevices: { method: "GET", path: "/v1/field/devices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listDispatchPlans: { method: "GET", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: ["date","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  listDisposalFacilities: { method: "GET", path: "/v1/disposal-facilities", pathParams: [], queryParams: ["includeClosed"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEmailSuppressions: { method: "GET", path: "/v1/email/suppressions", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -30943,6 +31392,7 @@ export const OPERATIONS = {
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
+  listTruckKinds: { method: "GET", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listUndeliveredInvoices: { method: "GET", path: "/v1/invoice-deliveries/undelivered", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -31003,6 +31453,7 @@ export const OPERATIONS = {
   payTips: { method: "POST", path: "/v1/payroll/tip-payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   pendingTimeOff: { method: "GET", path: "/v1/time-off/pending", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:approve"] },
   pickUpRental: { method: "POST", path: "/v1/rentals/{id}/pickup", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  pinDisposalFacility: { method: "PUT", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   pinLocation: { method: "POST", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   pinProperty: { method: "POST", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   placePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/place", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -31016,6 +31467,7 @@ export const OPERATIONS = {
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending","effectiveOn"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   previewRecurringSchedule: { method: "GET", path: "/v1/recurring-schedules/{id}/preview", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  previewRentalInvoice: { method: "GET", path: "/v1/rentals/{id}/invoice-preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write","asset:read"] },
   previewRetentionPurge: { method: "GET", path: "/v1/compliance/retention/preview", pathParams: [], queryParams: ["policyId","sample"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   previewScaleTickets: { method: "POST", path: "/v1/scale-tickets/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   previewTradePackUpgrade: { method: "GET", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -31142,6 +31594,7 @@ export const OPERATIONS = {
   retireReportType: { method: "DELETE", path: "/v1/plugins/report-types/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   retireStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   retireTaxRate: { method: "POST", path: "/v1/tax-rates/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  retireTruckKind: { method: "DELETE", path: "/v1/truck-kinds/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   retryAccountingDocument: { method: "POST", path: "/v1/accounting/problems/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -31195,6 +31648,7 @@ export const OPERATIONS = {
   setArrivalWindows: { method: "PUT", path: "/v1/booking/arrival-windows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setAssetMaintenancePlan: { method: "POST", path: "/v1/assets/{assetId}/maintenance-plans", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  setAssetTruckKind: { method: "PUT", path: "/v1/assets/{assetId}/truck-kind", pathParams: ["assetId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -31246,6 +31700,7 @@ export const OPERATIONS = {
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRecurringScheduleActive: { method: "POST", path: "/v1/recurring-schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setReferralSettings: { method: "PUT", path: "/v1/marketing/referral-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setRentalBillingTerms: { method: "PUT", path: "/v1/rentals/{id}/billing-terms", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalCollectionTime: { method: "PUT", path: "/v1/rentals/{id}/collection-time", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalDispatch: { method: "PUT", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReorderPolicy: { method: "PUT", path: "/v1/reorder-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -31310,6 +31765,7 @@ export const OPERATIONS = {
   traceStockUnit: { method: "GET", path: "/v1/stock/units/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   transcribeCall: { method: "POST", path: "/v1/calls/{id}/transcribe", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   transferStock: { method: "POST", path: "/v1/stock/transfers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  unpinDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   unpinLocation: { method: "DELETE", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   unpinProperty: { method: "DELETE", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   unpublishServiceReport: { method: "POST", path: "/v1/service-reports/{id}/unpublish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
@@ -31333,6 +31789,7 @@ export const OPERATIONS = {
   updateCustomObject: { method: "PATCH", path: "/v1/custom-objects/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   updateCustomRecord: { method: "PATCH", path: "/v1/custom-records/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   updateCustomer: { method: "PATCH", path: "/v1/customers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  updateDisposalFacility: { method: "PATCH", path: "/v1/disposal-facilities/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   updateEquipment: { method: "PATCH", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   updateHoliday: { method: "PATCH", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   updateInvoice: { method: "PATCH", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
@@ -31362,6 +31819,7 @@ export const OPERATIONS = {
   updateTechnician: { method: "PATCH", path: "/v1/technicians/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   updateTerritory: { method: "PATCH", path: "/v1/territories/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateTrackingCampaign: { method: "PATCH", path: "/v1/marketing/tracking-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  updateTruckKind: { method: "PATCH", path: "/v1/truck-kinds/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   updateWebhookEndpoint: { method: "PATCH", path: "/v1/webhooks/endpoints/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   upgradeTradePack: { method: "POST", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   uploadAttachment: { method: "POST", path: "/v1/attachments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -32153,6 +32611,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Stop using a facility.
+   *
+   * DELETE /v1/disposal-facilities/{id}. Needs asset:write.
+   */
+  closeDisposalFacility(input: CloseDisposalFacilityParams & CloseDisposalFacilityInput, options?: CallOptions): Promise<CloseDisposalFacilityOutput> {
+    return this.call("closeDisposalFacility", input, options);
+  }
+
+  /**
    * Close an incident report, saying what was learned.
    *
    * POST /v1/safety/incidents/{id}/close. Needs safety:write.
@@ -32456,6 +32923,15 @@ export abstract class GeneratedOperations {
    */
   createDispatchPlan(input: CreateDispatchPlanInput, options?: CallOptions): Promise<CreateDispatchPlanOutput> {
     return this.call("createDispatchPlan", input, options);
+  }
+
+  /**
+   * Record a landfill or transfer station.
+   *
+   * POST /v1/disposal-facilities. Needs asset:write.
+   */
+  createDisposalFacility(input: CreateDisposalFacilityInput, options?: CallOptions): Promise<CreateDisposalFacilityOutput> {
+    return this.call("createDisposalFacility", input, options);
   }
 
   /**
@@ -32798,6 +33274,15 @@ export abstract class GeneratedOperations {
    */
   createTrackingCampaign(input: CreateTrackingCampaignInput, options?: CallOptions): Promise<CreateTrackingCampaignOutput> {
     return this.call("createTrackingCampaign", input, options);
+  }
+
+  /**
+   * Add a kind of truck.
+   *
+   * POST /v1/truck-kinds. Needs asset:write.
+   */
+  createTruckKind(input: CreateTruckKindInput, options?: CallOptions): Promise<CreateTruckKindOutput> {
+    return this.call("createTruckKind", input, options);
   }
 
   /**
@@ -33941,6 +34426,15 @@ export abstract class GeneratedOperations {
    */
   getDispatchMap(input: GetDispatchMapInput, options?: CallOptions): Promise<GetDispatchMapOutput> {
     return this.call("getDispatchMap", input, options);
+  }
+
+  /**
+   * Whether a facility takes loads at a time.
+   *
+   * GET /v1/disposal-facilities/{id}/open. Needs asset:read.
+   */
+  getDisposalFacilityOpen(input: GetDisposalFacilityOpenInput, options?: CallOptions): Promise<GetDisposalFacilityOpenOutput> {
+    return this.call("getDisposalFacilityOpen", input, options);
   }
 
   /**
@@ -35798,6 +36292,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The landfills and transfer stations the company uses.
+   *
+   * GET /v1/disposal-facilities. Needs asset:read.
+   */
+  listDisposalFacilities(input: ListDisposalFacilitiesInput = {} as ListDisposalFacilitiesInput, options?: CallOptions): Promise<ListDisposalFacilitiesOutput> {
+    return this.call("listDisposalFacilities", input, options);
+  }
+
+  /**
    * Requests whose send window has arrived.
    *
    * GET /v1/reviews/requests/due. Needs review:respond.
@@ -37049,6 +37552,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The kinds of truck the company runs.
+   *
+   * GET /v1/truck-kinds. Needs asset:read.
+   */
+  listTruckKinds(input: ListTruckKindsInput = {} as ListTruckKindsInput, options?: CallOptions): Promise<ListTruckKindsOutput> {
+    return this.call("listTruckKinds", input, options);
+  }
+
+  /**
    * What each truck should carry.
    *
    * GET /v1/truck-minimums. Needs inventory:read.
@@ -37589,6 +38101,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Place a facility's pin by hand.
+   *
+   * PUT /v1/disposal-facilities/{id}/pin. Needs asset:write.
+   */
+  pinDisposalFacility(input: PinDisposalFacilityParams & PinDisposalFacilityInput, options?: CallOptions): Promise<PinDisposalFacilityOutput> {
+    return this.call("pinDisposalFacility", input, options);
+  }
+
+  /**
    * Place a branch or yard on the map by hand.
    *
    * POST /v1/locations/{id}/pin. Needs settings:write.
@@ -37703,6 +38224,15 @@ export abstract class GeneratedOperations {
    */
   previewRecurringSchedule(input: PreviewRecurringScheduleInput, options?: CallOptions): Promise<PreviewRecurringScheduleOutput> {
     return this.call("previewRecurringSchedule", input, options);
+  }
+
+  /**
+   * What the invoice for a hire would say, before it is raised.
+   *
+   * GET /v1/rentals/{id}/invoice-preview. Needs invoice:write, asset:read.
+   */
+  previewRentalInvoice(input: PreviewRentalInvoiceInput, options?: CallOptions): Promise<PreviewRentalInvoiceOutput> {
+    return this.call("previewRentalInvoice", input, options);
   }
 
   /**
@@ -38840,6 +39370,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a kind of truck off the list.
+   *
+   * DELETE /v1/truck-kinds/{id}. Needs asset:write.
+   */
+  retireTruckKind(input: RetireTruckKindParams & RetireTruckKindInput, options?: CallOptions): Promise<RetireTruckKindOutput> {
+    return this.call("retireTruckKind", input, options);
+  }
+
+  /**
    * Stop a scale on a date.
    *
    * POST /v1/payroll/wage-scales/{id}/retire. Needs payroll:configure.
@@ -39317,6 +39856,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Say what kind of truck a vehicle is.
+   *
+   * PUT /v1/assets/{assetId}/truck-kind. Needs asset:write.
+   */
+  setAssetTruckKind(input: SetAssetTruckKindParams & SetAssetTruckKindInput, options?: CallOptions): Promise<SetAssetTruckKindOutput> {
+    return this.call("setAssetTruckKind", input, options);
+  }
+
+  /**
    * Print branch codes in front of new job and invoice numbers, or stop.
    *
    * PUT /v1/branch-numbering. Needs settings:write.
@@ -39773,6 +40321,15 @@ export abstract class GeneratedOperations {
    */
   setReferralSettings(input: SetReferralSettingsInput, options?: CallOptions): Promise<SetReferralSettingsOutput> {
     return this.call("setReferralSettings", input, options);
+  }
+
+  /**
+   * Choose how a hire is invoiced, and whether disposal is passed on.
+   *
+   * PUT /v1/rentals/{id}/billing-terms. Needs asset:write.
+   */
+  setRentalBillingTerms(input: SetRentalBillingTermsParams & SetRentalBillingTermsInput, options?: CallOptions): Promise<SetRentalBillingTermsOutput> {
+    return this.call("setRentalBillingTerms", input, options);
   }
 
   /**
@@ -40352,6 +40909,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a placed pin off a facility.
+   *
+   * DELETE /v1/disposal-facilities/{id}/pin. Needs asset:write.
+   */
+  unpinDisposalFacility(input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput, options?: CallOptions): Promise<UnpinDisposalFacilityOutput> {
+    return this.call("unpinDisposalFacility", input, options);
+  }
+
+  /**
    * Hand a branch or yard back to the geocoder.
    *
    * DELETE /v1/locations/{id}/pin. Needs settings:write.
@@ -40556,6 +41122,15 @@ export abstract class GeneratedOperations {
    */
   updateCustomer(input: UpdateCustomerParams & UpdateCustomerInput, options?: CallOptions): Promise<UpdateCustomerOutput> {
     return this.call("updateCustomer", input, options);
+  }
+
+  /**
+   * Change a facility's address, hours or rate.
+   *
+   * PATCH /v1/disposal-facilities/{id}. Needs asset:write.
+   */
+  updateDisposalFacility(input: UpdateDisposalFacilityParams & UpdateDisposalFacilityInput, options?: CallOptions): Promise<UpdateDisposalFacilityOutput> {
+    return this.call("updateDisposalFacility", input, options);
   }
 
   /**
@@ -40817,6 +41392,15 @@ export abstract class GeneratedOperations {
    */
   updateTrackingCampaign(input: UpdateTrackingCampaignParams & UpdateTrackingCampaignInput, options?: CallOptions): Promise<UpdateTrackingCampaignOutput> {
     return this.call("updateTrackingCampaign", input, options);
+  }
+
+  /**
+   * Change a kind of truck.
+   *
+   * PATCH /v1/truck-kinds/{id}. Needs asset:write.
+   */
+  updateTruckKind(input: UpdateTruckKindParams & UpdateTruckKindInput, options?: CallOptions): Promise<UpdateTruckKindOutput> {
+    return this.call("updateTruckKind", input, options);
   }
 
   /**

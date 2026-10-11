@@ -1,5 +1,6 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date, time } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, money, rate } from "./_shared";
+import { pk, timestamps, sourceRef, money, rate, geocodeColumns } from "./_shared";
+import { sql } from "drizzle-orm";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { property } from "./crm";
 
@@ -256,6 +257,69 @@ export const rentableAsset = pgTable("rentable_asset", {
   identIdx: uniqueIndex("rentable_asset_identifier_idx").on(t.organizationId, t.identifier),
 }));
 
+/**
+ * HOW A DISPOSAL FACILITY CHARGES: by the ton on the scale ticket, or a flat
+ * price for the load. `disposal_fee_basis` in the database.
+ */
+export const disposalFeeBasis = pgEnum("disposal_fee_basis", ["per_ton", "per_load"]);
+
+/**
+ * A LANDFILL OR TRANSFER STATION, AS A PLACE.
+ *
+ * A full can is tipped at one of these and not at the yard, and until this
+ * existed a hire recorded only the facility's name as free text. A facility
+ * has an address and a pin (geocoded by the worker like a property, and
+ * pinnable by hand), the hours it takes loads, and what it charges, so the
+ * route can go yard to customer to facility to the next stop and the fee on a
+ * weighed load can be worked out rather than typed.
+ *
+ * `hours` is the week as a list of days with an opening and a closing time;
+ * a day not listed is a day it is closed, and an empty list means nobody has
+ * recorded them, which the planner never treats as closed.
+ *
+ * A facility is closed with `active` and never deleted (nothing writes its
+ * `deleted_at`), because every haul that went there keeps pointing at it. The
+ * facility a day is planned around unless told otherwise is the one flagged
+ * `is_default`, of which a company has at most one.
+ */
+export const disposalFacility = pgTable("disposal_facility", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  country: text("country").notNull().default("US"),
+  /** The pin, the same way a property has one: geocoded by the worker, or placed by hand and then never moved. */
+  ...geocodeColumns(),
+  /** Days it takes loads: `{ day: 0 to 6 from Sunday, opens: "07:00", closes: "16:30" }`. */
+  hours: jsonb("hours").$type<{ day: number; opens: string; closes: string }[]>().notNull().default([]),
+  feeBasis: disposalFeeBasis("fee_basis"),
+  /** Per ton or per load, as `fee_basis` says. */
+  feeAmount: money("fee_amount"),
+  /** The least it charges for any load, when it has a minimum. */
+  minimumFee: money("minimum_fee"),
+  /** Minutes for the queue, the scale and the tip, which the route counts. */
+  tipMinutes: integer("tip_minutes").notNull().default(20),
+  isDefault: boolean("is_default").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  notes: text("notes"),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("disposal_facility_org_idx").on(t.organizationId, t.name),
+  /** One default at a time: the facility a day is planned around when nobody names another. */
+  defaultIdx: uniqueIndex("disposal_facility_default_idx").on(t.organizationId)
+    .where(sql`${t.isDefault} and ${t.active}`),
+}));
+
+/**
+ * HOW A HIRE IS INVOICED: each haul on an invoice of its own, or a swap chain
+ * on one invoice for the whole hire. `rental_invoice_mode` in the database.
+ */
+export const rentalInvoiceMode = pgEnum("rental_invoice_mode", ["per_haul", "chain"]);
+
 export const rental = pgTable("rental", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -299,6 +363,13 @@ export const rental = pgTable("rental", {
    */
   disposalTicketNumber: text("disposal_ticket_number"),
   disposalFacility: text("disposal_facility"),
+  /**
+   * The facility the load went to, when it is one the company has recorded.
+   * The name above is kept in step with it, so a report that reads the text
+   * and a screen that reads this say the same thing; a facility typed in words
+   * with no record behind it leaves this null.
+   */
+  disposalFacilityId: uuid("disposal_facility_id").references(() => disposalFacility.id, { onDelete: "set null" }),
   /** One of the pack's material options. Free text because facilities differ. */
   materialType: text("material_type"),
   /** Diverted to recycling, for the diversion report a jurisdiction collects. */
@@ -323,6 +394,29 @@ export const rental = pgTable("rental", {
    */
   collectionAgreedStart: timestamp("collection_agreed_start", { withTimezone: true }),
   collectionAgreedEnd: timestamp("collection_agreed_end", { withTimezone: true }),
+  /**
+   * THE HIRE'S BILLING TERMS, carried forward through every swap like its rates.
+   *
+   * `invoice_as` is the company's choice per rental: a swap chain is invoiced
+   * one haul at a time (each row on its own invoice), or as one invoice for the
+   * whole hire with the lines of every haul on it.
+   *
+   * `disposal_pass_through` is the terms saying the facility's disposal fee is
+   * the customer's, at cost. It is the terms and nothing more: the fee is OFFERED
+   * when the invoice is raised and added only when a person says to.
+   */
+  invoiceAs: rentalInvoiceMode("invoice_as").notNull().default("per_haul"),
+  disposalPassThrough: boolean("disposal_pass_through").notNull().default(false),
+  /**
+   * WHETHER THE DISPOSAL FEE WAS PASSED ON. Null until somebody decided, true
+   * when it went on the invoice, false when it was left off, with who and when
+   * and the amount that was offered, so "did we charge them for the dump" has an
+   * answer that does not depend on reading invoice lines.
+   */
+  disposalFeePassedOn: boolean("disposal_fee_passed_on"),
+  disposalFeeAmount: money("disposal_fee_amount"),
+  disposalFeeDecidedAt: timestamp("disposal_fee_decided_at", { withTimezone: true }),
+  disposalFeeDecidedByUserId: uuid("disposal_fee_decided_by_user_id"),
   /**
    * The invoice this hire's period and meters were billed on. Set by raising
    * it, and read before raising another, so the same extra days cannot reach

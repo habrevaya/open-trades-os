@@ -193,6 +193,7 @@ describe("the optimiser's preview", () => {
         proposal={{ ...proposal, missed: [], truck: {
           byTruck: true, note: "Ordered by what is on the truck: one container at a time, 20 minutes at the yard to tip and load.",
           containersPerTruck: 1, yardMinutes: 20, currentYardRuns: 3,
+          source: "company", truckLabel: null, kindName: null, sizes: [], notCarried: [], facility: null, facilityRuns: [],
           yardRuns: [
             { afterVisitId: V1, beforeVisitId: V2, tipped: 1, loaded: 1, arriveAt: "2026-10-05T15:00:00.000Z" },
             { afterVisitId: V2, beforeVisitId: null, tipped: 1, loaded: 0, arriveAt: "2026-10-05T18:00:00.000Z" },
@@ -214,6 +215,7 @@ describe("the optimiser's preview", () => {
         proposal={{ ...proposal, truck: {
           byTruck: false, note: "Not ordered by what is on the truck, because where Ray Ortiz's day starts, the yard, is not on the map.",
           containersPerTruck: 1, yardMinutes: 20, currentYardRuns: null, yardRuns: [], startLoad: null,
+          source: "company", truckLabel: null, kindName: null, sizes: [], notCarried: [], facility: null, facilityRuns: [],
         } }}
         technicianName="Ray Ortiz" customerOf={names} canApply onApply={() => {}} onClose={() => {}}
       />,
