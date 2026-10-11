@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, contacts, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore,
+  apps, comms, consent, contacts, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
   dispatchMap, dispatchDays, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -876,6 +876,8 @@ export const handlers = {
   listRestorableCopies: backups.handlers.listRestorableCopies,
   restoreCopy: backups.handlers.restoreCopy,
   listRestores: restore.handlers.listRestores,
+  // A spreadsheet brought in from Settings, row by row through the creates above (M30)
+  ...spreadsheetImports.handlers,
 
   // External work orders (M31): the last table nothing touched
   receiveExternalWorkOrder: externalWork.handlers.receiveExternalWorkOrder,

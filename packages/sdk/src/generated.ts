@@ -1727,6 +1727,23 @@ export type CheckCallTrackingOutput = {
   retryable: boolean;
 };
 
+export type CheckImportInput = Record<string, unknown>;
+
+export interface CheckImportOutput {
+  id: string;
+  status: "mapping" | "checking" | "checked" | "loading" | "finished";
+  rows: number;
+  counts: {
+    waiting: number;
+    ready: number;
+    already: number;
+    refused: number;
+    loaded: number;
+  };
+  tried: number;
+  more: boolean;
+}
+
 export interface CheckInAssetInput {
   on?: string;
   note?: string;
@@ -3252,6 +3269,8 @@ export interface CreateJobInput {
     externalReference?: string;
     customerResponsibility?: string;
   };
+  completedAt?: string;
+  cancelledAt?: string;
   visit?: {
     windowStart: string;
     windowEnd: string;
@@ -5124,6 +5143,13 @@ export interface DeleteCustomObjectOutput {
 export type DeleteCustomRecordInput = Record<string, unknown>;
 
 export interface DeleteCustomRecordOutput {
+  id: string;
+  removed: true;
+}
+
+export type DeleteImportMappingInput = Record<string, unknown>;
+
+export interface DeleteImportMappingOutput {
   id: string;
   removed: true;
 }
@@ -7959,6 +7985,58 @@ export interface GetHostedFormOutput {
     };
   }>;
   thankYou: string | null;
+}
+
+export interface GetImportOutput {
+  id: string;
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  fileName: string;
+  source: string;
+  status: "mapping" | "checking" | "checked" | "loading" | "finished";
+  rows: number;
+  counts: {
+    waiting: number;
+    ready: number;
+    already: number;
+    refused: number;
+    loaded: number;
+  };
+  createdAt: string;
+  checkedAt: string | null;
+  finishedAt: string | null;
+  dayFirst: boolean;
+  header: string[];
+  columns: Array<string | null>;
+  samples: string[];
+  fields: Array<{
+    key: string;
+    label: string;
+    required: boolean;
+  }>;
+  problems: string[];
+  mappingName: string | null;
+  preview: Array<{
+    row: number;
+    values: Record<string, string>;
+  }>;
+  refused: Array<{
+    row: number;
+    reason: string | null;
+    recordId: string | null;
+    recordLabel: string | null;
+  }>;
+  skipped: Array<{
+    row: number;
+    reason: string | null;
+    recordId: string | null;
+    recordLabel: string | null;
+  }>;
+}
+
+export interface GetImportRefusalsOutput {
+  fileName: string;
+  rows: number;
+  csv: string;
 }
 
 export interface GetIncidentOutput {
@@ -13282,6 +13360,39 @@ export interface ListHolidaysOutput {
   }>;
 }
 
+export interface ListImportMappingsOutput {
+  mappings: Array<{
+    id: string;
+    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+    name: string;
+    source: string;
+    dayFirst: boolean;
+    columns: Record<string, string>;
+    updatedAt: string;
+  }>;
+}
+
+export interface ListImportsOutput {
+  imports: Array<{
+    id: string;
+    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+    fileName: string;
+    source: string;
+    status: "mapping" | "checking" | "checked" | "loading" | "finished";
+    rows: number;
+    counts: {
+      waiting: number;
+      ready: number;
+      already: number;
+      refused: number;
+      loaded: number;
+    };
+    createdAt: string;
+    checkedAt: string | null;
+    finishedAt: string | null;
+  }>;
+}
+
 export interface ListIncidentsOutput {
   incidents: Array<{
     id: string;
@@ -16086,6 +16197,23 @@ export interface ListWorkflowsOutput {
   }>;
 }
 
+export type LoadImportInput = Record<string, unknown>;
+
+export interface LoadImportOutput {
+  id: string;
+  status: "mapping" | "checking" | "checked" | "loading" | "finished";
+  rows: number;
+  counts: {
+    waiting: number;
+    ready: number;
+    already: number;
+    refused: number;
+    loaded: number;
+  };
+  tried: number;
+  more: boolean;
+}
+
 export interface LoadWageScaleInput {
   classification: string;
   baseRate: string;
@@ -16279,6 +16407,59 @@ export interface MakeContactPrimaryOutput {
   preferredChannel: string;
   isPrimary: boolean;
   portalAccess: boolean;
+}
+
+export interface MapImportInput {
+  columns: Array<string | null>;
+  source: string;
+  dayFirst?: boolean;
+  saveAs?: string;
+}
+
+export interface MapImportOutput {
+  id: string;
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  fileName: string;
+  source: string;
+  status: "mapping" | "checking" | "checked" | "loading" | "finished";
+  rows: number;
+  counts: {
+    waiting: number;
+    ready: number;
+    already: number;
+    refused: number;
+    loaded: number;
+  };
+  createdAt: string;
+  checkedAt: string | null;
+  finishedAt: string | null;
+  dayFirst: boolean;
+  header: string[];
+  columns: Array<string | null>;
+  samples: string[];
+  fields: Array<{
+    key: string;
+    label: string;
+    required: boolean;
+  }>;
+  problems: string[];
+  mappingName: string | null;
+  preview: Array<{
+    row: number;
+    values: Record<string, string>;
+  }>;
+  refused: Array<{
+    row: number;
+    reason: string | null;
+    recordId: string | null;
+    recordLabel: string | null;
+  }>;
+  skipped: Array<{
+    row: number;
+    reason: string | null;
+    recordId: string | null;
+    recordLabel: string | null;
+  }>;
 }
 
 export interface MapPlatformCampaignInput {
@@ -18610,6 +18791,10 @@ export interface RegisterEquipmentInput {
   parentEquipmentId?: string | null;
   attributes?: Record<string, unknown>;
   serialElsewhereConfirmed?: boolean;
+  externalRef?: {
+    source: string;
+    id: string;
+  };
 }
 
 export interface RegisterEquipmentOutput {
@@ -22429,6 +22614,58 @@ export interface StartConversationOutput {
   messageId: string;
 }
 
+export interface StartImportInput {
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  fileName: string;
+  csv: string;
+}
+
+export interface StartImportOutput {
+  id: string;
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  fileName: string;
+  source: string;
+  status: "mapping" | "checking" | "checked" | "loading" | "finished";
+  rows: number;
+  counts: {
+    waiting: number;
+    ready: number;
+    already: number;
+    refused: number;
+    loaded: number;
+  };
+  createdAt: string;
+  checkedAt: string | null;
+  finishedAt: string | null;
+  dayFirst: boolean;
+  header: string[];
+  columns: Array<string | null>;
+  samples: string[];
+  fields: Array<{
+    key: string;
+    label: string;
+    required: boolean;
+  }>;
+  problems: string[];
+  mappingName: string | null;
+  preview: Array<{
+    row: number;
+    values: Record<string, string>;
+  }>;
+  refused: Array<{
+    row: number;
+    reason: string | null;
+    recordId: string | null;
+    recordLabel: string | null;
+  }>;
+  skipped: Array<{
+    row: number;
+    reason: string | null;
+    recordId: string | null;
+    recordLabel: string | null;
+  }>;
+}
+
 export type StartOnboardingInput = Record<string, unknown>;
 
 export interface StartOnboardingOutput {
@@ -25859,6 +26096,10 @@ export interface ChargeInvoiceCardOnFileParams {
   id: string;
 }
 
+export interface CheckImportParams {
+  id: string;
+}
+
 export interface CheckInAssetParams {
   assetId: string;
 }
@@ -26000,6 +26241,10 @@ export interface DeleteCustomObjectParams {
 }
 
 export interface DeleteCustomRecordParams {
+  id: string;
+}
+
+export interface DeleteImportMappingParams {
   id: string;
 }
 
@@ -26408,6 +26653,14 @@ export type GetGeocodingStatusInput = Record<string, never>;
 
 export interface GetHostedFormInput {
   key: string;
+}
+
+export interface GetImportInput {
+  id: string;
+}
+
+export interface GetImportRefusalsInput {
+  id: string;
 }
 
 export interface GetIncidentInput {
@@ -27230,6 +27483,10 @@ export type ListFormsInput = Record<string, never>;
 
 export type ListHolidaysInput = Record<string, never>;
 
+export type ListImportMappingsInput = Record<string, never>;
+
+export type ListImportsInput = Record<string, never>;
+
 export interface ListIncidentsInput {
   status?: "open" | "closed";
   limit?: number;
@@ -27787,6 +28044,10 @@ export type ListWorkflowTemplatesInput = Record<string, never>;
 
 export type ListWorkflowsInput = Record<string, never>;
 
+export interface LoadImportParams {
+  id: string;
+}
+
 export interface LockVisitParams {
   id: string;
 }
@@ -27796,6 +28057,10 @@ export interface LogContinuingEducationParams {
 }
 
 export interface MakeContactPrimaryParams {
+  id: string;
+}
+
+export interface MapImportParams {
   id: string;
 }
 
@@ -29047,6 +29312,7 @@ export interface OperationTypes {
   cancelWebhookReplay: { input: CancelWebhookReplayParams & CancelWebhookReplayInput; output: CancelWebhookReplayOutput };
   chargeInvoiceCardOnFile: { input: ChargeInvoiceCardOnFileParams & ChargeInvoiceCardOnFileInput; output: ChargeInvoiceCardOnFileOutput };
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
+  checkImport: { input: CheckImportParams & CheckImportInput; output: CheckImportOutput };
   checkInAsset: { input: CheckInAssetParams & CheckInAssetInput; output: CheckInAssetOutput };
   checkOutAsset: { input: CheckOutAssetParams & CheckOutAssetInput; output: CheckOutAssetOutput };
   checkTruckFills: { input: CheckTruckFillsInput; output: CheckTruckFillsOutput };
@@ -29160,6 +29426,7 @@ export interface OperationTypes {
   deleteCustomField: { input: DeleteCustomFieldParams & DeleteCustomFieldInput; output: DeleteCustomFieldOutput };
   deleteCustomObject: { input: DeleteCustomObjectParams & DeleteCustomObjectInput; output: DeleteCustomObjectOutput };
   deleteCustomRecord: { input: DeleteCustomRecordParams & DeleteCustomRecordInput; output: DeleteCustomRecordOutput };
+  deleteImportMapping: { input: DeleteImportMappingParams & DeleteImportMappingInput; output: DeleteImportMappingOutput };
   deleteInvoice: { input: DeleteInvoiceParams & DeleteInvoiceInput; output: DeleteInvoiceOutput };
   deleteLeadConnector: { input: DeleteLeadConnectorParams & DeleteLeadConnectorInput; output: DeleteLeadConnectorOutput };
   deleteMessageTemplate: { input: DeleteMessageTemplateParams & DeleteMessageTemplateInput; output: DeleteMessageTemplateOutput };
@@ -29270,6 +29537,8 @@ export interface OperationTypes {
   getFormRefusals: { input: GetFormRefusalsInput; output: GetFormRefusalsOutput };
   getGeocodingStatus: { input: GetGeocodingStatusInput; output: GetGeocodingStatusOutput };
   getHostedForm: { input: GetHostedFormInput; output: GetHostedFormOutput };
+  getImport: { input: GetImportInput; output: GetImportOutput };
+  getImportRefusals: { input: GetImportRefusalsInput; output: GetImportRefusalsOutput };
   getIncident: { input: GetIncidentInput; output: GetIncidentOutput };
   getInspectionReport: { input: GetInspectionReportInput; output: GetInspectionReportOutput };
   getInvoice: { input: GetInvoiceInput; output: GetInvoiceOutput };
@@ -29475,6 +29744,8 @@ export interface OperationTypes {
   listFinancingApplications: { input: ListFinancingApplicationsInput; output: ListFinancingApplicationsOutput };
   listForms: { input: ListFormsInput; output: ListFormsOutput };
   listHolidays: { input: ListHolidaysInput; output: ListHolidaysOutput };
+  listImportMappings: { input: ListImportMappingsInput; output: ListImportMappingsOutput };
+  listImports: { input: ListImportsInput; output: ListImportsOutput };
   listIncidents: { input: ListIncidentsInput; output: ListIncidentsOutput };
   listInspectionPrograms: { input: ListInspectionProgramsInput; output: ListInspectionProgramsOutput };
   listInspections: { input: ListInspectionsInput; output: ListInspectionsOutput };
@@ -29617,12 +29888,14 @@ export interface OperationTypes {
   listWorkflowSteps: { input: ListWorkflowStepsInput; output: ListWorkflowStepsOutput };
   listWorkflowTemplates: { input: ListWorkflowTemplatesInput; output: ListWorkflowTemplatesOutput };
   listWorkflows: { input: ListWorkflowsInput; output: ListWorkflowsOutput };
+  loadImport: { input: LoadImportParams & LoadImportInput; output: LoadImportOutput };
   loadWageScale: { input: LoadWageScaleInput; output: LoadWageScaleOutput };
   lockVisit: { input: LockVisitParams & LockVisitInput; output: LockVisitOutput };
   logCall: { input: LogCallInput; output: LogCallOutput };
   logContinuingEducation: { input: LogContinuingEducationParams & LogContinuingEducationInput; output: LogContinuingEducationOutput };
   logMyContinuingEducation: { input: LogMyContinuingEducationInput; output: LogMyContinuingEducationOutput };
   makeContactPrimary: { input: MakeContactPrimaryParams & MakeContactPrimaryInput; output: MakeContactPrimaryOutput };
+  mapImport: { input: MapImportParams & MapImportInput; output: MapImportOutput };
   mapPlatformCampaign: { input: MapPlatformCampaignParams & MapPlatformCampaignInput; output: MapPlatformCampaignOutput };
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
@@ -29938,6 +30211,7 @@ export interface OperationTypes {
   startChat: { input: StartChatInput; output: StartChatOutput };
   startConnectorSignIn: { input: StartConnectorSignInParams & StartConnectorSignInInput; output: StartConnectorSignInOutput };
   startConversation: { input: StartConversationInput; output: StartConversationOutput };
+  startImport: { input: StartImportInput; output: StartImportOutput };
   startOnboarding: { input: StartOnboardingParams & StartOnboardingInput; output: StartOnboardingOutput };
   startPortalCardSetup: { input: StartPortalCardSetupInput; output: StartPortalCardSetupOutput };
   stopAnsweringNumber: { input: StopAnsweringNumberParams & StopAnsweringNumberInput; output: StopAnsweringNumberOutput };
@@ -30115,6 +30389,7 @@ export const OPERATIONS = {
   cancelWebhookReplay: { method: "POST", path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel", pathParams: ["id","replayId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   chargeInvoiceCardOnFile: { method: "POST", path: "/v1/invoices/{id}/charge-card", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:charge_saved","payment:collect"] },
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  checkImport: { method: "POST", path: "/v1/imports/{id}/check", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   checkInAsset: { method: "POST", path: "/v1/assets/{assetId}/check-in", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkOutAsset: { method: "POST", path: "/v1/assets/{assetId}/check-out", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkTruckFills: { method: "POST", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -30228,6 +30503,7 @@ export const OPERATIONS = {
   deleteCustomField: { method: "DELETE", path: "/v1/custom-fields/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   deleteCustomObject: { method: "DELETE", path: "/v1/custom-objects/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   deleteCustomRecord: { method: "DELETE", path: "/v1/custom-records/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
+  deleteImportMapping: { method: "DELETE", path: "/v1/import-mappings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   deleteInvoice: { method: "DELETE", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   deleteLeadConnector: { method: "DELETE", path: "/v1/lead-connectors/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   deleteMessageTemplate: { method: "DELETE", path: "/v1/message-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -30338,6 +30614,8 @@ export const OPERATIONS = {
   getFormRefusals: { method: "GET", path: "/v1/marketing/forms/{formId}/refusals", pathParams: ["formId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getGeocodingStatus: { method: "GET", path: "/v1/geocoding", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:read"] },
   getHostedForm: { method: "GET", path: "/v1/public/hosted-forms/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  getImport: { method: "GET", path: "/v1/imports/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
+  getImportRefusals: { method: "GET", path: "/v1/imports/{id}/refused", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   getIncident: { method: "GET", path: "/v1/safety/incidents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   getInspectionReport: { method: "GET", path: "/v1/inspections/{id}/report", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getInvoice: { method: "GET", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -30543,6 +30821,8 @@ export const OPERATIONS = {
   listFinancingApplications: { method: "GET", path: "/v1/financing/applications", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listForms: { method: "GET", path: "/v1/marketing/forms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listHolidays: { method: "GET", path: "/v1/holidays", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listImportMappings: { method: "GET", path: "/v1/import-mappings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
+  listImports: { method: "GET", path: "/v1/imports", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listIncidents: { method: "GET", path: "/v1/safety/incidents", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listInspections: { method: "GET", path: "/v1/inspections", pathParams: [], queryParams: ["propertyId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -30685,12 +30965,14 @@ export const OPERATIONS = {
   listWorkflowSteps: { method: "GET", path: "/v1/workflow-steps", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
   listWorkflowTemplates: { method: "GET", path: "/v1/workflow-templates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
   listWorkflows: { method: "GET", path: "/v1/workflows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
+  loadImport: { method: "POST", path: "/v1/imports/{id}/load", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   loadWageScale: { method: "POST", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   lockVisit: { method: "POST", path: "/v1/visits/{id}/lock", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   logCall: { method: "POST", path: "/v1/calls", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   logContinuingEducation: { method: "POST", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   logMyContinuingEducation: { method: "POST", path: "/v1/me/continuing-education", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   makeContactPrimary: { method: "POST", path: "/v1/contacts/{id}/primary", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  mapImport: { method: "POST", path: "/v1/imports/{id}/mapping", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   mapPlatformCampaign: { method: "PATCH", path: "/v1/marketing/platform-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -31006,6 +31288,7 @@ export const OPERATIONS = {
   startChat: { method: "POST", path: "/v1/public/chat/sessions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   startConnectorSignIn: { method: "POST", path: "/v1/connectors/{provider}/authorize", pathParams: ["provider"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   startConversation: { method: "POST", path: "/v1/conversations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
+  startImport: { method: "POST", path: "/v1/imports", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   startOnboarding: { method: "POST", path: "/v1/people/{membershipId}/onboarding", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   startPortalCardSetup: { method: "POST", path: "/v1/portal/card-setup", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   stopAnsweringNumber: { method: "POST", path: "/v1/phone-numbers/{id}/stop-answering", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -31777,6 +32060,15 @@ export abstract class GeneratedOperations {
    */
   checkCallTracking(input: CheckCallTrackingInput = {} as CheckCallTrackingInput, options?: CallOptions): Promise<CheckCallTrackingOutput> {
     return this.call("checkCallTracking", input, options);
+  }
+
+  /**
+   * Try the next batch of rows, and keep nothing.
+   *
+   * POST /v1/imports/{id}/check. Needs data:import.
+   */
+  checkImport(input: CheckImportParams & CheckImportInput, options?: CallOptions): Promise<CheckImportOutput> {
+    return this.call("checkImport", input, options);
   }
 
   /**
@@ -32797,6 +33089,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Forget a saved mapping.
+   *
+   * DELETE /v1/import-mappings/{id}. Needs data:import.
+   */
+  deleteImportMapping(input: DeleteImportMappingParams & DeleteImportMappingInput, options?: CallOptions): Promise<DeleteImportMappingOutput> {
+    return this.call("deleteImportMapping", input, options);
+  }
+
+  /**
    * Delete a draft invoice.
    *
    * DELETE /v1/invoices/{id}. Needs invoice:write.
@@ -33784,6 +34085,24 @@ export abstract class GeneratedOperations {
    */
   getHostedForm(input: GetHostedFormInput, options?: CallOptions): Promise<GetHostedFormOutput> {
     return this.call("getHostedForm", input, options);
+  }
+
+  /**
+   * One spreadsheet: its columns, the first rows as they will land, and every row refused or skipped and why.
+   *
+   * GET /v1/imports/{id}. Needs data:import.
+   */
+  getImport(input: GetImportInput, options?: CallOptions): Promise<GetImportOutput> {
+    return this.call("getImport", input, options);
+  }
+
+  /**
+   * The refused rows as a file to fix and bring in again.
+   *
+   * GET /v1/imports/{id}/refused. Needs data:import.
+   */
+  getImportRefusals(input: GetImportRefusalsInput, options?: CallOptions): Promise<GetImportRefusalsOutput> {
+    return this.call("getImportRefusals", input, options);
   }
 
   /**
@@ -35632,6 +35951,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The column mappings saved by name.
+   *
+   * GET /v1/import-mappings. Needs data:import.
+   */
+  listImportMappings(input: ListImportMappingsInput = {} as ListImportMappingsInput, options?: CallOptions): Promise<ListImportMappingsOutput> {
+    return this.call("listImportMappings", input, options);
+  }
+
+  /**
+   * The spreadsheets brought in, newest first.
+   *
+   * GET /v1/imports. Needs data:import.
+   */
+  listImports(input: ListImportsInput = {} as ListImportsInput, options?: CallOptions): Promise<ListImportsOutput> {
+    return this.call("listImports", input, options);
+  }
+
+  /**
    * Incident reports, newest first.
    *
    * GET /v1/safety/incidents. Needs safety:report.
@@ -36910,6 +37247,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Load the next batch of checked rows.
+   *
+   * POST /v1/imports/{id}/load. Needs data:import.
+   */
+  loadImport(input: LoadImportParams & LoadImportInput, options?: CallOptions): Promise<LoadImportOutput> {
+    return this.call("loadImport", input, options);
+  }
+
+  /**
    * Load a wage scale.
    *
    * POST /v1/payroll/wage-scales. Needs payroll:configure.
@@ -36961,6 +37307,15 @@ export abstract class GeneratedOperations {
    */
   makeContactPrimary(input: MakeContactPrimaryParams & MakeContactPrimaryInput, options?: CallOptions): Promise<MakeContactPrimaryOutput> {
     return this.call("makeContactPrimary", input, options);
+  }
+
+  /**
+   * Say which column is which, and where the records came from.
+   *
+   * POST /v1/imports/{id}/mapping. Needs data:import.
+   */
+  mapImport(input: MapImportParams & MapImportInput, options?: CallOptions): Promise<MapImportOutput> {
+    return this.call("mapImport", input, options);
   }
 
   /**
@@ -39796,6 +40151,15 @@ export abstract class GeneratedOperations {
    */
   startConversation(input: StartConversationInput, options?: CallOptions): Promise<StartConversationOutput> {
     return this.call("startConversation", input, options);
+  }
+
+  /**
+   * Upload a spreadsheet of customers, equipment, price book items, past jobs or past invoices.
+   *
+   * POST /v1/imports. Needs data:import.
+   */
+  startImport(input: StartImportInput, options?: CallOptions): Promise<StartImportOutput> {
+    return this.call("startImport", input, options);
   }
 
   /**

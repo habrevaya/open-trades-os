@@ -455,6 +455,30 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     const number = await claimNumber(tx, ctx, "job", input.number);
 
     /**
+     * A JOB THAT ALREADY HAPPENED, recorded as it ended. Without this a
+     * migrated job could only be finished by walking it from lead to
+     * scheduled to completed, and the step through scheduled is a live
+     * status change: "when a job is scheduled, text the customer" would have
+     * texted every customer in the history. The day it ended is admitted by
+     * the same rules as every business date, and history announces nothing.
+     */
+    if (input.completedAt !== undefined && input.cancelledAt !== undefined) {
+      throw new UnprocessableError("A job ends one way", [{
+        path: "cancelledAt", message: "Send completedAt or cancelledAt, not both.",
+      }]);
+    }
+    const endedAt = input.completedAt ?? input.cancelledAt;
+    if (endedAt !== undefined && input.visit) {
+      throw new UnprocessableError("A job that has ended has no visit to book", [{
+        path: "visit", message: "Leave the visit off a job recorded as finished or cancelled.",
+      }]);
+    }
+    const ended = endedAt === undefined ? null : {
+      at: new Date(endedAt),
+      historical: (await admitInstant(tx, ctx, new Date(endedAt), input.completedAt !== undefined ? "completedAt" : "cancelledAt")).historical,
+    };
+
+    /**
      * A branch named on the job is checked: it has to be live, and somebody
      * limited to their own branch can only name that one. A job saved with
      * none takes the booker's branch from the trigger in `sql/after.sql`.
@@ -493,7 +517,11 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       purchaseOrderNumber: input.purchaseOrderNumber ?? null,
       costCode: input.costCode ?? null,
       priority: input.priority ?? 0,
-      status: input.visit ? "scheduled" : "lead",
+      status: input.completedAt !== undefined ? "completed"
+        : input.cancelledAt !== undefined ? "cancelled"
+          : input.visit ? "scheduled" : "lead",
+      ...(input.completedAt !== undefined ? { completedAt: ended!.at } : {}),
+      ...(input.cancelledAt !== undefined ? { cancelledAt: ended!.at } : {}),
       tags: input.tags,
       customFields: input.customFields,
       /**
@@ -634,10 +662,19 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
      * emitted anything. A job booked and never moved off `scheduled` emitted
      * nothing at all.
      */
-    await emit(tx, ctx, {
-      name: "job.created", entityType: "job", entityId: job!.id,
-      payload: { job: job! },
-    });
+    if (!ended?.historical) {
+      await emit(tx, ctx, {
+        name: "job.created", entityType: "job", entityId: job!.id,
+        payload: { job: job! },
+      });
+    }
+    /** Ended within the week: the same news a status change to it would have been. */
+    if (ended && !ended.historical) {
+      await emit(tx, ctx, {
+        name: input.completedAt !== undefined ? "job.completed" : "job.cancelled",
+        entityType: "job", entityId: job!.id, payload: { job: job! },
+      });
+    }
 
     /** Read back, so the response carries what crediting wrote onto it. */
     const [saved] = await tx.select().from(schema.job).where(eq(schema.job.id, job!.id)).limit(1);

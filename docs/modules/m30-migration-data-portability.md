@@ -27,6 +27,11 @@ does to records typed in by hand, and the same toolkit works against any
 deployment. What lives here is what the API has to accept for a load to be
 faithful.
 
+An owner with a spreadsheet and no programmer has a screen for it:
+`Settings > Bring in a spreadsheet` (`/settings/imports`). It is not a second
+importer. Each row becomes the input of the same create the toolkit calls,
+parsed by that route's own schema, so it is held to every rule below.
+
 Going the other way is the second half, and it is now built. A whole company
 export (`data:export`) hands back every row in every table that carries an
 `organization_id`, driven off the database catalogue rather than off a list,
@@ -123,6 +128,20 @@ for one that never had a time. Complete a job with
 `PATCH /v1/jobs/{id}` `{ status: "completed", completedAt }`, or complete its
 visits with `completedOfflineAt`.
 
+A job that ended before the move and needs no visits can be created as it
+ended: `POST /v1/jobs` with `completedAt` or `cancelledAt` (one of them, and
+no `visit`). The day is admitted by the history rules, and a job ended more
+than a week back announces nothing: no "created" event and no "completed" or
+"cancelled" one. Walking a lead to scheduled and then to completed would have
+been a live status change on the way, and a workflow that texts a customer
+when their job is scheduled would have texted every customer in the history.
+
+### Load equipment
+
+`POST /v1/equipment` with `propertyId`, `category` and `externalRef`. The
+serial guard applies as it does to a unit typed in: a serial already on file
+elsewhere is refused naming where.
+
 ### Map people and job types
 
 `GET /v1/people` (matchable by `email`) gives the technician id a visit
@@ -158,6 +177,7 @@ A migration app token needs, at most: `customer:read`, `customer:write`,
 `job:read`, `job:write`, `job:complete`, `visit:read`, `visit:write`,
 `estimate:read`, `estimate:write`,
 `invoice:read`, `invoice:write`, `invoice:void`, `invoice:writeoff`,
+`equipment:read`, `equipment:write`,
 `payment:read`, `payment:collect`, `payment:refund`, `user:read`,
 `document:read`, `document:write` and `data:import`.
 
@@ -177,6 +197,93 @@ sent or converted, customer notes, partial billing addresses, a price book item
 without a code, and a person who never had a login. A property's coordinates
 are not taken when it is created; they are set afterwards with
 `POST /v1/properties/{id}/pin`, which the geocoder then never moves.
+
+## Bringing in a spreadsheet
+
+`Settings > Bring in a spreadsheet` (`/settings/imports`) is for an owner who
+has files exported from wherever the company was before and nobody to drive
+the toolkit. It takes five kinds of file: customers with their addresses and
+a person to contact, equipment, price book items, past jobs, and past
+invoices with what was paid on them. CSV only: no workbook reader is part of
+this product, and a workbook uploaded by mistake is refused with how to save
+it as CSV. A file can be 5 MB and ten thousand rows; a larger one is refused
+in words, to be split.
+
+**The columns are guessed, and the owner has the last word.** A plain matcher
+in `packages/core/src/imports` reads each header for the words people put at
+the top of a column (name, email, phone, street, city, zip, amount, date,
+total, paid) and knows nothing about any other product's export. A single
+word only matches a header that is exactly that word, so "Last service date"
+is not taken for a surname. The owner corrects any guess, names where the
+records came from, says whether dates are written month first or day first,
+and can save the columns under a name. A later file with the same headers, in
+any order, is matched by itself.
+
+**Every row is read as it will land before anything is tried.** The screen
+shows the first rows as they will be saved (amounts as numbers, dates as
+dates) and every row that cannot go in, with the reason in words: half an
+address, "about 200" in an amount column, a date that has not happened, a two
+digit year, the same id twice in one file. An invoice with no date, a
+payment with no date and a job marked finished with no day it finished are
+refused rather than dated today, because dated today they would land in this
+month's books.
+
+**Check, then load, both a batch of a hundred at a time.** Checking runs each
+row through the real create inside the dry run every bulk route offers (M28):
+run, look, roll back, with a savepoint per row so the second refusal in a
+batch is found as well as the first, and only the answers are kept. Loading
+is offered once every row has an answer. A batch goes in through the same
+creates in one transaction, whole or not at all; a row refused at load time
+(somebody typed the same invoice number in since the check) is marked
+refused with its reason and the rest of its batch is tried again without it.
+The page drives one batch per request and shows the count, so a closed tab
+stops between batches and pressing the button again carries on.
+
+**What each row goes through.**
+
+| File | Create |
+|---|---|
+| Customers | `POST /v1/customers` with the address as billing address and first property, then `POST /v1/customers/{id}/contacts` for a contact |
+| Equipment | `POST /v1/equipment`, at the customer's address the row names by street, or their main one |
+| Price book items | `POST /v1/pricebook/items` |
+| Past jobs | `POST /v1/jobs` with `completedAt` or `cancelledAt`, or as a lead when the row says open |
+| Past invoices | `POST /v1/invoices` with `issuedOn`, one line at the amount before tax, the tax as charged and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
+
+A job, a unit or an invoice finds its customer by the customer's id from a
+customers file brought in under the same "came from" name, or by an email
+exactly one customer has. Never by name: a name is not unique, and a job on
+the wrong customer's account is worse than a refused row. An invoice finds its
+job by the job's id or by the number it kept. A number the source printed is
+kept when it is a whole number; one like `INV-1042` is said in the invoice's
+memo instead.
+
+**A second upload makes no copies.** Each record carries `externalRef`: the
+"came from" name and the row's id column, or failing that the code or number
+that already names one record, or failing both a hash of everything mapped
+from the row. A row whose key is already here is skipped and the screen says
+which record it already is. The key is per company: another company's
+records are not visible to the lookup, so a file naming an id only another
+company brought in is refused as not found.
+
+**The refused rows come back as a file.** The original columns and cells,
+with the row's place in the first file and the reason added at the end, to
+fix and bring in again. A cell that starts like a formula (`=HYPERLINK(...)`)
+was stored as the characters it holds and is written back as text, so a
+spreadsheet shows it rather than running it.
+
+The API is the screen's: `GET /v1/imports`, `POST /v1/imports`,
+`GET /v1/imports/{id}`, `POST /v1/imports/{id}/mapping`,
+`POST /v1/imports/{id}/check`, `POST /v1/imports/{id}/load`,
+`GET /v1/imports/{id}/refused`, `GET /v1/import-mappings` and
+`DELETE /v1/import-mappings/{id}`. All of them need `data:import`, and checking
+or loading also needs each create's own permission. The screen sits in the
+rail under Settings, shown under `settings:read` and opened under
+`data:import`, like Take a copy.
+
+**Automations still run on created records.** A customer or a job loaded from a
+file emits "created" like one typed in, unless the job ended more than a week
+ago. The screen says so above the columns for those two kinds and links to
+Automations, to pause the ones that message customers first.
 
 ## Taking a copy
 
@@ -451,10 +558,20 @@ already exists.
 
 ## What is not built
 
-Nothing in this repository imports from Jobber, Housecall Pro or ServiceTitan.
-The importer is the separate migration toolkit, which loads through `/api/v1`
-with a connected app's token, and what is here is the half that has to be right:
-an API that takes history faithfully and refuses what it should.
+Nothing in this repository reads another product's export format. The
+migration toolkit is separate and loads through `/api/v1` with a connected
+app's token; the spreadsheet screen reads plain CSV whose columns the owner
+matches. It reads no workbook files, only CSV. It brings in one invoice line per
+invoice (the amount before tax, with the tax as charged), not the lines of the
+original, and one payment per invoice, not a payment split across invoices,
+a refund or a credit. Customer notes, estimates, visits and photographs do
+not come in through it; the toolkit's routes take the last three. A file is
+matched to customers by id or email and never by name. A file and its rows
+are kept after loading so the screen can show what happened, and there is no
+button to forget one. Customers and jobs loaded from a file still start the
+automations that run on "created". Equipment takes `externalRef` on create
+and refuses a second unit for it, but the register's reads do not yet return
+it or filter by it.
 
 An estimate's history carries its outcome but not the day it was sent or
 converted.

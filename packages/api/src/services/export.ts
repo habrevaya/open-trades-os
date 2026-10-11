@@ -177,6 +177,14 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   integration_secret: {
     key_id: "A fingerprint of which master key sealed the secret, not the key, and useless without it.",
   },
+  import_mapping: {
+    header_key: "A spreadsheet's column headings, lower cased and sorted, which a saved mapping is "
+      + "found by. A key in the sense of a lookup, not a credential.",
+  },
+  import_row: {
+    source_key: "The id a row's record was given as its provenance: the file's own id, code or "
+      + "number, or a hash of the row. The same value is on the record itself.",
+  },
   customer_tag: {
     tag_key: "A customer's tag lower cased with its spaces tidied, which the tag filter compares by. "
       + "A key in the sense of a lookup, not a credential.",

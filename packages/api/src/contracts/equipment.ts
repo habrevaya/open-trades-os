@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid } from "./common";
+import { Uuid, ExternalRef } from "./common";
 
 /** A calendar date, the way every other contract here spells one. */
 const IsoDate = z.string().date();
@@ -263,6 +263,8 @@ export const registerEquipment = defineRoute({
      * Without it, a serial on file anywhere is refused, naming where.
      */
     serialElsewhereConfirmed: z.boolean().optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
   }),
   output: z.object({ id: Uuid }),
 });

@@ -778,6 +778,13 @@
       "when": 1791749533423,
       "tag": "0110_calm_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1791750062393,
+      "tag": "0111_broad_radioactive_man",
+      "breakpoints": true
     }
   ]
 }
