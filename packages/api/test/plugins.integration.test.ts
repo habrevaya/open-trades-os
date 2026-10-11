@@ -320,8 +320,9 @@ run("a job workflow", () => {
   });
 
   it("is off once its application is turned off, and is listed under it on Settings, Applications", async () => {
-    const [{ id: appId }] = await raw<{ id: string }[]>`select app_id as id from public.app_plugin
+    const [found] = await raw<{ id: string }[]>`select app_id as id from public.app_plugin
       where organization_id = ${ORG} and key = 'install_flow' and retired_at is null`;
+    const appId = found!.id;
     const listed = (await apps.list(owner())).find((a) => a.id === appId)!;
     expect(listed.plugins.map((p) => [p.key, p.on])).toContainEqual(["install_flow", true]);
 
