@@ -61,6 +61,55 @@ export function agreementWording(input: WordingInput): string {
     + `I can stop this at any time from my account, and it stops at once for anything not yet charged.`;
 }
 
+/* ----------------------------------------- an agreement the office records */
+
+/** How an agreement was given: by the customer signed in, or recorded by the office from a phone call or a signed form. */
+export type AgreementWay = "portal_sign_in" | "office_phone" | "office_form";
+
+/** The two ways the office can record one. A customer's own sign in is never "recorded". */
+export type OfficeWay = "phone" | "signed_form";
+
+/**
+ * THE PRODUCT'S PHONE SCRIPT, read out by whoever takes the agreement.
+ *
+ * The company cannot edit it, as it cannot edit the portal's words: what a
+ * customer says yes to on the phone has to mean the same as what they would
+ * say yes to on the screen, and a company that could shorten it could shorten
+ * it to nothing. It says the same four things (what may be charged, only what
+ * a bill says, a receipt each time, and how to stop), then asks. A way to
+ * stop by phone is part of it because the office can record that too.
+ */
+export function phoneScript(input: WordingInput): string {
+  const company = companyName(input.company);
+  const what = input.kind === "bank_account" ? `take payments from your ${input.method}` : `charge your ${input.method}`;
+  return `${company} would like to ${what} for bills you owe them, without you pressing Pay each time. `
+    + `They will only take the amount a bill says you owe, and you will get a receipt each time. `
+    + `You can stop this at any time, from your account or by calling ${company}, and it stops at once for anything not yet charged. `
+    + `Do you agree?`;
+}
+
+/**
+ * The words a signed form must carry: the portal's own, so a customer who signs on paper has agreed to
+ * exactly what a customer who ticks the box on the screen has. The office's form is the company's own paper;
+ * these are the words it has to say.
+ */
+export const formWording = agreementWording;
+
+/** The words for the way the office is recording it. */
+export function officeWording(way: OfficeWay, input: WordingInput): string {
+  return way === "phone" ? phoneScript(input) : formWording(input);
+}
+
+/** The recorded way, as the column keeps it. */
+export const agreementWayOf = (way: OfficeWay): AgreementWay => (way === "phone" ? "office_phone" : "office_form");
+
+/** How an agreement reads to the customer and the office: "You agreed in your account", "Taken by phone by Sam". */
+export function agreementWayLabel(way: AgreementWay | string): string {
+  return way === "office_phone" ? "Agreed by phone"
+    : way === "office_form" ? "Agreed on a signed form"
+      : "Agreed in their account";
+}
+
 /**
  * Paying every bill automatically, on top of the agreement above.
  *

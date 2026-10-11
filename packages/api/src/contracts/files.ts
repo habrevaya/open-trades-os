@@ -53,9 +53,9 @@ export const Attachment = z.object({
 export const shareAttachmentWithCustomer = defineRoute({
   method: "post",
   path: "/v1/attachments/{id}/customer-sharing",
-  summary: "Show a job photograph on the customer's job link, or stop showing it",
+  summary: "Show a job photograph or file to the customer, or stop showing it",
   description:
-    "Only a photograph on a job or one of its visits. The same permission as publishing a service report, because showing a customer what a technician recorded is the same decision. Setting it to what it already is changes nothing.",
+    "Only a photograph or a file (a document) on a job or one of its visits, never a signature. A photograph shows on the job link and the account; a file shows in the account's documents block, read only, and only once marked: the company's setting to show every photograph never shows a file. The same permission as publishing a service report, because showing a customer what a technician recorded is the same decision. Setting it to what it already is changes nothing.",
   module: "M05",
   permissions: ["servicereport:publish"],
   idempotent: true,

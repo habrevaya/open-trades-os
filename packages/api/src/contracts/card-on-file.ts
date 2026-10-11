@@ -69,6 +69,11 @@ const CardOnFile = z.object({
   agreedAt: z.string().datetime(),
   agreedByContact: z.string().nullable(),
   autopay: z.boolean(),
+  givenBy: z.enum(["customer", "office"]),
+  way: z.enum(["portal_sign_in", "office_phone", "office_form"]),
+  wayLabel: z.string(),
+  agreedOn: z.string().nullable(),
+  takenBy: z.string().nullable(),
 });
 
 const ChargeOnFile = z.object({
@@ -110,7 +115,77 @@ export const chargeInvoiceCardOnFile = defineRoute({
   output: z.object({ chargeId: Uuid, status: z.string(), message: z.string() }),
 });
 
+/* ------------------------------- an agreement the office records */
+
+const OfficeAgreement = PortalCardAgreement.omit({ hasForm: true, takenBy: true }).extend({
+  /** The person at the company who took it, in full. */
+  takenBy: z.string().nullable(),
+  hasForm: z.boolean(),
+  /** The scanned form, for one on paper. Opened at `/files/{storageKey}` by somebody who may read documents. */
+  form: z.object({ attachmentId: Uuid, fileName: z.string().nullable(), storageKey: z.string() }).nullable(),
+});
+
+export const listCustomerCardAgreements = defineRoute({
+  method: "get",
+  path: "/v1/customers/{id}/card-agreements",
+  summary: "A customer's saved cards, their agreement to be charged, and the words to record one under",
+  description:
+    "Each saved card (never the card number) with its live agreement, whoever gave it: the customer in their own account, or the office from a phone call or a signed form. The words are the product's, one set for a phone agreement (a script to read out) and one for a signed form, exactly as they are checked when an agreement is recorded.",
+  module: "M13",
+  permissions: ["payment:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    cards: z.array(z.object({
+      cardId: Uuid,
+      kind: z.enum(["card", "bank_account"]),
+      label: z.string(),
+      savedOn: z.string(),
+      agreement: OfficeAgreement.nullable(),
+      wording: z.object({ phone: z.string(), form: z.string() }),
+    })),
+  }),
+});
+
+export const recordCustomerCardAgreement = defineRoute({
+  method: "post",
+  path: "/v1/customers/{id}/card-agreements",
+  summary: "Record that a customer agreed, by phone or on a signed form, to be charged on a saved card",
+  description:
+    "Needs `payment:charge_saved`. `wording` is the product's own words for this way and this card (from the list), refused when they are not. `agreedOn` is the company's day the customer agreed: not in the future, not before the card was saved. A signed form needs its scan, sent as `form` (base64) or an earlier upload to the customer as `formAttachmentId`; without one it is refused. A card with a live agreement is refused: the customer's own stands. Kept in the same records as the customer's own agreement, shown to them in their portal, where they can withdraw it.",
+  module: "M13",
+  permissions: ["payment:charge_saved"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    cardId: Uuid,
+    way: z.enum(["phone", "signed_form"]),
+    agreedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    wording: z.string().min(20).max(4000),
+    form: z.object({
+      fileName: z.string().min(1).max(200),
+      contentType: z.string().max(100).optional(),
+      bytes: z.string().min(1),
+    }).optional(),
+    formAttachmentId: Uuid.optional(),
+  }),
+  output: OfficeAgreement,
+});
+
+export const withdrawCustomerCardAgreement = defineRoute({
+  method: "post",
+  path: "/v1/customers/{id}/card-agreements/{agreementId}/withdraw",
+  summary: "Record that a customer asked to stop being charged on a saved card",
+  description:
+    "Needs `payment:charge_saved`. Ends the agreement and paying automatically at once, naming the person who took the request. The agreement and its form are kept. Withdrawing one already withdrawn changes nothing.",
+  module: "M13",
+  permissions: ["payment:charge_saved"],
+  idempotent: true,
+  input: z.object({ id: Uuid, agreementId: Uuid }),
+  output: z.object({ ok: z.literal(true) }),
+});
+
 export const cardOnFileRoutes = {
   agreeToPortalCardCharges, setPortalCardAutopay, withdrawPortalCardAgreement,
   listInvoiceCardsOnFile, chargeInvoiceCardOnFile,
+  listCustomerCardAgreements, recordCustomerCardAgreement, withdrawCustomerCardAgreement,
 } as const;

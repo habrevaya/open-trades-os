@@ -308,6 +308,69 @@ card ends its agreement too. `GET /v1/portal/cards` says, for each card,
 whether it is agreed and the words that would be agreed to. What the office
 can then do, and what paying automatically does when a charge fails, is M13.
 
+An agreement the office recorded for them (a phone call, or a signed form,
+below) shows in the same place. Under the words it says how it was given, the
+day, and the first name of the person who took it ("Agreed by phone on Oct 5,
+2026, taken by Sam. You can stop this at any time."), and **Stop {company}
+charging Visa ending 4242** ends it exactly as it ends their own. The
+scanned form is the company's: the customer's page says a form is kept
+(`hasForm`) and never serves or names the file. They can turn paying
+automatically on over it, in its own words, as over their own.
+
+### Record a card authorization for a customer
+
+A customer who agrees on the phone, or on paper, to be charged on a card
+they saved can have that recorded by the office, on their page under
+**Cards on file** (`/customers/{id}`, for somebody who holds `payment:read`;
+the forms only for somebody who holds `payment:charge_saved`, the permission
+that charges the card: owner, administrator, office manager and accountant,
+never a technician or a CSR). The card must already be saved, because only the
+customer saves one, from their own account: a card number never reaches this
+server and the office cannot type one in. A customer with no saved card
+shows **They have not saved a card**.
+
+Each saved card says whether it is agreed and, when it is, who gave it, how
+(**Agreed by phone**, **Agreed on a signed form** or **Agreed in their
+account**), the day, who took it, and the words. A card with none offers two
+forms:
+
+- **Record an agreement taken by phone** shows the product's phone script to
+  read out, word for word ("{Company} would like to charge your Visa ending
+  4242 for bills you owe them, without you pressing Pay each time ... Do you
+  agree?"). The office ticks that they read it and the customer said yes, and
+  gives the day.
+- **Record an agreement on a signed form** shows the words the form must
+  carry (the same words the customer would tick in their account), asks for
+  the day they signed and the scan, and records it only with the scan. A form
+  is a PDF or a photograph; anything else is refused where every upload is.
+
+Both are `POST /v1/customers/{id}/card-agreements`, with the card, the way
+(`phone` or `signed_form`), `agreedOn` (the company's day: not in the future
+and not before the card was saved) and the words, which are built again on the
+server and refused when they are not the product's for that card and way. The
+company cannot edit the words, any more than the portal's. A signed form's scan
+is sent with the call (`form`, base64) or is a file already uploaded to the
+customer through `POST /v1/attachments` (`formAttachmentId`); it is kept as a
+document on the customer and the agreement points at it, and one scan stands
+behind one agreement. Without it, a paper agreement is refused by the service
+and by a check on the table. A card that already has a live agreement is
+refused: the customer's own stands, and the office cannot record a second one
+over it.
+
+The agreement is a row in the same `payment_agreement` records as the
+customer's own, with `given_by` set to the office, the person who took it
+(their name as it was, kept on the row), the day, and the form. It is what
+the invoice's **Charge** button looks for, and it says on the invoice how it
+was given. The audit log carries `card_agreement.recorded` with the person.
+`GET /v1/customers/{id}/card-agreements` (`payment:read`) lists the cards and
+their agreements with the words for each way.
+
+When the customer rings to stop, **They asked us to stop** records it
+(`POST /v1/customers/{id}/card-agreements/{agreementId}/withdraw`, also
+`payment:charge_saved`): the agreement and paying automatically end at once, the
+person who took the request is named in the audit log, and the agreement and
+its form are kept. Withdrawing what is already withdrawn changes nothing.
+
 ### Pay from a bank account
 
 When the company has turned bank payments on, a signed in customer's saved
@@ -327,7 +390,7 @@ collections agent leave the invoice alone meanwhile (M13).
 ### What the customer sees of the work
 
 The account page (`/c/{token}` and `/portal/{slug}/account`) draws the
-company's portal layout, then the work, estimates, deposits and homes. The
+company's portal layout (or, for the members of a plan with a page of its own, the plan's), then the work, estimates, deposits and homes. The
 blocks: what is coming, the service history (every past visit with the
 technician's first name, the notes the office shared and the published
 report), the latest reports with the products used and their EPA
@@ -346,6 +409,47 @@ registration) are a read only block per kind, after the layout's blocks,
 only for a kind the office turned on for customers, and showing each record's
 name and only the fields marked for the customer. Which records are about
 them, and how a field is marked, is M29's.
+
+### Documents the customer can open
+
+The **documents** block (**Your documents** unless the office retitles it, in
+the layout below) lists, read only: their statement; each **signed estimate**
+as a PDF (one they approved, approved or since turned into a job, printed as the
+proposal with who approved it and when; a waiting, declined or expired one has
+no signed copy, and the route refuses it: `/c/{token}/estimates/{id}/pdf`,
+`/portal/{slug}/account/estimates/{id}/pdf`); each **invoice** as a PDF (not a
+draft, not a cancelled one: `/c/{token}/invoices/{id}/pdf`); the published
+service reports; and the **files the office marked** for them.
+
+On the job's page, under **Files**, the office adds a PDF or a picture to the job
+(`document:write`, as `POST /v1/attachments` does) and chooses **Show the
+customer** or **Stop showing the customer** on it: the same switch as a
+photograph (`POST /v1/attachments/{id}/customer-sharing`, `servicereport:publish`).
+Every file is private until it is marked, and, unlike photographs, the
+company's setting to show every photograph never shows a file. Only a document
+on a job or one of its visits can be marked; a signature and a file on
+anything else are refused. A marked file is served at `/c/{token}/files/{id}`
+and `/portal/{slug}/account/files/{id}`, under the type it was sniffed as when
+stored, sandboxed and never cached; an unmarked file, a file on someone else's job,
+a photograph asked for as a file, a file removed since and a made up id are all
+the same 404. The block only carries files when the layout has it, and a
+company that hides it sends none.
+
+### Readings in a narrow band
+
+A reading is drawn from zero unless the trade says otherwise. A trade pack can
+name, in the readings block's `narrow` setting, the readings that live in a
+band (a water pressure between 55 and 65 psi, a soil pH, a supply voltage):
+those are drawn on a scale that starts at the data, with a break in the axis,
+"Scale starts at 50, not zero" on the chart, the same in its description for a
+screen reader, and a line of words under it. It is the trade's call per
+reading and not the customer's or the company's: an amount, or a reading nobody
+named, is drawn from zero, and the table under the chart has the exact values
+either way. The plumbing, lawn and landscape and electrical packs name their
+pressure, temperature, pH and voltage readings; a company whose layout was seeded
+before this has the setting only after it applies the pack's newer layout. The
+same chart is the one the office's reports draw, where a line of a plain number
+offers **Around the data** (M21).
 
 ### Share a visit's notes with the customer
 
@@ -373,6 +477,38 @@ company's own, which a pack applied later does not push aside. A trade pack
 upgrade (M02) never writes over it: the layout no longer says what the pack
 set up, so the upgrade keeps it and lists it as the company's, and only a
 company that changed nothing takes the pack's new layout.
+
+### A page of their own for the members of a plan
+
+A company can give the members of one agreement plan a different account page
+from everyone else's. On `/settings/portal/layout`, a line under the heading
+lists **Everyone** and each plan's **members** (with **(own page)** beside the
+ones that have one); choosing a plan opens the same editor
+(`/settings/portal/layout?plan={planId}`). A plan with no page of its own shows
+the company's, and the first **Save layout** gives it one, starting from the
+company's as it stands (the readings a trend block shows come with it) and
+saved whole: every block named, in order, shown or not, with a heading or none.
+The bills still cannot be hidden. **Use the company's page for this plan**
+takes it away, and its members see the company's page again from their next
+visit.
+
+Who sees it: a customer with an active or past due agreement on the plan. A
+pending agreement has not started, and a paused, lapsed or cancelled one is no
+longer a membership, so those customers see the company's page. A customer
+on several plans that have a page of their own sees the page of the plan of
+their oldest active agreement, so the page does not change from one visit to
+the next. Everyone else sees the company's layout, and a customer's page is
+drawn the same way at `/c/{token}`, `/portal/{slug}/account` and in
+`GET /v1/portal/account`. A plan's page is never the company's default and
+never a trade pack's, so a pack upgrade never reads or writes it and the
+company's page is read without it.
+
+`GET`, `PUT /v1/agreement-plans/{id}/portal-layout` and
+`POST /v1/agreement-plans/{id}/portal-layout/remove` do it (`settings:read`,
+`settings:write`, `settings:write`), and `GET /v1/portal-layout/plans` lists the
+plans with whether each has a page of its own and how many members it has now.
+Another company's plan is not found. The audit log carries
+`portal.plan_layout_changed` and `portal.plan_layout_removed` with the person.
 
 ### Book from the account, with the technician who came before
 
@@ -540,9 +676,16 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
+| `GET /v1/customers/{id}/card-agreements` | `payment:read` |
+| `POST /v1/customers/{id}/card-agreements` | `payment:charge_saved` |
+| `POST /v1/customers/{id}/card-agreements/{agreementId}/withdraw` | `payment:charge_saved` |
 | `GET /v1/portal-layout` | `settings:read` |
 | `PUT /v1/portal-layout` | `settings:write` |
-| `POST /v1/attachments/{id}/customer-sharing` | `servicereport:publish` |
+| `GET /v1/portal-layout/plans` | `settings:read` |
+| `GET /v1/agreement-plans/{id}/portal-layout` | `settings:read` |
+| `PUT /v1/agreement-plans/{id}/portal-layout` | `settings:write` |
+| `POST /v1/agreement-plans/{id}/portal-layout/remove` | `settings:write` |
+| `POST /v1/attachments/{id}/customer-sharing` | `servicereport:publish` (a photograph, or a file for the documents block) |
 | `GET /v1/portal-sign-ins` | `portal:read` |
 | `GET /v1/customers/{id}/portal-sessions` | `portal:read` |
 | `POST /v1/customers/{id}/portal-sessions/end` | `portal:revoke` |
@@ -598,18 +741,17 @@ contact the office lets sign in) cannot be sent a code. Ending a sign in
 leaves the one day links a customer opened from it working until they run
 out. Cards and bank accounts are saved through Stripe only; no other
 processor's adapter holds either, and a bank account is verified only by the
-customer signing in to their bank, never by micro deposits. A customer agrees
-to be charged on file only from their own sign in, in the portal's words;
-an agreement given on the phone or on paper cannot be recorded, and the
-office cannot record one for them. The words are the product's and the
-company cannot edit them. A layout is the company's one layout for every
-customer: it cannot differ by customer, by plan or by address, a block's
+customer signing in to their bank, never by micro deposits. A customer saves a card only from
+their own sign in, so the office can record an agreement to be charged on file
+(phone or signed form) only for a card the customer has already saved, and
+cannot record one for a card that does not exist. The product prints no form of
+its own: the company's paper form has to carry the words the screen shows, and
+the office confirms that it does. One scan stands behind one card. The words,
+for the phone script and for the form, are the product's and the company
+cannot edit them. A layout is the company's, or a plan's for its
+members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer on several plans sees only the oldest one's, a block's
 settings (which readings a trend shows) are not changed on the screen, and
-there is no button to go back to the pack's layout. The documents block lists the
-statement and the published service reports, and no product labels or other
-files. The readings chart starts its scale at zero, as every chart in the
-product does, so a reading that moves within a narrow band (a pool's pH)
-draws as a nearly flat line; the table under it has the values. A reading
+there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot add, change or remove one. The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the

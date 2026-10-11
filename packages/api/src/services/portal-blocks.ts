@@ -99,14 +99,33 @@ export interface AccountExtras {
    */
   readings: {
     key: string; label: string; unit: string | null; equipment: string | null;
+    /** Drawn from the data and not from zero: the trade pack says this reading lives in a narrow band. */
+    fromData: boolean;
     points: { at: string; value: string; outOfRange: boolean }[];
   }[];
   checklist: { date: string | null; summary: string; items: { label: string; done: boolean }[] } | null;
   photos: { id: string; takenAt: string; jobNumber: number }[];
+  /**
+   * Files the office marked "the customer may see this" on one of their jobs,
+   * for the documents block: read only, served one at a time through the same
+   * link. Empty unless the layout has a documents block.
+   */
+  files: CustomerFile[];
   payments: { id: string; receivedAt: string; amount: string; method: string; status: string }[];
   planVisits: { agreementId: string; planName: string; dueOn: string; state: "done" | "booked" | "skipped" | "due" }[];
   recommendations: { date: string; text: string }[];
   contact: { phone: string | null; technicians: string[] };
+}
+
+export interface CustomerFile {
+  /** The attachment's id, which is what the link serves it by. */
+  id: string;
+  fileName: string | null;
+  contentType: string;
+  sizeBytes: number;
+  addedAt: string;
+  jobNumber: number;
+  jobNumberPrefix: string | null;
 }
 
 const firstName = (name: string | null) => (name ? name.trim().split(/\s+/)[0] ?? name : null);
@@ -138,9 +157,42 @@ export async function defaultLayouts(tx: Database, organizationId: string) {
   return { layouts, blocks: rows };
 }
 
-/** The company's portal layout as the page draws it. */
-async function layoutOf(tx: Database, organizationId: string) {
-  const { blocks } = await defaultLayouts(tx, organizationId);
+/**
+ * The layout of a plan this customer is a member of, when that plan has one of
+ * its own: the blocks of the layout of the plan of their oldest active
+ * agreement that has a layout. A member is a customer with an agreement that is
+ * active or past due (pending has not started, and a paused, lapsed or
+ * cancelled one is no longer a membership). With several plans the oldest
+ * agreement wins, so a customer never flips between two layouts from one visit
+ * to the next. Null for everyone else, who see the company's layout.
+ */
+export async function planLayoutBlocks(tx: Database, organizationId: string, customerId: string) {
+  const [found] = await tx.select({ layoutId: schema.portalLayout.id })
+    .from(schema.agreement)
+    .innerJoin(schema.portalLayout, and(
+      eq(schema.portalLayout.agreementPlanId, schema.agreement.planId),
+      eq(schema.portalLayout.organizationId, organizationId),
+    ))
+    .where(and(
+      eq(schema.agreement.customerId, customerId),
+      inArray(schema.agreement.status, ["active", "past_due"]),
+    ))
+    .orderBy(asc(schema.agreement.startedOn), asc(schema.agreement.createdAt))
+    .limit(1);
+  if (!found) return null;
+  const blocks = await tx.select().from(schema.portalBlock)
+    .where(eq(schema.portalBlock.layoutId, found.layoutId))
+    .orderBy(asc(schema.portalBlock.sortOrder));
+  return blocks.length > 0 ? blocks : null;
+}
+
+/**
+ * The portal layout as this customer's page draws it: their plan's own when
+ * they are a member of a plan that has one, otherwise the company's.
+ */
+async function layoutOf(tx: Database, organizationId: string, customerId: string) {
+  const own = await planLayoutBlocks(tx, organizationId, customerId);
+  const blocks = own ?? (await defaultLayouts(tx, organizationId)).blocks;
   return cp.composeBlocks(blocks.map((r) => ({ kind: r.kind, title: r.title, config: r.config, visible: r.visible })));
 }
 
@@ -237,6 +289,64 @@ export async function customerPhotoBytes(tx: Database, organizationId: string, c
   return file ? { bytes: await bytesOf(file), contentType: file.contentType } : null;
 }
 
+/**
+ * The files a customer may see across all their jobs: a document on the job or
+ * one of its visits that somebody in the office marked for them, and nothing
+ * else. Unlike a photograph, no company wide setting shows them all: a file
+ * is private until it is marked, so the permit or the estimate somebody
+ * scanned does not reach the portal because the company shows its photographs.
+ * Never a signature, never a photograph (those have their own gallery), never
+ * a deleted file, never another customer's job.
+ */
+export async function customerFiles(tx: Database, organizationId: string, customerId: string) {
+  const jobs = await tx.select({ id: schema.job.id, number: schema.job.number, prefix: schema.job.numberPrefix })
+    .from(schema.job)
+    .where(and(eq(schema.job.customerId, customerId), isNull(schema.job.deletedAt)));
+  if (jobs.length === 0) return [];
+  const visits = await tx.select({ id: schema.visit.id, jobId: schema.visit.jobId })
+    .from(schema.visit).where(inArray(schema.visit.jobId, jobs.map((j) => j.id)));
+  const rows = await tx.select({ row: schema.attachment, file: schema.storedFile })
+    .from(schema.attachment)
+    .innerJoin(schema.storedFile, and(
+      eq(schema.storedFile.organizationId, schema.attachment.organizationId),
+      eq(schema.storedFile.storageKey, schema.attachment.storageKey),
+      isNull(schema.storedFile.deletedAt),
+    ))
+    .where(and(
+      eq(schema.attachment.organizationId, organizationId),
+      isNull(schema.attachment.deletedAt),
+      eq(schema.attachment.kind, "document"),
+      isNotNull(schema.attachment.sharedWithCustomerAt),
+      visits.length > 0
+        ? or(
+          and(eq(schema.attachment.entityType, "job"), inArray(schema.attachment.entityId, jobs.map((j) => j.id))),
+          and(eq(schema.attachment.entityType, "visit"), inArray(schema.attachment.entityId, visits.map((v) => v.id))),
+        )
+        : and(eq(schema.attachment.entityType, "job"), inArray(schema.attachment.entityId, jobs.map((j) => j.id))),
+    ))
+    .orderBy(desc(schema.attachment.createdAt))
+    .limit(100);
+  const jobOfVisit = new Map(visits.map((v) => [v.id, v.jobId]));
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  return rows.map(({ row, file }) => {
+    const job = byId.get(row.entityType === "job" ? row.entityId : jobOfVisit.get(row.entityId) ?? "");
+    return {
+      row, file, jobNumber: job?.number ?? 0, jobNumberPrefix: job?.prefix ?? null,
+    };
+  });
+}
+
+/** One file a customer may see, by attachment id, or nothing. */
+export async function customerFileBytes(tx: Database, organizationId: string, customerId: string, attachmentId: string) {
+  const found = (await customerFiles(tx, organizationId, customerId)).find((f) => f.row.id === attachmentId);
+  if (!found) return null;
+  return {
+    bytes: await bytesOf(found.file),
+    contentType: found.file.contentType,
+    fileName: found.row.fileName,
+  };
+}
+
 /** Equipment attribute labels the company's packs declare, by category code and name. */
 function attributeLabels(): Map<string, { name: string; labels: Map<string, string> }> {
   const out = new Map<string, { name: string; labels: Map<string, string> }>();
@@ -260,7 +370,7 @@ const shown = (value: unknown): string | null => {
 export async function accountExtras(
   tx: Database, organizationId: string, customerId: string,
 ): Promise<AccountExtras> {
-  const blocks = await layoutOf(tx, organizationId);
+  const blocks = await layoutOf(tx, organizationId, customerId);
   const wants = (kind: cp.PortalBlockKind) => blocks.some((b) => b.kind === kind);
 
   /* ---- the visits that happened ---------------------------------------- */
@@ -337,6 +447,7 @@ export async function accountExtras(
   const trend = blocks.find((b) => b.kind === "readings_trend");
   if (trend) {
     const keys = cp.readingKeys(trend.config);
+    const narrow = new Set(cp.narrowReadingKeys(trend.config));
     const rows = await tx.select({
       key: schema.serviceReportField.key,
       label: schema.serviceReportField.label,
@@ -365,7 +476,9 @@ export async function accountExtras(
       /** Named as the equipment block names it: its tag and what it is, "RTU-4, Air conditioner". */
       const unit = row.equipmentId ? equipment.find((e) => e.id === row.equipmentId) : undefined;
       const named = unit ? [unit.tag, unit.name].filter(Boolean).join(", ") : row.equipmentId ? "A unit no longer in use" : null;
-      const series = bySeries.get(id) ?? { key: row.key, label: row.label, unit: row.unit, equipment: named, points: [] };
+      const series = bySeries.get(id) ?? {
+        key: row.key, label: row.label, unit: row.unit, equipment: named, fromData: narrow.has(row.key), points: [],
+      };
       if (series.points.length < 12) {
         series.points.push({ at: row.at.toISOString(), value: (row.value ?? row.quantity)!, outOfRange: row.outOfRange });
       }
@@ -394,6 +507,19 @@ export async function accountExtras(
   const photos = wants("photo_gallery")
     ? (await customerPhotos(tx, organizationId, customerId)).slice(0, 24).map((p) => ({
       id: p.row.id, takenAt: p.row.createdAt.toISOString(), jobNumber: p.jobNumber,
+    }))
+    : [];
+
+  /* ---- files the office marked for them --------------------------------- */
+  const files: CustomerFile[] = wants("documents")
+    ? (await customerFiles(tx, organizationId, customerId)).map((f) => ({
+      id: f.row.id,
+      fileName: f.row.fileName,
+      contentType: f.file.contentType,
+      sizeBytes: f.file.sizeBytes,
+      addedAt: f.row.createdAt.toISOString(),
+      jobNumber: f.jobNumber,
+      jobNumberPrefix: f.jobNumberPrefix,
     }))
     : [];
 
@@ -446,7 +572,7 @@ export async function accountExtras(
   const technicians = [...new Set(history.map((h) => h.technicianName).filter((n): n is string => n !== null))].slice(0, 6);
 
   return {
-    blocks, history, equipment, readings, checklist, photos, payments, planVisits, recommendations,
+    blocks, history, equipment, readings, checklist, photos, files, payments, planVisits, recommendations,
     contact: { phone: main?.e164 ?? null, technicians },
   };
 }

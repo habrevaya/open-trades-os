@@ -316,6 +316,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   payment_profile_customer_idx:
     "One processor customer per customer per payment connection, made the first time a card is "
     + "saved and inserted with on conflict do nothing, so two first saves racing are one profile.",
+  portal_layout_plan_idx:
+    "One account page per agreement plan. Saved by looking for the plan's layout first and inserting with "
+    + "on conflict do nothing, then reading the one that won, so two saves at the same instant are one layout.",
   payment_agreement_live_idx:
     "One live agreement to charge a saved card. Agreeing again returns the one that stands, and the insert "
     + "is on conflict do nothing, so a double press is one agreement.",

@@ -252,7 +252,15 @@ invoice: by whom or by the automatic payment, and what became of it, read
 from the payment attempt, so it says paid as soon as the webhook has said
 so. A second charge is refused while one is still with the processor.
 `GET /v1/invoices/{id}/cards-on-file` (`payment:read`) is the same read.
-The customer's side (agreeing, paying automatically, withdrawing) is M05's.
+Each card says how it was agreed: in the customer's own account (and by which
+contact), or by the office from a phone call or a signed form, with the day
+and who took it (**Saved cards the customer lets you charge**: "Visa ending
+4242, agreed by phone on Oct 5, 2026, taken by Sam"). It makes no difference
+to the charge: whoever gave the agreement, the card must have a live one, and a
+withdrawn one charges nothing. The customer's side (agreeing, paying
+automatically, withdrawing) and the office recording an agreement taken by phone
+or on a signed form (`POST /v1/customers/{id}/card-agreements`, which needs
+`payment:charge_saved`) are M05's.
 
 ### On site
 
@@ -493,6 +501,9 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/payments/{paymentId}/refund` | `payment:refund` |
 | `GET /v1/invoices/{id}/cards-on-file` | `payment:read` |
 | `POST /v1/invoices/{id}/charge-card` | `payment:charge_saved`, `payment:collect` |
+| `GET /v1/customers/{id}/card-agreements` | `payment:read` |
+| `POST /v1/customers/{id}/card-agreements` | `payment:charge_saved` |
+| `POST /v1/customers/{id}/card-agreements/{agreementId}/withdraw` | `payment:charge_saved` |
 | `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |

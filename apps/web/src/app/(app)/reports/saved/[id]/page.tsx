@@ -22,7 +22,7 @@ export default async function SavedReportPage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string; split?: string; arrange?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string; split?: string; arrange?: string; scale?: string }>;
 }) {
   const user = await requireSetupUser();
   const { id } = await params;
@@ -46,7 +46,7 @@ export default async function SavedReportPage({
     ...(range.to ? { to: range.to } : {}),
     ...(range.branch ? { branchId: range.branch } : {}),
   };
-  const view = { chart: range.chart, measure: range.measure, split: range.split, arrange: range.arrange };
+  const view = { chart: range.chart, measure: range.measure, split: range.split, arrange: range.arrange, scale: range.scale };
   const branchOptions = await branches.options(ctx);
 
   return (

@@ -14,12 +14,21 @@ import { Series } from "./ReportChart";
  * the same day (a second report that afternoon) are drawn as the later one,
  * and both are in the table. Nothing is drawn for fewer than two days,
  * because a line needs two ends.
+ *
+ * FROM ZERO UNLESS THE TRADE SAYS OTHERWISE. A reading that moves in a narrow
+ * band (a water pressure between 55 and 65 psi) is a flat line on a scale from
+ * zero, so the trade pack can name it, and then the scale starts at the data.
+ * The chart says so on its face, in the picture and in words under it, because
+ * the heights are then not proportions of the value. A reading that sits on
+ * both sides of zero stays on the usual scale whatever was asked.
  */
-export function ReadingsChart({ label, unit, equipment = null, points }: {
+export function ReadingsChart({ label, unit, equipment = null, fromData = false, points }: {
   label: string;
   unit: string | null;
   /** The unit the readings were taken on, which names the chart beside the reading. */
   equipment?: string | null | undefined;
+  /** Start the scale at the data instead of zero, for a reading that moves in a narrow band. */
+  fromData?: boolean | undefined;
   points: { at: string; value: string }[];
 }) {
   const byDay = new Map<string, string>();
@@ -35,7 +44,7 @@ export function ReadingsChart({ label, unit, equipment = null, points }: {
       { key: "value", label: measure, type: "number", role: "measure" },
     ],
     rows: [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([day, value]) => ({ day, value })),
-  }, { prefer: "line" });
+  }, { prefer: "line", baseline: fromData ? "data" : "zero" });
   if (!decision.ok) return null;
   return (
     <figure className="mt-2">

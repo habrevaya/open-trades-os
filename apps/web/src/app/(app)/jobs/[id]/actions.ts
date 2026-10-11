@@ -9,6 +9,7 @@ import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
 import { sourceFrom } from "@/lib/lead-source";
+import { fileAsBase64 } from "@/lib/local-time";
 import { PART_ROWS } from "./parts";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -247,6 +248,25 @@ export async function shareJobPhoto(_previous: FormState, form: FormData): Promi
     });
     revalidatePath(`/jobs/${jobId}`);
   });
+}
+
+/**
+ * Add a file (a PDF or a picture) to the job. It is private until someone
+ * shows it to the customer. Read as base64 for the same call the API takes.
+ */
+export async function uploadJobFile(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const scan = await fileAsBase64(form.get("file"));
+  if (!scan) return refused(form, "Choose the file to add.");
+  const result = await attempt(form, async () => {
+    await files.upload(await ctx(), {
+      entityType: "job", entityId: jobId, fileName: scan.fileName, contentType: scan.contentType, bytes: scan.bytes,
+      kind: "document",
+    });
+    return { message: "Added. The customer cannot see it until you show it to them." };
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
 }
 
 /** Read who is paying from the unit's warranty dates, and say so when it was out of warranty. */

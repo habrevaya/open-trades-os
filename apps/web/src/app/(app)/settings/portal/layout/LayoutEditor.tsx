@@ -19,9 +19,11 @@ export interface EditorRow {
  * phone is easier to put in order a step at a time than to drag. Every block
  * is posted, in the order on screen, so what is saved is the whole page.
  */
-export function LayoutEditor({ rows, save }: {
+export function LayoutEditor({ rows, save, hidden }: {
   rows: EditorRow[];
   save: (previous: FormState, form: FormData) => Promise<FormState>;
+  /** Fields posted with it, such as the plan whose members this page is for. */
+  hidden?: Record<string, string> | undefined;
 }) {
   const [order, setOrder] = useState(rows);
   const move = (index: number, by: -1 | 1) => setOrder((current) => {
@@ -33,7 +35,7 @@ export function LayoutEditor({ rows, save }: {
   });
 
   return (
-    <ActionForm action={save} submit="Save layout" className="mt-4 space-y-4">
+    <ActionForm action={save} submit="Save layout" hidden={hidden ?? {}} className="mt-4 space-y-4">
       <ol className="divide-y divide-steel-200 rounded-md border border-steel-200">
         {order.map((row, index) => (
           <li key={row.kind} className="flex flex-wrap items-center gap-3 p-3">

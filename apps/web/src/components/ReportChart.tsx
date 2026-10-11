@@ -99,11 +99,19 @@ function fit(text: string, characters: number): string {
 
 export function ReportChart({
   result, measure, prefer, split, arrange, additive, drill, title, toggle, pick, splitHref, arrangeHref, withTable, bare,
+  baseline, baselineHref,
 }: {
   result: ReportResult;
   /** Which measure to draw. The first, when not said. */
   measure?: string | undefined;
   prefer?: "line" | "columns" | undefined;
+  /**
+   * Where the scale starts: `zero`, or `data` for a line of plain numbers that
+   * move in a narrow band. Only a line of a number can take `data`.
+   */
+  baseline?: "zero" | "data" | undefined;
+  /** Where "From zero" and "Around the data" go, offered only to a chart that could use either. */
+  baselineHref?: ((baseline: "zero" | "data") => string) | undefined;
   /** Cut each group by this other grouping, instead of adding it up. */
   split?: string | undefined;
   arrange?: "stacked" | "grouped" | undefined;
@@ -127,7 +135,7 @@ export function ReportChart({
    */
   bare?: boolean | undefined;
 }) {
-  const decision = reporting.chartFor(result, { measure, prefer, split, arrange, additive });
+  const decision = reporting.chartFor(result, { measure, prefer, split, arrange, additive, baseline });
   if (!decision.ok) {
     return (
       <>
@@ -170,6 +178,16 @@ export function ReportChart({
               kind === plan.kind
                 ? <span key={kind} className="font-medium text-ink-900">{kind === "line" ? "Line" : "Columns"}</span>
                 : <a key={kind} href={toggle(kind)} className="text-ink-700 underline underline-offset-4">{kind === "line" ? "Line" : "Columns"}</a>
+            ))}
+          </span>
+        ) : null}
+        {baselineHref && plan.narrowable ? (
+          <span className="flex flex-wrap gap-3 text-sm print:hidden">
+            <span className="text-ink-500">Scale</span>
+            {(["zero", "data"] as const).map((choice) => (
+              (choice === "data") === Boolean(plan.scale.fromData)
+                ? <span key={choice} className="font-medium text-ink-900">{choice === "zero" ? "From zero" : "Around the data"}</span>
+                : <a key={choice} href={baselineHref(choice)} className="text-ink-700 underline underline-offset-4">{choice === "zero" ? "From zero" : "Around the data"}</a>
             ))}
           </span>
         ) : null}
@@ -357,10 +375,13 @@ export function Series({ plan, drill, title, described }: {
   const type = plan.measure.type;
   const every = reporting.labelEvery(layout.points.length);
   const path = layout.points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const fromData = Boolean(plan.scale.fromData);
+  const startsAt = tickValue(type, plan.scale.min);
   return (
+    <>
     <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="mt-3 h-auto w-full" role="img"
-         aria-label={`${title}: ${described}, as ${plan.kind === "line" ? "a line" : "columns"}`}>
-      <title>{`${title}: ${described}`}</title>
+         aria-label={`${title}: ${described}, as ${plan.kind === "line" ? "a line" : "columns"}${fromData ? `. The scale starts at ${startsAt}, not at zero` : ""}`}>
+      <title>{`${title}: ${described}${fromData ? `. The scale starts at ${startsAt}, not at zero` : ""}`}</title>
       {layout.gridlines.map((grid) => (
         <g key={grid.value}>
           <line
@@ -414,7 +435,28 @@ export function Series({ plan, drill, title, described }: {
           </text>
         ) : null
       ))}
+
+      {fromData ? (
+        /*
+          The break in the axis, drawn where zero would be: a scale that
+          starts at the data makes every wobble look like a swing, so the
+          chart wears the fact on its face and not only in a caption.
+        */
+        <g>
+          <path d={`M${layout.plot.x - 6},${layout.plot.y + layout.plot.height - 4} l12,-6 m-12,0 l12,-6`}
+                fill="none" className="stroke-amber-700" strokeWidth={1.5} />
+          <text x={layout.plot.x + layout.plot.width} y={layout.plot.y + 10} textAnchor="end" className="fill-amber-700" fontSize={11}>
+            {`Scale starts at ${startsAt}, not zero`}
+          </text>
+        </g>
+      ) : null}
     </svg>
+    {fromData ? (
+      <p className="mt-1 text-xs text-amber-700">
+        This chart starts at {startsAt}, not at zero, so small changes look bigger than they are. The numbers are exact.
+      </p>
+    ) : null}
+    </>
   );
 }
 

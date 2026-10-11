@@ -144,6 +144,8 @@ export const AccountExtras = z.object({
     key: z.string(), label: z.string(), unit: z.string().nullable(),
     /** The unit the readings were taken on, by its name; null for readings of the whole home. */
     equipment: z.string().nullable(),
+    /** Drawn from the data and not from zero, because the trade says this reading lives in a narrow band. The chart says so. */
+    fromData: z.boolean(),
     points: z.array(z.object({ at: z.string().datetime(), value: z.string(), outOfRange: z.boolean() })),
   })),
   checklist: z.object({
@@ -151,6 +153,11 @@ export const AccountExtras = z.object({
     items: z.array(z.object({ label: z.string(), done: z.boolean() })),
   }).nullable(),
   photos: z.array(z.object({ id: Uuid, takenAt: z.string().datetime(), jobNumber: z.number().int() })),
+  /** Files the office marked "the customer may see this" on one of their jobs, for the documents block. Read only. */
+  files: z.array(z.object({
+    id: Uuid, fileName: z.string().nullable(), contentType: z.string(), sizeBytes: z.number().int(),
+    addedAt: z.string().datetime(), jobNumber: z.number().int(), jobNumberPrefix: z.string().nullable(),
+  })),
   payments: z.array(z.object({
     id: Uuid, receivedAt: z.string().datetime(), amount: MoneyString, method: z.string(), status: z.string(),
   })),
@@ -199,6 +206,8 @@ export const viewPortalAccount = defineRoute({
     estimates: z.array(z.object({
       id: Uuid, number: z.number().int(), title: z.string().nullable(), status: z.string(),
       sentAt: z.string().datetime().nullable(),
+      /** When they approved it. Null until then; a signed one has its PDF in the documents block. */
+      signedAt: z.string().datetime().nullable(),
     })),
     agreements: z.array(z.object({
       id: Uuid, planName: z.string(), status: z.string(),
@@ -306,6 +315,17 @@ export const PortalCardAgreement = z.object({
   autopay: z.boolean(),
   autopayAt: z.string().datetime().nullable(),
   autopayWording: z.string().nullable(),
+  /** `customer` when they agreed in their own account, `office` when somebody at the company recorded what they said or signed. */
+  givenBy: z.enum(["customer", "office"]),
+  way: z.enum(["portal_sign_in", "office_phone", "office_form"]),
+  /** The way in plain words: "Agreed by phone". */
+  wayLabel: z.string(),
+  /** The company day they gave it, for an agreement the office recorded. */
+  agreedOn: z.string().nullable(),
+  /** The first name of the person at the company who took it, for one the office recorded. */
+  takenBy: z.string().nullable(),
+  /** Whether the signed form is kept. The scan is the company's to open, never served here. */
+  hasForm: z.boolean(),
 });
 
 export const listPortalCards = defineRoute({

@@ -33,6 +33,7 @@ import { shareVisitNotes } from "./notes-actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, CancelJob, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
+import { JobFiles } from "./Files";
 import { EstimateDrafts } from "./EstimateDrafts";
 import { Stages } from "./Stages";
 
@@ -141,7 +142,7 @@ export default async function JobPage({ params, searchParams }: {
   const photos = (await Promise.all(visitIds.map((visitId) =>
     files.attachmentsFor(ctx, { entityType: "visit", entityId: visitId })
       .then((rows) => rows.map((row) => ({ ...row, visitId }))),
-  ))).flat();
+  ))).flat().filter((row) => row.kind !== "document");
   const outstanding = (await Promise.all(visitIds.map((visitId) =>
     files.outstandingFor(ctx, { subjectType: "visit", subjectId: visitId }),
   ))).reduce(
@@ -629,6 +630,8 @@ export default async function JobPage({ params, searchParams }: {
           ) : null}
         </>
       )}
+
+      <JobFiles ctx={ctx} jobId={id} visitIds={visitIds} timezone={user.organizationTimezone} />
 
       <CustomFieldsPanel
         entityType="job" id={id}

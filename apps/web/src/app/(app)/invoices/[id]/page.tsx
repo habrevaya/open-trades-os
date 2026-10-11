@@ -274,8 +274,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           ) : (
             <>
               <p className="mt-1 text-sm text-ink-700">
-                The customer agreed, in their own account, to let you charge these for their bills. It shows as paid
-                when the processor confirms the money moved.
+                The customer agreed, in their own account or to somebody here by phone or on a signed form, to let you
+                charge these for their bills. It shows as paid when the processor confirms the money moved.
               </p>
               <ul className="mt-3 space-y-3 text-sm">
                 {onFile.cards.map((card) => (
@@ -283,8 +283,9 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                     <span>
                       <span className="font-medium">{card.label}</span>
                       <span className="text-ink-500">
-                        {", "}agreed {formatIn(card.agreedAt, tz, { dateStyle: "medium" })}
-                        {card.agreedByContact ? ` by ${card.agreedByContact}` : ""}
+                        {card.givenBy === "office"
+                          ? <>{", "}{card.wayLabel.toLowerCase()}{card.agreedOn ? ` on ${formatDay(card.agreedOn, tz)}` : ""}{card.takenBy ? `, taken by ${card.takenBy}` : ""}</>
+                          : <>{", "}agreed {formatIn(card.agreedAt, tz, { dateStyle: "medium" })}{card.agreedByContact ? ` by ${card.agreedByContact}` : ""}</>}
                       </span>
                       {card.autopay && <Chip tone="recurring" className="ml-2">Pays bills automatically</Chip>}
                     </span>

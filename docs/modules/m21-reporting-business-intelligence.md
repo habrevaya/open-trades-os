@@ -413,6 +413,20 @@ clusters side by side, sixty columns over time), and four hundred points for a
 line; the table always has every row. The chart is SVG drawn on the server: no chart
 library, it prints, and it works with JavaScript off.
 
+Every chart starts its scale at zero, because a bar or a column is read by its
+length and an axis that starts at 400 makes 410 look twice 405. One exception,
+asked for and never chosen for you: a **line** of a plain number (a count, an
+average, a reading: never an amount of money, never bars, columns or a chart
+that is cut) whose values all sit on one side of zero offers **Scale: From zero
+/ Around the data**. Around the data starts the scale near the lowest value,
+with a tenth of the spread above and below and gridlines on round numbers, so a
+reading that moves in a narrow band (a pH between 7.2 and 7.6) is not a flat
+line. A chart drawn that way says so on its face: a break in the axis, "Scale
+starts at 7, not zero" in the picture, the same in its description for a screen
+reader, and a line of words under it that small changes look bigger than they
+are. The choice lives in the address (`scale=data`), so it is sent and printed;
+the emailed PDF keeps the usual scale.
+
 A dashboard tile is drawn by the same chart, and not by bars and columns of its
 own: a tile and the report it came from cannot disagree about which bar is
 longest, and the tile has the chart's accessibility, including "View as a table"

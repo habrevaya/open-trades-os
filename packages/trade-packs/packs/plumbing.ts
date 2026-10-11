@@ -242,7 +242,7 @@ export const plumbing: TradePackInput = {
   portalBlocks: [
     { kind: "next_visit" },
     { kind: "equipment_register", title: "Your fixtures and equipment" },
-    { kind: "readings_trend", title: "Water pressure and quality over time", config: { keys: ["static_pressure", "hot_water_temp", "water_hardness"] } },
+    { kind: "readings_trend", title: "Water pressure and quality over time", config: { keys: ["static_pressure", "hot_water_temp", "water_hardness"], narrow: ["static_pressure", "hot_water_temp"] } },
     { kind: "photo_gallery", title: "Camera footage and photos" },
     { kind: "visit_timeline", title: "Service history" },
     { kind: "recommended_work", title: "What we found" },

@@ -22,6 +22,7 @@ import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { Referral } from "./Referral";
 import { PortalSignIns } from "./PortalSignIns";
+import { CardAgreements } from "./CardAgreements";
 import { AdData } from "./AdData";
 import { PreferredDays } from "./PreferredDays";
 import { SalesTax } from "./SalesTax";
@@ -334,6 +335,7 @@ export default async function CustomerPage({
       )}
 
       <PortalSignIns ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
+      <CardAgreements ctx={ctx} customerId={id} timezone={user.organizationTimezone} today={todayIn(user.organizationTimezone)} />
 
       {quotes && (
         <section aria-label="Estimates">
