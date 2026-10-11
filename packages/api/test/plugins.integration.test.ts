@@ -173,6 +173,13 @@ run("an application reaching another company", () => {
     await expect(plugins.retire(theirs.ctx(), { kind: "job_workflow", key: "reach_test" })).rejects.toBeInstanceOf(NotFoundError);
     await expect(plugins.stagesOf(theirs.ctx(), { id: (await installJob()).jobId })).rejects.toBeInstanceOf(NotFoundError);
 
+    // Its own company's job type is its own business, and leaves this company's untouched.
+    const own = await plugins.registerJobWorkflow(theirs.ctx(), {
+      key: "reach_test", name: "Theirs", jobTypeId: otherType, stages: stages([]),
+    });
+    expect(own.plugin.on).toBe(true);
+    expect((await plugins.mine(ours.ctx())).find((p) => p.key === "reach_test")!.name).toBe("Reach test");
+
     await plugins.retire(ours.ctx(), { kind: "job_workflow", key: "reach_test" });
   });
 });

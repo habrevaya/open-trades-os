@@ -1,4 +1,5 @@
 import { Money } from "@opentradesos/ui";
+import { PricingRules } from "@/components/PricingRules";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import type { FormState } from "@/lib/actions";
 
@@ -14,6 +15,7 @@ export interface EstimateView {
     lines: {
       id: string; name: string; quantity: string; unitPrice: string; lineTotal: string; isOptional: boolean;
       discountAmount?: string; memberDiscountAmount?: string; memberAgreementId?: string | null;
+      pricingRules?: Array<{ name: string; appName: string; amount: string }>;
     }[];
   }[];
 }
@@ -68,6 +70,7 @@ export function Options({
                       : ""}: <Money value={`-${line.memberDiscountAmount}`} />
                   </p>
                 ) : null}
+                <PricingRules rules={line.pricingRules} />
               </li>
             ))}
           </ul>

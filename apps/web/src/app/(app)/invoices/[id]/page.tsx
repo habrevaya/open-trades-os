@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PricingRules } from "@/components/PricingRules";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
@@ -172,6 +173,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                   : <Money value={line.memberDiscountAmount!} />
                 </p>
               ) : null}
+              <PricingRules rules={line.pricingRules} />
               {/*
                 Whose price it is, on every line that recorded one. The first
                 question a commercial client asks of a rejected invoice, and the

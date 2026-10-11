@@ -137,10 +137,11 @@ at by id as well as by name, so it loads back unchanged.
 keeps two companies apart on every table, and that is what keeps practice data out of
 the real one: nothing tried in a sandbox can reach a real customer because no query in
 it can see one. Its configuration is copied (job types, fields, kinds of record, saved
-reports, proposal layouts, automations switched off), its integrations are not, so it
-cannot text, email or charge anybody, and sample work in it has invented names,
-streets, emails and 555-01xx phone numbers. Copying back is item by item, through the
-real company's own services as the person copying, all or nothing.
+reports, proposal layouts, automations switched off, and the job stages a connected
+application set, standing on their own), its integrations are not, so it cannot text,
+email or charge anybody, and sample work in it has invented names, streets, emails
+and 555-01xx phone numbers. Copying back is item by item, through the real company's
+own services as the person copying, all or nothing.
 
 **The builder is a canvas, and it is a vertical flow rather than a graph.** The
 shape an automation has is a trigger at the top, steps down the page, and a
@@ -646,7 +647,9 @@ record's name is decided with the kind, not per record: a kind shown to customer
 shows every record's name.
 
 The sandbox copies job types, custom fields, kinds of record, saved reports, proposal
-layouts and automations; it does not copy the price book, roles, message templates,
+layouts, automations and the job workflows connected applications registered (M28),
+which stand on their own there because a sandbox has no applications; it does not
+copy an application's pricing rules or report types, the price book, roles, message templates,
 branches, booking rules or the trade pack's checklists, and copying back offers kinds
 of record, custom fields, proposal layouts and automations only. Its only member is
 the person who made it. One sandbox per company at a time; throwing it away signs its

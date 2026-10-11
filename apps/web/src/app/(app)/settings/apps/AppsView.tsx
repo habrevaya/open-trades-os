@@ -42,7 +42,28 @@ export interface AppRow {
   } | null;
   tokens: TokenRow[];
   live: boolean;
+  /** What it registered: job workflows, pricing rules and report types. */
+  plugins?: PluginRow[];
 }
+
+export interface PluginRow {
+  id: string;
+  kind: "job_workflow" | "pricing_rule" | "report_type";
+  key: string;
+  name: string;
+  version: number;
+  summary: string;
+  on: boolean;
+  retiredAt: string | null;
+  registeredAt: string;
+  changedAt: string;
+}
+
+const KIND_LABEL: Record<PluginRow["kind"], string> = {
+  job_workflow: "Job stages",
+  pricing_rule: "Pricing rule",
+  report_type: "Report type",
+};
 
 /**
  * WHAT CAN ACTUALLY CALL US, SAID IN WORDS
@@ -150,6 +171,9 @@ export function Apps({
 
             <h4 className="mt-4 text-sm font-medium text-ink-700">Credentials</h4>
             <Tokens app={app} tokenControl={tokenControl} />
+
+            <h4 className="mt-4 text-sm font-medium text-ink-700">What it added</h4>
+            <Plugins app={app} />
           </section>
         );
       })}
@@ -223,6 +247,44 @@ function Tokens({
           </Td>
           <Td>{tokenState(token)}</Td>
           {tokenControl ? <Td>{tokenControl(app, token)}</Td> : null}
+        </tr>
+      ))}
+    </Table>
+  );
+}
+
+/**
+ * WHAT IT CHANGED ABOUT HOW THE COMPANY RUNS
+ *
+ * The stages a job type moves through, a rule that changes prices, a report
+ * in the report builder: each registered by the app as data, each listed
+ * here with what it does in a sentence, so "why is this invoice ten per
+ * cent less" leads somewhere. Turning the app off turns all of it off,
+ * which is why the state is said on every row rather than once.
+ */
+function Plugins({ app }: { app: AppRow }) {
+  const plugins = app.plugins ?? [];
+  if (plugins.length === 0) {
+    return <p className="mt-1.5 text-sm text-ink-500">Nothing. It has not added stages, pricing rules or reports.</p>;
+  }
+  return (
+    <Table
+      label={`What ${app.name} added`}
+      head={<><Th>What</Th><Th>Name</Th><Th>What it does</Th><Th>Version</Th><Th>State</Th></>}
+    >
+      {plugins.map((plugin) => (
+        <tr key={plugin.id}>
+          <Td>{KIND_LABEL[plugin.kind]}</Td>
+          <Td className="font-medium">{plugin.name}</Td>
+          <Td className="text-ink-700">{plugin.summary}</Td>
+          <Td className="tabular-nums">{plugin.version}</Td>
+          <Td>
+            {plugin.on
+              ? <Chip tone="success">On</Chip>
+              : plugin.retiredAt !== null
+                ? <Chip tone="neutral">Removed by the app</Chip>
+                : <Chip tone="neutral">Off: the app is turned off</Chip>}
+          </Td>
         </tr>
       ))}
     </Table>

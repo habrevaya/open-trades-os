@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { afterHours, billing, jobs, priceBook, taxRates, NotFoundError } from "@opentradesos/api/services";
-import { assertCan, can, money } from "@opentradesos/core";
+import { assertCan, can, money, plugins } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Composer, type ComposerLine } from "../../Composer";
 import { saveDraft } from "../../actions";
@@ -11,11 +11,20 @@ export const dynamic = "force-dynamic";
 
 const edit = (value: string) => money.edit(money.money(value, "USD"));
 
-/** A line's discount less the part member pricing gave, or null when that leaves nothing. */
-function handDiscount(line: { discountAmount: string; memberDiscountAmount?: string | undefined }): string | null {
+/**
+ * A line's discount less the parts member pricing and the company's pricing
+ * rules gave, or null when that leaves nothing. Both are worked out again
+ * when the draft is saved, so sending them back would take them off twice.
+ */
+function handDiscount(line: {
+  discountAmount: string; memberDiscountAmount?: string | undefined; pricingRules?: Array<{ amount: string }> | undefined;
+}): string | null {
   const hand = money.subtract(
-    money.money(line.discountAmount, "USD"),
-    money.money(line.memberDiscountAmount ?? "0", "USD"),
+    money.subtract(
+      money.money(line.discountAmount, "USD"),
+      money.money(line.memberDiscountAmount ?? "0", "USD"),
+    ),
+    plugins.ruleDiscount(line.pricingRules),
   );
   return money.isPositive(hand) ? money.toString(hand) : null;
 }
@@ -82,7 +91,11 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
         : undefined,
       name: line.name,
       quantity: edit(line.quantity),
-      unitPrice: edit(line.unitPrice),
+      /**
+       * The price before any pricing rule raised it, for the same reason as
+       * the discount below: the rules are applied again when it is saved.
+       */
+      unitPrice: edit(plugins.priceBeforeRules(line.unitPrice, line.pricingRules)),
       /**
        * What somebody typed, without the member discount. The member part is
        * worked out again by the service when the draft is saved, so putting
