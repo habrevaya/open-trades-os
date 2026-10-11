@@ -2328,6 +2328,57 @@ export async function writeOff(
  * writing off a void one, posts a second entry against a receivable that is
  * already gone and takes the ledger out of agreement with itself.
  */
+/**
+ * WHO AT THE PAYER AN INVOICE IS ADDRESSED TO.
+ *
+ * One of the paying customer's own contacts (the payer's when somebody else
+ * pays, the customer's otherwise), or nobody in particular. It changes nothing
+ * about the money, so it can be said of a draft or an issued invoice alike,
+ * and of a paid one, since a statement still lists it; not of a void or
+ * written off one, which nobody is addressed about any more. The monthly
+ * statement run reads it (`statement-delivery.recipientOf`) to send a
+ * customer's statement to the person their bills name, the way that person
+ * prefers. `invoice:write`, because it is part of the invoice.
+ */
+export async function setBillTo(
+  ctx: ServiceContext, input: { id: string; contactId: string | null },
+) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(and(
+        eq(schema.invoice.id, input.id),
+        isNull(schema.invoice.deletedAt),
+        invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor),
+      )).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    if (invoice.status === "void" || invoice.status === "written_off") {
+      throw new ConflictError(`Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}, so it is not addressed to anybody now.`);
+    }
+    const payer = invoice.payerCustomerId ?? invoice.customerId;
+    if (input.contactId) {
+      const [contact] = await tx.select({ id: schema.contact.id }).from(schema.contact)
+        .where(and(
+          eq(schema.contact.id, input.contactId),
+          eq(schema.contact.customerId, payer),
+          isNull(schema.contact.deletedAt),
+        )).limit(1);
+      if (!contact) {
+        throw new UnprocessableError("Not one of the payer's contacts", [{
+          path: "contactId",
+          message: "Choose one of the people on the record of whoever pays this invoice, or nobody in particular.",
+        }]);
+      }
+    }
+    if ((invoice.payerContactId ?? null) !== input.contactId) {
+      await tx.update(schema.invoice).set({ payerContactId: input.contactId, updatedAt: new Date() })
+        .where(eq(schema.invoice.id, invoice.id));
+      await audit(tx, ctx, "invoice.addressed", "invoice", invoice.id,
+        { payerContactId: invoice.payerContactId }, { payerContactId: input.contactId });
+    }
+    return loadInvoice(tx, ctx, invoice.id);
+  });
+}
+
 async function loadForClosing(
   tx: Database, ctx: ServiceContext, id: string,
 ): Promise<typeof schema.invoice.$inferSelect> {

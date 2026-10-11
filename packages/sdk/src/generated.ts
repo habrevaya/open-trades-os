@@ -1721,6 +1721,7 @@ export interface CancelWebhookReplayOutput {
 
 export interface ChargeInvoiceCardOnFileInput {
   cardId: string;
+  amount?: string;
 }
 
 export interface ChargeInvoiceCardOnFileOutput {
@@ -3242,6 +3243,7 @@ export interface CreateInvoiceOutput {
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
+  payerContactId?: string | null;
   payerExternalName: string | null;
   jobId: string | null;
   purchaseOrderNumber: string | null;
@@ -8316,6 +8318,7 @@ export interface GetInvoiceOutput {
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
+  payerContactId?: string | null;
   payerExternalName: string | null;
   jobId: string | null;
   purchaseOrderNumber: string | null;
@@ -11601,6 +11604,7 @@ export interface IssueInvoiceOutput {
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
+  payerContactId?: string | null;
   payerExternalName: string | null;
   jobId: string | null;
   purchaseOrderNumber: string | null;
@@ -13792,6 +13796,7 @@ export interface ListInvoicesOutput {
     status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
     customerId: string;
     payerCustomerId: string | null;
+    payerContactId?: string | null;
     payerExternalName: string | null;
     jobId: string | null;
     purchaseOrderNumber: string | null;
@@ -15692,6 +15697,7 @@ export interface ListStatementDeliveriesOutput {
     periodTo: string;
     channel: "email" | "sms";
     destination: string | null;
+    contactName?: string | null;
     closingBalance: string | null;
     messageStatus: string | null;
     error: string | null;
@@ -21867,6 +21873,77 @@ export interface SetEstimateCustomFieldsOutput {
   customFields: Record<string, unknown>;
 }
 
+export interface SetInvoiceBillToInput {
+  contactId: string | null;
+}
+
+export interface SetInvoiceBillToOutput {
+  id: string;
+  number: number;
+  numberPrefix?: string | null;
+  status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
+  customerId: string;
+  payerCustomerId: string | null;
+  payerContactId?: string | null;
+  payerExternalName: string | null;
+  jobId: string | null;
+  purchaseOrderNumber: string | null;
+  issuedOn: string | null;
+  dueOn: string | null;
+  currency: string;
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  total: string;
+  amountPaid: string;
+  amountCredited: string;
+  balance: string;
+  depositHeld: string;
+  memo: string | null;
+  lines: Array<{
+    id: string;
+    origin: "job" | "delivery" | "rental_period" | "contract_schedule" | "membership" | "manual" | "fee";
+    name: string;
+    description: string | null;
+    quantity: string;
+    unitPrice: string;
+    discountAmount: string;
+    memberDiscountAmount?: string;
+    memberAgreementId?: string | null;
+    pricingRules?: Array<{
+      ruleId: string;
+      name: string;
+      appName: string;
+      version: number;
+      kind: string;
+      amount: string;
+      unitPriceBefore: string;
+    }>;
+    taxable: boolean;
+    taxRate: string;
+    taxAmount: string;
+    taxRateId?: string | null;
+    taxSource?: string | null;
+    lineTotal: string;
+    costCode: string | null;
+    priceBookItemVersionId: string | null;
+    coverageSource: "customer" | "agreement" | "parts_warranty" | "labour_warranty" | "our_warranty" | "home_warranty" | "insurance" | "goodwill" | "no_charge_callback" | "contract" | null;
+    unitCost?: string | null;
+    priceAuthority?: string | null;
+    priceBasis?: string | null;
+    priceNote?: string | null;
+    rateCardId?: string | null;
+    rateCardLineId?: string | null;
+  }>;
+  externalRef: {
+    source: string;
+    id: string;
+  } | null;
+  customFields?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SetInvoiceCustomFieldsInput {
   customFields: Record<string, unknown>;
 }
@@ -24479,6 +24556,7 @@ export interface UpdateInvoiceOutput {
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
+  payerContactId?: string | null;
   payerExternalName: string | null;
   jobId: string | null;
   purchaseOrderNumber: string | null;
@@ -26201,6 +26279,7 @@ export interface VoidInvoiceOutput {
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
+  payerContactId?: string | null;
   payerExternalName: string | null;
   jobId: string | null;
   purchaseOrderNumber: string | null;
@@ -26418,6 +26497,7 @@ export interface WriteOffInvoiceOutput {
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
+  payerContactId?: string | null;
   payerExternalName: string | null;
   jobId: string | null;
   purchaseOrderNumber: string | null;
@@ -29396,6 +29476,10 @@ export interface SetEstimateCustomFieldsParams {
   id: string;
 }
 
+export interface SetInvoiceBillToParams {
+  id: string;
+}
+
 export interface SetInvoiceCustomFieldsParams {
   id: string;
 }
@@ -30841,6 +30925,7 @@ export interface OperationTypes {
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
+  setInvoiceBillTo: { input: SetInvoiceBillToParams & SetInvoiceBillToInput; output: SetInvoiceBillToOutput };
   setInvoiceCustomFields: { input: SetInvoiceCustomFieldsParams & SetInvoiceCustomFieldsInput; output: SetInvoiceCustomFieldsOutput };
   setItemTax: { input: SetItemTaxInput; output: SetItemTaxOutput };
   setJobContract: { input: SetJobContractParams & SetJobContractInput; output: SetJobContractOutput };
@@ -31939,6 +32024,7 @@ export const OPERATIONS = {
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
+  setInvoiceBillTo: { method: "PUT", path: "/v1/invoices/{id}/bill-to", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   setInvoiceCustomFields: { method: "PUT", path: "/v1/invoices/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read","invoice:write"] },
   setItemTax: { method: "POST", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setJobContract: { method: "PUT", path: "/v1/jobs/{id}/contract", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -32778,7 +32864,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Charge the invoice's balance to a saved card the payer agreed may be charged.
+   * Charge the invoice's balance, or part of it, to a saved card the payer agreed may be charged.
    *
    * POST /v1/invoices/{id}/charge-card. Needs payment:charge_saved, payment:collect.
    */
@@ -40335,6 +40421,15 @@ export abstract class GeneratedOperations {
    */
   setEstimateCustomFields(input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput, options?: CallOptions): Promise<SetEstimateCustomFieldsOutput> {
     return this.call("setEstimateCustomFields", input, options);
+  }
+
+  /**
+   * Say who at the payer an invoice is addressed to.
+   *
+   * PUT /v1/invoices/{id}/bill-to. Needs invoice:write.
+   */
+  setInvoiceBillTo(input: SetInvoiceBillToParams & SetInvoiceBillToInput, options?: CallOptions): Promise<SetInvoiceBillToOutput> {
+    return this.call("setInvoiceBillTo", input, options);
   }
 
   /**

@@ -155,6 +155,8 @@ export const StatementDelivery = z.object({
   periodTo: z.string().date(),
   channel: z.enum(["email", "sms"]),
   destination: z.string().nullable(),
+  /** The person at the customer it went to: the contact their open bills are addressed to, on the monthly run. */
+  contactName: z.string().nullable().optional(),
   closingBalance: MoneyString.nullable(),
   /** The outbox's word for the message. Null when nothing was queued. */
   messageStatus: z.string().nullable(),
@@ -213,7 +215,7 @@ export const setStatementSchedule = defineRoute({
   path: "/v1/statement-schedule",
   summary: "Turn monthly statements on or off",
   description:
-    "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is sent a link to their statement for the month before: by email, or with `textWhenPreferred` by text to a customer whose main contact prefers texts, through the consent gate, and by email when the text cannot go. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.",
+    "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is sent a link to their statement for the month before. It goes to the person those open invoices are addressed to (`PUT /v1/invoices/{id}/bill-to`; the newest invoice's when they name several), else the customer's main contact: by email to that person's address, or with `textWhenPreferred` by text to their number when that person prefers texts, through the consent gate, and by email when the text cannot go. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.",
   module: "M13",
   permissions: ["invoice:send"],
   /** Setting a state: the same request twice leaves the same state. */

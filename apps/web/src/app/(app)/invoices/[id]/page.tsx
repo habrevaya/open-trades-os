@@ -4,7 +4,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
-  claims as claimService, entitlements, financing, customFields, fieldSales, cardOnFile,
+  claims as claimService, entitlements, financing, customFields, fieldSales, cardOnFile, contacts,
 } from "@opentradesos/api/services";
 import { can, claims, rates, tax, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
@@ -24,6 +24,7 @@ import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../cr
 import { creditInvoice } from "../credit-notes/actions";
 import { FinancingPanel } from "@/components/FinancingPanel";
 import { chargeCardOnFile } from "./card-actions";
+import { addressInvoice } from "./bill-to-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,17 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     invoiceDelivery.history(ctx, { invoiceId: id }).then((r) => r.deliveries),
   ]);
   const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
+  /**
+   * The people at whoever pays it, for "Addressed to". Read only for somebody
+   * who may read customers; the statement run reads the choice either way.
+   */
+  const payerId = invoice.payerCustomerId ?? invoice.customerId;
+  const payerPeople = can(user.actor, "customer:read")
+    ? (await contacts.listForCustomer(ctx, { id: payerId }).catch(() => ({ contacts: [] }))).contacts
+    : [];
+  const addressedTo = payerPeople.find((p) => p.id === invoice.payerContactId) ?? null;
+  const addressable = invoice.status !== "void" && invoice.status !== "written_off"
+    && can(user.actor, "invoice:write") && payerPeople.length > 0;
   /** Tips that came with payments on this invoice, and the technicians they are held for. */
   const tipped = (await tips.forInvoice(ctx, { invoiceId: id })).tips;
   /** The customer's signature, when they signed for it on the technician's phone. */
@@ -127,6 +139,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <Fact label="Issued">{invoice.issuedOn ? formatDay(invoice.issuedOn, tz) : null}</Fact>
         <Fact label="Due">{invoice.dueOn ? formatDay(invoice.dueOn, tz) : null}</Fact>
         <Fact label="PO number">{invoice.purchaseOrderNumber}</Fact>
+        <Fact label="Addressed to">{addressedTo ? addressedTo.name : null}</Fact>
         <Fact label="Total"><Money value={invoice.total} /></Fact>
         <Fact label="Paid">{zero(invoice.amountPaid) ? null : <Money value={invoice.amountPaid} />}</Fact>
         <Fact label="Credited">{zero(invoice.amountCredited ?? "0") ? null : <Money value={invoice.amountCredited ?? "0"} />}</Fact>
@@ -143,6 +156,21 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           ) : null}
         </Fact>
       </Facts>
+
+      {addressable ? (
+        <section aria-label="Addressed to" className="mt-4 max-w-xl">
+          <ActionForm action={addressInvoice} submit="Save" tone="quiet" hidden={{ invoiceId: invoice.id }}
+                      className="flex flex-wrap items-end gap-3">
+            <Select label="Addressed to" name="contactId" defaultValue={invoice.payerContactId ?? ""} className="w-64" options={[
+              { value: "", label: "Nobody in particular" },
+              ...payerPeople.map((p) => ({ value: p.id, label: p.title ? `${p.name}, ${p.title}` : p.name })),
+            ]} />
+          </ActionForm>
+          <p className="mt-1 text-xs text-ink-500">
+            Who handles this bill. Their monthly statement goes to this person, the way they prefer.
+          </p>
+        </section>
+      ) : null}
 
       <Table head={
         <>

@@ -431,15 +431,28 @@ timezone, every customer owing more than the amount set on open invoices
 (counted by whoever pays them) is emailed a link to their statement for the
 month before. Each customer is sent at most one per month, whatever the worker
 does: the record of it is keyed on the customer and the month under a unique
-index, and is written in the same transaction as the email. With **Text it to
-customers whose main contact prefers texts** ticked, the run texts the link to a
-customer whose main contact prefers texts and emails everybody else; a text that
-cannot go is emailed instead, and the row says why. It is off unless somebody
-ticks it, including on a run set up before texting existed, because a contact
-says it prefers texts unless somebody changed it, and a company that chose
-emailed statements did not choose to text its customers. The same page lists
-every statement sent, by hand or by the run, with how and where it went, what was
-owed then, and what became of it.
+index, and is written in the same transaction as the email.
+
+It goes to whoever the customer's bills are addressed to. An invoice can be
+addressed to one of the paying customer's own contacts, **Addressed to** on the
+invoice's page (`PUT /v1/invoices/{id}/bill-to`, `invoice:write`): the accounts
+clerk at a property manager rather than the person who booked the work. It
+changes nothing about the money, can be set on a draft or an issued bill, paid
+or not, and is refused for a void or written off one and for anybody who is not
+the payer's own contact. The run sends a customer's statement to the person
+their open bills are addressed to, to that person's own email address or number
+(the customer's when the person has none), and by the way that person prefers;
+when the open bills name more than one person, the newest bill's decides and
+the row says so; when they name nobody, the customer's main contact decides, as
+before, with the customer's own address. With **Text it to people who prefer
+texts** ticked, the run texts the link to whoever it goes to when that person
+prefers texts and emails everybody else; a text that cannot go is emailed
+instead, and the row says why. It is off unless somebody ticks it, including on
+a run set up before texting existed, because a contact says it prefers texts
+unless somebody changed it, and a company that chose emailed statements did not
+choose to text its customers. The same page lists every statement sent, by hand
+or by the run, with how and where it went, to which person, what was owed then,
+and what became of it.
 
 ### Deposits
 
@@ -522,6 +535,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/invoices/{invoiceId}/send` | `invoice:send` |
 | `POST /v1/invoices/{id}/void` | `invoice:void` |
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
+| `PUT /v1/invoices/{id}/bill-to` | `invoice:write` |
 | `GET /v1/customers/{id}/statement` | `invoice:read` |
 | `POST /v1/customers/{id}/statement/email` | `invoice:send` |
 | `POST /v1/customers/{id}/statement/text` | `invoice:send` |
@@ -598,10 +612,16 @@ every card refund, so with no webhook configured it stays with the card
 processor on the screen. A credit note that has been used or paid out cannot be
 voided; the invoice it settled has to be dealt with on its own.
 A statement is emailed as a link with a PDF attached, or texted as the link
-alone: a text carries no file. The monthly run reads a customer's preference from
-their main contact only, not from who the invoices name. It covers the calendar
-month before and nothing else, and it emails nothing until an email provider is
-connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
+alone: a text carries no file. A statement for any other period is the office's,
+on demand, from the customer's statement page or `GET /v1/customers/{id}/statement`
+with its dates, and is emailed or texted from there; the monthly run covers the
+calendar month before and nothing else, and it emails nothing until an email
+provider is connected. Only the monthly run reads who the bills are addressed
+to: the office's **Email statement** and **Text statement** go to the customer's
+address and main contact's number unless the office types another, and the
+invoice email itself goes to the customer as before. A bill is addressed to one
+person; a statement goes to one person, and copying a second is the office
+typing their address by hand. A tip is taken from the portal and, with cash or a check, on site; the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
