@@ -111,3 +111,73 @@ test("Rebalancing several days moves a visit to a day its customer agreed to, an
   await owner.goto(`/schedule?date=${NEXT}`);
   await expect(owner.getByText(`Flexible ${run}`, { exact: true })).toBeVisible();
 });
+
+test("A visit with two people on it moves day with both of them", async ({ owner }) => {
+  test.setTimeout(180_000);
+  /** A Tuesday at least nineteen days out, a week clear of the test above, and the Wednesday after it. */
+  let DAY = plus(companyToday(), 19);
+  while (new Date(`${DAY}T12:00:00Z`).getUTCDay() !== 2) DAY = plus(DAY, 1);
+  const NEXT = plus(DAY, 1);
+
+  const { locations } = await api<{ locations: { id: string; name: string }[] }>(owner, "get", "/v1/locations");
+  const shop = locations.find((l) => l.name === "Shop") ?? locations[0]!;
+  await api(owner, "post", `/v1/locations/${shop.id}/pin`, { latitude: 30.33, longitude: -97.72 });
+  const { technicians } = await api<{ technicians: { id: string; displayName: string }[] }>(owner, "get", "/v1/technicians");
+  const sam = technicians.find((t) => t.displayName === "Sam Reyes")!;
+  const partner = technicians.find((t) => t.id !== sam.id)!;
+  for (const t of technicians) await api(owner, "patch", `/v1/technicians/${t.id}`, { homeLocationId: shop.id });
+
+  /** Everybody but the pair is off that day. */
+  for (const t of technicians.filter((x) => x.id !== sam.id && x.id !== partner.id)) {
+    const off = await api<{ id: string }>(owner, "post", "/v1/time-off", {
+      technicianId: t.id, startsAt: at(DAY, 0), endsAt: at(DAY, 23), reason: "Training",
+    });
+    await api(owner, "post", `/v1/time-off/${off.id}/approve`, {});
+  }
+
+  /** Four of Sam's own jobs, locked to him, and one he does with the partner: past the overtime allowed together. */
+  const visitIds: string[] = [];
+  for (const [i, lng] of [-97.715, -97.71, -97.705, -97.70, -97.695].entries()) {
+    const name = i === 4 ? `Pair ${run}` : `Sam only ${i} ${run}`;
+    const customerId = await newCustomer(owner, {
+      name, address: { street: `${run.slice(-4)}${i} Pair Rd`, city: "Austin", state: "TX", zip: "78723" },
+    });
+    const { data } = await api<{ data: { id: string }[] }>(owner, "get", `/v1/properties?customerId=${customerId}`);
+    await api(owner, "post", `/v1/properties/${data[0]!.id}/pin`, { latitude: 30.33, longitude: lng });
+    const job = await api<{ visits: { id: string }[] }>(owner, "post", "/v1/jobs", {
+      customerId, propertyId: data[0]!.id, summary: `Two hour job ${i} ${run}`,
+      visit: {
+        windowStart: at(DAY, 8), windowEnd: at(DAY, 17), estimatedDurationMinutes: 120,
+        technicianIds: i === 4 ? [sam.id, partner.id] : [sam.id],
+      },
+    });
+    visitIds.push(job.visits[0]!.id);
+    if (i < 4) await api(owner, "post", `/v1/visits/${job.visits[0]!.id}/lock`, { locked: true });
+  }
+  const pair = visitIds[4]!;
+
+  await owner.goto(`/visits/${pair}`);
+  const agreed = owner.getByRole("region", { name: "Days it may move to" });
+  await agreed.getByLabel("From").fill(DAY);
+  await agreed.getByLabel("To").fill(NEXT);
+  await agreed.getByRole("button", { name: "Save" }).click();
+  await expect(agreed.getByRole("status")).toContainText("Saved.");
+
+  await owner.goto(`/schedule/rebalance/days?from=${DAY}&days=2`);
+  const row = owner.getByRole("table", { name: "Moved to another day" }).getByRole("row").filter({ hasText: `Pair ${run}` });
+  await expect(row).toContainText(`Sam Reyes and ${partner.displayName}`);
+  /** On the partner's day as it is, with Sam named beside it. */
+  await expect(owner.getByRole("article", { name: `${partner.displayName} on ${longDay(DAY)}` }))
+    .toContainText(`Pair ${run}`);
+  await expect(owner.getByRole("article", { name: `${partner.displayName} on ${longDay(DAY)}` }))
+    .toContainText("with Sam Reyes");
+
+  await owner.getByRole("button", { name: "Apply these changes" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Done." })).toContainText("1 visit is on a new day");
+
+  /** Both of them have it on the new day. */
+  const board = await api<{ technicians: { id: string; visits: { id: string }[] }[] }>(owner, "get", `/v1/dispatch/board?date=${NEXT}`);
+  for (const id of [sam.id, partner.id]) {
+    expect(board.technicians.find((t) => t.id === id)!.visits.map((v) => v.id)).toContain(pair);
+  }
+});

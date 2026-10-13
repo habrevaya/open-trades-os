@@ -33,6 +33,11 @@
  * be placed before or after it. Work under way or finished is not passed in
  * at all, as with `optimise`: the day starts where the van is.
  *
+ * A VISIT WITH SEVERAL PEOPLE ON IT IS ON EACH OF THEIR DAYS. It takes the
+ * hours of every one of them, so it is counted on every member's day, and
+ * it stays with all of them like a locked visit: handing it to somebody else
+ * would split a team the office put together. Other work is placed around it.
+ *
  * MOVING WORK BETWEEN PEOPLE HAS A COST THE NUMBERS DO NOT SEE. Both
  * technicians get a notice, and the customer may have been told a name. So a
  * visit is moved to somebody else only when that keeps a promise the current
@@ -218,6 +223,12 @@ export interface RebalanceVisit {
    * the board and in "Suggest who".
    */
   priority?: boolean | undefined;
+  /**
+   * Everybody on a visit with several people on it, lead first. The visit is
+   * in each of their orders, counted on each of their days, and never moved
+   * to anybody else. Absent, or one person, for ordinary work.
+   */
+  team?: readonly string[] | undefined;
 }
 
 export interface Unplaced {
@@ -309,13 +320,17 @@ export function rebalance(input: {
     return { technicianId: t.technicianId, evaluation: r.evaluation, refused: r.refused };
   });
   const costs = new Map(techs.map((t) => [t.technicianId, evaluateRoute(t.technicianId, routes.get(t.technicianId)!).cost]));
-  const originalOwner = new Map<string, string>();
-  for (const [technicianId, order] of routes) for (const id of order) originalOwner.set(id, technicianId);
+  /** Who has each visit as the day stands: one person, or each of a team. */
+  const originalOwners = new Map<string, string[]>();
+  for (const [technicianId, order] of routes) {
+    for (const id of order) originalOwners.set(id, [...(originalOwners.get(id) ?? []), technicianId]);
+  }
+  const shared = (id: string) => (visitById.get(id)?.team?.length ?? 0) > 1;
 
-  /* 1. The unassigned pile: members first, then earliest closing window first. */
+  /* 1. The unassigned pile: members first, then earliest closing window first. A team's visit is never in it. */
   const unplaced: Unplaced[] = [];
   const open = input.visits
-    .filter((v) => !originalOwner.has(v.stop.id))
+    .filter((v) => !originalOwners.has(v.stop.id) && !shared(v.stop.id))
     .sort((a, b) =>
       Number(b.priority === true) - Number(a.priority === true)
       || (a.stop.windowEnd ?? Number.POSITIVE_INFINITY) - (b.stop.windowEnd ?? Number.POSITIVE_INFINITY)
@@ -367,8 +382,8 @@ export function rebalance(input: {
     }
   }
 
-  /* 2. Improve until nothing does. */
-  const movable = (id: string) => !visitById.get(id)?.locked;
+  /* 2. Improve until nothing does. A team's visit stays with the team, like a locked one. */
+  const movable = (id: string) => !visitById.get(id)?.locked && !shared(id);
 
   for (let pass = 0; pass < maxPasses; pass++) {
     let moved = false;
@@ -451,8 +466,8 @@ export function rebalance(input: {
   const moves: RebalanceResult["moves"] = [];
   for (const t of techs) {
     for (const id of routes.get(t.technicianId)!) {
-      const from = originalOwner.get(id) ?? null;
-      if (from !== t.technicianId) moves.push({ visitId: id, from, to: t.technicianId });
+      const owners = originalOwners.get(id) ?? [];
+      if (!owners.includes(t.technicianId)) moves.push({ visitId: id, from: owners[0] ?? null, to: t.technicianId });
     }
   }
   const sum = (days: RebalanceDay[], f: (e: ShiftEvaluation) => number) => days.reduce((n, d) => n + f(d.evaluation), 0);

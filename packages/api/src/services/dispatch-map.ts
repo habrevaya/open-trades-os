@@ -1142,6 +1142,33 @@ export function plannable(day: Day, v: DayVisit): boolean {
     && v.status !== "no_show";
 }
 
+/**
+ * A visit with several people on it that the planners count: every one of
+ * them is planned on the day (`people`), and it is otherwise work a plan may
+ * hold. It is counted on each of their days and stays with all of them; only
+ * the several day rebalance moves it, to another day, with every one of them.
+ * One whose people are not all planned (one is another branch's, or left out)
+ * stays where it is, uncounted, as before.
+ */
+export function teamPlannable(day: Day, v: DayVisit, people: ReadonlySet<string>): boolean {
+  return v.technicianIds.length > 1
+    && v.technicianIds.every((id) => people.has(id))
+    && plannable(day, { ...v, technicianIds: [] });
+}
+
+/**
+ * The visits of one person's order a reorder may number. A visit has one
+ * route order however many people are on it, so a shared visit takes its
+ * place from its lead's day only, and the others' days are numbered around it.
+ */
+export const orderedFor = (visits: readonly DayVisit[], technicianId: string, ids: readonly string[]) => {
+  const byId = new Map(visits.map((v) => [v.id, v]));
+  return ids.filter((id) => {
+    const v = byId.get(id);
+    return !v || v.technicianIds.length <= 1 || v.technicianIds[0] === technicianId;
+  });
+};
+
 export const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTime() + minutes * 60_000).toISOString();
 
 /**
@@ -1155,6 +1182,7 @@ export const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTim
 export function rebalanceTechnicians(day: Day, planned: Day["technicians"], points: Points, prefix = "") {
   const techs: routing.RebalanceTechnician[] = [];
   const keepFirst = new Map<string, string[]>();
+  const people = new Set(planned.map((t) => t.id));
   for (const t of planned) {
     const theirs = routeOf(day, t.id);
     const stops = theirs.filter((v) => !(NOT_STOPS as readonly string[]).includes(v.status));
@@ -1177,8 +1205,9 @@ export function rebalanceTechnicians(day: Day, planned: Day["technicians"], poin
         /** A break whose window has already closed by the time the van leaves is not planned. */
         lunch: lunch && departAt <= lunch.latest ? lunch : null,
       },
-      /** A visit with several people on it counts on the lead's day only, and stays there. */
-      order: stops.filter((v) => plannable(day, v) && v.technicianIds[0] === t.id).map((v) => v.id),
+      /** A visit with several people on it is on every one of their days, and stays with them all. */
+      order: stops.filter((v) => (plannable(day, v) && v.technicianIds[0] === t.id) || teamPlannable(day, v, people))
+        .map((v) => v.id),
     });
   }
   return { techs, keepFirst };
@@ -1200,7 +1229,8 @@ export const rebalanceSummary = (day: Day, d: routing.RebalanceDay) => ({
 export async function rebalance(ctx: ServiceContext, input: { date: string }) {
   const { day, verdictOf, members } = await guardedRead(ctx, "visit:read", async (tx) => {
     const day = await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx));
-    const candidates = day.visits.filter((v) => plannable(day, v));
+    const everybody = new Set(day.technicians.map((t) => t.id));
+    const candidates = day.visits.filter((v) => plannable(day, v) || teamPlannable(day, v, everybody));
     return {
       day,
       verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, candidates),
@@ -1217,8 +1247,10 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
   const points: Points = new Map();
   const { techs, keepFirst } = rebalanceTechnicians(day, planned, points);
 
-  const candidates = day.visits.filter((v) => plannable(day, v)
-    && (v.technicianIds.length === 0 ? v.status === "unassigned" : planned.some((t) => t.id === v.technicianIds[0])));
+  const plannedIds = new Set(planned.map((t) => t.id));
+  const candidates = day.visits.filter((v) => (plannable(day, v)
+    && (v.technicianIds.length === 0 ? v.status === "unassigned" : plannedIds.has(v.technicianIds[0]!)))
+    || teamPlannable(day, v, plannedIds));
   for (const v of candidates) points.set(v.id, { place: v.place, routeId: v.routeId });
 
   const visits: routing.RebalanceVisit[] = candidates.map((v) => ({
@@ -1226,6 +1258,7 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     locked: v.locked,
     refusals: Object.fromEntries(planned.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
     priority: members.has(v.id),
+    ...(v.technicianIds.length > 1 ? { team: v.technicianIds } : {}),
   }));
 
   const { travel, matrix } = await travelOver(ctx, day, points);
@@ -1262,7 +1295,8 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
         .map((v) => v.id);
       return {
         technicianId: t.technicianId,
-        visitIds: [...keepFirst.get(t.technicianId)!, ...after.get(t.technicianId)!.evaluation.order, ...others],
+        visitIds: orderedFor(day.visits, t.technicianId,
+          [...keepFirst.get(t.technicianId)!, ...after.get(t.technicianId)!.evaluation.order, ...others]),
       };
     })
     .filter((a) => a.visitIds.length > 0);
@@ -1291,7 +1325,7 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     })),
     unplaced: result.unplaced.map((u) => ({ visitId: u.visitId, customerName: customer(u.visitId), reason: why(u) })),
     leftOut,
-    /** Not planned at all: not on the map, a crew's, or several people's. Left where they are. */
+    /** Not planned at all: not on the map, a crew's, or several people's when one of them is not planned. Left where they are. */
     untouched: day.visits
       .filter((v) => !(NOT_STOPS as readonly string[]).includes(v.status) && !candidates.includes(v)
         && !(UNDER_WAY as readonly string[]).includes(v.status) && !(FINISHED as readonly string[]).includes(v.status))

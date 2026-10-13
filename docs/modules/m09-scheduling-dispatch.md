@@ -191,6 +191,20 @@ and its customer is told by text or email through the same path an answer
 to their own request to move uses, which also overtakes any request of
 theirs still waiting.
 
+**A visit with several people on it moves with all of them.** It takes the
+hours of every one of them, so both rebalances count it on each of their
+days, not only the lead's, and neither ever hands it to somebody else or
+takes one of them off it. The several day rebalance may move it to another
+day the customer agreed to, but only one where every one of them is planned,
+may take it at the hours it would have there (skills, and part of a day
+off), and fits it into their own day: the window, their own hours and the
+overtime limit, and lunch. The bar to move it is the same as for one
+person's visit, measured over all of their days together. Applying it puts
+the same people back on it, the lead still leading, after asking again
+whether each of them is off for those hours; a payload that names only some
+of them, or another lead, is refused in words. Work already under way, or
+done, stays where it is.
+
 **A move between days keeps online booking's ceiling.** When the work is
 sold online, a visit moved to another day lands in one of the company's
 arrival windows, and it counts against how many that window takes online,
@@ -221,8 +235,11 @@ for rather than skipped when the next job would run past its latest start.
 customer was promised a particular person first thing, which no window can
 say. The rebalance never moves it to anybody else and keeps its order among
 that person's locked visits; "Optimise route" keeps it at its place in the day
-and orders the rest around it. Crew work, a visit with several people on it
-and work under way are left where they are too.
+and orders the rest around it. Crew work and work under way are left where
+they are too, and a visit with several people on it stays with all of them.
+A visit has one place in the order however many people are on it, so a
+shared visit takes its place from its lead's day, and the others' days are
+numbered around it.
 
 **Where people are is shown to people who dispatch, and only while people
 work.** With live location on (it is off until an owner turns it on), the
@@ -348,7 +365,9 @@ each day's visits, driving and overtime as it is and as it would be, and
 each person's and each crew's day before and after. "Apply these changes"
 applies it, putting crew work on its crew through `POST
 /v1/visits/{id}/crew`'s own check and setting each changed crew day's
-order.
+order. A visit with several people on it is listed with all their names,
+and on each of their days as "with" the others; it is applied with
+`technicianIds`, every one of them, lead first.
 `GET /v1/dispatch/rebalance/days` is the proposal (`visit:read`) and
 `POST /v1/dispatch/rebalance/days/apply` applies it with its `basis`
 (`visit:dispatch` and `visit:reschedule`). What the customer agreed to is
@@ -478,7 +497,8 @@ Because its customer agreed to no other day: set the days it may happen on
 on the visit, or the days of the week that suit the customer on their page.
 Or the other day is today, or the company is closed then, or the move saves
 less than fifteen minutes of driving and keeps no promise or limit, or the
-window on that day has no room left outside the share held for members.
+window on that day has no room left outside the share held for members, or
+it has several people on it and one of them cannot take that day.
 
 **Why did the rebalance not move a visit to the nearer technician?** Because
 it saves less than five minutes of driving, or it is locked, or that person may
@@ -518,9 +538,12 @@ customer a choice of day: they are told the day it moved to and reply if it
 does not suit. The online ceiling is checked only for work sold online and
 only for a time inside one of the company's arrival windows that day; work
 not sold online, or a window the company does not offer online, has no
-ceiling to keep. The rebalance leaves visits with several people on them
-and work under way where they are, counts a visit with several people only
-on its lead's day, and plans lunch and overtime from company settings and
+ceiling to keep. A visit with several people on it moves only between days,
+never between people, and is left where it is (and not counted) when one of
+its people is not planned that day: another branch's person, or somebody
+whose day starts off the map or carries containers. Each of its people is
+held to its window on their own day; the plan does not make them arrive
+together. The rebalance plans lunch and overtime from company settings and
 each person's own hours, not from the overtime policy's thresholds. A crew
 is planned on the company's working day (crews have no hours of their own),
 and the single day "Rebalance the day" still plans people only: crews are

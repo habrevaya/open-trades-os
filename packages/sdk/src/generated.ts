@@ -752,6 +752,7 @@ export interface ApplyMultiDayRebalanceInput {
     visitId: string;
     toDate: string;
     technicianId?: string;
+    technicianIds?: string[];
     crewId?: string;
   }>;
   moves: Array<{
@@ -9128,6 +9129,7 @@ export interface GetMultiDayRebalanceOutput {
     fromCrewId: string | null;
     fromName: string | null;
     toTechnicianId: string | null;
+    toTechnicianIds: string[];
     toCrewId: string | null;
     toName: string;
     windowStart: string;
@@ -9248,6 +9250,7 @@ export interface GetMultiDayRebalanceOutput {
     locked: boolean;
     windowStart: string | null;
     windowEnd: string | null;
+    team: string[];
   }>;
   driveBeforeMinutes: number;
   driveAfterMinutes: number;
@@ -9258,6 +9261,7 @@ export interface GetMultiDayRebalanceOutput {
       visitId: string;
       toDate: string;
       technicianId?: string;
+      technicianIds?: string[];
       crewId?: string;
     }>;
     moves: Array<{

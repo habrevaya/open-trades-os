@@ -41206,7 +41206,7 @@
       "get": {
         "operationId": "getMultiDayRebalance",
         "summary": "Propose several days rebalanced, moving visits between days where the customer agreed",
-        "description": "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, never past the per window limit online booking sells for that work, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Crews are planned like people: a crew's visit goes only to a crew, checked for its kit and its people on the day. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.\n\nRequires a session holding: visit:read.",
+        "description": "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, never past the per window limit online booking sells for that work, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Crews are planned like people: a crew's visit goes only to a crew, checked for its kit and its people on the day. A visit with several people on it is counted on every one of their days and moves only with all of them, to a day every one of them is working and may take it at the hours it would have there (skills, part of a day off, their own hours and overtime limit). Work under way stays where it is. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -41326,7 +41326,7 @@
       "post": {
         "operationId": "applyMultiDayRebalance",
         "summary": "Apply several rebalanced days somebody looked at",
-        "description": "Moves each visit to its new day at the same wall clock times and puts it on the person or crew proposed through the assignment a drag uses, so skills and time off (and a crew's kit and people) are checked again on the new day, and online booking's per window limit is read again; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person or crew on their own day and sets each changed day's order, a crew's included. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
+        "description": "Moves each visit to its new day at the same wall clock times and puts it on the person or crew proposed through the assignment a drag uses, so skills and time off (and a crew's kit and people) are checked again on the new day, at the hours the visit would have there, and online booking's per window limit is read again; a visit with several people on it goes with every one of them (`technicianIds`, exactly as it has them) or is refused; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person or crew on their own day and sets each changed day's order, a crew's included. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
         "tags": [
           "M09"
         ],
@@ -139660,6 +139660,15 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "technicianIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 2,
+                  "maxItems": 12
+                },
                 "crewId": {
                   "type": "string",
                   "format": "uuid"
@@ -182558,6 +182567,13 @@
                   ],
                   "format": "uuid"
                 },
+                "toTechnicianIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
                 "toCrewId": {
                   "type": [
                     "string",
@@ -182596,6 +182612,7 @@
                 "fromCrewId",
                 "fromName",
                 "toTechnicianId",
+                "toTechnicianIds",
                 "toCrewId",
                 "toName",
                 "windowStart",
@@ -183189,6 +183206,13 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "team": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "required": [
@@ -183197,7 +183221,8 @@
                 "date",
                 "locked",
                 "windowStart",
-                "windowEnd"
+                "windowEnd",
+                "team"
               ]
             }
           },
@@ -183232,6 +183257,15 @@
                     "technicianId": {
                       "type": "string",
                       "format": "uuid"
+                    },
+                    "technicianIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "minItems": 2,
+                      "maxItems": 12
                     },
                     "crewId": {
                       "type": "string",

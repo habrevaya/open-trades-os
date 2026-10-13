@@ -59,6 +59,12 @@ export default async function RebalanceDaysPage({ searchParams }: {
     return v?.windowStart ? ` (${time(v.windowStart)}${v.windowEnd ? ` to ${time(v.windowEnd)}` : ""})` : "";
   };
   const movingDay = new Map(proposal.dayMoves.map((m) => [m.visitId, m]));
+  const names = new Map(proposal.perDay.flatMap((d) => d.technicians.map((t) => [t.technicianId, t.displayName] as const)));
+  /** The others on a visit with several people, named on each of their days. */
+  const withOthers = (id: string, self: string) => {
+    const others = (visits.get(id)?.team ?? []).filter((t) => t !== self).map((t) => names.get(t) ?? "somebody");
+    return others.length > 0 ? `, with ${others.join(" and ")}` : "";
+  };
   const applies = can(user.actor, "visit:dispatch") && can(user.actor, "visit:reschedule");
   const saved = proposal.driveBeforeMinutes - proposal.driveAfterMinutes;
   const last = proposal.perDay.at(-1)?.date ?? from;
@@ -114,7 +120,9 @@ export default async function RebalanceDaysPage({ searchParams }: {
           agreement visit it delivers, or the days of the week set on the customer. Never onto or off today, never onto a day
           you are closed, never past how many you take online in that window, and only when it keeps a promise or the overtime
           limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Crews are planned
-          like people, and crew work only goes to a crew that has the kit and the people for it that day. {proposal.movable.length === 0
+          like people, and crew work only goes to a crew that has the kit and the people for it that day. A visit with several
+          people on it counts on each of their days and moves only with all of them, to a day every one of them can take. Work
+          already under way stays where it is. {proposal.movable.length === 0
             ? "No visit in these days may move to another day."
             : `${proposal.movable.length} ${proposal.movable.length === 1 ? "visit in these days may" : "visits in these days may"} move to another day.`}{" "}
           {proposal.driveNote}
@@ -206,6 +214,7 @@ export default async function RebalanceDaysPage({ searchParams }: {
                               <span className="text-xs text-ink-500">
                                 {arriving ? `, moved here from ${dayName(movingDay.get(id)!.fromDate)}` : windowOf(id)}
                                 {leaving ? `, moves to ${dayName(movingDay.get(id)!.toDate)}` : ""}
+                                {t.crew ? "" : withOthers(id, t.key)}
                                 {visits.get(id)?.locked ? ", locked" : ""}
                               </span>
                             </li>
