@@ -833,7 +833,7 @@ run("every operation does something", () => {
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
     "service_report", "service_report_field", "field_upload", "portal_event", "payment",
-    "inspection", "estimate", "invoice", "task", "cash_tip", "expense",
+    "inspection", "estimate", "invoice", "task", "task_checklist_item", "cash_tip", "expense",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -864,6 +864,8 @@ run("every operation does something", () => {
     const [offered] = await raw`insert into public.estimate (organization_id, number, customer_id, property_id, status)
       values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId}, 'sent') returning id`;
     const [task] = await raw`insert into public.task (organization_id, title) values (${ORG}, 'Call the customer back') returning id`;
+    const [checklistItem] = await raw`insert into public.task_checklist_item (organization_id, task_id, label, position)
+      values (${ORG}, ${task!.id}, 'Left a message', 0) returning id`;
 
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
@@ -903,6 +905,7 @@ run("every operation does something", () => {
       { kind: "estimate.decline", subjectId: offered!.id, payload: { visitId, reason: "Too dear" } },
       { kind: "invoice.raise", subjectId: uuid(), payload: { visitId, source: "work", jobLineIds: [lineId], shownTotal: "24.00" } },
       { kind: "task.claim", subjectId: task!.id, payload: {} },
+      { kind: "task.tick", subjectId: task!.id, payload: { itemId: checklistItem!.id, done: true } },
       { kind: "task.close", subjectId: task!.id, payload: { outcome: "Called them" } },
       { kind: "tip.record", subjectId: visitId, payload: { amount: "10.00" } },
       /** Refused here, on a talk that is not there: the signing itself is proved in safety-talks. */
@@ -949,7 +952,7 @@ run("every operation does something", () => {
     const silent = inert.filter((k) => !logOnly.has(k));
 
     /** The selling and closing kinds really land here, so their effect is what is being watched. */
-    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record", "expense.record"]) {
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.tick", "task.close", "tip.record", "expense.record"]) {
       expect(landed.get(kind), kind).toBe("applied");
     }
 
