@@ -142,7 +142,7 @@ export default async function JobPage({ params, searchParams }: {
   const photos = (await Promise.all(visitIds.map((visitId) =>
     files.attachmentsFor(ctx, { entityType: "visit", entityId: visitId })
       .then((rows) => rows.map((row) => ({ ...row, visitId }))),
-  ))).flat().filter((row) => row.kind !== "document");
+  ))).flat().filter((row) => row.kind !== "document" && row.kind !== "customer_file");
   const outstanding = (await Promise.all(visitIds.map((visitId) =>
     files.outstandingFor(ctx, { subjectType: "visit", subjectId: visitId }),
   ))).reduce(

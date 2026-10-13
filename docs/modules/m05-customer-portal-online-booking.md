@@ -440,6 +440,47 @@ a photograph asked for as a file, a file removed since and a made up id are all
 the same 404. The block only carries files when the layout has it, and a
 company that hides it sends none.
 
+### Send the company a photo or a PDF
+
+A signed in customer has **Send us a photo or a PDF about a job** under
+**Your work**, which opens `/portal/{slug}/account/your-files`: a picture of
+the broken unit before the visit, the warranty card. They choose the job, or
+one of its visits still to come, and the file. `GET /v1/portal/files` is what
+the page reads and `POST /v1/portal/files` sends one, from a sign in only:
+an account link can be forwarded, and whoever it reaches should not be able
+to put files on somebody else's job.
+
+The job and the visit are checked against the customer the sign in names,
+so another customer's job, another company's job and a made up id are the
+same not found. A cancelled job, or a visit that was called off, is refused
+in words. The file is held to the rules a reply by email is held to
+(`files.checkCustomerUpload` in core): a program is refused by its name, its
+claimed type or its bytes, so a program renamed `.jpg` is refused; it must be
+a photo (JPEG, PNG, HEIC, WebP) or a PDF by its bytes; up to 5 MB a file, up
+to 10 files and 25 MB on one job (the job and its visits together); and 20
+an hour for one customer, counted before the file is looked at, so a refused
+try counts too. A photo over 5 MB is made smaller in the browser before it is
+sent. It is kept through `files.put` like every other file, as an attachment
+of its own kind (`customer_file`) carrying the customer and, when a contact
+signed in as them, the contact; the audit log has `attachment.customer_added`
+under the sign in. The same bytes sent twice to the same place are one file.
+
+The office sees it on the job's page under **Files**, **From the customer**,
+with whether anybody has opened it yet. The technician sees it on the visit
+on their day (`/my-day`, **From the customer**), and it comes to the phone
+with the visit (`customerFiles` on each visit of `GET /v1/field/snapshot`)
+for anybody who may read documents. A customer's file is never shown back on
+the job link or in the account's photographs or documents, and it cannot be
+marked for the customer: they already have it.
+
+The customer can take a file back (**Take it back**,
+`POST /v1/portal/files/{id}/remove`) until somebody at the company has opened
+it. Opening it from the job's page records who opened it and when
+(`attachment.seen_at`, and `POST /v1/attachments/{id}/seen` with
+`document:read` for anybody using the API); from then it stays with the job,
+and the page says so. A file the office added is never theirs to remove, and
+is the same not found as a file that does not exist.
+
 ### Readings in a narrow band
 
 A reading is drawn from zero unless the trade says otherwise. A trade pack can
@@ -691,6 +732,10 @@ in from, and which codes failed, are the office's business.
 | `PUT /v1/agreement-plans/{id}/portal-layout` | `settings:write` |
 | `POST /v1/agreement-plans/{id}/portal-layout/remove` | `settings:write` |
 | `POST /v1/attachments/{id}/customer-sharing` | `servicereport:publish` (a photograph, or a file for the documents block) |
+| `GET /v1/portal/files` | nothing: a sign in only |
+| `POST /v1/portal/files` | nothing: a sign in only, counted per customer |
+| `POST /v1/portal/files/{id}/remove` | nothing: a sign in only |
+| `POST /v1/attachments/{id}/seen` | `document:read` |
 | `GET /v1/portal-sign-ins` | `portal:read` |
 | `GET /v1/customers/{id}/portal-sessions` | `portal:read` |
 | `POST /v1/customers/{id}/portal-sessions/end` | `portal:revoke` |
@@ -756,7 +801,7 @@ for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
 members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer on several plans sees only the oldest one's, a block's
 settings (which readings a trend shows) are not changed on the screen, and
-there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot add, change or remove one. The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
+there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises no task and sends nobody a notice: the office sees it when it opens the job and the technician on the visit. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, and the native phone app does not show customer files yet (they arrive with the visit, and only the web day draws them). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the

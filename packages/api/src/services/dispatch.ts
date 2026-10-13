@@ -24,6 +24,7 @@ import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
 import * as customObjects from "./custom-objects";
+import * as files from "./files";
 import * as plugins from "./plugins";
 
 
@@ -903,6 +904,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       visitId: r.visit.id, jobId: r.jobId, jobTypeId: r.jobTypeId,
     })));
     const records = await customObjects.forVisits(tx, ctx, rows.map((r) => ({ visitId: r.visit.id, jobId: r.jobId })));
+    const customerFiles = await files.customerFilesForVisits(tx, ctx, rows.map((r) => ({ visitId: r.visit.id, jobId: r.jobId })));
     const sales = await fieldSales.salesFor(tx, ctx, rows.map((r) => ({
       visitId: r.visit.id, jobId: r.jobId, customerId: r.customerId, propertyId: r.property.id,
     })), new Date());
@@ -954,6 +956,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         ...extras.get(r.visit.id)!,
         ...sales.get(r.visit.id)!,
         records: records.get(r.visit.id) ?? [],
+        customerFiles: customerFiles.get(r.visit.id) ?? [],
       })),
       priceBook,
       openTimeEntry: open
@@ -1055,9 +1058,14 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
       (select max(updated_at) from public.custom_object_record where job_id in ${jobs}
          or equipment_id in (select equipment_id from public.visit_asset where visit_id in ${visits})),
       (select max(updated_at) from public.safety_meeting),
-      (select max(coalesce(signed_at, created_at)) from public.safety_meeting_attendee)
+      (select max(coalesce(signed_at, created_at)) from public.safety_meeting_attendee),
+      -- A file the customer added to the visit or its job, or took back.
+      (select max(updated_at) from public.attachment where kind = 'customer_file'
+         and (entity_id in ${visits} or entity_id in ${jobs}))
     ))::bigint, 0)
     + (select count(*) from public.safety_meeting_attendee where signed_at is null)
+    + (select count(*) from public.attachment where kind = 'customer_file' and deleted_at is null
+         and (entity_id in ${visits} or entity_id in ${jobs}))
     + (select count(*) from public.inspection where visit_id in ${visits})
     + (select count(*) from public.custom_object_record where deleted_at is null and (job_id in ${jobs}
          or equipment_id in (select equipment_id from public.visit_asset where visit_id in ${visits})))

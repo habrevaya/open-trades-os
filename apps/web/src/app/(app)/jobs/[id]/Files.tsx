@@ -25,10 +25,13 @@ export async function JobFiles({ ctx, jobId, visitIds, timezone }: {
     files.attachmentsFor(ctx, { entityType: "job", entityId: jobId }),
     ...visitIds.map((id) => files.attachmentsFor(ctx, { entityType: "visit", entityId: id })),
   ]);
-  const documents = [...onJob, ...onVisits.flat()].filter((f) => f.kind === "document");
+  const all = [...onJob, ...onVisits.flat()];
+  const documents = all.filter((f) => f.kind === "document");
+  /** What the customer sent from their sign in, opened through a route that records the office has seen it. */
+  const fromCustomer = all.filter((f) => f.kind === "customer_file");
   const shares = can(ctx.actor, "servicereport:publish");
   const adds = can(ctx.actor, "document:write");
-  if (documents.length === 0 && !adds) return null;
+  if (documents.length === 0 && fromCustomer.length === 0 && !adds) return null;
   return (
     <section aria-label="Files" className="mt-10">
       <h2 className="text-base font-semibold">Files</h2>
@@ -62,6 +65,29 @@ export async function JobFiles({ ctx, jobId, visitIds, timezone }: {
             </li>
           ))}
         </ul>
+      )}
+      {fromCustomer.length > 0 && (
+        <>
+          <h3 className="mt-5 text-sm font-semibold">From the customer</h3>
+          <p className="mt-1 text-sm text-ink-700">
+            Sent from their account. They can take a file back until somebody here opens it.
+          </p>
+          <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {fromCustomer.map((file) => (
+              <li key={file.id} className="flex flex-wrap items-center gap-3 bg-canvas p-3 text-sm">
+                <span>
+                  <a href={`/jobs/${jobId}/customer-files/${file.id}`} className="font-medium underline underline-offset-4">
+                    {file.fileName ?? "File"}
+                  </a>
+                  <span className="block text-xs text-ink-500">
+                    Sent {formatIn(file.createdAt.toISOString(), timezone, { dateStyle: "medium" })}
+                    {file.seenAt ? ", opened" : ", not opened yet"}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {adds && (
         <ActionForm action={uploadJobFile} submit="Add the file" hidden={{ jobId }} className="mt-3 flex flex-wrap items-end gap-3">

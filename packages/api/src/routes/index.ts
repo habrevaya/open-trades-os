@@ -21,7 +21,7 @@ import {
   laborSettings,
   voice, websiteTracking, referrals,
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
-  portalAccess, portalBlocks, portalBooking, cardOnFile, portalLayout,
+  portalAccess, portalBlocks, portalBooking, portalFiles, cardOnFile, portalLayout,
   setup, team, branches, tradePacks,
   phoneMenus, transcription, callQueues, softphone, voiceAgent,
   ads, marketplaceLeads, leadEmails, directMail,
@@ -1042,6 +1042,7 @@ export const handlers = {
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
   shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
+  markAttachmentSeen: files.handlers.markAttachmentSeen,
   // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)
   listPortalSignIns: portalAccess.handlers.listPortalSignIns,
   listCustomerPortalSessions: portalAccess.handlers.listCustomerPortalSessions,
@@ -1057,6 +1058,9 @@ export const handlers = {
   getPortalBookingOptions: portalBooking.handlers.getPortalBookingOptions,
   getPortalBookingAvailability: portalBooking.handlers.getPortalBookingAvailability,
   requestPortalBooking: portalBooking.handlers.requestPortalBooking,
+  listPortalFiles: portalFiles.handlers.listPortalFiles,
+  addPortalFile: portalFiles.handlers.addPortalFile,
+  removePortalFile: portalFiles.handlers.removePortalFile,
   payTips: payroll.handlers.payTips,
   getMyPayStatements: payroll.handlers.getMyPayStatements,
 

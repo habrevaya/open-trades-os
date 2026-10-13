@@ -180,6 +180,7 @@ export * as portalAccess from "./portal-access";
 export * as portalBlocks from "./portal-blocks";
 export * as portalLayout from "./portal-layout";
 export * as portalBooking from "./portal-booking";
+export * as portalFiles from "./portal-files";
 export * as savedCards from "./saved-cards";
 export * as cardOnFile from "./card-on-file";
 export * as tips from "./tips";

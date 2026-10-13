@@ -214,6 +214,7 @@ function Report({ report }: { report: ReportData }) {
  */
 export function AccountView({
   account, pay, returned = null, statementHref, changeHref, pdfHref, open, top, after, referral, photoHref, estimatePdfHref, fileHref, bookHref,
+  sendFileHref,
   closing = "Questions? Reply to the message that brought you here.",
 }: {
   /** The customer's referral link, drawn where the layout puts it, or last. */
@@ -226,6 +227,8 @@ export function AccountView({
   fileHref?: (fileId: string) => string;
   /** Where a signed in customer asks for a visit. */
   bookHref?: string;
+  /** Where a signed in customer sends a photograph or a PDF about one of their jobs. */
+  sendFileHref?: string;
   account: AccountViewData;
   /** Where asking to move or cancel one coming visit opens, when the page offers it. */
   changeHref?: (visitId: string) => string;
@@ -710,6 +713,11 @@ export function AccountView({
 
       {account.jobs.length > 0 && (
         <Section title="Your work">
+          {sendFileHref && (
+            <a href={sendFileHref} className="mt-2 inline-block text-sm text-blue-600 underline underline-offset-4">
+              Send us a photo or a PDF about a job
+            </a>
+          )}
           <ul className="mt-3 space-y-2 text-sm">
             {account.jobs.slice(0, 20).map((j) => (
               <li key={j.id} className="flex items-start justify-between gap-4">

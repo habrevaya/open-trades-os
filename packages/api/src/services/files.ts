@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { files as f, assertCan, isSystem, type Permission } from "@opentradesos/core";
+import { files as f, assertCan, can, isSystem, type Permission } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
@@ -276,6 +276,9 @@ export async function attach(
     sizeBytes: number;
     phase?: string | null;
     uploadedByUserId?: string | null;
+    /** A customer adding a file from their own sign in, and the contact when it was one. */
+    uploadedByCustomerId?: string | null;
+    uploadedByContactId?: string | null;
   },
 ): Promise<{ id: string }> {
   const [row] = await tx.insert(schema.attachment).values({
@@ -289,6 +292,8 @@ export async function attach(
     sizeBytes: input.sizeBytes,
     phase: input.phase ?? null,
     uploadedByUserId: input.uploadedByUserId ?? null,
+    uploadedByCustomerId: input.uploadedByCustomerId ?? null,
+    uploadedByContactId: input.uploadedByContactId ?? null,
   }).returning({ id: schema.attachment.id });
 
   await tx.update(schema.storedFile)
@@ -327,6 +332,10 @@ export async function attachmentsFor(
       createdAt: row.createdAt,
       /** When somebody chose to show it on the customer's job link. Null is private. */
       sharedWithCustomerAt: row.sharedWithCustomerAt,
+      /** The customer added it from their own sign in. */
+      addedByCustomer: row.uploadedByCustomerId !== null,
+      /** When somebody in the company first opened a file the customer added. */
+      seenAt: row.seenAt,
     }));
   });
 }
@@ -367,6 +376,100 @@ export async function shareWithCustomer(
       { sharedWithCustomerAt: row.sharedWithCustomerAt }, { sharedWithCustomerAt: sharedAt });
     return { id: row.id, sharedWithCustomerAt: sharedAt?.toISOString() ?? null };
   });
+}
+
+/**
+ * Somebody in the company has opened a file the customer added.
+ *
+ * Until this, the customer may take the file back from their sign in; from
+ * here it is the company's record of what the customer sent, and stays. Only
+ * a file a customer added is marked, and only the first time: the first
+ * person to open it is the one the record names. Opening it again, or
+ * opening a file the company added, changes nothing.
+ */
+export async function markSeen(ctx: ServiceContext, input: { attachmentId: string }) {
+  return guardedWrite(ctx, "document:read", async (tx) => {
+    const [row] = await tx.select().from(schema.attachment)
+      .where(and(
+        eq(schema.attachment.organizationId, ctx.actor.organizationId),
+        eq(schema.attachment.id, input.attachmentId),
+        isNull(schema.attachment.deletedAt),
+      )).limit(1);
+    if (!row) throw new NotFoundError("File");
+    /** The read only demo opens the file and records nothing, rather than refusing to open it. */
+    if (row.uploadedByCustomerId === null || row.seenAt || ctx.actor.readOnly) {
+      return { id: row.id, storageKey: row.storageKey, seenAt: row.seenAt?.toISOString() ?? null };
+    }
+    const seenAt = new Date();
+    await tx.update(schema.attachment).set({
+      seenAt,
+      seenByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId,
+      updatedAt: seenAt,
+    }).where(and(eq(schema.attachment.id, row.id), isNull(schema.attachment.seenAt)));
+    await audit(tx, ctx, "attachment.seen", "attachment", row.id, { seenAt: null }, { seenAt });
+    return { id: row.id, storageKey: row.storageKey, seenAt: seenAt.toISOString() };
+  });
+}
+
+/**
+ * Let go of one attachment: the row is marked deleted, the stored file's
+ * reference count drops, and its bytes are emptied when nothing points at
+ * them any more, the way retention lets go of a record's files.
+ */
+export async function release(tx: Database, organizationId: string, attachmentId: string): Promise<boolean> {
+  const [row] = await tx.update(schema.attachment)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(schema.attachment.organizationId, organizationId),
+      eq(schema.attachment.id, attachmentId),
+      isNull(schema.attachment.deletedAt),
+    ))
+    .returning({ storageKey: schema.attachment.storageKey });
+  if (!row) return false;
+  await tx.update(schema.storedFile)
+    .set({ references: sql`greatest(${schema.storedFile.references} - 1, 0)`, updatedAt: new Date() })
+    .where(and(eq(schema.storedFile.organizationId, organizationId), eq(schema.storedFile.storageKey, row.storageKey)));
+  await tx.update(schema.storedFile)
+    .set(emptied())
+    .where(and(
+      eq(schema.storedFile.organizationId, organizationId),
+      eq(schema.storedFile.storageKey, row.storageKey),
+      eq(schema.storedFile.references, 0),
+      isNull(schema.storedFile.deletedAt),
+    ));
+  return true;
+}
+
+/**
+ * What the customer added to each of these visits or to its job, for the
+ * technician's day: the photograph of the broken unit, seen before they get
+ * out of the van. Only for somebody who may read documents, because the
+ * phone must not become the way round a role that cannot.
+ */
+export async function customerFilesForVisits(
+  tx: Database, ctx: ServiceContext, visits: Array<{ visitId: string; jobId: string }>,
+): Promise<Map<string, Array<{ id: string; fileName: string | null; contentType: string | null; storageKey: string; addedAt: string }>>> {
+  const out = new Map<string, Array<{ id: string; fileName: string | null; contentType: string | null; storageKey: string; addedAt: string }>>();
+  if (visits.length === 0 || !can(ctx.actor, "document:read")) return out;
+  const ids = [...new Set([...visits.map((v) => v.visitId), ...visits.map((v) => v.jobId)])];
+  const rows = await tx.select().from(schema.attachment)
+    .where(and(
+      eq(schema.attachment.organizationId, ctx.actor.organizationId),
+      eq(schema.attachment.kind, "customer_file"),
+      inArray(schema.attachment.entityId, ids),
+      isNull(schema.attachment.deletedAt),
+    ))
+    .orderBy(desc(schema.attachment.createdAt));
+  for (const visit of visits) {
+    out.set(visit.visitId, rows
+      .filter((row) => (row.entityType === "visit" && row.entityId === visit.visitId)
+        || (row.entityType === "job" && row.entityId === visit.jobId))
+      .map((row) => ({
+        id: row.id, fileName: row.fileName, contentType: row.contentType,
+        storageKey: row.storageKey, addedAt: row.createdAt.toISOString(),
+      })));
+  }
+  return out;
 }
 
 /* -------------------------------------------------- the field upload queue */
@@ -751,6 +854,11 @@ export const handlers = {
 
   shareAttachmentWithCustomer: (ctx: ServiceContext, input: { id: string; shared: boolean }) =>
     shareWithCustomer(ctx, { attachmentId: input.id, shared: input.shared }),
+
+  markAttachmentSeen: async (ctx: ServiceContext, input: { id: string }) => {
+    const seen = await markSeen(ctx, { attachmentId: input.id });
+    return { id: seen.id, seenAt: seen.seenAt };
+  },
 } as const;
 
 /**

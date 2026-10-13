@@ -316,6 +316,65 @@ export function checkEmailAttachment(
 
 const megabytes = (bytes: number) => Math.max(1, Math.round(bytes / (1024 * 1024)));
 
+/* ------------------------------------------ files a customer adds from the portal */
+
+/**
+ * WHAT A SIGNED IN CUSTOMER MAY ADD TO A JOB
+ *
+ * A photograph of the broken unit before the visit, or the PDF of a warranty.
+ * The customer is known (they signed in with a code), but the upload form is
+ * still on the open internet, so the same rules as a reply by email apply:
+ * never a program, by its name, its claimed type or its bytes, and only the
+ * types kept anywhere here, decided from the bytes. Narrower than that list,
+ * too: a photograph (JPEG, PNG, HEIC, WebP) or a PDF, because that is what was
+ * asked for and an icon or a GIF is not either.
+ *
+ * Five megabytes a file, because the form goes through a server action whose
+ * body is capped at six. Ten files on one job and twenty five megabytes in
+ * all, the email's limits, which is what a phone's photographs of one fault
+ * come to. Twenty an hour per customer, counted before anything is kept, so a
+ * script holding somebody's sign in cannot fill the company's disk.
+ */
+export const CUSTOMER_UPLOADS = {
+  maxFileBytes: 5 * 1024 * 1024,
+  maxFilesPerJob: EMAIL_ATTACHMENTS.maxFiles,
+  maxTotalBytesPerJob: EMAIL_ATTACHMENTS.maxTotalBytes,
+  perHour: 20,
+  types: ["image/jpeg", "image/png", "image/heic", "image/webp", "application/pdf"] as readonly string[],
+} as const;
+
+/**
+ * Whether one file a customer sent may be added to a job: not a program, a
+ * photograph or a PDF by its bytes, within the size of one file, and within
+ * what is left of the job's count and total. The words are the customer's to
+ * read, so they say what to do instead.
+ */
+export function checkCustomerUpload(
+  file: { fileName: string; contentType?: string | null | undefined; bytes: Uint8Array },
+  options: { filesAlreadyAdded: number; bytesAlreadyAdded: number },
+): FileVerdict {
+  const name = displayName(file.fileName);
+  if (isProgramName(file.fileName, file.contentType) || isProgramBytes(file.bytes)) {
+    return { ok: false, reason: `${name} was not added: it is a program or a script, and those are never kept. Send a photo or a PDF.` };
+  }
+  if (options.filesAlreadyAdded >= CUSTOMER_UPLOADS.maxFilesPerJob) {
+    return { ok: false, reason: `${name} was not added: you can add up to ${CUSTOMER_UPLOADS.maxFilesPerJob} files to one job. Remove one first, or call us.` };
+  }
+  if (file.bytes.length > CUSTOMER_UPLOADS.maxFileBytes) {
+    return { ok: false, reason: `${name} was not added: a file can be up to ${megabytes(CUSTOMER_UPLOADS.maxFileBytes)} MB and that one is ${megabytes(file.bytes.length)} MB.` };
+  }
+  if (options.bytesAlreadyAdded + file.bytes.length > CUSTOMER_UPLOADS.maxTotalBytesPerJob) {
+    return { ok: false, reason: `${name} was not added: the files on one job can come to ${megabytes(CUSTOMER_UPLOADS.maxTotalBytesPerJob)} MB in all.` };
+  }
+  const verdict = checkFile(file.bytes, {
+    maxBytes: CUSTOMER_UPLOADS.maxFileBytes, ...(file.contentType ? { claimedType: file.contentType } : {}),
+  });
+  if (!verdict.ok || !CUSTOMER_UPLOADS.types.includes(verdict.contentType)) {
+    return { ok: false, reason: `${name} was not added: only a photo (JPEG, PNG, HEIC or WebP) or a PDF can be added.` };
+  }
+  return verdict;
+}
+
 /**
  * A name somebody else chose, made safe to show and to offer as a download:
  * no folders, no control characters, no quotes, at most a hundred characters,

@@ -380,6 +380,18 @@ export const VisitForField = z.object({
     id: Uuid, kind: z.string(), title: z.string(),
     fields: z.array(z.object({ label: z.string(), value: z.string() })),
   })).optional(),
+  /**
+   * Photographs and PDFs the customer added from their own sign in, to this visit or to its job, newest first:
+   * the broken unit before anybody arrives. Each opens at `/files/{storageKey}`. Empty for a caller who may not
+   * read documents. Absent from older servers.
+   */
+  customerFiles: z.array(z.object({
+    id: Uuid,
+    fileName: z.string().nullable(),
+    contentType: z.string().nullable(),
+    storageKey: z.string(),
+    addedAt: z.string().datetime(),
+  })).optional(),
 });
 
 /**

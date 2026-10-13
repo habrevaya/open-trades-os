@@ -84,6 +84,7 @@ import { customerPortalRoutes } from "./customer-portal";
 import { cardOnFileRoutes } from "./card-on-file";
 import { portalLayoutRoutes } from "./portal-layout";
 import { portalAccessRoutes } from "./portal-access";
+import { portalFileRoutes } from "./portal-files";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
 import { roleRoutes } from "./roles";
@@ -192,6 +193,7 @@ export * from "./customer-portal";
 export * from "./card-on-file";
 export * from "./portal-layout";
 export * from "./portal-access";
+export * from "./portal-files";
 export * from "./setup";
 export * from "./branches";
 export * from "./roles";
@@ -314,6 +316,7 @@ export const routes = {
   ...cardOnFileRoutes,
   ...portalLayoutRoutes,
   ...portalAccessRoutes,
+  ...portalFileRoutes,
   ...setupRoutes,
   ...branchRoutes,
   ...roleRoutes,
