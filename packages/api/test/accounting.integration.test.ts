@@ -19,6 +19,7 @@ import {
 import { createXeroProvider } from "../src/accounting/xero";
 import "../src/accounting";
 import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
+import { listAccountingProblems } from "../src/contracts/accounting";
 
 /** The token endpoint, by its parsed origin rather than by how the address happens to begin. */
 const isTokenUrl = (address: string): boolean => new URL(address).origin === "https://token.test";
@@ -1354,6 +1355,21 @@ run("the same document, twice", () => {
     expect(provider.creates.filter((c) => c.kind === "invoice")).toHaveLength(5);
     const problems = await accounting.listProblems(owner());
     expect(problems.some((p) => p.kind === "invoice" && p.attempts >= 5)).toBe(true);
+  });
+
+  it("says a refused document is refused, and the route's own schema accepts the list", async () => {
+    await mapEverything();
+    await anInvoice();
+    const provider = fakeProvider({
+      failKind: "invoice",
+      pushFailure: { code: "6000", message: "line item is invalid", retryable: false, duplicate: false },
+    });
+    await accounting.sync(owner(), { provider });
+    const problems = await accounting.listProblems(owner());
+    expect(problems.find((p) => p.kind === "invoice")).toMatchObject({ state: "failed" });
+    listAccountingProblems.output.parse({
+      problems: problems.map((p) => ({ ...p, updatedAt: p.updatedAt.toISOString() })),
+    });
   });
 
   it("puts a failed document back without losing the claim", async () => {

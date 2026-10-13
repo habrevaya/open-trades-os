@@ -56,6 +56,14 @@ export default async function BooksPage() {
         <span className="text-ink-500">and</span>
         {" "}
         <a href="/books/budget" className="underline underline-offset-4">budget against actual</a>
+        {can(user.actor, "accounting:sync") ? (
+          <>
+            {". "}
+            <a href="/settings/accounting" className="underline underline-offset-4">
+              Where each account goes in QuickBooks or Xero, and what the sync could not send
+            </a>
+          </>
+        ) : null}
       </p>
 
       {posts ? (

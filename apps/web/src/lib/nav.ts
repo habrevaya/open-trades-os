@@ -538,6 +538,15 @@ export const NAV: NavGroup[] = [
           { href: "/settings/tax", label: "Sales tax" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
+           * Where each account goes in QuickBooks or Xero, the branches sent
+           * as classes, and the documents the sync could not send. Beside
+           * Integrations, where the books are connected. It inherits
+           * `settings:read` to be SHOWN and the page needs `accounting:sync`;
+           * the accountant, who holds that and not settings, reaches it from
+           * Books.
+           */
+          { href: "/settings/accounting", label: "Accounting" },
+          /**
            * The agents that run on the model connected above: on or off, who
            * each acts as, and the log of what they did. Beside Integrations,
            * because the key it spends is set up there.
