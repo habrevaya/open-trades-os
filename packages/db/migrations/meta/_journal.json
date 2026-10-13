@@ -841,6 +841,13 @@
       "when": 1791927853315,
       "tag": "0119_even_devos",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1791929006380,
+      "tag": "0120_misty_vulcan",
+      "breakpoints": true
     }
   ]
 }

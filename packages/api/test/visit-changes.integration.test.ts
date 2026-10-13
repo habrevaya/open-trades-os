@@ -434,3 +434,104 @@ run("the office offering another time", () => {
     await expect(visitChanges.answer(db(), { token, visitId, accept: true })).rejects.toThrow(/no longer be used/);
   });
 });
+
+run("the office taking an offer back, and offering again", () => {
+  async function offered() {
+    const coming = await aComingVisit();
+    const asked = await visitChanges.request(db(), {
+      token: coming.token, kind: "reschedule", requestedDate: dayFromNow(9), arrivalWindowId: windowId,
+    });
+    await visitChanges.propose(office(), { id: asked.id, date: dayFromNow(11), arrivalWindowId: windowId });
+    return { ...coming, asked };
+  }
+
+  it("takes back a time still waiting: nothing moves, the hold is let go, the customer is told and their link says so", async () => {
+    await raw`update public.bookable_service set max_per_window = 1 where id = ${serviceId}`;
+    const { token, visitId, day, asked } = await offered();
+    await raw`delete from public.message where organization_id = ${ORG}`;
+
+    const withdrawn = await visitChanges.withdraw(office(), { id: asked.id, response: "Our only free technician is off that day." });
+    expect(withdrawn).toMatchObject({ status: "withdrawn", notified: "queued", response: "Our only free technician is off that day." });
+    expect((await visitRow(visitId)).window_start.toISOString()).toBe(at(day, "13:00").toISOString());
+    const [message] = await outbound();
+    expect(message!.body).toContain("We have taken back the time we offered");
+    expect(message!.body).toContain("Our only free technician is off that day.");
+
+    // The window is free again for anybody.
+    const [service] = await inTenant(as(["owner"]), (tx) =>
+      tx.select().from(schema.bookableService).where(eq(schema.bookableService.id, serviceId)));
+    const slots = await booking.openSlots(db(), { organizationId: ORG, timezone: ZONE, service: service!, from: dayFromNow(11), days: 1 });
+    expect(slots).toHaveLength(1);
+
+    // The customer's link says it was taken back, and a yes to it is refused in words.
+    const options = await visitChanges.options(db(), { token, visitId });
+    expect(options.proposal).toBeNull();
+    expect(options.decided).toMatchObject({ status: "withdrawn", response: "Our only free technician is off that day." });
+    expect(options.canChange).toBe(true);
+    await expect(visitChanges.answer(db(), { token, visitId, accept: true })).rejects.toThrow(/took that time back/);
+    expect((await visitRow(visitId)).window_start.toISOString()).toBe(at(day, "13:00").toISOString());
+
+    // Twice is the same; the decision is the dispatch permission's.
+    expect((await visitChanges.withdraw(office(), { id: asked.id })).status).toBe("withdrawn");
+    expect(await outbound()).toHaveLength(1);
+    await expect(visitChanges.withdraw(as(["technician"]), { id: asked.id })).rejects.toThrow();
+  });
+
+  it("refuses to take back an offer the customer already took or turned down", async () => {
+    const first = await offered();
+    await visitChanges.answer(db(), { token: first.token, visitId: first.visitId, accept: true });
+    await expect(visitChanges.withdraw(office(), { id: first.asked.id })).rejects.toThrow(/already taken that time/);
+
+    await raw`delete from public.visit_change_request where organization_id = ${ORG}`;
+    const second = await offered();
+    await visitChanges.answer(db(), { token: second.token, visitId: second.visitId, accept: false });
+    await expect(visitChanges.withdraw(office(), { id: second.asked.id })).rejects.toThrow(/still waiting/);
+
+    const pendingOnly = await aComingVisit();
+    const asked = await visitChanges.request(db(), {
+      token: pendingOnly.token, kind: "reschedule", requestedDate: dayFromNow(9), arrivalWindowId: windowId,
+    });
+    await expect(visitChanges.withdraw(office(), { id: asked.id })).rejects.toThrow(ConflictError);
+  });
+
+  it("offers another time from the same request after the customer turns one down, and closes the task to talk to them", async () => {
+    const { token, visitId, asked } = await offered();
+    await visitChanges.answer(db(), { token, visitId, accept: false, answer: "Not Fridays" });
+    expect((await visitChanges.proposalTimes(office(), { id: asked.id })).map((t) => t.date)).toContain(dayFromNow(12));
+    await raw`delete from public.message where organization_id = ${ORG}`;
+
+    const again = await visitChanges.propose(office(), {
+      id: asked.id, date: dayFromNow(12), arrivalWindowId: windowId, response: "Saturday morning is free.",
+    });
+    expect(again).toMatchObject({ id: asked.id, status: "proposed", proposedDate: dayFromNow(12), answer: null, answeredAt: null });
+    const [message] = await outbound();
+    expect(message!.body).toContain("Could we come");
+    expect(message!.body).toContain("Saturday morning is free.");
+    expect(await raw`select id from public.task where organization_id = ${ORG} and status = 'open'`).toHaveLength(0);
+    // The old answer is in the audit log with the row as it was.
+    const [audited] = await raw<{ before: { answer: string } }[]>`
+      select before from public.audit_log where entity_id = ${asked.id} and action = 'visit_change.proposed_again'`;
+    expect(audited!.before.answer).toBe("Not Fridays");
+
+    // And the customer can take this one.
+    expect((await visitChanges.answer(db(), { token, visitId, accept: true })).status).toBe("accepted");
+    expect((await visitRow(visitId)).window_start.toISOString()).toBe(at(dayFromNow(12), "08:00").toISOString());
+  });
+
+  it("offers another time after the office took one back", async () => {
+    const { asked } = await offered();
+    await visitChanges.withdraw(office(), { id: asked.id });
+    expect((await visitChanges.propose(office(), { id: asked.id, date: dayFromNow(12), arrivalWindowId: windowId })).status)
+      .toBe("proposed");
+  });
+
+  it("will not offer again on an old request once the customer has asked something new", async () => {
+    const { token, visitId, asked } = await offered();
+    await visitChanges.answer(db(), { token, visitId, accept: false });
+    const newer = await visitChanges.request(db(), { token, visitId, kind: "cancel", reason: "Found somebody else" });
+    expect(newer.status).toBe("pending");
+    await expect(visitChanges.propose(office(), { id: asked.id, date: dayFromNow(12), arrivalWindowId: windowId }))
+      .rejects.toThrow(/asked something new/);
+    expect(await visitChanges.proposalTimes(office(), { id: newer.id })).toEqual([]);
+  });
+});

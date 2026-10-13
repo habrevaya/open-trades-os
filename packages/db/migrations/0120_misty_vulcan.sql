@@ -1,0 +1,1 @@
+ALTER TYPE "public"."visit_change_status" ADD VALUE 'withdrawn';

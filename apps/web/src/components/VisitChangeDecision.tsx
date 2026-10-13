@@ -149,3 +149,108 @@ export function VisitChangeDecision({
     </section>
   );
 }
+
+/**
+ * AN OFFER WAITING FOR THE CUSTOMER, AND TAKING IT BACK.
+ *
+ * Nothing has moved while it waits. Taking it back tells the customer, lets
+ * the time go for somebody else, and leaves the request open for another
+ * offer; the words are sent to them as written.
+ */
+export function OfferWaiting({
+  offer, timezone, withdraw, canDecide,
+}: {
+  offer: { id: string; customerName: string; proposedStart: string | null; proposedEnd: string | null };
+  timezone: string;
+  withdraw: Action;
+  canDecide: boolean;
+}) {
+  return (
+    <section
+      aria-label={`The time offered to ${offer.customerName}`}
+      className="rounded-md border border-steel-200 p-3 text-sm text-ink-700"
+    >
+      <p role="note">
+        {offer.customerName} was offered {when(offer.proposedStart, offer.proposedEnd, timezone)} instead of the
+        time they asked for. Waiting for them to say yes or no; the visit stays where it is until they do.
+      </p>
+      {canDecide ? (
+        <ActionForm
+          action={withdraw}
+          submit="Take this time back"
+          tone="quiet"
+          hidden={{ id: offer.id }}
+          className="mt-3 flex flex-wrap items-end gap-3"
+        >
+          <TextField
+            label="What to tell them"
+            name="response"
+            placeholder="Our technician is off that day. We will offer another time."
+            maxLength={1000}
+            className="block w-72"
+          />
+          <p className="basis-full text-xs text-ink-700">
+            They are told, the time is free again for others, and you can offer another.
+          </p>
+        </ActionForm>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * A REQUEST WHOSE OFFER CAME TO NOTHING, AND ANOTHER OFFER.
+ *
+ * The customer said no to the time offered, or the office took it back. The
+ * conversation about the visit is still open, so the office can offer
+ * another time from the same request, from the same windows.
+ */
+export function OfferAgain({
+  request, timezone, propose, times,
+}: {
+  request: { id: string; customerName: string; status: string; proposedStart: string | null; proposedEnd: string | null; answer: string | null };
+  timezone: string;
+  propose: Action;
+  times: OfferableTime[];
+}) {
+  return (
+    <section
+      aria-label={`Offer ${request.customerName} another time`}
+      className="rounded-md border border-amber-700 bg-amber-tint p-4"
+    >
+      <p className="text-sm font-medium text-ink-900">
+        {request.status === "withdrawn"
+          ? `You took back ${when(request.proposedStart, request.proposedEnd, timezone)}, the time offered to ${request.customerName}.`
+          : `${request.customerName} said no to ${when(request.proposedStart, request.proposedEnd, timezone)}.`}
+      </p>
+      {request.answer ? <p className="mt-1 text-sm text-ink-700">In their words: {request.answer}</p> : null}
+      {times.length === 0 ? (
+        <p className="mt-3 text-xs text-ink-700">No other times are open online to offer. Call them to find one.</p>
+      ) : (
+        <ActionForm
+          action={propose}
+          submit="Offer this time"
+          tone="quiet"
+          hidden={{ id: request.id }}
+          className="mt-3 flex flex-wrap items-end gap-3"
+        >
+          <Select
+            label="Another time"
+            name="time"
+            options={times.map((t) => ({ value: `${t.date}|${t.arrivalWindowId}`, label: offerLabel(t) }))}
+          />
+          <TextField
+            label="What to tell them"
+            name="response"
+            placeholder="Saturday morning is free."
+            maxLength={1000}
+            className="block w-72"
+          />
+          <p className="basis-full text-xs text-ink-700">
+            They are sent the time with a link to say yes or no. The visit stays where it is until they say yes.
+          </p>
+        </ActionForm>
+      )}
+    </section>
+  );
+}

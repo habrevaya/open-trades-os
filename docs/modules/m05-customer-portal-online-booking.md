@@ -644,6 +644,32 @@ because the company made the offer; it is refused only when the visit has
 started or the time has passed. On the job's page and in the queue, the
 request shows "Offer this time instead" beside the two answers.
 
+### Take an offer back, or offer another
+
+While the customer has not answered, the job's page shows the time offered
+with **Take this time back** and a box for what to tell them
+(`POST /v1/visit-change-requests/{id}/withdraw`, `visit:reschedule`). The
+visit stays where it was, as it did all along; the time stops being held
+against its window; the customer is told, by text where they can be texted
+and by email otherwise, with the office's words; and the request is
+`withdrawn`. Their link then says the company took the time back and the
+visit stays where it was, and a yes sent to it is refused in words. Taking
+back one already taken back changes nothing. An offer the customer already
+took is refused, because the visit has moved: moving it again is done on the
+board, which tells them. One they turned down has nothing to take back.
+
+After the customer turns an offer down, or the office takes one back, the
+job's page shows the request again with **Offer this time**, from the same
+windows (`GET /v1/visit-change-requests/{id}/times` lists them for such a
+request too, and `POST /v1/visit-change-requests/{id}/propose` sends it). It
+is the same request offering again: the customer is sent the new time with
+the link, the high task to talk to them is closed with what was offered,
+their earlier answer is cleared from the request and kept in the audit log
+(`visit_change.proposed_again`, with the request as it was), and they answer
+it as they answered the first. An old request is not offered on once the
+customer has asked something new about the visit: the new request is the one
+to answer.
+
 ### Take a booking from the website
 
 `GET /v1/public/services` and `GET /v1/public/availability` are read by a
@@ -709,6 +735,7 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/visit-change-requests/{id}/decline` | `visit:reschedule` |
 | `GET /v1/visit-change-requests/{id}/times` | `visit:read` |
 | `POST /v1/visit-change-requests/{id}/propose` | `visit:reschedule` |
+| `POST /v1/visit-change-requests/{id}/withdraw` | `visit:reschedule` |
 | `POST /v1/portal/visit-change/answer` | nothing: the link or a sign in is the authority |
 | `POST /v1/public/portal/{organizationSlug}/codes` | nothing: counted per address and network address |
 | `POST /v1/public/portal/{organizationSlug}/sign-in` | nothing: the code is the authority |
@@ -807,11 +834,13 @@ from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the
 online booking service for the job's type, so a company that takes no online
 bookings for that work cannot offer moves for it. The office can offer a
-different time only for a request to move, only from the windows online
-booking offers, and cannot withdraw an offer once sent: a change to the
-visit (the office moving or cancelling it) overtakes it. A customer who
-turns an offer down is not offered another on the page; the office's task
-is to talk to them. Capacity lays a route's stops end to end from the start
+different time only for a request to move and only from the windows online
+booking offers. Taking an offer back and offering again are done from the
+job's page, not from the office queue, whose task after a no points at the
+visit; a customer who turns an offer down is not offered another by the
+product on its own, the office chooses it. Only one offer waits at a time,
+and an offer the customer took cannot be taken back, only the visit moved
+again on the board. Capacity lays a route's stops end to end from the start
 of the day, so a route that starts later is counted as starting then; a
 crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,

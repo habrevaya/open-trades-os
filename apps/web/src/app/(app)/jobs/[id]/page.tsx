@@ -28,9 +28,9 @@ import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { rateFromPercent } from "@/lib/estimate-form";
 import { addVisit } from "../actions";
-import { approveVisitChange, completeVisitFromOffice, declineVisitChange, proposeVisitChange, setJobStatus, shareJobPhoto } from "./actions";
+import { approveVisitChange, completeVisitFromOffice, declineVisitChange, proposeVisitChange, setJobStatus, shareJobPhoto, withdrawVisitChangeOffer } from "./actions";
 import { shareVisitNotes } from "./notes-actions";
-import { VisitChangeDecision } from "@/components/VisitChangeDecision";
+import { OfferAgain, OfferWaiting, VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, CancelJob, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
 import { JobFiles } from "./Files";
@@ -182,9 +182,20 @@ export default async function JobPage({ params, searchParams }: {
   const offersWaiting = can(user.actor, "visit:read")
     ? await visitChanges.list(ctx, { status: "proposed", jobId: id })
     : [];
+  /**
+   * A request whose offer the customer turned down, or the office took back,
+   * on a visit still to come with nothing newer asked about it: the office
+   * can offer another time from it.
+   */
+  const offeredBefore = can(user.actor, "visit:reschedule")
+    ? (await visitChanges.list(ctx, { jobId: id })).filter((r, _i, all) =>
+      (r.status === "turned_down" || r.status === "withdrawn") && r.kind === "reschedule"
+      && ["unassigned", "scheduled", "dispatched"].includes(r.visitStatus)
+      && !all.some((o) => o.visitId === r.visitId && o.id !== r.id && o.createdAt > r.createdAt))
+    : [];
   /** The times that could be offered instead, for each request to move, for somebody who may answer. */
   const offerable = new Map(can(user.actor, "visit:reschedule")
-    ? await Promise.all(changeRequests.filter((r) => r.kind === "reschedule")
+    ? await Promise.all([...changeRequests.filter((r) => r.kind === "reschedule"), ...offeredBefore]
       .map(async (r) => [r.id, await visitChanges.proposalTimes(ctx, { id: r.id })] as const))
     : []);
   const invoices = can(user.actor, "invoice:read")
@@ -481,13 +492,33 @@ export default async function JobPage({ params, searchParams }: {
         </Table>
       )}
 
-      {offersWaiting.map((offer) => (
-        <p key={offer.id} role="note" className="mt-4 rounded-md border border-steel-200 p-3 text-sm text-ink-700">
-          {offer.customerName} was offered{" "}
-          {offer.proposedStart ? formatIn(offer.proposedStart, user.organizationTimezone) : "another time"} instead of the
-          time they asked for. Waiting for them to say yes or no; the visit stays where it is until they do.
-        </p>
-      ))}
+      {offersWaiting.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {offersWaiting.map((offer) => (
+            <OfferWaiting
+              key={offer.id}
+              offer={offer}
+              timezone={user.organizationTimezone}
+              withdraw={withdrawVisitChangeOffer}
+              canDecide={can(user.actor, "visit:reschedule")}
+            />
+          ))}
+        </div>
+      )}
+
+      {offeredBefore.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {offeredBefore.map((request) => (
+            <OfferAgain
+              key={request.id}
+              request={request}
+              timezone={user.organizationTimezone}
+              propose={proposeVisitChange}
+              times={offerable.get(request.id) ?? []}
+            />
+          ))}
+        </div>
+      )}
 
       {changeRequests.length > 0 && (
         <div className="mt-4 space-y-3">

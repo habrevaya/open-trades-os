@@ -217,6 +217,26 @@ export async function proposeVisitChange(_previous: FormState, form: FormData): 
 }
 
 /**
+ * Taking back a time offered to the customer before they answer. The service
+ * tells them and keeps the visit where it was.
+ */
+export async function withdrawVisitChangeOffer(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const answered = await visitChanges.withdraw(await ctx(), {
+      id: field(form, "id") ?? "", response: field(form, "response"),
+    });
+    return {
+      message: answered.notified === "queued"
+        ? "Taken back, and the customer has been told."
+        : `Taken back, but the customer could not be told: ${answered.notified ?? "no way to reach them"}`,
+    };
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
+  return result;
+}
+
+/**
  * The office corrects where a job came from. Recorded as a declared touch on
  * the job and written to its columns as chosen; choosing nothing clears it.
  */

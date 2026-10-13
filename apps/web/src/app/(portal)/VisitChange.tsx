@@ -95,7 +95,9 @@ export function VisitChange({
               ? "You took the time the office offered, and your visit was moved to it."
               : options.decided.status === "turned_down"
                 ? "You said no to the time the office offered. They will be in touch."
-                : `Your last request about this visit was not agreed${options.decided.response ? `: ${options.decided.response}` : "."}`}
+                : options.decided.status === "withdrawn"
+                  ? `${options.organizationName} took back the time they offered, so your visit stays where it was${options.decided.response ? `: ${options.decided.response}` : "."} They will be in touch about another time.`
+                  : `Your last request about this visit was not agreed${options.decided.response ? `: ${options.decided.response}` : "."}`}
         </section>
       ) : null}
 
