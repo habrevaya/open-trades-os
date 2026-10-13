@@ -73,3 +73,4 @@ export * as pdf from "./pdf/index.js";
 export * as portability from "./portability/index.js";
 export * as plugins from "./plugins/index.js";
 export * as imports from "./imports/index.js";
+export * as notices from "./notices/index.js";
