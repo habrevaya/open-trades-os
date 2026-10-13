@@ -59,7 +59,8 @@ test("the owner chooses where each kind of notice reaches them, and turns texts 
   await texts.getByLabel("Your mobile number").fill("(512) 555-0177");
   await texts.getByRole("checkbox", { name: /Text me at this number/ }).check();
   await texts.getByRole("button", { name: "Turn texts on" }).click();
-  await expect(texts.getByRole("status").filter({ hasText: "Texts are on." })).toBeVisible();
+  // The form gives way to the number texts now go to.
+  await expect(texts).toContainText("Texts go to +15125550177");
   await owner.reload();
   await expect(owner.locator("#notices")).toContainText("Texts go to +15125550177");
 
@@ -72,7 +73,7 @@ test("the owner chooses where each kind of notice reaches them, and turns texts 
   await expect(owner.locator("#notices").getByRole("checkbox", { name: "A late task: by text" })).toBeChecked();
 
   await owner.locator("#notices").getByRole("button", { name: "Turn texts off" }).click();
-  await expect(owner.locator("#notices").getByRole("status").filter({ hasText: "Texts are off." })).toBeVisible();
+  await expect(owner.locator("#notices").getByRole("button", { name: "Turn texts on" })).toBeVisible();
   await owner.reload();
   await expect(owner.locator("#notices").getByRole("button", { name: "Turn texts on" })).toBeVisible();
 });
