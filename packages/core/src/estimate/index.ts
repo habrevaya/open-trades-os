@@ -475,4 +475,29 @@ export function checkHistory(
   return { ok: true };
 }
 
+/**
+ * The day an estimate from history was sent: only with how it ended, never
+ * before it was written, after it was decided or in the future.
+ */
+export function checkSentOn(
+  sentOn: string,
+  context: { issuedOn: string; today: string; outcome: HistoricalOutcome | undefined },
+): HistoryVerdict {
+  if (!ISO_DAY.test(sentOn)) return { ok: false, message: "The day it was sent has to be a date like 2024-03-18." };
+  if (!context.outcome) {
+    return {
+      ok: false,
+      message: "A day sent is recorded only with how the estimate ended. One still waiting for an answer comes in unsent, to send from here.",
+    };
+  }
+  if (sentOn > context.today) return { ok: false, message: "An estimate from history cannot have been sent in the future." };
+  if (sentOn < context.issuedOn) {
+    return { ok: false, message: `It was sent on ${sentOn}, before it was written on ${context.issuedOn}.` };
+  }
+  if (sentOn > context.outcome.on) {
+    return { ok: false, message: `It was sent on ${sentOn}, after it was decided on ${context.outcome.on}.` };
+  }
+  return { ok: true };
+}
+
 export * from "./proposal-layout.js";

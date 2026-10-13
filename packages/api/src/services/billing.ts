@@ -11,6 +11,7 @@ import * as retainage from "./retainage";
 import { listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
+import { textFilter } from "./text-search";
 import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
@@ -1382,6 +1383,8 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
         input.businessUnitId ? invoiceBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.invoice, input),
+        // Its number as people say it, or words in the customer's name.
+        textFilter(input.q, [schema.customer.name], schema.invoice.number),
         await listFilter(tx, ctx.actor.organizationId, "invoice", input, sql`${schema.invoice.customFields}`),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))

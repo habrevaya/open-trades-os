@@ -13,6 +13,7 @@ import { enforceWithin, listFilter } from "./custom-fields";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
+import { textFilter } from "./text-search";
 import { assertPlaceable } from "./branches";
 import { crews as crewsInView, dispatchPeople } from "./people-scope";
 import { shopNames, shopOfCrew, shopOfPeople } from "./visit-shop";
@@ -146,6 +147,12 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.customerId ? eq(schema.job.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.job.propertyId, input.propertyId) : undefined,
         byExternal(schema.job, input),
+        /**
+         * Words in what the job is, or in the customer's name, or its number.
+         * The contract has taken `q` all along and nothing read it, so the
+         * job list ignored a search and showed every job as found.
+         */
+        textFilter(input.q, [schema.job.summary, schema.customer.name], schema.job.number),
         /**
          * A branch somebody picked, or `none` for the jobs nobody has put in
          * one. On top of the scope below, never instead of it.

@@ -375,11 +375,37 @@ records of other kinds pointing at it (a truck's inspections) the same way. The 
 offers the team to pick a person from, for whoever holds `user:read`, and the records
 of the kind it points at; an invoice is carried in from the invoice's page.
 
-The search box at the top of the menu (`/search`, `GET /v1/search`) finds a
-customer by name, email or phone, a job by its number, and the company's own records
-by their name or any value, each part through its own list's service, so it finds
-nothing the reader could not open from that list: a kind they may not read is not
-searched, and a narrowed technician finds only records they could see.
+### Find anything
+
+The search box at the top of the menu (`/search`, `GET /v1/search`) finds
+customers by name, email or phone; jobs by their number or by words in what the
+job is or in the customer's name; invoices by their number or the customer's
+name, and estimates by their number, their title or the customer's name;
+addresses by their street; units by the serial on their sticker or their make and
+model; and the company's own records by their name or any value. Every word typed
+has to be somewhere ("smith furnace" finds the Smiths' furnace job either way
+round), a number on its own is also a job's, an invoice's or an estimate's number,
+with or without its `#`, and a typed `%` or `_` is the character it is. The words
+are read once, in core (`search`), and each comparison is a trigram match a
+pg_trgm index answers.
+
+Each part is read through its own list's service with the reader's own
+permission and scope, so it finds nothing the reader could not open from that
+list: a technician finds the work they were sent to, a branch manager their
+branch's, somebody without `invoice:read` sees no invoices, and a kind of record
+they may not read is not searched. Addresses and units have no narrowed list of
+their own, so the box narrows them the way customers are narrowed, by the work at
+the address: at a restricted scope an address is found only when a job the reader
+can see is at it, and a unit only at such an address. An address or a unit in the
+box says where and what, never whose.
+
+Five of each, and a group with more says "See all", which opens its own list
+filtered by the same words: `/customers?q=`, `/jobs?q=`, `/invoices?q=`,
+`/estimates?q=` and `/records/{type}?q=`, each with a search box of its own that
+reads words the same way (`q` on `GET /v1/customers`, `GET /v1/jobs`,
+`GET /v1/invoices` and `GET /v1/estimates`). Addresses and units have no list
+screen, so theirs is the search page showing that group alone, at up to fifty
+(`/search?q=...&in=addresses`, `in` on the API).
 
 On a technician's day, in the phone app and on `/my-day`, each visit lists the
 company's records pointing at its job or at a unit recorded on the visit, of the
@@ -549,7 +575,7 @@ second is a much smaller list of people.
 | `PATCH /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `DELETE /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/custom-objects/{key}/export` | `record:read` and the kind's own |
-| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read`, `job:read`, `record:read` and the kind's own) |
+| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read`, `job:read`, `invoice:read`, `estimate:read`, `property:read`, `equipment:read`, `record:read` and the kind's own) |
 | `POST /v1/custom-objects/{key}/import` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/workflows` | `workflow:read` |
 | `GET /v1/workflows/{id}/runs` | `workflow:read` |
@@ -636,9 +662,16 @@ page. A CSV import links by id or job number, not by name. The report builder gr
 a kind of record by its fields, its month, its customer and its job type, and not by
 another record's fields, its invoice, its person or the record it points at.
 
-The search box searches customers, a job by its exact number and the company's own
-records, at most five of each; it does not search jobs by their words, invoices,
-estimates, addresses or units yet. On the phone and `/my-day` the records are read
+The search box matches pieces of words, not meanings or misspellings: "furn"
+finds "Furnace" and "furnice" finds nothing, because there is no stemming and no
+fuzzy match. It does not look in a job's description or notes, an invoice's lines
+or memo, a visit, a person, a price book item or a message, and a kind of record's
+list still matches what was typed as one phrase rather than word by word.
+Addresses and units are narrowed by scope in the search box only: the address
+list (`GET /v1/properties`) and a unit's page read the whole company for anybody
+holding `property:read` or `equipment:read`, as they did before, and narrowing
+them is M04's to decide, because a branch manager booking the first job for a new
+customer has to be able to pick the customer's address. On the phone and `/my-day` the records are read
 only and are those on the visit's job or a unit recorded on the visit, not every
 unit at the address. On the portal a customer reads their records and cannot
 change, add or comment on one, a record's attachments are not shown, and a record

@@ -5,30 +5,45 @@ import { Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
 
+/** The two groups with no list screen of their own, whose "See all" is this page showing them alone. */
+const ALONE: Record<string, { label: string; key: search.GroupKey }> = {
+  addresses: { label: "Addresses", key: "addresses" },
+  units: { label: "Equipment", key: "units" },
+};
+
 /**
  * FIND ANYTHING
  *
- * A customer by name, email or phone, a job by its number, and the
- * company's own records by their name or any value. Each part is found by
- * its own list's service, so nothing appears here that its list would not
- * show this person.
+ * Customers, jobs, invoices, estimates, addresses, units and the company's
+ * own records, five of each, each found by its own list's service, so nothing
+ * appears here that its list would not show this person. "See all" opens the
+ * list filtered by the same words; addresses and units have no list, so theirs
+ * is this page with that group alone.
  */
-export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string; in?: string }> }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
-  const q = ((await searchParams).q ?? "").slice(0, 200);
-  const found = await search.everything(ctx, { q });
+  const params = await searchParams;
+  const q = (params.q ?? "").slice(0, 200);
+  const alone = params.in ? ALONE[params.in] : undefined;
+  const found = await search.everything(ctx, { q, ...(alone ? { in: alone.key } : {}) });
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
-      <PageHeader title="Search" />
+      <PageHeader title={alone ? `Search: ${alone.label.toLowerCase()}` : "Search"} />
       <form action="/search" role="search" className="mt-4 flex gap-2">
         <label className="sr-only" htmlFor="search-page-q">Search for</label>
         <input id="search-page-q" type="search" name="q" defaultValue={q} autoFocus
-               placeholder="A name, a phone number, a job number, a permit number"
+               placeholder="A name, a street, a job or invoice number, a serial number"
                className="h-10 min-w-0 flex-1 rounded border border-steel-300 bg-canvas px-3 text-sm" />
+        {alone ? <input type="hidden" name="in" value={alone.key} /> : null}
         <button type="submit" className="h-10 rounded bg-ink-900 px-4 text-sm font-medium text-white">Search</button>
       </form>
+      {alone ? (
+        <p className="mt-2 text-sm">
+          <a href={`/search?${new URLSearchParams({ q })}`} className="underline underline-offset-4">Search everything</a>
+        </p>
+      ) : null}
 
       {q.trim().length < 2 ? (
         <p className="mt-6 text-sm text-ink-500">Type at least two letters or a job number.</p>
@@ -46,6 +61,15 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                 </li>
               ))}
             </ul>
+            {group.more && group.seeAll ? (
+              <p className="mt-1 text-sm">
+                <a href={group.seeAll} className="underline underline-offset-4">
+                  See all {group.label.toLowerCase()} matching &quot;{q.trim()}&quot;
+                </a>
+              </p>
+            ) : group.more ? (
+              <p className="mt-1 text-sm text-ink-500">Showing the first {group.hits.length}. Add a word to narrow it.</p>
+            ) : null}
           </section>
         ))
       )}

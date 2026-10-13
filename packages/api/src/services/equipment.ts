@@ -2,9 +2,11 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { field, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext, type ExternalRef,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
 } from "./context";
 import { assertUnclaimed, provenance } from "./provenance";
+import { propertyVisibility } from "./scope";
+import { textFilter } from "./text-search";
 
 /**
  * THE EQUIPMENT AT AN ADDRESS
@@ -589,6 +591,35 @@ function treeFor(rows: ReturnType<typeof shape>[]): EquipmentView[] {
     (parent.children ??= []).push(row);
   }
   return top;
+}
+
+/**
+ * UNITS BY THE SERIAL ON THEIR STICKER, OR THEIR MAKE AND MODEL, FOR THE
+ * SEARCH BOX.
+ *
+ * Every word typed in the serial, the make or the model, retired units left
+ * out. A unit is narrowed by the address it is at, the way an address is
+ * (`propertyVisibility`): a technician finds the units where they have been
+ * sent, not the register.
+ */
+export async function findUnits(ctx: ServiceContext, input: { q: string; limit: number }) {
+  return guardedRead(ctx, "equipment:read", async (tx) => {
+    const rows = await tx.select({
+      id: schema.equipment.id, category: schema.equipment.category, tag: schema.equipment.tag,
+      manufacturer: schema.equipment.manufacturer, model: schema.equipment.model,
+      serialNumber: schema.equipment.serialNumber, street: schema.property.addressLine1,
+    }).from(schema.equipment)
+      .innerJoin(schema.property, eq(schema.property.id, schema.equipment.propertyId))
+      .where(and(
+        isNull(schema.equipment.deletedAt),
+        eq(schema.equipment.active, true),
+        textFilter(input.q, [schema.equipment.serialNumber, schema.equipment.manufacturer, schema.equipment.model]) ?? sql`false`,
+        propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.equipment.propertyId}`),
+      ))
+      .orderBy(asc(schema.equipment.category), asc(schema.equipment.id))
+      .limit(input.limit + 1);
+    return { data: rows.slice(0, input.limit), hasMore: rows.length > input.limit };
+  });
 }
 
 /** One unit, with everything known about it. */
