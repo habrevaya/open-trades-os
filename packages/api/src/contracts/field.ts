@@ -13,7 +13,7 @@ export const OperationKind = z.enum([
   "inspection.record",
   "estimate.create", "estimate.approve", "estimate.decline",
   "invoice.raise",
-  "task.claim", "task.close",
+  "task.claim", "task.close", "task.tick",
   "tip.record",
   "safety.sign",
   "expense.record",
@@ -479,6 +479,8 @@ export const getFieldSnapshot = defineRoute({
       overdue: z.boolean(),
       checklistTotal: z.number().int(),
       checklistDone: z.number().int(),
+      /** The checklist items in order, so they can be ticked with no signal. Empty for a task with none. */
+      checklist: z.array(z.object({ id: Uuid, label: z.string(), done: z.boolean() })),
     })),
     /**
      * The toolbox talks on this person's own sheet lines: the ones waiting for

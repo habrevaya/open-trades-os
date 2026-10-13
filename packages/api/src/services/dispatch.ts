@@ -1021,10 +1021,12 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
     const [row] = await tx.execute(sql`
       select coalesce(extract(epoch from greatest(
           (select max(updated_at) from public.task),
+          (select max(updated_at) from public.task_checklist_item),
           (select max(updated_at) from public.safety_meeting),
           (select max(coalesce(signed_at, created_at)) from public.safety_meeting_attendee)
         ))::bigint, 0)
         + (select count(*) from public.task where status in ('open', 'in_progress'))
+        + (select count(*) from public.task_checklist_item where done_at is not null)
         + (select count(*) from public.safety_meeting_attendee where signed_at is null) as revision`);
     return Number((row as { revision: number }).revision);
   }
@@ -1043,6 +1045,7 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
       (select max(updated_at) from public.estimate where job_id in ${jobs} or customer_id in ${customers}),
       (select max(updated_at) from public.job_line where job_id in ${jobs}),
       (select max(updated_at) from public.task),
+      (select max(updated_at) from public.task_checklist_item),
       (select max(updated_at) from public.service_report where visit_id in ${visits}),
       (select max(f.updated_at) from public.service_report_field f
          join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}),
@@ -1061,6 +1064,7 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
     + (select count(*) from public.estimate where job_id in ${jobs} or customer_id in ${customers})
     + (select count(*) from public.job_line where job_id in ${jobs})
     + (select count(*) from public.task where status in ('open', 'in_progress'))
+    + (select count(*) from public.task_checklist_item where done_at is not null)
     + (select count(*) from public.visit where id in ${visits})
     + (select count(*) from public.visit where job_id in ${jobs})
     + (select count(*) from public.business_hours)

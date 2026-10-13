@@ -474,8 +474,11 @@ export function Day({
         <div className="px-4 pb-4">
           <TasksPanel tasks={projected.tasks} zone={timezone}
                       onClaim={(taskId) => void perform((phone) => phone.queue.enqueue({ kind: "task.claim", subjectId: taskId }))}
-                      onDone={(taskId, outcome) => void perform((phone) => phone.queue.enqueue({
-                        kind: "task.close", subjectId: taskId, payload: outcome.trim() ? { outcome: outcome.trim() } : {},
+                      onTick={(taskId, payload) => void perform((phone) => phone.queue.enqueue({
+                        kind: "task.tick", subjectId: taskId, payload,
+                      }))}
+                      onDone={(taskId, payload) => void perform((phone) => phone.queue.enqueue({
+                        kind: "task.close", subjectId: taskId, payload,
                       }))} />
         </div>
       )}

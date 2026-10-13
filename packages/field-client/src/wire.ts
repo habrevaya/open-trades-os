@@ -192,6 +192,8 @@ export interface FieldTask {
   overdue: boolean;
   checklistTotal: number;
   checklistDone: number;
+  /** The items in order, so they can be ticked with no signal. Absent from older servers. */
+  checklist?: Array<{ id: string; label: string; done: boolean }> | undefined;
 }
 
 /** A toolbox talk this person is on the sheet for: their own line and nothing about anybody else's. */

@@ -183,10 +183,12 @@ export interface DayExpense {
 }
 
 /** A task from the office queue, with what this phone did to it laid over. */
-export interface DayTask extends FieldTask {
+export interface DayTask extends Omit<FieldTask, "checklist"> {
   /** Finished on this phone; it leaves the list once the server has it. */
   done: boolean;
   waiting: boolean;
+  /** The checklist, with what was ticked on this phone laid over it. Empty for a task with none, or from an older server. */
+  checklist: Array<{ id: string; label: string; done: boolean; waiting: boolean }>;
 }
 
 /** A toolbox talk on this person's sheet, with a signature drawn on this phone laid over. */
@@ -309,7 +311,9 @@ export function projectDay(input: {
 
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
-  const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
+  const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({
+    ...t, done: false, waiting: false, checklist: (t.checklist ?? []).map((i) => ({ ...i, waiting: false })),
+  }));
   const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
   const expenses: DayExpense[] = (input.snapshot?.expenses ?? []).map((e) => ({ ...e, waiting: false }));
 
@@ -347,6 +351,16 @@ export function projectDay(input: {
         receipts: 0,
         waiting,
       });
+      continue;
+    }
+    if (op.kind === "task.tick") {
+      const task = tasks.find((t) => t.id === op.subjectId);
+      const item = task?.checklist.find((i) => i.id === op.payload["itemId"]);
+      if (!task || !item) continue;
+      item.done = op.payload["done"] !== false;
+      item.waiting = waiting;
+      task.checklistDone = task.checklist.filter((i) => i.done).length;
+      task.waiting = task.waiting || waiting;
       continue;
     }
     if (op.kind === "task.claim" || op.kind === "task.close") {
@@ -422,7 +436,7 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     return typeof visitId === "string" ? visitId : undefined;
   }
   /** A task is the office's, not a visit's, a toolbox talk is nobody's visit, and an expense is the person's. */
-  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
   /** A receipt photograph is kept with its expense. */
   if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return undefined;
   return op.subjectId;

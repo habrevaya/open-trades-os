@@ -7,6 +7,7 @@ import { audit, guardedRead, timezoneOf, type ServiceContext } from "./context";
 import * as estimates from "./estimates";
 import * as billing from "./billing";
 import * as tasks from "./tasks";
+import * as taskChecklist from "./task-checklist";
 import * as tips from "./tips";
 import * as expenses from "./expenses";
 import * as financing from "./financing";
@@ -712,8 +713,8 @@ export async function expensesRevision(tx: Database, technicianId: string): Prom
 /* ------------------------------------------------------------------ tasks */
 
 /**
- * Taking a task and finishing it, from the phone, through the queue's own
- * service: claiming is conditional, so the second of two people taking the
+ * Taking a task, ticking its checklist and finishing it, from the phone, through the
+ * queue's own service: claiming is conditional, so the second of two people taking the
  * same task offline is told somebody else has it, and finishing your own
  * needs only `task:read`, the rule `tasks.close` already keeps.
  */
@@ -724,6 +725,13 @@ export async function taskOperation(tx: Database, ctx: ServiceContext, op: field
     const scoped = keyed(ctx, op, "task", sp);
     if (op.kind === "task.claim") {
       await tasks.claim(scoped, { id: taskId });
+      return null;
+    }
+    if (op.kind === "task.tick") {
+      /** The item, and the state it was left in, at the time the person did it. */
+      const itemId = uuid(op.payload["itemId"]);
+      if (!itemId) return "That names no checklist item.";
+      await taskChecklist.tick(scoped, { taskId, itemId, done: op.payload["done"] !== false, at: op.occurredAt });
       return null;
     }
     const outcome = text(op.payload["outcome"], 2000);
@@ -930,6 +938,12 @@ export async function tasksFor(tx: Database, ctx: ServiceContext) {
     ))
     .orderBy(sql`${schema.task.dueAt} asc nulls last`, desc(schema.task.priority))
     .limit(100);
+  const items = rows.length === 0 ? [] : await tx.select({
+    id: schema.taskChecklistItem.id, taskId: schema.taskChecklistItem.taskId,
+    label: schema.taskChecklistItem.label, doneAt: schema.taskChecklistItem.doneAt,
+  }).from(schema.taskChecklistItem)
+    .where(inArray(schema.taskChecklistItem.taskId, rows.map((r) => r.task.id)))
+    .orderBy(asc(schema.taskChecklistItem.position), asc(schema.taskChecklistItem.createdAt));
   const now = Date.now();
   return rows.map(({ task, checklistTotal, checklistDone }) => ({
     id: task.id,
@@ -942,6 +956,7 @@ export async function tasksFor(tx: Database, ctx: ServiceContext) {
     overdue: task.dueAt !== null && task.dueAt.getTime() < now,
     checklistTotal: Number(checklistTotal),
     checklistDone: Number(checklistDone),
+    checklist: items.filter((i) => i.taskId === task.id).map((i) => ({ id: i.id, label: i.label, done: i.doneAt !== null })),
   }));
 }
 

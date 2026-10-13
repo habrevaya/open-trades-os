@@ -175449,6 +175449,29 @@
                 },
                 "checklistDone": {
                   "type": "integer"
+                },
+                "checklist": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "done": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "done"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -175461,7 +175484,8 @@
                 "dueAt",
                 "overdue",
                 "checklistTotal",
-                "checklistDone"
+                "checklistDone",
+                "checklist"
               ]
             }
           },
@@ -200294,6 +200318,7 @@
                     "invoice.raise",
                     "task.claim",
                     "task.close",
+                    "task.tick",
                     "tip.record",
                     "safety.sign",
                     "expense.record"
@@ -253806,6 +253831,7 @@
                     "invoice.raise",
                     "task.claim",
                     "task.close",
+                    "task.tick",
                     "tip.record",
                     "safety.sign",
                     "expense.record"

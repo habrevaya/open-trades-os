@@ -129,7 +129,7 @@ describe("the reminder's words and the choice of jobs", () => {
     const { REVIEW_REMINDER_WORDING } = await import("../src/automation/index.js");
     for (const text of [REVIEW_REMINDER_WORDING.sms, REVIEW_REMINDER_WORDING.emailSubject, REVIEW_REMINDER_WORDING.emailBody]) {
       expect(text).not.toMatch(/five star|5 star|discount|free|\$|gift|reward|in exchange/i);
-      expect(text).not.toMatch(/—|–/);
+      expect(text).not.toMatch(/\u2014|\u2013/);
     }
     expect(REVIEW_REMINDER_WORDING.emailBody).toContain("only reminder");
   });

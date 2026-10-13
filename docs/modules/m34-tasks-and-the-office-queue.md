@@ -124,8 +124,9 @@ Three things put work in the queue without anybody creating it:
 A task can carry a checklist: given when it is created (on `/tasks`, or
 `checklist` on `POST /v1/tasks`), copied from a recurring template, or added to
 on the task's own page at `/tasks/{id}`. Items are ticked one at a time and
-each says who ticked it. The queue shows "2 of 5 ticked" on each task, and a
-task with a checklist is closed from its own page.
+each says who ticked it. The queue shows "2 of 5 ticked" on each task. A task with a
+checklist is closed from its own page, or on the phone and `/my-day`, where its items
+are ticked and the reason for unticked ones is asked for before it is sent.
 
 Closing as done with items unticked needs a reason, kept apart from the
 outcome (`checklistOverrideReason`), because "gauge missing, tyres not checked"
@@ -312,10 +313,19 @@ Dismissing, "we decided not to", is a judgement about whether the work was worth
 raising, so it stays with `task:write`, as does closing anybody else's task. The rule
 is in `tasks.close` rather than a wider grant, so nothing else a technician could do
 changed. On the phone and on `/my-day` a technician sees their own tasks and the ones
-nobody has taken, takes one and finishes their own, through the field queue (M11), so it
-works with no signal and the second of two people taking the same task is told somebody
-else has it. A task with a checklist is ticked and finished on its own page in a browser,
-not on the phone.
+nobody has taken, takes one, ticks its checklist and finishes their own, through the
+field queue (M11), so it works with no signal and the second of two people taking the
+same task is told somebody else has it. Ticking is the queue operation `task.tick`, an
+item set to ticked or not rather than flipped, kept per item by the time the person did
+it; the later of two ticks of one item wins when they arrive out of order, ticks of two
+items never replace each other, and a task finished meanwhile refuses a tick in words.
+Finishing with items unticked asks for the reason on the phone before it is sent, in
+the words the office's page uses, and keeps it apart from the outcome
+(`overrideReason` on `task.close`); the server asks again. The phone gets a task's items
+with the day and does not show them for a task nobody has taken, because ticking is for
+the person it is assigned to. Adding or removing an item is the office's, on the task's
+own page. The server stamps a tick with when it was done on the phone, so "ticked at"
+may be earlier than when it arrived.
 
 Escalation counts the clock unless a rule says working hours. A working hours rule reads
 the company's week and holiday list, not any one person's shift or leave, so a task

@@ -283,3 +283,42 @@ test("the one reminder to a customer who did not answer is turned on from the re
   await reminders.getByRole("button", { name: "Save" }).click();
   await expect(reminders).toContainText("Off. Each customer is asked once.");
 });
+
+test("a technician ticks a task's checklist and finishes it on /my-day, with a reason for what was left", async ({ owner, tech }) => {
+  const people = await api<{ people: { userId: string; name: string }[] }>(owner, "get", "/v1/reporting-lines");
+  const ray = people.people.find((p) => p.name === "Ray Ortiz")!;
+  const title = `Van check ${run}`;
+  const made = await api<{ id: string }>(owner, "post", "/v1/tasks", {
+    title, assigneeUserId: ray.userId, checklist: ["Tyres", "Fluids", "Lights"],
+  });
+
+  await tech.goto("/my-day");
+  await ready(tech);
+  const panel = tech.getByRole("region", { name: "Tasks" });
+  const card = panel.locator("div.rounded.border").filter({ hasText: title });
+  await expect(card).toContainText("0 of 3 ticked");
+
+  await card.getByLabel("Tyres").check();
+  await expect(card).toContainText("1 of 3 ticked");
+  await card.getByLabel("Tyres").uncheck();
+  await card.getByLabel("Tyres").check();
+  await card.getByLabel("Lights").check();
+  await expect(card).toContainText("2 of 3 ticked");
+
+  // One item is left, so finishing asks for a reason, in the office's words.
+  await card.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(card.getByRole("alert")).toHaveText("One item is not ticked. Tick it, or say why it is done anyway.");
+  await card.getByLabel(`Why items are unticked, ${title}`).fill("Fluids topped up at the yard");
+  await card.getByLabel(`What happened, ${title}`).fill("Van is fine");
+  await card.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(tech.getByText(/All sent/)).toBeVisible();
+
+  // And the office has it: the items ticked by Ray, the reason kept apart from the outcome.
+  const list = await api<{ items: { label: string; done: boolean; doneBy: string | null }[]; overrideReason: string | null }>(
+    owner, "get", `/v1/tasks/${made.id}/checklist`);
+  expect(list.items.map((i) => [i.label, i.done])).toEqual([["Tyres", true], ["Fluids", false], ["Lights", true]]);
+  expect(list.items[0]!.doneBy).toBe("Ray Ortiz");
+  expect(list.overrideReason).toBe("Fluids topped up at the yard");
+  await owner.goto(`/tasks/${made.id}`);
+  await expect(owner.getByText("Fluids topped up at the yard").first()).toBeVisible();
+});

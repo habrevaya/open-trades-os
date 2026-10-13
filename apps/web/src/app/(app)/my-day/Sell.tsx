@@ -5,6 +5,7 @@ import {
   MAX_OPTIONS, addBookLine, addOption, addRate, addTypedLine, builderProblem, builderTaxRate, carries, decidable, draftTotals,
   findInPriceBook, formatAmount, invoiceFromEstimate, invoiceFromWork, newBuilder, offersInBook, optionTotal, parseAmount,
   presentationOrder, rateAsBillable, recommend, removeLine, removeOption, renameOption, setOptional,
+  closePayload, closeProblem, tickPayload,
   type Builder, type DayTask, type DayVisit, type FieldAbilities, type FieldEstimateOption, type PriceBookEntry,
 } from "@opentradesos/field-client";
 import { SignaturePad } from "./SignaturePad";
@@ -588,11 +589,15 @@ export function CashTip({ visit, onRecord }: { visit: DayVisit; onRecord: (amoun
 /* ----------------------------------------------------------------- tasks */
 
 /** The office's queue on the day: take a task, finish your own. */
-export function TasksPanel({ tasks, zone, onClaim, onDone }: {
+export function TasksPanel({ tasks, zone, onClaim, onTick, onDone }: {
   tasks: DayTask[]; zone: string;
-  onClaim: (taskId: string) => void; onDone: (taskId: string, outcome: string) => void;
+  onClaim: (taskId: string) => void;
+  onTick: (taskId: string, payload: Record<string, unknown>) => void;
+  onDone: (taskId: string, payload: Record<string, unknown>) => void;
 }) {
   const [outcomes, setOutcomes] = useState<Record<string, string>>({});
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [problems, setProblems] = useState<Record<string, string | null>>({});
   const open = tasks.filter((t) => !t.done || t.waiting);
   if (open.length === 0) return null;
   return (
@@ -614,15 +619,34 @@ export function TasksPanel({ tasks, zone, onClaim, onDone }: {
             </p>
             {task.done && <p className="text-sm text-green-700">Done here.</p>}
             {!task.mine && !task.done && <button type="button" className={`${button} mt-2`} onClick={() => onClaim(task.id)}>Take it</button>}
-            {task.mine && !task.done && !checklist && (
-              <div className="mt-2 flex gap-2">
-                <input value={outcomes[task.id] ?? ""} onChange={(e) => setOutcomes({ ...outcomes, [task.id]: e.target.value })}
-                       placeholder="What happened" aria-label={`What happened, ${task.title}`} className={`${field} flex-[2]`} />
-                <button type="button" className={`${button} flex-1`} onClick={() => onDone(task.id, outcomes[task.id] ?? "")}>Done</button>
-              </div>
-            )}
             {task.mine && !task.done && checklist && (
-              <a href={`/tasks/${task.id}`} className="mt-2 block text-sm text-blue-600 underline underline-offset-4">Tick its checklist and finish it</a>
+              <ul className="mt-2 space-y-1" aria-label={`Checklist, ${task.title}`}>
+                {task.checklist.map((item) => (
+                  <li key={item.id}>
+                    <label className="flex min-h-12 items-center gap-3 text-base">
+                      <input type="checkbox" checked={item.done} className="h-6 w-6"
+                             onChange={() => onTick(task.id, tickPayload(item.id, !item.done))} />
+                      <span>{item.label}{item.waiting ? waitingNote : null}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {task.mine && !task.done && (
+              <div className="mt-2 space-y-2">
+                <input value={outcomes[task.id] ?? ""} onChange={(e) => setOutcomes({ ...outcomes, [task.id]: e.target.value })}
+                       placeholder="What happened" aria-label={`What happened, ${task.title}`} className={field} />
+                {task.checklist.some((i) => !i.done) && (
+                  <input value={reasons[task.id] ?? ""} onChange={(e) => setReasons({ ...reasons, [task.id]: e.target.value })}
+                         placeholder="Why it is done with items unticked" aria-label={`Why items are unticked, ${task.title}`} className={field} />
+                )}
+                {problems[task.id] && <p role="alert" className="rounded bg-red-tint px-3 py-2 text-sm text-red-600">{problems[task.id]}</p>}
+                <button type="button" className={button} onClick={() => {
+                  const wrong = closeProblem(task, reasons[task.id] ?? "");
+                  setProblems({ ...problems, [task.id]: wrong });
+                  if (!wrong) onDone(task.id, closePayload(task, outcomes[task.id] ?? "", reasons[task.id] ?? ""));
+                }}>Done</button>
+              </div>
             )}
           </div>
         );

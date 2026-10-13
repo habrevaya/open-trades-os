@@ -215,7 +215,8 @@ signal. Seven operation kinds:
 | `estimate.decline` | transition | The customer saying no, with why |
 | `invoice.raise` | transition | The invoice for the visit's work, shown and signed for |
 | `task.claim` | transition | Taking a task off the office's queue |
-| `task.close` | transition | Finishing your own task |
+| `task.close` | transition | Finishing your own task, with the reason when items are unticked |
+| `task.tick` | edit | Ticking an item of your own task's checklist, or unticking it |
 | `tip.record` | append | A cash tip the technician kept |
 
 **Building the options.** The price book the phone carries is searched with
@@ -314,8 +315,12 @@ moves the revision, so the next poll fetches it. Always the phone's own person
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes
 its own (`task.close`) through the queue's own services, so the second of two
-people taking the same task offline is told somebody else has it. A task with
-a checklist is finished on its own page, where the items are.
+people taking the same task offline is told somebody else has it. A task with a
+checklist carries its items with the day: the person it is assigned to ticks them one
+at a time (`task.tick`, an item set to ticked or not, the later of two ticks of one item
+winning), and finishing with items unticked needs the reason, which the phone asks for
+before it is sent, in the office's words, and sends beside the outcome. A task finished
+meanwhile refuses a tick in words.
 
 **Toolbox talks.** The snapshot carries the talks on the person's own sheet lines
 (`talks`), and "Toolbox talks to sign" on the day opens them: what was covered,
@@ -647,7 +652,8 @@ it is taxed is taxed, and labour is not. If the rate changes between the day bei
 fetched and the invoice landing, the invoice is kept as a draft for the office with
 the difference in words, as any other disagreement is. A signature for an invoice the customer was not
 there for can be skipped, and the invoice is raised unsigned. A task with a
-checklist is finished on its own page in a browser, not on the phone. The
+checklist shows its items to tick, one at a time, and is finished with the reason the
+office asks for when some are unticked (M34). The
 lender's link and the field assistant need a signal; nothing about them is
 queued.
 

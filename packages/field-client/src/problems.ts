@@ -56,6 +56,7 @@ const DID: Record<string, string> = {
   "invoice.raise": "The invoice you raised for",
   "task.claim": "Taking a task",
   "task.close": "Finishing a task",
+  "task.tick": "Ticking an item on a task",
   "tip.record": "A cash tip at",
   "safety.sign": "Signing a toolbox talk",
   "expense.record": "Money you paid for the company",
@@ -85,7 +86,7 @@ function whatYouDid(op: QueuedOperation, name: string | undefined): string {
   if (op.kind === "signature.capture" && op.payload["for"] === "safety_meeting") return "Your signature on a toolbox talk";
   const lead = DID[op.kind] ?? "Something you recorded";
   if (op.kind === "timeclock.punch_in" || op.kind === "timeclock.punch_out"
-    || op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign"
+    || op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign"
     || op.kind === "expense.record") return lead;
   if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return "A receipt photo";
   return `${lead} ${name ? `${name}'s job` : "a job"}`;
