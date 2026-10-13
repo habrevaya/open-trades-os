@@ -220,6 +220,22 @@ QuickBooks Online or Xero is connected at `/settings/integrations`.
 which account. Nothing syncs until the mappings it needs exist, because a default
 is worse than a refusal.
 
+`/settings/accounting` is the screen for both, under Settings beside
+Integrations, and needs `accounting:sync` like the routes (the accountant, who
+holds it and not `settings:read`, reaches it from a link on `/books`). It lists
+every account the product posts to, with its own name ("4000 Revenue from
+work"), where it goes in the books now, and a Needed mark on each one postings
+already use that has no mapping. The chart is read from the books only when
+somebody presses "Read the accounts from QuickBooks Online to change these":
+QuickBooks meters reads, so an ordinary visit reads nothing, and the mapping
+stores the name that was chosen so the page can show it without a read. The
+accounts and the books' products and services are then offered in one list per
+account, grouped as income, expenses, assets, liabilities and equity, with the
+current choice selected and an account switched off over there left out. One
+save maps every account that was changed, through `PUT /v1/accounting/mappings`'s
+own service, audited per account, and goes back to the plain page, so saving
+reads nothing again. A refusal names the account it stopped at.
+
 In QuickBooks, turn off **Automatically apply credits** (Account and settings,
 Advanced). With it on, QuickBooks applies a new credit memo to the customer's
 oldest open invoice by itself, which may not be the invoice it was used on here,
@@ -229,7 +245,12 @@ and shows on the problems list.
 To send branches, map each one with `PUT /v1/accounting/branch-mappings`
 (`businessUnitId`, the class or option's `externalId` and `externalName`, and
 for Xero the tracking category's `groupId` and `groupName`), choosing from
-`GET /v1/accounting/branch-options`. In QuickBooks, turn on **Track classes**
+`GET /v1/accounting/branch-options`. On `/settings/accounting` the same is a
+list of the company's branches (and a retired one while it is still mapped)
+with what each goes as; "Read the classes" reads the list from the books, only
+then, and one save maps every branch changed. "Stop sending" beside a mapped
+branch is `DELETE /v1/accounting/branch-mappings/{businessUnitId}`. A Xero
+option is shown with its category, "Region: North". In QuickBooks, turn on **Track classes**
 and set it to **One to each row in transaction** (Account and settings,
 Advanced): the class is sent on each line, and with one class per transaction
 QuickBooks ignores it.
@@ -257,7 +278,19 @@ branch's does not, and says why.
 stands, `GET /v1/accounting/runs` is the history, and
 `GET /v1/accounting/problems` is the documents it could not place, with
 `POST /v1/accounting/problems/{id}/retry` to offer one again. All of them need
-`accounting:sync`.
+`accounting:sync`. Each problem says whether it was refused (`failed`) or
+deleted in the books (`deleted`).
+
+The problems are on `/settings/accounting` too: each document in words with a
+link to its own page where it has one (an invoice, a void or write off of one,
+a credit note, a customer, a journal), what happened (refused and tried again
+on each sync, stopped after five tries, or deleted in the books) with the
+books' own reason, when it was last tried, and "Send it again", which is the
+retry: the attempts start again under the same claim, so it cannot reach the
+books twice. A document already waiting for the next sync is not offered the
+button. Running a pass and the run history have no screen; they are
+`POST /v1/accounting/sync` and `GET /v1/accounting/runs`, and the page says when
+the last pass started.
 
 ### Post a journal entry
 
@@ -356,9 +389,10 @@ and Xero's APIs (their documented request and response shapes), not against a
 live company in either. A line's job is not sent, because neither book has a
 place for it on a journal line. Payments and credit note applications carry no
 class or tracking option, because neither book's payment or allocation takes
-one. There is no screen for the account or branch mappings or for the problems
-list: they are API calls, and the only button is the one beside a deleted
-journal, refund or credit use. The deletion watch reads Xero's allocations only
+one. The account and branch mappings and the problems list are on
+`/settings/accounting`; running a pass, the run history and closing a period
+have no screen and are API calls. The mapping screen has been driven against a
+fake of QuickBooks' query and token endpoints only. The deletion watch reads Xero's allocations only
 when its credit note read lists them, does not watch the settlement a void
 makes in Xero, and in Xero watches a refund through its Spend Money and not the
 invoice that puts it back on the receivable; a credit paid back in Xero is not

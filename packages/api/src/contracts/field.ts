@@ -149,6 +149,11 @@ export const registerDevice = defineRoute({
      *  installation id picks up its old sequence rather than starting at one
      *  and colliding with everything it already sent. */
     lastSequence: z.number().int(),
+    /**
+     * The office took this device away after the sign in making the request
+     * began, so its sync is refused. Signing in again lifts it.
+     */
+    revoked: z.boolean(),
   }),
 });
 

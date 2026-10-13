@@ -156,6 +156,29 @@ that is about one visit rather than the job: a report's records, a deadline, a
 customer's request to move it. `GET /v1/visits/{id}` is the same read. It is
 scoped by the job, so a visit on work somebody was never sent to is not found.
 
+### Print a work order
+
+"Download the work order" on `/jobs/{id}` is the job as a PDF
+(`/jobs/{id}/work-order`): the number with its branch's code ("RR-1042") and
+the branch by name, the status and the kind of job, the customer with their
+phone, the address with the property's access and hazard notes, what the
+customer said and the job's description, each visit still going ahead with
+its window in the company's own clock, its status, who was sent (the lead
+first), when work started and finished, and its checklist with what is already
+done marked, then the parts and labour used with prices, and lines for the
+customer's signature, their name, the date and the technician. "Print for the
+technician, without prices" (`?for=technician`) is the copy for the van: the
+same, read without a single price, so there is none to leave out by mistake.
+With nothing recorded yet it leaves rows to write in what was used. Both are
+printed with the bundled Noto Sans by core's `pdf` module, like the invoice.
+
+It downloads under `job:read` and the job's own scope, the same as the page: a
+technician who sees only their own work gets their own jobs and a not found
+for the rest. No copy prints what a part cost the company, the gate code or the
+technician's own notes, because the office copy is the one handed to a customer
+to sign, and the technician has the gate code and their notes on their phone.
+A cancelled visit is left off.
+
 ### See what it cost
 
 `GET /v1/jobs/{id}/lines` is what was used. `GET /v1/jobs/{jobId}/material-cost`
@@ -222,7 +245,10 @@ person applies (M09), not an automatic reorder. A job can add skills of its own
 to its type's and drop one of its type's with a reason, one skill at a time: there is no
 "drop for every job of this type" (that is editing the type), and no expiry on a drop. The
 public booking page's count of free slots reads the job type's skills only, because there is no
-job yet to drop anything from. Booking with a technician who
+job yet to drop anything from. The work order PDF is printed from the job page
+and is not an API route; it carries no photographs and no signature already
+taken on the phone, only blank lines to sign on paper, and nothing signed on
+paper comes back into the job. Booking with a technician who
 is refused has no override; book the visit unassigned and send them from the
 board. Cancelling a job does not cancel its visits unless the office ticks
 it; an API caller has to ask with `cancelVisits`, so an integration that

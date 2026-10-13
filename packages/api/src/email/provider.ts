@@ -181,9 +181,29 @@ export interface InboundEmail {
   text: string | null;
   html: string | null;
   headers: Record<string, string>;
-  /** The names of any files that came with it. The files themselves are not fetched. */
-  attachments: { fileName: string; contentType: string }[];
+  /**
+   * The files that came with it, as the provider named them. The bytes are
+   * fetched separately (`fetchAttachment`) and only for the ones worth
+   * fetching; `bytes` is set once they have been, and `unavailable` says why
+   * one could not be.
+   */
+  attachments: InboundAttachment[];
 }
+
+export interface InboundAttachment {
+  /** The provider's own id for the file, which is what fetching it takes. */
+  id?: string | undefined;
+  fileName: string;
+  contentType: string;
+  /** What the provider says it weighs, once it has said. */
+  size?: number | null | undefined;
+  bytes?: Uint8Array | undefined;
+  unavailable?: string | undefined;
+}
+
+export type InboundAttachmentFetch =
+  | { ok: true; bytes: Uint8Array; size: number | null }
+  | { ok: false; message: string; tooLarge?: boolean };
 
 export type InboundBody =
   | { ok: true; text: string | null; html: string | null; headers: Record<string, string> }
@@ -203,6 +223,13 @@ export type InboundFeedback =
       parse(request: WebhookRequest): InboundEmail | null;
       /** The words, when the webhook carried only the envelope. */
       fetchBody(providerMessageId: string): Promise<InboundBody>;
+      /**
+       * One file that came with an email, read no further than `maxBytes`:
+       * a file the provider says is bigger is not downloaded, and one that
+       * turns out bigger is cut off and refused. Absent on a provider that
+       * cannot hand files over, whose files are then named and not kept.
+       */
+      fetchAttachment?(providerMessageId: string, attachment: InboundAttachment, maxBytes: number): Promise<InboundAttachmentFetch>;
     }
   | { kind: "none"; because: string };
 

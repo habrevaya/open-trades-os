@@ -484,12 +484,16 @@ async function replyByEmail(
 }
 
 /**
- * A picture from a thread, for the screen that shows it.
+ * A picture or a file from a thread, for the screen that shows it and the
+ * download that saves it.
  *
  * `message:read` and the conversation scope, the same as reading the thread:
- * a picture a customer sent is what they said. Only a stored file some
- * message in THIS thread points at is served, so a storage key from another
- * thread, guessed or copied, is not found.
+ * a picture a customer sent, or the PDF on their email, is what they said.
+ * Only a stored file some message in THIS thread points at is served, so a
+ * storage key from another thread, guessed or copied, is not found, and row
+ * level security keeps another company's out of reach whatever the key says.
+ * The name is the one the email carried, cleaned, for a download to be saved
+ * under; a text's picture has none.
  */
 export async function picture(ctx: ServiceContext, input: { conversationId: string; storageKey: string }) {
   return guardedRead(ctx, "message:read", async (tx) => {
@@ -500,16 +504,21 @@ export async function picture(ctx: ServiceContext, input: { conversationId: stri
         conversationScopeFilter(scopeOf(ctx, "conversation"), ctx.actor),
       )).limit(1);
     if (!conversation) throw new NotFoundError("Picture");
-    const [message] = await tx.select({ id: schema.message.id }).from(schema.message)
+    const [message] = await tx.select({ id: schema.message.id, media: schema.message.media }).from(schema.message)
       .where(and(
         eq(schema.message.conversationId, conversation.id),
         sql`${schema.message.media} @> ${JSON.stringify([{ storageKey: input.storageKey }])}::jsonb`,
       )).limit(1);
     if (!message) throw new NotFoundError("Picture");
     const [file] = await tx.select().from(schema.storedFile)
-      .where(and(eq(schema.storedFile.storageKey, input.storageKey), isNull(schema.storedFile.deletedAt))).limit(1);
+      .where(and(
+        eq(schema.storedFile.organizationId, ctx.actor.organizationId),
+        eq(schema.storedFile.storageKey, input.storageKey),
+        isNull(schema.storedFile.deletedAt),
+      )).limit(1);
     if (!file) throw new NotFoundError("Picture");
-    return { bytes: await files.bytesOf(file), contentType: file.contentType, sizeBytes: file.sizeBytes };
+    const name = message.media.find((item) => item.storageKey === input.storageKey)?.name ?? null;
+    return { bytes: await files.bytesOf(file), contentType: file.contentType, sizeBytes: file.sizeBytes, name };
   });
 }
 
@@ -624,7 +633,7 @@ export const handlers = {
         : null,
       messages: found.messages.map((raw) => {
         const m = raw as Record<string, unknown>;
-        const media = (m["media"] ?? []) as { contentType: string; storageKey?: string; refused?: string }[];
+        const media = (m["media"] ?? []) as { contentType: string; storageKey?: string; refused?: string; name?: string }[];
         return {
           id: String(m["id"]),
           direction: String(m["direction"]),
@@ -635,11 +644,14 @@ export const handlers = {
           fromAddress: String(m["fromAddress"] ?? ""),
           createdAt: iso(m["createdAt"] as Date)!,
           readAt: iso(m["readAt"] as Date | null),
-          /** Pictures kept here by their storage key; anything not kept, with why. */
+          /** An email's HTML part as plain text; never the HTML. */
+          htmlText: (m["htmlText"] ?? null) as string | null,
+          /** Pictures and files kept here by their storage key; anything not kept, with why. */
           media: media.map((item) => ({
             contentType: item.contentType,
             storageKey: item.storageKey ?? null,
             refused: item.refused ?? null,
+            name: item.name ?? null,
           })),
         };
       }),

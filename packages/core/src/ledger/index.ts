@@ -70,6 +70,37 @@ export const ACCOUNTS = {
   WRITE_OFF: "6900",
 } as const;
 
+/**
+ * WHAT EACH OF THE PRODUCT'S OWN ACCOUNTS IS CALLED, in the words a bookkeeper
+ * would put beside the code. For screens that ask somebody to choose where an
+ * account goes in their books: a list of bare numbers asks them to know this
+ * chart by heart. A code a company added itself has no name here, and
+ * `accountName` answers null for it rather than guessing.
+ */
+export const ACCOUNT_NAMES: Readonly<Record<string, string>> = {
+  [ACCOUNTS.CASH]: "Undeposited funds",
+  [ACCOUNTS.AR]: "Accounts receivable",
+  [ACCOUNTS.RETAINAGE_RECEIVABLE]: "Retainage receivable",
+  [ACCOUNTS.INVENTORY]: "Stock (late freight and duty)",
+  [ACCOUNTS.ACCOUNTS_PAYABLE]: "Accounts payable",
+  [ACCOUNTS.TAX_PAYABLE]: "Sales tax payable",
+  [ACCOUNTS.TIPS_PAYABLE]: "Tips owed to technicians",
+  [ACCOUNTS.COMMISSION_PAYABLE]: "Commission owed",
+  [ACCOUNTS.CUSTOMER_DEPOSITS]: "Customer deposits",
+  [ACCOUNTS.DEFERRED_REVENUE]: "Deferred agreement revenue",
+  [ACCOUNTS.REVENUE]: "Revenue from work",
+  [ACCOUNTS.REVENUE_AGREEMENT]: "Revenue from agreements",
+  [ACCOUNTS.DISCOUNTS]: "Discounts given",
+  [ACCOUNTS.COGS]: "Cost of goods sold",
+  [ACCOUNTS.COMMISSION_EXPENSE]: "Commission",
+  [ACCOUNTS.PROCESSING_FEES]: "Card processing fees",
+  [ACCOUNTS.WRITE_OFF]: "Bad debt written off",
+};
+
+export function accountName(accountCode: string): string | null {
+  return ACCOUNT_NAMES[accountCode.trim()] ?? null;
+}
+
 export type Direction = "debit" | "credit";
 
 /** The five things an account can be. Nothing else is a class. */

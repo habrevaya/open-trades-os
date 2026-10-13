@@ -577,6 +577,14 @@ export const message = pgTable("message", {
    */
   subject: text("subject"),
   bodyHtml: text("body_html"),
+  /**
+   * The words of an INBOUND email's HTML part, as plain text: tags, scripts,
+   * styles and comments gone. Its HTML is never kept, so nothing can ever
+   * render a customer's (or a stranger's) markup as this site, and the thread
+   * shows this as text when it says more than the plain part did. `body_html`
+   * stays empty on an inbound email; it is what an outgoing one was sent as.
+   */
+  htmlText: text("html_text"),
   headers: jsonb("headers").$type<Record<string, string>>().notNull().default({}),
   /**
    * Pictures and files that came with a text, or went with one.
@@ -587,11 +595,13 @@ export const message = pgTable("message", {
    * address carrying `publicKey`, unguessable and good for a week), or the
    * carrier's own address for something that was not kept. `refused` says
    * why an inbound file was not kept, in words, so the thread can show
-   * something other than a gap.
+   * something other than a gap. `name` is the file's name as an email
+   * carried it (cleaned of folders and control characters), for the thread
+   * and for the download; a text's pictures have none.
    */
   media: jsonb("media").$type<{
     url: string; contentType: string; bytes?: number;
-    storageKey?: string; publicKey?: string; refused?: string;
+    storageKey?: string; publicKey?: string; refused?: string; name?: string;
   }[]>()
     .notNull().default([]),
   status: messageStatus("status").notNull(),

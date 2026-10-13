@@ -64,7 +64,7 @@ const DEFAULT_PUSH_LIMIT = 100;
  * invisible because each pass looks like the last. With one, it stops and
  * shows up on the status screen as something a person has to look at.
  */
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 
 /** The one value `sync_run.blocked_reason` takes today. See the column. */
 export const READ_BUDGET_EXHAUSTED = "read_budget_exhausted";
@@ -2914,6 +2914,7 @@ export async function listProblems(ctx: ServiceContext) {
       kind: schema.accountingEntityLink.kind,
       entityId: schema.accountingEntityLink.entityId,
       idempotencyKey: schema.accountingEntityLink.idempotencyKey,
+      state: schema.accountingEntityLink.state,
       attempts: schema.accountingEntityLink.attempts,
       lastError: schema.accountingEntityLink.lastError,
       updatedAt: schema.accountingEntityLink.updatedAt,
@@ -2926,7 +2927,7 @@ export async function listProblems(ctx: ServiceContext) {
       ))
       .orderBy(desc(schema.accountingEntityLink.updatedAt))
       .limit(100);
-    return rows;
+    return rows.map((row) => ({ ...row, state: row.state === "deleted" ? "deleted" as const : "failed" as const }));
   });
 }
 

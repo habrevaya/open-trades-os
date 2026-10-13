@@ -67,7 +67,9 @@ export async function authenticate(
     const tokenHash = hashToken(device[1]!);
     const session = await resolveSession(deps.db, tokenHash);
     if (!session) return null;
-    return { ctx: { actor: session.actor, db: deps.db, deviceTokenHash: tokenHash } };
+    return {
+      ctx: { actor: session.actor, db: deps.db, deviceTokenHash: tokenHash, sessionStartedAt: session.sessionStartedAt },
+    };
   }
 
   const bearer = header ? BEARER.exec(header) : null;
@@ -108,7 +110,7 @@ export async function authenticate(
 
   const user = await deps.session();
   if (!user) return null;
-  return { ctx: { actor: user.actor, db: deps.db } };
+  return { ctx: { actor: user.actor, db: deps.db, sessionStartedAt: user.sessionStartedAt } };
 }
 
 /**

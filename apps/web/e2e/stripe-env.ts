@@ -6,6 +6,7 @@ import { E2E_AI_ENV } from "./ai-env";
 import { E2E_WISETACK_ENV } from "./wisetack-env";
 import { E2E_VOICE_RELAY_ENV } from "./voice-relay-env";
 import { E2E_MARKETING_ENV } from "./marketing-env";
+import { E2E_QUICKBOOKS_ENV } from "./quickbooks-env";
 
 /**
  * The two Stripe secrets the browser suite starts the server with, and the
@@ -76,7 +77,7 @@ function secretsOnly(env: Record<string, string>): Record<string, string> {
 export const E2E_SERVER_ENV: Record<string, string> = {
   ...Object.fromEntries(Object.entries({
     ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...secretsOnly(E2E_ADS_ENV), ...E2E_AI_ENV,
-    ...E2E_WISETACK_ENV, ...E2E_MARKETING_ENV,
+    ...E2E_WISETACK_ENV, ...E2E_MARKETING_ENV, ...E2E_QUICKBOOKS_ENV,
   }).map(([name, value]) => [
     variableFor(E2E_ORGANIZATION_ID, name), value,
   ])),

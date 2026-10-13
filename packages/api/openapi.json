@@ -169071,6 +169071,12 @@
                 "fromAddress": {
                   "type": "string"
                 },
+                "htmlText": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "media": {
                   "type": "array",
                   "items": {
@@ -169090,12 +169096,19 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "required": [
                       "contentType",
                       "storageKey",
-                      "refused"
+                      "refused",
+                      "name"
                     ]
                   }
                 }
@@ -169110,6 +169123,7 @@
                 "readAt",
                 "subject",
                 "fromAddress",
+                "htmlText",
                 "media"
               ]
             }
@@ -195434,6 +195448,13 @@
                 "idempotencyKey": {
                   "type": "string"
                 },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "failed",
+                    "deleted"
+                  ]
+                },
                 "attempts": {
                   "type": "integer"
                 },
@@ -195453,6 +195474,7 @@
                 "kind",
                 "entityId",
                 "idempotencyKey",
+                "state",
                 "attempts",
                 "lastError",
                 "updatedAt"
@@ -233591,11 +233613,15 @@
           },
           "lastSequence": {
             "type": "integer"
+          },
+          "revoked": {
+            "type": "boolean"
           }
         },
         "required": [
           "deviceId",
-          "lastSequence"
+          "lastSequence",
+          "revoked"
         ]
       },
       "RegisterEquipmentInput": {

@@ -278,6 +278,12 @@ export const listAccountingProblems = defineRoute({
       kind: AccountingDocumentKind,
       entityId: Uuid,
       idempotencyKey: z.string(),
+      /**
+       * `failed`: refused, or offered five times and stopped. `deleted`: it
+       * reached the books and was deleted there. Sending it again is the
+       * retry either way.
+       */
+      state: z.enum(["failed", "deleted"]),
       attempts: z.number().int(),
       lastError: z.string().nullable(),
       updatedAt: z.string().datetime(),

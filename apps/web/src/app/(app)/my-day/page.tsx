@@ -70,10 +70,15 @@ export default async function MyDayPage({
    * only looks the device up. Registering also lifts a revocation, and a fetch
    * the person never made must not undo the office taking this browser away.
    */
+  /**
+   * With the moment this sign in began, which is what decides whether
+   * opening the day lifts a revocation: only a sign in newer than the office
+   * taking this browser away does, so reloading the page does not undo it.
+   */
   const installationId = `web:${user.userId}`;
   const fillingCache = (await headers()).get(CACHE_FILL_HEADER) === "1";
   const device = (fillingCache ? await fieldOps.registered(ctx, installationId) : null)
-    ?? await fieldOps.register(ctx, { installationId, label: "Browser" });
+    ?? await fieldOps.register({ ...ctx, sessionStartedAt: user.sessionStartedAt }, { installationId, label: "Browser" });
 
   const snapshot = await dispatch.snapshot(ctx, {
     deviceId: device.deviceId,
@@ -91,6 +96,12 @@ export default async function MyDayPage({
   return (
     <>
     <div className="mx-4 mt-2"><OfflineReady person={user.userId} /></div>
+    {device.revoked ? (
+      <p role="alert" className="mx-4 mt-3 rounded bg-red-tint px-3 py-2 text-sm text-red-600">
+        The office has stopped this browser sending your work. Nothing you do here reaches the office.
+        Sign out and sign in again, or ask the office.
+      </p>
+    ) : null}
     <SafetyTalks talks={talks} timezone={user.organizationTimezone} />
     {can(user.actor, "safety:report") ? (
       <p className="mx-4 mt-3 text-sm">
