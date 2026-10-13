@@ -1870,8 +1870,8 @@ grant execute on function app.estimate_expiry_organizations(int, date) to backgr
 -- policy said to send later is sent by the worker when its time comes. The
 -- worker has no tenant until it picks one, so it asks here which companies have
 -- one due and nothing else: a list of ids. A request an automation queued is
--- not listed (its own run sends it), and a suspended company is left alone, like
--- every other pass.
+-- not listed (its own run sends it), a company with an ask old enough for its one
+-- reminder is, and a suspended company is left alone, like every other pass.
 drop function if exists app.review_ask_organizations(int);
 create or replace function app.review_ask_organizations(p_limit int default 200, p_now timestamptz default null)
 returns table (organization_id uuid)
@@ -1884,6 +1884,15 @@ returns table (organization_id uuid)
          and r.deleted_at is null
          and r.send_at is not null
          and r.send_at <= coalesce(p_now, now())
+      union
+      -- An ask that went out and is old enough for the one reminder, in a company that turned reminders on.
+      select r.organization_id from public.review_request r
+       join public.review_policy p on p.organization_id = r.organization_id and p.active and p.deleted_at is null
+       where r.state = 'sent'
+         and r.deleted_at is null
+         and r.reminder_at is null
+         and p.reminder_after_days is not null
+         and r.sent_at <= coalesce(p_now, now()) - make_interval(days => p.reminder_after_days)
     ) x
     where not exists (
       select 1 from public.organization o

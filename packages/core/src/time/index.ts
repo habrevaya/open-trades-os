@@ -278,3 +278,72 @@ export function leaveOnDay(
     && merged[0]!.endsAt.getTime() === day.end.getTime();
   return { whole, spans: whole ? [] : merged };
 }
+
+/**
+ * WHETHER LEAVE MEETS A STRETCH OF TIME.
+ *
+ * The question a planner asks about a visit: not "is this person off today"
+ * but "is this person off when it is". Half open, like every interval here:
+ * leave that ends the moment the visit begins, or begins the moment it ends,
+ * does not meet it. This is the rule booking applies to a window and the
+ * board applies to the jobs it warns of.
+ */
+export function leaveMeets(
+  leave: ReadonlyArray<{ startsAt: Date; endsAt: Date }>,
+  span: { start: Date; end: Date },
+): boolean {
+  return leave.some((l) => l.startsAt.getTime() < span.end.getTime() && l.endsAt.getTime() > span.start.getTime());
+}
+
+/**
+ * The hours a visit occupies: its arrival window, or the length of the work
+ * from its start when it was booked without an end. Never empty, so a window
+ * of no length still meets the leave it falls inside. Null for a visit with no
+ * start, which has no hours to ask about.
+ */
+export function visitSpan(
+  windowStart: Date | null, windowEnd: Date | null, durationMinutes: number,
+): { start: Date; end: Date } | null {
+  if (!windowStart) return null;
+  const end = windowEnd && windowEnd.getTime() > windowStart.getTime()
+    ? windowEnd
+    : new Date(windowStart.getTime() + Math.max(1, durationMinutes) * 60_000);
+  return { start: windowStart, end };
+}
+
+/**
+ * WHETHER LEAVE COVERS ALL OF A STRETCH OF TIME, give or take a minute.
+ *
+ * Whole days are written as the start of the first day to the start of the day
+ * after the last, but other clients write the end of a day as 23:59, and a
+ * person off until 23:59 is off for the day. So a gap of `slackMinutes` or
+ * less, at either end or between two rows, does not count as time they are
+ * there. Rows that run past the stretch cover it, however far.
+ */
+export function leaveCovers(
+  leave: ReadonlyArray<{ startsAt: Date; endsAt: Date }>,
+  span: { start: Date; end: Date },
+  slackMinutes = 1,
+): boolean {
+  const slack = slackMinutes * 60_000;
+  const rows = leave
+    .map((l) => ({ from: Math.max(l.startsAt.getTime(), span.start.getTime()), to: Math.min(l.endsAt.getTime(), span.end.getTime()) }))
+    .filter((l) => l.from < l.to)
+    .sort((a, b) => a.from - b.from);
+  if (rows.length === 0) return false;
+  let reached = span.start.getTime();
+  for (const row of rows) {
+    if (row.from - reached > slack) return false;
+    if (row.to > reached) reached = row.to;
+  }
+  return span.end.getTime() - reached <= slack;
+}
+
+/** The hours of a part day off in words: "1:00 PM to 5:00 PM", in the company's own clock. */
+export function describeLeave(
+  spans: ReadonlyArray<{ startsAt: Date; endsAt: Date }>, timeZone: string,
+): string {
+  const clock = (instant: Date) =>
+    instant.toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
+  return spans.map((s) => `${clock(s.startsAt)} to ${clock(s.endsAt)}`).join(" and ");
+}

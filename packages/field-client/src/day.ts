@@ -1,7 +1,7 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
 import type {
-  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTalk, FieldTask, FieldVisit, MemberTerms, ReportField, VisitTax,
+  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTalk, FieldTask, FieldVisit, MemberTerms, RateOffer, ReportField, VisitTax,
 } from "./wire";
 import { addAmounts, estimateFromPayload } from "./sales";
 
@@ -183,10 +183,12 @@ export interface DayExpense {
 }
 
 /** A task from the office queue, with what this phone did to it laid over. */
-export interface DayTask extends FieldTask {
+export interface DayTask extends Omit<FieldTask, "checklist"> {
   /** Finished on this phone; it leaves the list once the server has it. */
   done: boolean;
   waiting: boolean;
+  /** The checklist, with what was ticked on this phone laid over it. Empty for a task with none, or from an older server. */
+  checklist: Array<{ id: string; label: string; done: boolean; waiting: boolean }>;
 }
 
 /** A toolbox talk on this person's sheet, with a signature drawn on this phone laid over. */
@@ -207,8 +209,13 @@ export interface DayInspection {
 /** What an older server's day means for tax: none on recorded work, as it charged. */
 const NO_TAX: VisitTax = { rate: "0", percent: "0", label: null, source: "none", note: "No rate applies." };
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices"> {
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices" | "rateOffers"> {
   checklist: DayChecklistItem[];
+  /**
+   * The after hours or holiday rate on offer for an estimate and for an invoice, each with why. What this phone
+   * has already put on an estimate or an invoice is taken off, so an offer taken is not offered again.
+   */
+  rateOffers: { forEstimate: RateOffer[]; forInvoice: RateOffer[] };
   /** The plan the customer is a member on here, which prices what the phone shows. */
   member: MemberTerms | null;
   /** The visit's sales tax, as the server will charge it. None from a server too old to say. */
@@ -284,6 +291,10 @@ export function projectDay(input: {
       tax: visit.tax ?? NO_TAX,
       estimates: (visit.estimates ?? []).map((e) => ({ ...e, waiting: false })),
       billable: (visit.billable ?? []).map((b) => ({ ...b, waiting: false })),
+      rateOffers: {
+        forEstimate: [...(visit.rateOffers?.forEstimate ?? [])],
+        forInvoice: [...(visit.rateOffers?.forInvoice ?? [])],
+      },
       invoices: (visit.invoices ?? []).map((i) => ({ ...i, waiting: false })),
       cashTips: [],
       payments: [],
@@ -300,7 +311,9 @@ export function projectDay(input: {
 
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
-  const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
+  const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({
+    ...t, done: false, waiting: false, checklist: (t.checklist ?? []).map((i) => ({ ...i, waiting: false })),
+  }));
   const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
   const expenses: DayExpense[] = (input.snapshot?.expenses ?? []).map((e) => ({ ...e, waiting: false }));
 
@@ -338,6 +351,16 @@ export function projectDay(input: {
         receipts: 0,
         waiting,
       });
+      continue;
+    }
+    if (op.kind === "task.tick") {
+      const task = tasks.find((t) => t.id === op.subjectId);
+      const item = task?.checklist.find((i) => i.id === op.payload["itemId"]);
+      if (!task || !item) continue;
+      item.done = op.payload["done"] !== false;
+      item.waiting = waiting;
+      task.checklistDone = task.checklist.filter((i) => i.done).length;
+      task.waiting = task.waiting || waiting;
       continue;
     }
     if (op.kind === "task.claim" || op.kind === "task.close") {
@@ -413,7 +436,7 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     return typeof visitId === "string" ? visitId : undefined;
   }
   /** A task is the office's, not a visit's, a toolbox talk is nobody's visit, and an expense is the person's. */
-  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
   /** A receipt photograph is kept with its expense. */
   if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return undefined;
   return op.subjectId;
@@ -501,6 +524,9 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
     case "estimate.create": {
       if (!op.subjectId || visit.estimates.some((e) => e.id === op.subjectId)) return;
       visit.estimates.unshift({ ...estimateFromPayload(op.subjectId, p, visit.member), jobId: visit.jobId, waiting });
+      /** An offered rate that went on it is not on offer again. */
+      const used = new Set(estimateItemIds(p));
+      visit.rateOffers.forEstimate = visit.rateOffers.forEstimate.filter((o) => !used.has(o.itemId));
       return;
     }
     case "estimate.approve":
@@ -535,6 +561,8 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
       } else if (Array.isArray(p["jobLineIds"])) {
         const billed = new Set(p["jobLineIds"] as string[]);
         visit.billable = visit.billable.filter((b) => !billed.has(b.id));
+        const rated = new Set(rateItemIds(p));
+        visit.rateOffers.forInvoice = visit.rateOffers.forInvoice.filter((o) => !rated.has(o.itemId));
       }
       return;
     }
@@ -560,6 +588,19 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
     default:
       return;
   }
+}
+
+/** The price book items on an estimate's payload, option by option. */
+function estimateItemIds(payload: Record<string, unknown>): string[] {
+  const options = Array.isArray(payload["options"]) ? payload["options"] as Array<Record<string, unknown>> : [];
+  return options.flatMap((option) => (Array.isArray(option["lines"]) ? option["lines"] as Array<Record<string, unknown>> : []))
+    .map((line) => line["priceBookItemId"]).filter((id): id is string => typeof id === "string");
+}
+
+/** The rate items an invoice's payload asked to carry. */
+function rateItemIds(payload: Record<string, unknown>): string[] {
+  const rates = Array.isArray(payload["rateItems"]) ? payload["rateItems"] as Array<Record<string, unknown>> : [];
+  return rates.map((r) => r["priceBookItemId"]).filter((id): id is string => typeof id === "string");
 }
 
 /**

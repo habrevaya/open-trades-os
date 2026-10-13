@@ -64,6 +64,8 @@ export const OPERATION_KINDS = [
   // The office queue, from the phone: taking a task and finishing it.
   "task.claim",
   "task.close",
+  // Ticking an item of a task's checklist, or unticking it.
+  "task.tick",
   // A cash tip handed to the technician and kept, recorded for payroll.
   "tip.record",
   // A toolbox talk signed on the phone, with a drawn signature sent as an upload.
@@ -170,6 +172,15 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    */
   "task.claim": "transition",
   "task.close": "transition",
+
+  /**
+   * An item of a task's checklist is ticked or unticked, a state set rather than
+   * flipped: the latest by the time the person did it wins, per item, so two
+   * ticks of one item sent out of order land on the later, and ticks of two items
+   * never replace each other. A task finished or taken away meanwhile refuses it
+   * in the queue's own words.
+   */
+  "task.tick": "edit",
 
   /**
    * Money a customer handed the technician for themselves. It happened, it

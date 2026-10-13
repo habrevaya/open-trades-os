@@ -1172,6 +1172,7 @@ async function effect(
 
     case "task.claim":
     case "task.close":
+    case "task.tick":
       return fieldSales.taskOperation(tx, ctx, op);
 
     case "tip.record":
@@ -1302,9 +1303,10 @@ async function lastEditFor(
       eq(schema.fieldOperation.kind, op.kind),
       inArray(schema.fieldOperation.status, ["applied", "conflicted"]),
       // Same field, not merely the same subject. Two people filling in two
-      // different boxes on one form are not editing the same thing.
-      sql`${schema.fieldOperation.payload}->>'field' is not distinct from ${
-        (op.payload["field"] as string | undefined) ?? null
+      // different boxes on one form are not editing the same thing. A checklist
+      // item names itself `itemId`, which is the same idea.
+      sql`coalesce(${schema.fieldOperation.payload}->>'field', ${schema.fieldOperation.payload}->>'itemId') is not distinct from ${
+        (op.payload["field"] as string | undefined) ?? (op.payload["itemId"] as string | undefined) ?? null
       }`,
     ));
 

@@ -67,6 +67,11 @@ export interface FieldVisit {
   estimates?: FieldEstimate[] | undefined;
   /** Parts and charges on the job not yet billed. Absent from older servers. */
   billable?: BillableLine[] | undefined;
+  /**
+   * The after hours or holiday rate, offered because a visit on this job was booked outside the company's hours
+   * or on a holiday. Absent from older servers, which is read as none offered.
+   */
+  rateOffers?: { forEstimate: RateOffer[]; forInvoice: RateOffer[] } | undefined;
   /** The job's invoices, other than void ones. Absent from older servers. */
   invoices?: FieldInvoice[] | undefined;
   /**
@@ -74,6 +79,18 @@ export interface FieldVisit {
    * a warranty registration), read only. Absent from older servers.
    */
   records?: FieldRecord[] | undefined;
+}
+
+/** A rate the company charges for work outside its hours or on a holiday, offered and never added. */
+export interface RateOffer {
+  kind: "after_hours" | "holiday";
+  /** The price book item, which the phone prices from the book it carries. */
+  itemId: string;
+  name: string;
+  /** How many of the job's visits it is for, which is the quantity offered. */
+  quantity: number;
+  /** One sentence per visit: "2026-10-06 at 19:00, after the 17:00 close". */
+  because: string[];
 }
 
 export interface FieldRecord {
@@ -175,6 +192,8 @@ export interface FieldTask {
   overdue: boolean;
   checklistTotal: number;
   checklistDone: number;
+  /** The items in order, so they can be ticked with no signal. Absent from older servers. */
+  checklist?: Array<{ id: string; label: string; done: boolean }> | undefined;
 }
 
 /** A toolbox talk this person is on the sheet for: their own line and nothing about anybody else's. */

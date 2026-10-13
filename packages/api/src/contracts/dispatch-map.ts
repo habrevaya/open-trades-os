@@ -88,6 +88,10 @@ export const getDispatchMap = defineRoute({
       displayName: z.string(),
       color: z.string().nullable(),
       timeOff: z.boolean(),
+      /** All of the day off. */
+      timeOffWholeDay: z.boolean(),
+      /** The hours off, for a part day. */
+      timeOffHours: z.array(z.object({ startsAt: z.string().datetime(), endsAt: z.string().datetime() })),
       /** Where the day starts and ends. Null when no location has an address on the map. */
       start: z.object({ locationId: Uuid, name: z.string(), position: Position.nullable() }).nullable(),
       /** True when this is the company's first location rather than one set for this person. */
@@ -341,6 +345,10 @@ export const getRebalance = defineRoute({
       displayName: z.string(),
       color: z.string().nullable(),
       timeOff: z.boolean(),
+      /** All of the day off. A person with only part of it off is offered the rest of it. */
+      timeOffWholeDay: z.boolean(),
+      /** The hours off, for a part day. A visit is refused to this person only when its hours meet one of them. */
+      timeOffHours: z.array(z.object({ startsAt: z.string().datetime(), endsAt: z.string().datetime() })),
       before: RebalancedDay,
       after: RebalancedDay,
     })),

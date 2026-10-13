@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Crypto from "expo-crypto";
-import { draftTotals, findInPriceBook, formatAmount } from "@opentradesos/field-client";
+import { addRate, carries, draftTotals, findInPriceBook, formatAmount, offersInBook } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import {
   MAX_OPTIONS, addBookLine, addOption, addTypedLine, builderProblem, builderTaxRate, newBuilder, recommend,
@@ -45,6 +45,8 @@ export function EstimateScreen({ visitId, nav }: { visitId: string; nav: Navigat
   const taxRate = builderTaxRate(builder) ?? "0";
   const active = builder.options[builder.active]!;
   const matches = findInPriceBook(book, query);
+  /** The after hours or holiday rate, offered and never added by itself, until somebody puts it on. */
+  const offers = offersInBook(visit.rateOffers.forEstimate, book).filter((o) => !carries(builder, o.entry.id));
 
   const added = (result: { ok: true; builder: Builder } | { ok: false; problem: string }) => {
     if (!result.ok) { setProblem(result.problem); return; }
@@ -135,6 +137,18 @@ export function EstimateScreen({ visitId, nav }: { visitId: string; nav: Navigat
             );
           })}
         </Section>
+
+        {offers.map((picked) => (
+          <View key={picked.entry.id} style={{ gap: space.xs }}>
+            <Notice tone="amber">
+              {`${picked.offer.kind === "holiday" ? "Booked on a holiday" : "Booked outside your hours"}: ${picked.offer.because.join("; ")}. `
+                + `Your ${picked.offer.kind === "holiday" ? "holiday" : "after hours"} rate is ${picked.entry.name}, ${formatAmount(picked.entry.unitPrice)}. `
+                + "It is not on this estimate unless you add it."}
+            </Notice>
+            <Button kind="secondary" label={`Add ${picked.entry.name} to every option`}
+                    onPress={() => setBuilder(addRate(builder, picked, newId))} />
+          </View>
+        ))}
 
         <Section title="Add from the price book">
           <View style={styles.row}>

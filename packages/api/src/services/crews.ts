@@ -1,6 +1,6 @@
-import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assets as assetCore, time } from "@opentradesos/core";
+import { assets as assetCore, holidays as holidayRules, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, scopeOf,
   type ServiceContext,
@@ -12,6 +12,8 @@ import { jobVisibility } from "./scope";
 import { crewWithin, crews as crewsInView, dispatchPeople, peopleScopeOf, seesEverybody } from "./people-scope";
 import { shopOfCrew } from "./visit-shop";
 import { liveBranch } from "./branches";
+import { weekOf } from "./after-hours";
+import { loadHolidays } from "./holidays";
 
 /**
  * CREWS: THE SECOND CAPACITY MODEL
@@ -367,6 +369,16 @@ export interface CrewVerdict {
   }[];
   missingSkills: string[];
   headcount: { onCrew: number; availableOn: number; offOn: number };
+  /**
+   * Who is there for part of the day and not for all of it, and when they are
+   * not: said beside the verdict, and never a reason to refuse the work. Leave
+   * is read by the hour. When the question has the visit's hours (assigning the
+   * crew to a visit, or the planner's day moves) a person whose leave meets
+   * them is off, and a person whose leave does not is on the crew for it. A
+   * question about a date alone counts a person as off when their leave covers
+   * every hour the company works that day, and lists the rest here.
+   */
+  partDayOff: { technicianId: string; name: string; hours: string }[];
   leadDesignated: boolean;
   /**
    * WHERE THE EQUIPMENT REQUIREMENT CAME FROM, published with the answer.
@@ -388,6 +400,53 @@ export interface CrewVerdict {
    * an empty register rather than about a working chipper.
    */
   registeredEquipment: string[];
+}
+
+/**
+ * What a crew check knows about WHEN, besides the date: the visit's own hours
+ * when the question is about one, and the company's week and holidays, which
+ * say what a date's working hours are when it is not.
+ */
+interface WhenAsked {
+  calendar: holidayRules.WorkingCalendar;
+  /** The visit's hours, or null for a question about a date alone. */
+  window: { start: Date; end: Date } | null;
+}
+
+/**
+ * A company that has declared no weekly hours works from eight to five, every
+ * day, for the purpose of asking whether somebody's leave covers it: the hours
+ * dispatch plans a day in until the company says otherwise. Without this a
+ * leave from first thing to teatime would never count as the day off, because
+ * nothing says when the day ends.
+ */
+const DEFAULT_WEEK: holidayRules.WeekHours = Array.from({ length: 7 }, () => ({ openMinute: 8 * 60, closeMinute: 17 * 60 }));
+
+async function calendarOf(tx: Database, organizationId: string, zone: string): Promise<holidayRules.WorkingCalendar> {
+  return { week: (await weekOf(tx)) ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId), timeZone: zone };
+}
+
+/**
+ * The hours of the job's visits on a date, from the first window's start to
+ * the last one's end, or null when it has none that day. A planner asking
+ * which crew can take a job on a date is asking about those hours.
+ */
+async function jobHoursOn(tx: Database, jobId: string, on: string, zone: string): Promise<{ start: Date; end: Date } | null> {
+  const { start, end } = time.dayBoundsIn(on, zone);
+  const rows = await tx.select({
+    windowStart: schema.visit.windowStart, windowEnd: schema.visit.windowEnd, minutes: schema.visit.estimatedDurationMinutes,
+  }).from(schema.visit).where(and(
+    eq(schema.visit.jobId, jobId),
+    ne(schema.visit.status, "cancelled"),
+    gte(schema.visit.windowStart, start),
+    lt(schema.visit.windowStart, end),
+  ));
+  const spans = rows.map((r) => time.visitSpan(r.windowStart, r.windowEnd, r.minutes)).filter((x) => x !== null);
+  if (spans.length === 0) return null;
+  return {
+    start: new Date(Math.min(...spans.map((x) => x.start.getTime()))),
+    end: new Date(Math.max(...spans.map((x) => x.end.getTime()))),
+  };
 }
 
 /**
@@ -438,7 +497,8 @@ export async function canTake(
     const on = input.on ?? time.dateIn(new Date(), zone);
     const job = await loadJob(tx, ctx.actor.organizationId, input.jobId, ctx);
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
-    return verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register);
+    const when = { calendar: await calendarOf(tx, ctx.actor.organizationId, zone), window: await jobHoursOn(tx, job.id, on, zone) };
+    return verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register, when);
   });
 }
 
@@ -477,10 +537,11 @@ export async function crewsFor(
      * each.
      */
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
+    const when = { calendar: await calendarOf(tx, ctx.actor.organizationId, zone), window: await jobHoursOn(tx, job.id, on, zone) };
 
     const out: CrewVerdict[] = [];
     for (const crew of crews) {
-      out.push(await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register));
+      out.push(await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register, when));
     }
     return { jobId: job.id, on, crews: out };
   });
@@ -495,29 +556,36 @@ export async function crewsFor(
  */
 export async function crewRefusals(
   tx: Database, organizationId: string,
-  input: { crewIds: string[]; asks: { jobId: string; date: string }[] },
-): Promise<(crewId: string, jobId: string, date: string) => string | null> {
+  input: {
+    crewIds: string[];
+    /** `window` is the hours the visit would have on that date, when the planner knows them. */
+    asks: { jobId: string; date: string; window?: { start: Date; end: Date } | null | undefined }[];
+  },
+): Promise<(crewId: string, jobId: string, date: string, window?: { start: Date; end: Date } | null) => string | null> {
   const answers = new Map<string, string | null>();
   if (input.crewIds.length === 0 || input.asks.length === 0) return () => null;
   const zone = await timezoneOf(tx, organizationId);
+  const calendar = await calendarOf(tx, organizationId, zone);
   const crews = await tx.select().from(schema.crew)
     .where(and(eq(schema.crew.organizationId, organizationId), inArray(schema.crew.id, input.crewIds)));
   const jobs = new Map<string, JobFacts>();
   const seen = new Set<string>();
+  const keyOf = (jobId: string, date: string, window: { start: Date; end: Date } | null | undefined) =>
+    `${jobId}|${date}|${window ? window.start.getTime() : ""}`;
   for (const ask of input.asks) {
-    const key = `${ask.jobId}|${ask.date}`;
+    const key = keyOf(ask.jobId, ask.date, ask.window);
     if (seen.has(key)) continue;
     seen.add(key);
     if (!jobs.has(ask.jobId)) jobs.set(ask.jobId, await loadJob(tx, organizationId, ask.jobId));
     const job = jobs.get(ask.jobId)!;
     const register = await registerFor(tx, organizationId, job.requiredAssetIds, ask.date);
     for (const crew of crews) {
-      const answer = await verdict(tx, organizationId, crew, job, ask.date, zone, register);
+      const answer = await verdict(tx, organizationId, crew, job, ask.date, zone, register, { calendar, window: ask.window ?? null });
       answers.set(`${crew.id}|${key}`, answer.canTake ? null : answer.blockers.map((b) => b.explanation).join(" "));
     }
   }
-  return (crewId, jobId, date) => {
-    const key = `${crewId}|${jobId}|${date}`;
+  return (crewId, jobId, date, window) => {
+    const key = `${crewId}|${keyOf(jobId, date, window)}`;
     /** A question nobody asked is not a clearance. */
     return answers.has(key) ? answers.get(key)! : "Not checked for that day.";
   };
@@ -536,6 +604,7 @@ async function verdict(
   crew: typeof schema.crew.$inferSelect,
   job: JobFacts, on: string, zone: string,
   register: Register,
+  when: WhenAsked,
 ): Promise<CrewVerdict> {
   const blockers: { code: Blocker; explanation: string }[] = [];
 
@@ -565,18 +634,42 @@ async function verdict(
    * its own day window.
    */
   const { start: dayStart, end: dayEnd } = time.dayBoundsIn(on, zone);
-  const off = members.length === 0 ? [] : await tx.select({
-    technicianId: schema.timeOff.technicianId,
+  const leave = members.length === 0 ? [] : await tx.select({
+    technicianId: schema.timeOff.technicianId, startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt,
   }).from(schema.timeOff)
     .where(and(
       eq(schema.timeOff.organizationId, organizationId),
       eq(schema.timeOff.approved, true),
+      isNull(schema.timeOff.deletedAt),
       inArray(schema.timeOff.technicianId, members.map((m) => m.technicianId)),
-      lte(schema.timeOff.startsAt, dayEnd),
-      gte(schema.timeOff.endsAt, dayStart),
+      lt(schema.timeOff.startsAt, dayEnd),
+      gt(schema.timeOff.endsAt, dayStart),
     ));
-  const offIds = new Set(off.map((o) => o.technicianId));
+  /**
+   * LEAVE IS READ BY THE HOUR, as booking and the board read it. For a
+   * question about a visit's hours a person is off when their leave meets
+   * them. For a question about a date alone they are off when their leave
+   * covers every hour the company works that day, and a person with only part
+   * of it off is on the crew and said so in `partDayOff`.
+   */
+  const workingSpan = holidayRules.workingSpanOn(on, when.calendar);
+  const offIds = new Set<string>();
+  const partDayOff: CrewVerdict["partDayOff"] = [];
+  for (const m of members) {
+    const mine = leave.filter((l) => l.technicianId === m.technicianId);
+    if (mine.length === 0) continue;
+    if (when.window ? time.leaveMeets(mine, when.window) : time.leaveCovers(mine, workingSpan)) {
+      offIds.add(m.technicianId);
+      continue;
+    }
+    const spans = time.leaveOnDay(mine, workingSpan).spans;
+    if (spans.length > 0) {
+      partDayOff.push({ technicianId: m.technicianId, name: m.displayName, hours: time.describeLeave(spans, zone) });
+    }
+  }
   const available = members.filter((m) => !offIds.has(m.technicianId));
+  /** Said when the question had the visit's hours, so "off on that date" is not read as off all day. */
+  const atThatTime = when.window ? ", when that visit is" : "";
 
   if (members.length === 0) {
     blockers.push({
@@ -586,7 +679,7 @@ async function verdict(
   } else if (available.length === 0) {
     blockers.push({
       code: "everybody_off",
-      explanation: `Everybody on ${crew.name} is on approved time off on ${on}.`,
+      explanation: `Everybody on ${crew.name} is on approved time off on ${on}${atThatTime}.`,
     });
   }
 
@@ -603,7 +696,7 @@ async function verdict(
   if (leadDesignated && leads.every((m) => offIds.has(m.technicianId))) {
     blockers.push({
       code: "lead_off",
-      explanation: `The lead on ${crew.name} is on approved time off on ${on}.`,
+      explanation: `The lead on ${crew.name} is on approved time off on ${on}${atThatTime}.`,
     });
   }
 
@@ -746,6 +839,7 @@ async function verdict(
       availableOn: available.length,
       offOn: members.length - available.length,
     },
+    partDayOff,
     leadDesignated,
     equipmentBasis: job.jobTypeId ? "job_type" : "none_declared",
     registeredEquipment: job.requiredAssetIds.filter((code) => (register.get(code)?.length ?? 0) > 0),
@@ -904,7 +998,12 @@ export async function assign(
       : time.dateIn(new Date(), zone);
 
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
-    const answer = await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register);
+    /** And at the hours the visit has, so a person off for the afternoon is not refused the morning's work. */
+    const when = {
+      calendar: await calendarOf(tx, ctx.actor.organizationId, zone),
+      window: time.visitSpan(visit.windowStart, visit.windowEnd, visit.estimatedDurationMinutes),
+    };
+    const answer = await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register, when);
     if (!answer.canTake) {
       throw new ConflictError(answer.blockers.map((b) => b.explanation).join(" "));
     }

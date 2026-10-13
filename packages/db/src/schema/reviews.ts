@@ -139,6 +139,14 @@ export const reviewPolicy = pgTable("review_policy", {
    */
   halfLifeDays: integer("half_life_days").notNull().default(365),
 
+  /**
+   * How many days after an ask that got no answer to send the one reminder.
+   * Null is off, and off is the default: how long to wait before a second
+   * message is a decision about how a company talks to its customers, and
+   * there is no number this product should choose for it.
+   */
+  reminderAfterDays: integer("reminder_after_days"),
+
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({
@@ -219,6 +227,18 @@ export const reviewRequest = pgTable("review_request", {
   withheldReason: text("withheld_reason"),
   /** The refusal in words, for whoever asks why this customer was skipped. */
   withheldDetail: text("withheld_detail"),
+  /**
+   * THE ONE REMINDER. Set when the reminder was sent, or when it was decided
+   * against for good (the customer opted out, a review came in that is or may
+   * be theirs, the message was refused), so a request is never looked at for a
+   * reminder twice. The row is claimed with this set BEFORE anybody is messaged,
+   * and only the pass whose update landed sends, so two workers send it once.
+   */
+  reminderAt: timestamp("reminder_at", { withTimezone: true }),
+  /** The message that carried it. Null when it was not sent. */
+  reminderMessageId: uuid("reminder_message_id"),
+  /** Why it was not sent, in words, when it was not. */
+  reminderDetail: text("reminder_detail"),
   ...timestamps,
 }, (t) => ({
   /**

@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { automation, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { automation, reviews as rv, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, ConflictError, type ServiceContext } from "./context";
 import { sendTransactional } from "./comms-send";
 import * as email from "./email";
@@ -74,22 +74,22 @@ export function channelOf(config: Record<string, unknown>): AskChannel {
 }
 
 /**
- * Send one queued request, and write down what happened.
- *
- * Whoever calls this has already decided it is time: the run waited for the
- * window, or the worker re-decided the request just now. What is checked here
- * is only that it is still queued and its window has arrived.
+ * The send itself, shared by the ask and its one reminder: the text and/or the
+ * email in the order the channel says, each through the consent and
+ * suppression gate every message goes through, stopping at the first that is
+ * queued. It writes nothing about the request: the caller says what happened.
  */
-export async function deliverRequest(
+async function sendAsk(
   tx: Database,
   ctx: ServiceContext,
-  request: RequestRow,
-  input: { channel: AskChannel; wording: AskWording; automationRef: string | null; now: Date },
-): Promise<DeliveryOutcome> {
+  request: Pick<RequestRow, "platform" | "customerId">,
+  input: { channel: AskChannel; wording: AskWording },
+): Promise<
+  | { kind: "sent"; channel: "sms" | "email"; messageId: string }
+  | { kind: "refused"; refused: string }
+  | { kind: "cannot_send"; reason: string }
+> {
   const organizationId = ctx.actor.organizationId;
-  if (request.state !== "queued") return { kind: "not_queued", because: "nothing is queued for this job" };
-  if (request.sendAt && request.sendAt > input.now) return { kind: "not_queued", because: "it is not due yet" };
-
   const url = request.platform ? await reviews.reviewUrlFor(tx, request.platform) : null;
   if (!url) {
     return {
@@ -113,8 +113,6 @@ export async function deliverRequest(
   const order: ("sms" | "email")[] = input.channel === "sms_then_email" ? ["sms", "email"]
     : input.channel === "email" ? ["email"] : ["sms"];
   const refusals: string[] = [];
-  let messageId: string | null = null;
-  let used: "sms" | "email" | null = null;
 
   for (const channel of order) {
     const label = channel === "sms" ? "text" : "email";
@@ -127,25 +125,47 @@ export async function deliverRequest(
     }
     if (channel === "sms") {
       const outcome = await sendTransactional(tx, { organizationId, address, body, customerId: request.customerId });
-      if (outcome.sent) { messageId = outcome.messageId; used = "sms"; break; }
+      if (outcome.sent) return { kind: "sent", channel: "sms", messageId: outcome.messageId };
       refusals.push(`${label}: ${outcome.explanation}`);
     } else {
       const subject = render(input.wording.emailSubject, scope).trim() || "How did we do?";
       const outcome = await email.queue({ ...ctx, db: tx }, {
         to: address, subject, text: body, customerId: request.customerId,
       });
-      if (outcome.queued) { messageId = outcome.messageId; used = "email"; break; }
+      if (outcome.queued) return { kind: "sent", channel: "email", messageId: outcome.messageId };
       refusals.push(`${label}: ${outcome.explanation}`);
     }
   }
+  return { kind: "refused", refused: refusals.join("; ") };
+}
 
-  if (!messageId || !used) {
-    const refused = refusals.join("; ");
+/**
+ * Send one queued request, and write down what happened.
+ *
+ * Whoever calls this has already decided it is time: the run waited for the
+ * window, or the worker re-decided the request just now. What is checked here
+ * is only that it is still queued and its window has arrived.
+ */
+export async function deliverRequest(
+  tx: Database,
+  ctx: ServiceContext,
+  request: RequestRow,
+  input: { channel: AskChannel; wording: AskWording; automationRef: string | null; now: Date },
+): Promise<DeliveryOutcome> {
+  if (request.state !== "queued") return { kind: "not_queued", because: "nothing is queued for this job" };
+  if (request.sendAt && request.sendAt > input.now) return { kind: "not_queued", because: "it is not due yet" };
+
+  const sent = await sendAsk(tx, ctx, request, input);
+  if (sent.kind === "cannot_send") return sent;
+
+  if (sent.kind === "refused") {
     await tx.update(schema.reviewRequest).set({
-      state: "failed", withheldDetail: refused, updatedAt: new Date(),
+      state: "failed", withheldDetail: sent.refused, updatedAt: new Date(),
     }).where(and(eq(schema.reviewRequest.id, request.id), eq(schema.reviewRequest.state, "queued")));
-    return { kind: "refused", refused };
+    return sent;
   }
+  const messageId = sent.messageId;
+  const used = sent.channel;
 
   if (input.automationRef) {
     await tx.update(schema.message).set({ automationRef: input.automationRef })
@@ -195,6 +215,8 @@ export interface AskPassResult {
   /** Re-decided and not asked: a rule says no now, or the window has moved on (quiet hours). */
   held: number;
   failed: number;
+  /** Reminders sent on this pass. */
+  reminded: number;
   error: string | null;
 }
 
@@ -208,7 +230,7 @@ export async function askDueFor(
 ): Promise<AskPassResult> {
   const now = options.now ?? new Date();
   const ctx: ServiceContext = { actor: workerActor(organizationId), db };
-  const result: AskPassResult = { organizationId, sent: 0, held: 0, failed: 0, error: null };
+  const result: AskPassResult = { organizationId, sent: 0, held: 0, failed: 0, reminded: 0, error: null };
 
   const queued = await inTenant(ctx, async (tx) => ({
     style: await askStyleFor(tx),
@@ -264,7 +286,136 @@ export async function askDueFor(
       }
     }
   }
+  try {
+    result.reminded = await remindDueFor(db, organizationId, { now, ...(options.limit ? { limit: options.limit } : {}) });
+  } catch (error) {
+    result.error = (error as Error).message;
+  }
   return result;
+}
+
+/* --------------------------------------------------------- the one reminder */
+
+/**
+ * Send the one reminder for asks that went unanswered, for a company that has
+ * turned reminders on (`review_policy.reminder_after_days`).
+ *
+ * For each sent ask old enough, with no reminder yet, the facts are read and
+ * core's `decideReminder` says yes, not yet, or no for good:
+ *
+ *   NOT YET (a complaint or callback still open, outside the sending hours):
+ *   nothing is written, and the next pass looks again.
+ *
+ *   NO FOR GOOD (the customer opted out, a review came in that is or may be
+ *   theirs): the request is marked so it is never looked at again, with the
+ *   reason in words. A reminder to somebody who has answered is the one mistake
+ *   worth a missed nudge.
+ *
+ *   YES: the request is CLAIMED first, with an update that only lands while no
+ *   reminder is recorded, and only the pass whose update landed sends. Two
+ *   workers, or a worker that dies and starts again, send it once. The send is
+ *   the ask's own, through the same consent and suppression gate, the way the
+ *   company asks (its automation's channel, or text) and in the reminder's own
+ *   words. A refusal (no number, replied STOP) is written on the request and is
+ *   final: one reminder, ever.
+ *
+ * A REVIEW SINCE THE ASK is any live review tied to this customer, or to this
+ * job, or suspected to be theirs and not dismissed, posted after the ask went
+ * out, on any platform. Only that one exists is read, never what it says or
+ * how many stars it gave.
+ */
+export async function remindDueFor(
+  db: Database, organizationId: string, options: { now?: Date; limit?: number } = {},
+): Promise<number> {
+  const now = options.now ?? new Date();
+  const ctx: ServiceContext = { actor: workerActor(organizationId), db };
+
+  const candidates = await inTenant(ctx, async (tx) => {
+    const [policy] = await tx.select().from(schema.reviewPolicy).where(and(
+      eq(schema.reviewPolicy.organizationId, organizationId),
+      eq(schema.reviewPolicy.active, true),
+      isNull(schema.reviewPolicy.deletedAt),
+    )).limit(1);
+    if (!policy || policy.reminderAfterDays === null) return null;
+    const cutoff = new Date(now.getTime() - policy.reminderAfterDays * 86_400_000);
+    const rows = await tx.select().from(schema.reviewRequest).where(and(
+      eq(schema.reviewRequest.organizationId, organizationId),
+      eq(schema.reviewRequest.state, "sent"),
+      isNull(schema.reviewRequest.reminderAt),
+      isNull(schema.reviewRequest.deletedAt),
+      lte(schema.reviewRequest.sentAt, cutoff),
+    )).orderBy(asc(schema.reviewRequest.sentAt)).limit(options.limit ?? 50);
+    return { policy, rows, style: await askStyleFor(tx) };
+  });
+  if (!candidates) return 0;
+
+  let sent = 0;
+  for (const row of candidates.rows) {
+    try {
+      const done = await inTenant(ctx, async (tx) => {
+        const sentAt = row.sentAt!;
+        const since = await tx.select({
+          customerId: schema.review.customerId, jobId: schema.review.jobId,
+          suggestedCustomerId: schema.review.suggestedCustomerId, suggestedJobId: schema.review.suggestedJobId,
+          dismissed: schema.review.suggestionDismissedAt,
+        }).from(schema.review).where(and(
+          eq(schema.review.organizationId, organizationId),
+          isNull(schema.review.deletedAt),
+          gte(schema.review.postedAt, sentAt),
+        )).limit(2000);
+        /** Tied to them, or suspected to be theirs and not said to be wrong. Only that one exists is read. */
+        const theirs = since.some((r) =>
+          r.customerId === row.customerId || r.jobId === row.jobId
+          || (r.dismissed === null && (r.suggestedCustomerId === row.customerId || r.suggestedJobId === row.jobId)));
+        const job = await reviews.factsFor(tx, organizationId, row.jobId);
+        const decision = rv.decideReminder({
+          jobId: row.jobId, customerId: row.customerId, askedAt: sentAt, reminded: row.reminderAt !== null,
+          reviewSince: theirs, optedOut: job.optedOut, complaintOpen: job.complaintOpen, callback: job.callback,
+        }, {
+          timeZone: candidates.policy.timeZone, reminderAfterDays: candidates.policy.reminderAfterDays,
+          earliestHour: candidates.policy.earliestHour, latestHour: candidates.policy.latestHour,
+        }, now);
+
+        if (!decision.remind) {
+          if (decision.clearsOnItsOwn) return false;
+          await tx.update(schema.reviewRequest).set({
+            reminderAt: now, reminderDetail: `Not sent: ${decision.explanation}`, updatedAt: now,
+          }).where(and(eq(schema.reviewRequest.id, row.id), isNull(schema.reviewRequest.reminderAt)));
+          return false;
+        }
+        if (!decision.readyNow) return false;
+
+        /** The claim comes first: only the pass that lands it sends. */
+        const [claimed] = await tx.update(schema.reviewRequest).set({ reminderAt: now, updatedAt: now })
+          .where(and(
+            eq(schema.reviewRequest.id, row.id), eq(schema.reviewRequest.state, "sent"), isNull(schema.reviewRequest.reminderAt),
+          )).returning({ id: schema.reviewRequest.id });
+        if (!claimed) return false;
+
+        const outcome = await sendAsk(tx, ctx, row, {
+          channel: candidates.style.channel,
+          wording: {
+            sms: automation.REVIEW_REMINDER_WORDING.sms,
+            emailSubject: automation.REVIEW_REMINDER_WORDING.emailSubject,
+            emailBody: automation.REVIEW_REMINDER_WORDING.emailBody,
+          },
+        });
+        if (outcome.kind === "sent") {
+          await tx.update(schema.reviewRequest).set({ reminderMessageId: outcome.messageId, updatedAt: new Date() })
+            .where(eq(schema.reviewRequest.id, row.id));
+          return true;
+        }
+        const why = outcome.kind === "refused" ? outcome.refused : outcome.reason;
+        await tx.update(schema.reviewRequest).set({ reminderDetail: `Not sent: ${why}`, updatedAt: new Date() })
+          .where(eq(schema.reviewRequest.id, row.id));
+        return false;
+      });
+      if (done) sent += 1;
+    } catch {
+      /** Left for the next pass: nothing was claimed, because the claim and the send are one transaction. */
+    }
+  }
+  return sent;
 }
 
 /**
@@ -283,7 +434,7 @@ export async function askPass(
     try {
       results.push(await askDueFor(db, row.organization_id, options.now ? { now: options.now } : {}));
     } catch (error) {
-      results.push({ organizationId: row.organization_id, sent: 0, held: 0, failed: 0, error: (error as Error).message });
+      results.push({ organizationId: row.organization_id, sent: 0, held: 0, failed: 0, reminded: 0, error: (error as Error).message });
     }
   }
   return results;

@@ -565,6 +565,12 @@ export const taskEscalationRule = pgTable("task_escalation_rule", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   afterHours: integer("after_hours").notNull(),
+  /**
+   * Count the company's working hours (its business hours, skipping holidays
+   * and closed days) rather than the clock. False is the clock, which is what
+   * every rule did before this column existed.
+   */
+  workingHours: boolean("working_hours").notNull().default(false),
   /** Only tasks at or above this priority. Null means every task. */
   minimumPriority: taskPriority("minimum_priority"),
   target: escalationTarget("target").notNull(),

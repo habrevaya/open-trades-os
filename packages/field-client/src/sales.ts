@@ -7,7 +7,7 @@ import {
   type OnSiteMember, type PricedTotals,
 } from "@opentradesos/core/field-pricing";
 import type {
-  BillableLine, FieldEstimate, FieldEstimateLine, FieldEstimateOption, MemberTerms, PriceBookEntry,
+  BillableLine, FieldEstimate, FieldEstimateLine, FieldEstimateOption, MemberTerms, PriceBookEntry, RateOffer,
 } from "./wire";
 
 export { sameAmount, tipChoices, addAmounts, rateFromPercent, memberEligible };
@@ -83,6 +83,57 @@ export function lineFromBook(entry: PriceBookEntry, quantity: string, newId: () 
     isOptional: false,
     itemKind: entry.kind ?? null,
     feeRole: entry.feeRole ?? null,
+  };
+}
+
+/* ------------------------------------------- the after hours or holiday rate */
+
+/**
+ * An offer the phone can act on: the rate the server offered, with the item
+ * as the phone's own price book holds it. An item the book does not carry
+ * (retired since the day was fetched, or hidden from this role) cannot be
+ * priced on the phone, so it is not offered here: the office offers it.
+ */
+export interface PricedOffer { offer: RateOffer; entry: PriceBookEntry }
+
+export function offersInBook(offers: readonly RateOffer[], book: readonly PriceBookEntry[]): PricedOffer[] {
+  return offers.flatMap((offer) => {
+    const entry = book.find((e) => e.id === offer.itemId);
+    return entry ? [{ offer, entry }] : [];
+  });
+}
+
+/** Whether the estimate being built already carries this item on any option. */
+export function carries(builder: { options: readonly DraftOption[] }, itemId: string): boolean {
+  return builder.options.some((o) => o.lines.some((l) => l.priceBookItemId === itemId));
+}
+
+/**
+ * An offered rate put on EVERY option of the estimate being built, at the
+ * price the phone holds, for as many visits as it is for. The call out is for
+ * the visit and is owed whichever option the customer chooses, so it is not
+ * left to the one being looked at. Not added twice.
+ */
+export function addRate<B extends { options: DraftOption[] }>(builder: B, picked: PricedOffer, newId: () => string): B {
+  if (carries(builder, picked.entry.id)) return builder;
+  const quantity = String(picked.offer.quantity);
+  return {
+    ...builder,
+    options: builder.options.map((o) => ({ ...o, lines: [...o.lines, lineFromBook(picked.entry, quantity, newId)] })),
+  };
+}
+
+/** The rate as a line of recorded work, for an invoice, priced from the phone's book. */
+export function rateAsBillable(picked: PricedOffer): BillableLine {
+  return {
+    id: `rate:${picked.entry.id}`,
+    name: picked.entry.name,
+    quantity: String(picked.offer.quantity),
+    unitPrice: picked.entry.unitPrice,
+    taxable: picked.entry.taxable,
+    itemKind: picked.entry.kind ?? null,
+    feeRole: picked.entry.feeRole ?? null,
+    itemId: picked.entry.id,
   };
 }
 
@@ -324,11 +375,13 @@ export function invoiceFromEstimate(estimate: FieldEstimate): { option: FieldEst
 
 export function invoicePayload(input: {
   visitId: string; shownTotal: string; signerName: string | null; signatureUploadId: string | null;
-} & ({ source: "estimate"; estimateId: string } | { source: "work"; jobLineIds: string[] })): Record<string, unknown> {
+} & ({ source: "estimate"; estimateId: string } | { source: "work"; jobLineIds: string[]; rates?: readonly { itemId: string; quantity: number }[] | undefined })): Record<string, unknown> {
   return {
     visitId: input.visitId,
     source: input.source,
     ...(input.source === "estimate" ? { estimateId: input.estimateId } : { jobLineIds: input.jobLineIds }),
+    ...(input.source === "work" && input.rates && input.rates.length > 0
+      ? { rateItems: input.rates.map((r) => ({ priceBookItemId: r.itemId, quantity: String(r.quantity) })) } : {}),
     shownTotal: input.shownTotal,
     ...(input.signerName && input.signerName.trim() ? { signerName: input.signerName.trim().slice(0, 200) } : {}),
     ...(input.signatureUploadId ? { signatureUploadId: input.signatureUploadId } : {}),

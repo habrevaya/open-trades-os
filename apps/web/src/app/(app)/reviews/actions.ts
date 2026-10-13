@@ -65,3 +65,18 @@ export async function answerMatch(_previous: FormState, form: FormData): Promise
   revalidatePath("/reviews");
   return result;
 }
+
+/**
+ * Turn the one reminder on, with how many days to wait, or off. Left empty is off.
+ */
+export async function saveReminders(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const typed = String(form.get("afterDays") ?? "").trim();
+    const afterDays = typed === "" ? null : Number(typed);
+    /** The service refuses a gap that is a nag, or too long, in words. */
+    await reviews.setReminders(await ctx(), { afterDays: afterDays === null || Number.isNaN(afterDays) ? (typed === "" ? null : -1) : afterDays });
+    return { message: afterDays === null ? "Reminders are off." : `One reminder after ${afterDays} days.` };
+  });
+  revalidatePath("/reviews");
+  return result;
+}

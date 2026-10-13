@@ -77,6 +77,17 @@ function windowOn(v: dm.DayVisit, from: dm.Day, date: string, zone: string): { s
   return { start, end };
 }
 
+/**
+ * The hours a visit would have on a date: its own window where it is, and the
+ * same times of day where it would go. Null for a visit with no window to move,
+ * which is then held to the careful reading of any leave that day.
+ */
+function visitHoursOn(v: dm.DayVisit, from: dm.Day, date: string, zone: string): { start: Date; end: Date } | null {
+  if (!v.windowStart) return null;
+  const moved = date === from.date ? { start: v.windowStart, end: v.windowEnd } : windowOn(v, from, date, zone);
+  return time.visitSpan(moved.start, moved.end, v.estimatedDurationMinutes);
+}
+
 function rangeOf(from: string, days: number): string[] {
   if (!Number.isInteger(days) || days < MIN_DAYS || days > MAX_DAYS) {
     throw new ConflictError(`Rebalance between ${MIN_DAYS} and ${MAX_DAYS} days at once.`);
@@ -240,7 +251,8 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     /** Each crew visit asked about on its own day and every day it may go to, the check a drag onto a crew makes. */
     const asks = range.days.flatMap((d) => d.visits.filter((v) => v.crewId !== null && movableOn(d, v, crewIds))
       .flatMap((v) => [d.date, ...daysFor(v, d.date, dates, { today: range.today, open: range.open, closed: range.closed }).dates]
-        .map((date) => ({ jobId: v.jobId, date }))));
+        /** At the hours the visit would have on that day, so a crew with part of that day off is asked about those hours. */
+        .map((date) => ({ jobId: v.jobId, date, window: visitHoursOn(v, d, date, range.zone) }))));
     const crewRefusal = await crewRefusals(tx, ctx.actor.organizationId, { crewIds: [...crewIds], asks });
     const ceilingOf = await onlineCeilings(tx, {
       organizationId: ctx.actor.organizationId, timezone: range.zone, from: dates[0]!, until: dates[dates.length - 1]!,
@@ -268,13 +280,15 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
   const planOf = new Map(plans.map((p) => [p.day.date, p]));
 
   /** People for one person's work, crews for a crew's: never one for the other. */
-  const refusalsOn = (date: string, v: dm.DayVisit) => {
+  const refusalsOn = (date: string, v: dm.DayVisit, from: dm.Day) => {
     const plan = planOf.get(date)!;
+    /** The hours it has on that day: its own where it is, the same time of day where it would go. */
+    const window = visitHoursOn(v, from, date, zone);
     if (v.crewId !== null) {
-      return Object.fromEntries(planned.map((c) => [crewKey(c.id), loaded.crewRefusal(c.id, v.jobId, date)]));
+      return Object.fromEntries(planned.map((c) => [crewKey(c.id), loaded.crewRefusal(c.id, v.jobId, date, window)]));
     }
     const verdictOf = loaded.verdicts.get(date)!;
-    return Object.fromEntries(plan.people.map((t) => [t.id, dm.refusalFor(plan.day, t, v, verdictOf)]));
+    return Object.fromEntries(plan.people.map((t) => [t.id, dm.refusalFor(plan.day, t, v, verdictOf, window ?? undefined)]));
   };
 
   const grounds = new Map<string, "range" | "weekdays">();
@@ -292,7 +306,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
         locked: v.locked,
         priority: loaded.members.get(plan.day.date)!.has(v.id),
         options: [
-          { date: plan.day.date, stop: dm.stopOf(plan.day, v), refusals: refusalsOn(plan.day.date, v) },
+          { date: plan.day.date, stop: dm.stopOf(plan.day, v), refusals: refusalsOn(plan.day.date, v, plan.day) },
           ...may.dates.map((date) => {
             const other = dayOf.get(date)!;
             const moved = windowOn(v, plan.day, date, zone);
@@ -306,7 +320,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
                 windowStart: dm.minutesFrom(other.origin, moved.start),
                 windowEnd: moved.end ? dm.minutesFrom(other.origin, moved.end) : null,
               },
-              refusals: refusalsOn(date, v),
+              refusals: refusalsOn(date, v, plan.day),
               ...(ceiling ? { ceiling } : {}),
             };
           }),
@@ -409,6 +423,8 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
         displayName: t.displayName,
         color: t.color,
         timeOff: t.timeOff,
+        timeOffWholeDay: t.timeOffWholeDay,
+        timeOffHours: t.timeOffWholeDay ? [] : t.leave.map((s) => ({ startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() })),
         before: dm.rebalanceSummary(plan.day, before.get(t.id)!),
         after: dm.rebalanceSummary(plan.day, after.get(t.id)!),
       })),

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import type { DayTask } from "@opentradesos/field-client";
+import { closePayload, closeProblem, tickPayload, type DayTask } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { Button, Card, Notice } from "../components/ui";
 import { color, space, type } from "../components/theme";
@@ -13,8 +13,9 @@ import type { Navigate } from "../shell/App";
  * The person's own tasks and the ones nobody has taken, soonest due first.
  * Taking one and finishing one go through the queue like everything else, so
  * they work with no signal; the server decides who took it first, and the
- * second person is told somebody else has it. A task with a checklist is
- * finished on its own page in the office's screens, where the items are.
+ * second person is told somebody else has it. A task with a checklist shows its
+ * items to tick one at a time, and finishing it with some unticked asks why,
+ * in the office's own words.
  */
 export function TasksScreen({ nav }: { nav: Navigate }) {
   const field = useField();
@@ -35,6 +36,8 @@ export function TasksScreen({ nav }: { nav: Navigate }) {
 function TaskCard({ task, zone }: { task: DayTask; zone: string }) {
   const field = useField();
   const [outcome, setOutcome] = useState("");
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
   const due = task.dueAt
     ? new Date(task.dueAt).toLocaleString("en-US", { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })
     : null;
@@ -54,15 +57,27 @@ function TaskCard({ task, zone }: { task: DayTask; zone: string }) {
           <Button label="Take it" kind="secondary" onPress={() => void field.record("task.claim", task.id)} />
         </View>
       ) : null}
-      {task.mine && !task.done && !checklist ? (
+      {task.mine && !task.done && checklist ? task.checklist.map((item) => (
+        <View key={item.id} style={{ marginTop: space.xs }}>
+          <Button kind="secondary" label={`${item.done ? "Ticked" : "Not ticked"}: ${item.label}${item.waiting ? " (waiting to send)" : ""}`}
+                  onPress={() => void field.record("task.tick", task.id, tickPayload(item.id, !item.done))} />
+        </View>
+      )) : null}
+      {task.mine && !task.done ? (
         <View style={{ marginTop: space.sm }}>
           <TextInput value={outcome} onChangeText={setOutcome} placeholder="What happened (optional)"
                      placeholderTextColor={color.inkFaint} style={styles.input} accessibilityLabel="What happened" />
-          <Button label="Done" onPress={() => void field.record("task.close", task.id, outcome.trim() ? { outcome: outcome.trim() } : {})} />
+          {checklist && task.checklist.some((i) => !i.done) ? (
+            <TextInput value={reason} onChangeText={setReason} placeholder="Why it is done with items unticked"
+                       placeholderTextColor={color.inkFaint} style={styles.input} accessibilityLabel="Why items are unticked" />
+          ) : null}
+          {problem ? <Notice tone="red">{problem}</Notice> : null}
+          <Button label="Done" onPress={() => {
+            const wrong = closeProblem(task, reason);
+            setProblem(wrong);
+            if (!wrong) void field.record("task.close", task.id, closePayload(task, outcome, reason));
+          }} />
         </View>
-      ) : null}
-      {task.mine && !task.done && checklist ? (
-        <Text style={[type.soft, { marginTop: space.sm }]}>It has a checklist: tick it and finish it on the task's own page.</Text>
       ) : null}
     </Card>
   );

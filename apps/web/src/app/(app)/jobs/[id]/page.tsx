@@ -534,6 +534,15 @@ export default async function JobPage({ params, searchParams }: {
 
       <UsedOnJob lines={used} />
 
+      {can(user.actor, "estimate:write") && job.status !== "cancelled" && (
+        <p className="mt-10 text-sm">
+          <a href={`/estimates/new?customer=${job.customerId}${job.propertyId ? `&property=${String(job.propertyId)}` : ""}&job=${id}`}
+             className="inline-flex h-9 items-center rounded border border-steel-300 px-3 font-medium hover:bg-steel-100">
+            Write an estimate for this job
+          </a>
+        </p>
+      )}
+
       <EstimateDrafts ctx={ctx} jobId={id} />
       {plan && (plan.lines.length > 0 || plan.existing.length === 0) && job.status !== "cancelled" && (
         <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} typedTax={typedTax} lineRates={askedRates}

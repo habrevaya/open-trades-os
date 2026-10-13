@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, gte, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, can, geo, qualification as q, rental as rt, routing, time } from "@opentradesos/core";
 import {
@@ -276,7 +276,16 @@ export interface Day {
   workday: WorkdaySettings;
   technicians: {
     id: string; displayName: string; color: string | null; skills: string[];
-    timeOff: boolean; start: Start | null;
+    /** Some approved leave on the day, which is how clients written before the hours existed read it. */
+    timeOff: boolean;
+    /** All of the day, rather than some of its hours. */
+    timeOffWholeDay: boolean;
+    /**
+     * The hours off on the day, joined and clipped to it: the part day's spans, or the whole day's. Leave is read by
+     * the hour, so a visit is refused to this person only when its hours meet one of these.
+     */
+    leave: { startsAt: Date; endsAt: Date }[];
+    start: Start | null;
     /**
      * One of this person's own people, rather than somebody from another
      * branch drawn only because they are on one of its visits. Only these
@@ -352,14 +361,26 @@ export async function loadDay(tx: Database, organizationId: string, date: string
     return { locationId: chosen.id, name: chosen.name, place: placeOf(chosen), isCompanyDefault: !own };
   };
 
-  const off = await tx.select({ technicianId: schema.timeOff.technicianId }).from(schema.timeOff)
+  /**
+   * LEAVE IS READ BY THE HOUR, as the board and booking read it: a person
+   * with part of the day off is off for those hours and nothing else, and a
+   * visit is refused to them only when its hours meet them (`refusalFor`). A
+   * leave that only touches the day, beginning the instant it ends, is not on it.
+   */
+  const off = await tx.select({
+    technicianId: schema.timeOff.technicianId, startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt,
+  }).from(schema.timeOff)
     .where(and(
       eq(schema.timeOff.organizationId, organizationId),
       eq(schema.timeOff.approved, true),
-      lte(schema.timeOff.startsAt, dayEnd),
-      gte(schema.timeOff.endsAt, dayStart),
+      isNull(schema.timeOff.deletedAt),
+      lt(schema.timeOff.startsAt, dayEnd),
+      gt(schema.timeOff.endsAt, dayStart),
     ));
-  const offToday = new Set(off.map((o) => o.technicianId));
+  const leaveToday = new Map<string, ReturnType<typeof time.leaveOnDay>>();
+  for (const technicianId of new Set(off.map((o) => o.technicianId))) {
+    leaveToday.set(technicianId, time.leaveOnDay(off.filter((o) => o.technicianId === technicianId), { start: dayStart, end: dayEnd }));
+  }
 
   const rows = await tx.select({
     visit: schema.visit,
@@ -444,7 +465,10 @@ export async function loadDay(tx: Database, organizationId: string, date: string
     date, zone, origin: dayStart, travel, routeMinutes, workday,
     technicians: people.filter((p) => p.inScope || onVisibleWork.has(p.id) || crewPeople.has(p.id)).map((p) => ({
       id: p.id, displayName: p.displayName, color: p.color, skills: p.skills ?? [],
-      timeOff: offToday.has(p.id), start: startOf(p.homeLocationId), inScope: Boolean(p.inScope),
+      timeOff: leaveToday.has(p.id),
+      timeOffWholeDay: leaveToday.get(p.id)?.whole ?? false,
+      leave: leaveToday.get(p.id)?.whole ? [{ startsAt: dayStart, endsAt: dayEnd }] : leaveToday.get(p.id)?.spans ?? [],
+      start: startOf(p.homeLocationId), inScope: Boolean(p.inScope),
       hours: p.workday && HHMM.test(p.workday.startsAt) && HHMM.test(p.workday.endsAt) ? p.workday : null,
     })),
     crews: crewRows.map((c) => {
@@ -562,6 +586,8 @@ export async function map(ctx: ServiceContext, input: { date: string }) {
         displayName: t.displayName,
         color: t.color,
         timeOff: t.timeOff,
+        timeOffWholeDay: t.timeOffWholeDay,
+        timeOffHours: t.timeOffWholeDay ? [] : t.leave.map((s) => ({ startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() })),
         start: t.start ? { locationId: t.start.locationId, name: t.start.name, position: position(t.start.place) } : null,
         startIsCompanyDefault: t.start?.isCompanyDefault ?? false,
         inScope: t.inScope,
@@ -956,8 +982,24 @@ export async function verdictsFor(tx: Database, organizationId: string, day: Day
 export function refusalFor(
   day: Day, t: Day["technicians"][number], v: DayVisit,
   verdictOf: (v: DayVisit, technicianId: string) => q.QualificationVerdict | undefined,
+  /** The hours the visit would have, when they are not its own: the planner moving it to another day. */
+  window?: { start: Date; end: Date | null },
 ): string | null {
-  if (t.timeOff) return `${t.displayName} is on approved time off on ${day.date}.`;
+  if (t.timeOff) {
+    /**
+     * BY THE HOUR. A whole day off refuses everything; part of a day refuses
+     * the visits whose hours meet it, and leaves the rest of the day to be
+     * given work. A visit with no hours to ask about is held to the careful
+     * reading, which is that any leave on the day is in the way.
+     */
+    const span = window
+      ? time.visitSpan(window.start, window.end, v.estimatedDurationMinutes)
+      : time.visitSpan(v.windowStart, v.windowEnd, v.estimatedDurationMinutes);
+    if (t.timeOffWholeDay || !span) return `${t.displayName} is on approved time off on ${day.date}.`;
+    if (time.leaveMeets(t.leave, span)) {
+      return `${t.displayName} is on approved time off from ${time.describeLeave(t.leave, day.zone)} on ${day.date}, when that visit is.`;
+    }
+  }
   if (!t.start?.place) return `Where ${t.displayName}'s day starts is not on the map, so nothing can be measured from it.`;
   const verdict = verdictOf(v, t.id);
   return verdict && !verdict.qualified ? verdict.refusal : null;
@@ -1234,6 +1276,8 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
       displayName: t.displayName,
       color: t.color,
       timeOff: t.timeOff,
+      timeOffWholeDay: t.timeOffWholeDay,
+      timeOffHours: t.timeOffWholeDay ? [] : t.leave.map((s) => ({ startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() })),
       before: summary(before.get(t.id)!),
       after: summary(after.get(t.id)!),
     })),

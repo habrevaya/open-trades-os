@@ -9,6 +9,7 @@ import {
 import { writePosting } from "./ledger";
 import * as billing from "./billing";
 import * as taxRates from "./tax";
+import { emit } from "./events";
 import { nextNumber } from "./jobs";
 import { deletedInBooks } from "./accounting-deletions";
 import type {
@@ -607,6 +608,16 @@ async function applyInTx(
     if (invoice.jobId && !m.isPositive(balance)) {
       await tx.update(schema.job).set({ status: "paid", updatedAt: now })
         .where(and(eq(schema.job.id, invoice.jobId), eq(schema.job.status, "invoiced")));
+    }
+    if (!m.isPositive(balance)) {
+      await emit(tx, ctx, {
+        name: "invoice.credited", entityType: "invoice", entityId: invoiceId,
+        payload: {
+          invoiceId, customerId: invoice.customerId, total: m.toString(usd(invoice.total)),
+          ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+        },
+        previous: { balance: invoice.balance, status: invoice.status },
+      });
     }
   }
 

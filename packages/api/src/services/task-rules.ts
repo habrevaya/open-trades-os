@@ -12,6 +12,7 @@ import { publicBaseUrl } from "./setup-tokens";
 import { remember, replayed } from "./once";
 import { within } from "./workflow-schedule";
 import { loadHolidays } from "./holidays";
+import { weekOf } from "./after-hours";
 
 /**
  * RECURRING TASKS AND ESCALATION
@@ -390,6 +391,8 @@ export async function updateTemplate(
 export interface RuleInput {
   name: string;
   afterHours: number;
+  /** Count the company's working hours instead of the clock. */
+  workingHours?: boolean | undefined;
   minimumPriority?: taskRules.TaskPriority | null | undefined;
   target: "manager" | "role" | "person";
   targetRole?: string | null | undefined;
@@ -401,6 +404,7 @@ export interface RuleView {
   id: string;
   name: string;
   afterHours: number;
+  workingHours: boolean;
   minimumPriority: taskRules.TaskPriority | null;
   target: "manager" | "role" | "person";
   targetRole: string | null;
@@ -427,12 +431,14 @@ function ruleView(row: typeof schema.taskEscalationRule.$inferSelect, people: Ma
     : row.target === "role" ? ROLE_WORDS[row.targetRole ?? ""] ?? "a role"
     : nameOf(people, row.targetUserId) ?? "a person who has left";
   const priority = row.minimumPriority && row.minimumPriority !== "low" ? `${row.minimumPriority} priority or above ` : "";
-  const hours = row.afterHours === 1 ? "an hour" : `${row.afterHours} hours`;
+  const unit = row.workingHours ? "working hour" : "hour";
+  const hours = row.afterHours === 1 ? `an ${unit}` : `${row.afterHours} ${unit}s`;
   const handover = row.reassignToUserId ? `, and hand it to ${nameOf(people, row.reassignToUserId) ?? "a person who has left"}` : "";
   return {
     id: row.id,
     name: row.name,
     afterHours: row.afterHours,
+    workingHours: row.workingHours,
     minimumPriority: row.minimumPriority,
     target: row.target,
     targetRole: row.targetRole,
@@ -444,6 +450,18 @@ function ruleView(row: typeof schema.taskEscalationRule.$inferSelect, people: Ma
     summary: `When a ${priority}task is ${hours} late, tell ${who}${handover}.`,
     fired,
   };
+}
+
+/**
+ * A rule that counts working hours needs the company to have said what they
+ * are. Refused in words at the moment of saving rather than quietly counting
+ * every hour of every day, which is the opposite of what was asked for.
+ */
+async function checkWorkingHours(tx: Database, input: RuleInput): Promise<void> {
+  if (!input.workingHours) return;
+  if ((await weekOf(tx)) === null) {
+    throw new ConflictError("Set your business hours first, so the rule knows when you work. You set them under Online booking.");
+  }
 }
 
 function checkRuleInput(input: RuleInput, people: Map<string, Person>): void {
@@ -476,11 +494,13 @@ export async function createRule(ctx: ServiceContext, input: RuleInput): Promise
     if (seen) return seen;
     const people = await directory(tx, ctx.actor.organizationId);
     checkRuleInput(input, people);
+    await checkWorkingHours(tx, input);
 
     const [row] = await tx.insert(schema.taskEscalationRule).values({
       organizationId: ctx.actor.organizationId,
       name: input.name.trim(),
       afterHours: input.afterHours,
+      workingHours: input.workingHours ?? false,
       minimumPriority: input.minimumPriority ?? null,
       target: input.target,
       targetRole: input.target === "role" ? ((input.targetRole ?? null) as typeof schema.taskEscalationRule.$inferSelect["targetRole"]) : null,
@@ -515,6 +535,7 @@ export async function updateRule(
     const merged: RuleInput = {
       name: input.name ?? before.name,
       afterHours: input.afterHours ?? before.afterHours,
+      workingHours: input.workingHours !== undefined ? input.workingHours : before.workingHours,
       minimumPriority: input.minimumPriority !== undefined ? input.minimumPriority : before.minimumPriority,
       target: input.target ?? before.target,
       targetRole: input.targetRole !== undefined ? input.targetRole : before.targetRole,
@@ -522,11 +543,16 @@ export async function updateRule(
       reassignToUserId: input.reassignToUserId !== undefined ? input.reassignToUserId : before.reassignToUserId,
     };
     // Turning a rule off must work even when the person it names has left.
-    if (!(Object.keys(input).length === 2 && input.active !== undefined)) checkRuleInput(merged, people);
+    if (!(Object.keys(input).length === 2 && input.active !== undefined)) {
+      checkRuleInput(merged, people);
+      // Only when the change is the one asking for working hours, so an old rule can still be turned off.
+      if (input.workingHours === true) await checkWorkingHours(tx, merged);
+    }
 
     const [after] = await tx.update(schema.taskEscalationRule).set({
       name: merged.name.trim(),
       afterHours: merged.afterHours,
+      workingHours: merged.workingHours ?? false,
       minimumPriority: merged.minimumPriority ?? null,
       target: merged.target,
       targetRole: merged.target === "role" ? ((merged.targetRole ?? null) as typeof schema.taskEscalationRule.$inferSelect["targetRole"]) : null,
@@ -712,12 +738,27 @@ export async function escalateFor(
     const base = publicBaseUrl();
     const done: { taskId: string; ruleId: string }[] = [];
 
+    /**
+     * The company's week and holidays, read once and only when a rule counts
+     * working hours. The first cut above is in clock hours for every rule,
+     * which is safe: working hours elapsed never exceed clock hours elapsed,
+     * so a task that is not late by the clock is not late by working hours.
+     */
+    const calendar: holidayRules.WorkingCalendar | null = rules.some((r) => r.workingHours)
+      ? {
+        week: await weekOf(tx),
+        holidays: await loadHolidays(tx, organizationId),
+        timeZone: await timezoneOf(tx, organizationId),
+      }
+      : null;
+
     for (const rule of rules) {
       for (const task of late) {
         if (!taskRules.escalationDue(
           { dueAt: task.dueAt, status: task.status, priority: task.priority },
-          { afterHours: rule.afterHours, minimumPriority: rule.minimumPriority },
+          { afterHours: rule.afterHours, minimumPriority: rule.minimumPriority, workingHours: rule.workingHours },
           now,
+          calendar,
         )) continue;
 
         const [claimed] = await tx.insert(schema.taskEscalation).values({
@@ -726,15 +767,23 @@ export async function escalateFor(
         if (!claimed) continue;
 
         const { userIds, note } = recipientsFor(rule, task.assigneeUserId, people);
-        const hoursLate = Math.floor((now.getTime() - task.dueAt!.getTime()) / 3_600_000);
+        const hoursLate = Math.floor(
+          taskRules.minutesLate(task.dueAt!, now, rule.workingHours, calendar) / 60,
+        );
+        const lateWords = rule.workingHours
+          ? `${hoursLate} working ${hoursLate === 1 ? "hour" : "hours"}`
+          : `${hoursLate} ${hoursLate === 1 ? "hour" : "hours"}`;
         const owner = nameOf(people, task.assigneeUserId) ?? "nobody";
         const notes: string[] = note ? [note] : [];
+        if (rule.workingHours && calendar?.week === null) {
+          notes.push("Your business hours are not set, so only holidays were left out of the count.");
+        }
 
         for (const userId of userIds) {
           await tx.insert(schema.task).values({
             organizationId,
             title: `Late: ${task.title}`.slice(0, 300),
-            body: `${hoursLate} hours past due, with ${owner}. Raised by the rule "${rule.name}".`,
+            body: `${lateWords} past due, with ${owner}. Raised by the rule "${rule.name}".`,
             priority: "high",
             entityType: "task",
             entityId: task.id,
@@ -760,7 +809,7 @@ export async function escalateFor(
               to: person.email,
               subject: `Late: ${task.title}`.slice(0, 200),
               text: [
-                `"${task.title}" is ${hoursLate} hours past due, with ${owner}.`,
+                `"${task.title}" is ${lateWords} past due, with ${owner}.`,
                 `The rule "${rule.name}" says you should know.`,
                 ...(link ? [`Open it: ${link}`] : []),
               ].join("\n\n"),

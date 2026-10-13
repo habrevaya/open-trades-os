@@ -4325,6 +4325,7 @@ export interface CreateStaffDocumentOutput {
 export interface CreateTaskEscalationRuleInput {
   name: string;
   afterHours: number;
+  workingHours?: boolean;
   minimumPriority?: "low" | "normal" | "high" | "urgent" | null;
   target: "manager" | "role" | "person";
   targetRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
@@ -4336,6 +4337,7 @@ export interface CreateTaskEscalationRuleOutput {
   id: string;
   name: string;
   afterHours: number;
+  workingHours: boolean;
   minimumPriority: "low" | "normal" | "high" | "urgent" | null;
   target: "manager" | "role" | "person";
   targetRole: string | null;
@@ -6895,6 +6897,11 @@ export interface GetCrewAvailabilityOutput {
     availableOn: number;
     offOn: number;
   };
+  partDayOff: Array<{
+    technicianId: string;
+    name: string;
+    hours: string;
+  }>;
   leadDesignated: boolean;
   equipmentBasis: "job_type" | "none_declared";
   registeredEquipment: string[];
@@ -7261,6 +7268,11 @@ export interface GetDispatchMapOutput {
     displayName: string;
     color: string | null;
     timeOff: boolean;
+    timeOffWholeDay: boolean;
+    timeOffHours: Array<{
+      startsAt: string;
+      endsAt: string;
+    }>;
     start: {
       locationId: string;
       name: string;
@@ -7864,6 +7876,22 @@ export interface GetFieldSnapshotOutput {
       feeRole: string | null;
       itemId: string | null;
     }>;
+    rateOffers: {
+      forEstimate: Array<{
+        kind: "after_hours" | "holiday";
+        itemId: string;
+        name: string;
+        quantity: number;
+        because: string[];
+      }>;
+      forInvoice: Array<{
+        kind: "after_hours" | "holiday";
+        itemId: string;
+        name: string;
+        quantity: number;
+        because: string[];
+      }>;
+    };
     invoices: Array<{
       id: string;
       number: number;
@@ -7932,6 +7960,11 @@ export interface GetFieldSnapshotOutput {
     overdue: boolean;
     checklistTotal: number;
     checklistDone: number;
+    checklist: Array<{
+      id: string;
+      label: string;
+      done: boolean;
+    }>;
   }>;
   talks: Array<{
     meetingId: string;
@@ -9125,6 +9158,11 @@ export interface GetMultiDayRebalanceOutput {
       displayName: string;
       color: string | null;
       timeOff: boolean;
+      timeOffWholeDay: boolean;
+      timeOffHours: Array<{
+        startsAt: string;
+        endsAt: string;
+      }>;
       before: {
         order: string[];
         driveMinutes: number;
@@ -10445,6 +10483,11 @@ export interface GetRebalanceOutput {
     displayName: string;
     color: string | null;
     timeOff: boolean;
+    timeOffWholeDay: boolean;
+    timeOffHours: Array<{
+      startsAt: string;
+      endsAt: string;
+    }>;
     before: {
       order: string[];
       driveMinutes: number;
@@ -10653,6 +10696,19 @@ export interface GetRentalOverageOutput {
     amount: string;
   }>;
   total: string;
+}
+
+export interface GetReviewRemindersOutput {
+  afterDays: number | null;
+  recent: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    askedAt: string;
+    remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
 }
 
 export interface GetReviewWorkListOutput {
@@ -12638,7 +12694,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign" | "expense.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -12919,6 +12975,11 @@ export interface ListCrewsForJobOutput {
       availableOn: number;
       offOn: number;
     };
+    partDayOff: Array<{
+      technicianId: string;
+      name: string;
+      hours: string;
+    }>;
     leadDesignated: boolean;
     equipmentBasis: "job_type" | "none_declared";
     registeredEquipment: string[];
@@ -15808,6 +15869,7 @@ export interface ListTaskEscalationRulesOutput {
     id: string;
     name: string;
     afterHours: number;
+    workingHours: boolean;
     minimumPriority: "low" | "normal" | "high" | "urgent" | null;
     target: "manager" | "role" | "person";
     targetRole: string | null;
@@ -22748,6 +22810,7 @@ export interface SetReviewPolicyInput {
     reason: string;
   }>;
   halfLifeDays?: number;
+  reminderAfterDays?: number | null;
 }
 
 export interface SetReviewPolicyOutput {
@@ -22771,6 +22834,24 @@ export interface SetReviewPolicyOutput {
     reason: string;
   }>;
   halfLifeDays: number;
+  reminderAfterDays: number | null;
+}
+
+export interface SetReviewRemindersInput {
+  afterDays: number | null;
+}
+
+export interface SetReviewRemindersOutput {
+  afterDays: number | null;
+  recent: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    askedAt: string;
+    remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
 }
 
 export interface SetSafetyTalkScheduleActiveInput {
@@ -23580,7 +23661,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record" | "safety.sign" | "expense.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -25516,6 +25597,7 @@ export interface UpdateServiceReportTemplateOutput {
 export interface UpdateTaskEscalationRuleInput {
   name?: string;
   afterHours?: number;
+  workingHours?: boolean;
   minimumPriority?: "low" | "normal" | "high" | "urgent" | null;
   target?: "manager" | "role" | "person";
   targetRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
@@ -25528,6 +25610,7 @@ export interface UpdateTaskEscalationRuleOutput {
   id: string;
   name: string;
   afterHours: number;
+  workingHours: boolean;
   minimumPriority: "low" | "normal" | "high" | "urgent" | null;
   target: "manager" | "role" | "person";
   targetRole: string | null;
@@ -27520,7 +27603,9 @@ export interface GetJobProfitabilityInput {
 
 export interface GetJobRateOffersInput {
   id: string;
+  for?: "invoice" | "estimate";
   exceptInvoiceId?: string;
+  exceptEstimateId?: string;
 }
 
 export interface GetJobSkillsInput {
@@ -27765,6 +27850,8 @@ export type GetRentalDispatchInput = Record<string, never>;
 export interface GetRentalOverageInput {
   id: string;
 }
+
+export type GetReviewRemindersInput = Record<string, never>;
 
 export type GetReviewWorkListInput = Record<string, never>;
 
@@ -30513,6 +30600,7 @@ export interface OperationTypes {
   getRental: { input: GetRentalInput; output: GetRentalOutput };
   getRentalDispatch: { input: GetRentalDispatchInput; output: GetRentalDispatchOutput };
   getRentalOverage: { input: GetRentalOverageInput; output: GetRentalOverageOutput };
+  getReviewReminders: { input: GetReviewRemindersInput; output: GetReviewRemindersOutput };
   getReviewWorkList: { input: GetReviewWorkListInput; output: GetReviewWorkListOutput };
   getRouteProposal: { input: GetRouteProposalInput; output: GetRouteProposalOutput };
   getSafetyMeeting: { input: GetSafetyMeetingInput; output: GetSafetyMeetingOutput };
@@ -31097,6 +31185,7 @@ export interface OperationTypes {
   setReportingLine: { input: SetReportingLineInput; output: SetReportingLineOutput };
   setReviewPlatform: { input: SetReviewPlatformInput; output: SetReviewPlatformOutput };
   setReviewPolicy: { input: SetReviewPolicyInput; output: SetReviewPolicyOutput };
+  setReviewReminders: { input: SetReviewRemindersInput; output: SetReviewRemindersOutput };
   setSafetyTalkScheduleActive: { input: SetSafetyTalkScheduleActiveParams & SetSafetyTalkScheduleActiveInput; output: SetSafetyTalkScheduleActiveOutput };
   setServiceRouteStopActive: { input: SetServiceRouteStopActiveParams & SetServiceRouteStopActiveInput; output: SetServiceRouteStopActiveOutput };
   setSoftphonePresence: { input: SetSoftphonePresenceInput; output: SetSoftphonePresenceOutput };
@@ -31554,7 +31643,7 @@ export const OPERATIONS = {
   getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
-  getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["exceptInvoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["for","exceptInvoiceId","exceptEstimateId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
@@ -31617,6 +31706,7 @@ export const OPERATIONS = {
   getRental: { method: "GET", path: "/v1/rentals/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  getReviewReminders: { method: "GET", path: "/v1/reviews/reminders", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId","facilityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getSafetyMeeting: { method: "GET", path: "/v1/safety/meetings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
@@ -32201,6 +32291,7 @@ export const OPERATIONS = {
   setReportingLine: { method: "POST", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setReviewPlatform: { method: "POST", path: "/v1/reviews/platforms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReviewPolicy: { method: "PUT", path: "/v1/reviews/policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setReviewReminders: { method: "PUT", path: "/v1/reviews/reminders", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setSafetyTalkScheduleActive: { method: "POST", path: "/v1/safety/schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   setServiceRouteStopActive: { method: "POST", path: "/v1/service-routes/stops/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setSoftphonePresence: { method: "PUT", path: "/v1/softphone/presence", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
@@ -35175,7 +35266,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The after hours or holiday rate to offer on this job's invoice.
+   * The after hours or holiday rate to offer on this job's invoice or estimate.
    *
    * GET /v1/jobs/{id}/rate-offers. Needs job:read.
    */
@@ -35739,6 +35830,15 @@ export abstract class GeneratedOperations {
    */
   getRentalOverage(input: GetRentalOverageInput, options?: CallOptions): Promise<GetRentalOverageOutput> {
     return this.call("getRentalOverage", input, options);
+  }
+
+  /**
+   * Whether the one reminder is on, and what the latest did.
+   *
+   * GET /v1/reviews/reminders. Needs review:respond.
+   */
+  getReviewReminders(input: GetReviewRemindersInput = {} as GetReviewRemindersInput, options?: CallOptions): Promise<GetReviewRemindersOutput> {
+    return this.call("getReviewReminders", input, options);
   }
 
   /**
@@ -40995,6 +41095,15 @@ export abstract class GeneratedOperations {
    */
   setReviewPolicy(input: SetReviewPolicyInput, options?: CallOptions): Promise<SetReviewPolicyOutput> {
     return this.call("setReviewPolicy", input, options);
+  }
+
+  /**
+   * Turn the one reminder on, or off.
+   *
+   * PUT /v1/reviews/reminders. Needs settings:write.
+   */
+  setReviewReminders(input: SetReviewRemindersInput, options?: CallOptions): Promise<SetReviewRemindersOutput> {
+    return this.call("setReviewReminders", input, options);
   }
 
   /**

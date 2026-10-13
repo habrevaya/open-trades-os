@@ -131,6 +131,17 @@ export const EVENTS = {
     entity: "invoice",
     emitted: true,
   },
+  /**
+   * A credit note took an invoice's balance to nothing. Its own event and not
+   * `invoice.paid`, because nobody paid: a thank you for payment, or a referral
+   * reward for a paid job, must not fire for an invoice a credit settled. An
+   * automation that means "this job owes nothing now" subscribes to both.
+   */
+  "invoice.credited": {
+    summary: "A credit note settled an invoice in full",
+    entity: "invoice",
+    emitted: true,
+  },
   "payment.received": {
     summary: "A payment came in, whether or not it cleared an invoice",
     entity: "payment",

@@ -112,7 +112,9 @@ export async function add(ctx: ServiceContext, input: { taskId: string; label: s
  * retry lands where the first call did.
  */
 export async function tick(
-  ctx: ServiceContext, input: { taskId: string; itemId: string; done: boolean },
+  ctx: ServiceContext,
+  /** `at` is when the person did it, for a tick that waited for a signal; never later than now. */
+  input: { taskId: string; itemId: string; done: boolean; at?: Date | undefined },
 ): Promise<ChecklistItem> {
   return guardedWrite(ctx, "task:read", async (tx) => {
     const task = await loadTask(tx, input.taskId);
@@ -126,7 +128,7 @@ export async function tick(
 
     if ((item.doneAt !== null) !== input.done) {
       await tx.update(schema.taskChecklistItem).set({
-        doneAt: input.done ? new Date() : null,
+        doneAt: input.done ? (input.at && input.at.getTime() < Date.now() ? input.at : new Date()) : null,
         doneByUserId: input.done ? ctx.actor.userId : null,
         updatedAt: new Date(),
       }).where(eq(schema.taskChecklistItem.id, item.id));

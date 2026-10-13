@@ -237,6 +237,8 @@ export const handlers = {
   // only the customers who will say something nice is what gets a listing
   // wiped, and an absent field is a better defence than a policy.
   setReviewPolicy: reviews.handlers.setReviewPolicy,
+  getReviewReminders: reviews.handlers.getReviewReminders,
+  setReviewReminders: reviews.handlers.setReviewReminders,
   listReviewPlatforms: reviews.handlers.listReviewPlatforms,
   setReviewPlatform: reviews.handlers.setReviewPlatform,
   requestReview: reviews.handlers.requestReview,

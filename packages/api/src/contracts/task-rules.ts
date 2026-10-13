@@ -126,6 +126,8 @@ const Rule = z.object({
   id: Uuid,
   name: z.string(),
   afterHours: z.number().int(),
+  /** True when the hours are the company's working hours, not the clock. */
+  workingHours: z.boolean(),
   minimumPriority: TaskPriority.nullable(),
   target: Target,
   targetRole: z.string().nullable(),
@@ -143,6 +145,7 @@ const Rule = z.object({
 const RuleFields = {
   name: z.string().min(1).max(120),
   afterHours: z.number().int().min(1).max(672),
+  workingHours: z.boolean().optional(),
   minimumPriority: TaskPriority.nullable().optional(),
   target: Target,
   targetRole: MemberRole.nullable().optional(),
@@ -165,7 +168,7 @@ export const createTaskEscalationRule = defineRoute({
   path: "/v1/task-escalation-rules",
   summary: "Tell somebody when a task is late, and optionally hand it over",
   description:
-    "After `afterHours` past due, the worker tells the assignee's manager, everybody in a role, or a named person, with a task in their queue linked to the late one and an email when the company sends email, and hands the task to `reassignToUserId` when one is set. Once per task per rule, recorded before anybody is told. With no manager recorded, or nobody in the role, the owners are told and the record says why.",
+    "After `afterHours` past due, the worker tells the assignee's manager, everybody in a role, or a named person, with a task in their queue linked to the late one and an email when the company sends email, and hands the task to `reassignToUserId` when one is set. With `workingHours` true the hours are counted inside the company's business hours, on the days it is open and not on its holidays, and the rule is refused until business hours are set; the default counts the clock. Once per task per rule, recorded before anybody is told. With no manager recorded, or nobody in the role, the owners are told and the record says why.",
   module: "M34",
   permissions: ["task:write"],
   idempotent: true,

@@ -58,6 +58,8 @@ export const ReviewPolicy = z.object({
   closeHour: z.number().int(),
   bands: z.array(ResponseBand),
   halfLifeDays: z.number().int(),
+  /** Days before the one reminder; null is off. */
+  reminderAfterDays: z.number().int().nullable(),
 });
 
 export const setReviewPolicy = defineRoute({
@@ -87,8 +89,49 @@ export const setReviewPolicy = defineRoute({
     closeHour: z.number().int().min(0).max(23).optional(),
     bands: z.array(ResponseBand).optional(),
     halfLifeDays: z.number().int().min(1).max(3650).optional(),
+    /** Days to wait before the one reminder, 3 to 60, or null for none. Left out, the policy keeps what it had. */
+    reminderAfterDays: z.number().int().min(3).max(60).nullable().optional(),
   }),
   output: ReviewPolicy,
+});
+
+const Reminders = z.object({
+  /** Days to wait before the one reminder. Null is off, which is how a company starts. */
+  afterDays: z.number().int().nullable(),
+  /** The latest reminders, sent or decided against for good, newest first. */
+  recent: z.array(z.object({
+    requestId: Uuid,
+    jobNumber: z.number().int(),
+    customerName: z.string(),
+    askedAt: z.string().datetime(),
+    remindedAt: z.string().datetime(),
+    sent: z.boolean(),
+    /** Why it was not sent, in words, when it was not. */
+    detail: z.string().nullable(),
+  })),
+});
+
+export const getReviewReminders = defineRoute({
+  method: "get",
+  path: "/v1/reviews/reminders",
+  summary: "Whether the one reminder is on, and what the latest did",
+  module: "M20",
+  permissions: ["review:respond"],
+  input: z.object({}),
+  output: Reminders,
+});
+
+export const setReviewReminders = defineRoute({
+  method: "put",
+  path: "/v1/reviews/reminders",
+  summary: "Turn the one reminder on, or off",
+  description:
+    "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy.",
+  module: "M20",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({ afterDays: z.number().int().min(3).max(60).nullable() }),
+  output: Reminders,
 });
 
 export const ReviewPlatform = z.object({
@@ -346,7 +389,7 @@ export const getRatingByTechnician = defineRoute({
 });
 
 export const reviewRoutes = {
-  setReviewPolicy, listReviewPlatforms, setReviewPlatform,
+  setReviewPolicy, getReviewReminders, setReviewReminders, listReviewPlatforms, setReviewPlatform,
   requestReview, listDueRequests, markRequestSent, listWithheld,
   recordReview, getReviewWorkList, respondToReview, markReviewRecovered,
   getRating, getRatingByTechnician,

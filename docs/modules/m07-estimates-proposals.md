@@ -119,7 +119,11 @@ it is written (M13), on the taxable lines, unless a rate is typed on the form
 matches one of the company's is recorded as that rate. An estimate the field
 assistant or an inspection's deficiency drafts takes the same rate. The rate on
 each line goes onto the invoice it converts to as signed, and issuing that
-invoice never second guesses it. `POST /v1/estimates/{id}/send` freezes it, issues the approval link and
+invoice never second guesses it. For an estimate on a job (`/estimates/new?job=...`,
+from "Write an estimate for this job" on the job's page) whose visit was booked
+outside the company's hours or on a holiday, the form offers the after hours or
+holiday rate with why, and a button puts it on every option; nothing adds it by itself
+(M02). `POST /v1/estimates/{id}/send` freezes it, issues the approval link and
 puts it in front of the customer, and needs `estimate:send` with
 `portal:grant`, because it is both.
 

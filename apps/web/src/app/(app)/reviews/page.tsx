@@ -1,8 +1,9 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { reviews, reviewSync, ConflictError } from "@opentradesos/api/services";
-import { ActionForm } from "@/components/ActionForm";
-import { answerMatch, syncListings } from "./actions";
+import { can } from "@opentradesos/core";
+import { ActionForm, TextField } from "@/components/ActionForm";
+import { answerMatch, saveReminders, syncListings } from "./actions";
 import { Chip } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Empty, PageHeader } from "@/components/Table";
@@ -70,9 +71,10 @@ export default async function ReviewsPage() {
   }
 
   const owed = items.filter((item) => item.recoveryDueAt && !item.recoveredAt);
-  const [listings, suggestions, replies] = await Promise.all([
-    reviewSync.listings(ctx), reviewSync.suggestions(ctx), reviewSync.replyStates(ctx),
+  const [listings, suggestions, replies, reminders] = await Promise.all([
+    reviewSync.listings(ctx), reviewSync.suggestions(ctx), reviewSync.replyStates(ctx), reviews.reminders(ctx),
   ]);
+  const changesReminders = can(user.actor, "settings:write");
   const unposted = replies.filter((r) => r.replyState === "pending" || r.replyState === "failed");
 
   return (
@@ -210,6 +212,33 @@ export default async function ReviewsPage() {
           ))}
         </ul>
       )}
+
+      <section aria-label="Reminders" className="mt-10">
+        <h2 className="text-base font-semibold">Reminders</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          {reminders.afterDays === null
+            ? "Off. Each customer is asked once. You can send one reminder to a customer who has not answered."
+            : `On. If nobody has answered ${reminders.afterDays} days after the ask, the customer gets one reminder, in the same way you ask.`}
+          {" "}It is never sent to a customer who asked not to be contacted, who has a complaint open, or who has
+          left a review since, whatever it said. Nobody gets more than one.
+        </p>
+        {changesReminders && (
+          <ActionForm action={saveReminders} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Remind after this many days (3 to 60). Empty is off." name="afterDays" type="number"
+                       defaultValue={reminders.afterDays ?? ""} className="block w-72" />
+          </ActionForm>
+        )}
+        {reminders.recent.length > 0 && (
+          <ul className="mt-3 space-y-1 text-sm text-ink-700">
+            {reminders.recent.map((r) => (
+              <li key={r.requestId}>
+                Job {r.jobNumber}, {r.customerName}, {formatIn(new Date(r.remindedAt), user.organizationTimezone)}:{" "}
+                {r.sent ? "reminder sent." : (r.detail ?? "not sent.")}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {withheld.length > 0 && (
         <section className="mt-10">

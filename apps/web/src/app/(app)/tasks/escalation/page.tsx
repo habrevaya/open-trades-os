@@ -7,7 +7,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { ActionForm, TextField, Select } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { TASK_PRIORITY } from "@/lib/labels";
-import { addRule, setRuleActive, setManager } from "../rule-actions";
+import { addRule, setRuleActive, setRuleWorkingHours, setManager } from "../rule-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -61,8 +61,13 @@ export default async function EscalationPage() {
               <Td className="text-right tabular-nums">{r.fired}</Td>
               <Td>
                 {writes ? (
-                  <ActionForm action={setRuleActive} submit={r.active ? "Turn off" : "Turn on"} tone="quiet"
-                              hidden={{ id: r.id, active: r.active ? "0" : "1" }} className="flex items-center gap-2" />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ActionForm action={setRuleActive} submit={r.active ? "Turn off" : "Turn on"} tone="quiet"
+                                hidden={{ id: r.id, active: r.active ? "0" : "1" }} className="flex items-center gap-2" />
+                    <ActionForm action={setRuleWorkingHours} submit={r.workingHours ? "Count every hour" : "Count working hours"}
+                                tone="quiet" hidden={{ id: r.id, workingHours: r.workingHours ? "0" : "1" }}
+                                className="flex items-center gap-2" />
+                  </div>
                 ) : null}
               </Td>
             </tr>
@@ -82,6 +87,13 @@ export default async function EscalationPage() {
                 ...Object.entries(TASK_PRIORITY).filter(([v]) => v !== "low").map(([value, l]) => ({ value, label: l })),
               ]} />
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="workingHours" value="yes" className="mt-1" />
+              <span>
+                Count only the hours you work. Evenings, weekends and your holidays do not count, using your
+                opening hours under Online booking. Leave it off to count every hour.
+              </span>
+            </label>
             <div className="grid gap-3 sm:grid-cols-3">
               <Select label="Tell" name="target" options={[
                 { value: "manager", label: "The person's manager" },

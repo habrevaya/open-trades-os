@@ -8,9 +8,9 @@ import { MoneyString, Uuid } from "./common";
  * Which price book item is charged for work booked outside the company's
  * hours, and which on a holiday. Both are items marked as the after hours
  * rate, the mark a membership plan reads when it waives it, and choosing one
- * that is not marked marks it. The invoice screens offer the item for a job
- * whose visit was booked outside the hours kept that day or on a date in the
- * holiday list; nothing adds it by itself.
+ * that is not marked marks it. The invoice and estimate screens, and the
+ * phone's, offer the item for a job whose visit was booked outside the hours
+ * kept that day or on a date in the holiday list; nothing adds it by itself.
  */
 
 const Item = z.object({
@@ -57,12 +57,17 @@ export const setAfterHoursRates = defineRoute({
 export const getJobRateOffers = defineRoute({
   method: "get",
   path: "/v1/jobs/{id}/rate-offers",
-  summary: "The after hours or holiday rate to offer on this job's invoice",
+  summary: "The after hours or holiday rate to offer on this job's invoice or estimate",
   description:
-    "One offer per item: the holiday rate for each visit booked on a date in the holiday list, and the after hours rate for each visit booked outside the hours kept that day, by the start of the window it was booked into. Cancelled visits are not counted, and an item already on another of the job's invoices that was not voided is not offered again (`exceptInvoiceId` is the draft being edited). Empty when no rates are chosen. Nothing is added to an invoice by this.",
+    "One offer per item: the holiday rate for each visit booked on a date in the holiday list, and the after hours rate for each visit booked outside the hours kept that day, by the start of the window it was booked into. Cancelled visits are not counted, and an item already on another of the job's invoices that was not voided is not offered again (`exceptInvoiceId` is the draft being edited). `for` says what the offer is for, `invoice` by default: an invoice does not offer what an approved estimate for the job already carries, and an estimate (`for=estimate`) does not offer what another live estimate for the job carries (`exceptEstimateId` is the one being revised). Empty when no rates are chosen. Nothing is added to an invoice or an estimate by this.",
   module: "M13",
   permissions: ["job:read"],
-  input: z.object({ id: Uuid, exceptInvoiceId: Uuid.optional() }),
+  input: z.object({
+    id: Uuid,
+    for: z.enum(["invoice", "estimate"]).optional(),
+    exceptInvoiceId: Uuid.optional(),
+    exceptEstimateId: Uuid.optional(),
+  }),
   output: z.object({
     offers: z.array(z.object({
       kind: z.enum(["after_hours", "holiday"]),

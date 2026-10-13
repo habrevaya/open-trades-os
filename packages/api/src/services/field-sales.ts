@@ -7,6 +7,7 @@ import { audit, guardedRead, timezoneOf, type ServiceContext } from "./context";
 import * as estimates from "./estimates";
 import * as billing from "./billing";
 import * as tasks from "./tasks";
+import * as taskChecklist from "./task-checklist";
 import * as tips from "./tips";
 import * as expenses from "./expenses";
 import * as financing from "./financing";
@@ -14,6 +15,7 @@ import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import { excludedItemsWithin, memberPricingWithin } from "./agreements";
 import { settingWithin as agentSettingWithin } from "./agents";
 import * as taxRates from "./tax";
+import { offersWithin, type RateOffer } from "./after-hours";
 import { createEstimate } from "../contracts/estimates";
 import { createInvoice } from "../contracts/billing";
 import type { VisitForField } from "../contracts/field";
@@ -423,18 +425,30 @@ async function fromWork(
       + "or not billable, so the invoice was not raised. Open the day with a signal and look again.";
   }
 
+  /**
+   * THE AFTER HOURS OR HOLIDAY RATE, when the technician added what the phone
+   * offered. Held to what is offered now, the way the office's screen is: a
+   * rate the office already billed, or that an approved estimate carries, is
+   * refused in words rather than charged twice to a customer who signed.
+   */
+  const rated = await rateLinesAsked(tx, ctx, op, visit.jobId);
+  if (typeof rated === "string") return rated;
+
   const base = {
     customerId: visit.customerId,
     jobId: visit.jobId,
-    lines: rows.map((r) => ({
-      jobLineId: r.line.id,
-      ...(r.itemId ? { priceBookItemId: r.itemId } : {}),
-      name: r.line.name,
-      ...(r.line.description ? { description: r.line.description } : {}),
-      quantity: r.line.quantity,
-      unitPrice: r.line.unitPrice,
-      taxable: r.line.taxable,
-    })),
+    lines: [
+      ...rows.map((r) => ({
+        jobLineId: r.line.id,
+        ...(r.itemId ? { priceBookItemId: r.itemId } : {}),
+        name: r.line.name,
+        ...(r.line.description ? { description: r.line.description } : {}),
+        quantity: r.line.quantity,
+        unitPrice: r.line.unitPrice,
+        taxable: r.line.taxable,
+      })),
+      ...rated,
+    ],
   };
   const parsed = createInvoice.input.safeParse({ ...base, expectedTotals: { total: m.toString(shown) } });
   if (!parsed.success) return "Some of that work could not be read, so the invoice was not raised.";
@@ -469,6 +483,39 @@ async function fromWork(
     conflict: `The customer was shown ${m.format(m.round(shown, 2))} and the office's prices make it `
       + `${m.format(m.money(row?.total ?? "0"))}, so the invoice was kept as a draft for the office to check before it is sent.`,
   };
+}
+
+/**
+ * The rate lines an invoice for recorded work was asked to carry: the items
+ * the phone offered, `rateItems` in the payload, each priced from the price
+ * book by the invoice itself. Refused in words when one is not offered on the
+ * job now or the quantity is more than the visits it is for.
+ */
+async function rateLinesAsked(tx: Database, ctx: ServiceContext, op: field.FieldOperation, jobId: string): Promise<
+  string | Array<{ priceBookItemId: string; name: string; quantity: string; unitPrice: string; taxable: boolean }>
+> {
+  const asked = Array.isArray(op.payload["rateItems"]) ? op.payload["rateItems"] as Array<Record<string, unknown>> : [];
+  if (asked.length === 0) return [];
+  const offered = await offersWithin(tx, ctx.actor.organizationId, { jobId, for: "invoice" });
+  const lines: Array<{ priceBookItemId: string; name: string; quantity: string; unitPrice: string; taxable: boolean }> = [];
+  for (const want of asked) {
+    const itemId = uuid(want["priceBookItemId"]);
+    const offer = offered.find((o) => o.item.id === itemId);
+    if (!itemId || !offer) {
+      return "The after hours or holiday rate is not offered on this job any more, perhaps because it is billed already, "
+        + "so the invoice was not raised. Open the day with a signal and look again.";
+    }
+    const quantity = Number(want["quantity"]);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > offer.quantity) {
+      return `${offer.item.name} is for ${offer.quantity === 1 ? "one visit" : `${offer.quantity} visits`}, so the invoice was not raised.`;
+    }
+    if (lines.some((l) => l.priceBookItemId === itemId)) return `${offer.item.name} is on that invoice twice, so it was not raised.`;
+    lines.push({
+      priceBookItemId: offer.item.id, name: offer.item.name, quantity: String(quantity),
+      unitPrice: offer.item.price, taxable: offer.item.taxable,
+    });
+  }
+  return lines;
 }
 
 /**
@@ -666,8 +713,8 @@ export async function expensesRevision(tx: Database, technicianId: string): Prom
 /* ------------------------------------------------------------------ tasks */
 
 /**
- * Taking a task and finishing it, from the phone, through the queue's own
- * service: claiming is conditional, so the second of two people taking the
+ * Taking a task, ticking its checklist and finishing it, from the phone, through the
+ * queue's own service: claiming is conditional, so the second of two people taking the
  * same task offline is told somebody else has it, and finishing your own
  * needs only `task:read`, the rule `tasks.close` already keeps.
  */
@@ -678,6 +725,13 @@ export async function taskOperation(tx: Database, ctx: ServiceContext, op: field
     const scoped = keyed(ctx, op, "task", sp);
     if (op.kind === "task.claim") {
       await tasks.claim(scoped, { id: taskId });
+      return null;
+    }
+    if (op.kind === "task.tick") {
+      /** The item, and the state it was left in, at the time the person did it. */
+      const itemId = uuid(op.payload["itemId"]);
+      if (!itemId) return "That names no checklist item.";
+      await taskChecklist.tick(scoped, { taskId, itemId, done: op.payload["done"] !== false, at: op.occurredAt });
       return null;
     }
     const outcome = text(op.payload["outcome"], 2000);
@@ -693,7 +747,11 @@ export async function taskOperation(tx: Database, ctx: ServiceContext, op: field
 
 /* --------------------------------------------------------------- the day */
 
-type Sales = Pick<z.infer<typeof VisitForField>, "member" | "estimates" | "billable" | "invoices" | "tax">;
+type Sales = Pick<z.infer<typeof VisitForField>, "member" | "estimates" | "billable" | "invoices" | "tax" | "rateOffers">;
+
+const offerForField = (offer: RateOffer) => ({
+  kind: offer.kind, itemId: offer.item.id, name: offer.item.name, quantity: offer.quantity, because: offer.because,
+});
 
 /**
  * What the phone needs on each visit to sell and close: the member's plan,
@@ -789,6 +847,21 @@ export async function salesFor(
     ))
     .orderBy(asc(schema.jobLine.occurredAt), asc(schema.jobLine.id));
 
+  /**
+   * THE AFTER HOURS OR HOLIDAY RATE, offered with the day so the phone can
+   * show it with no signal. Worked out per job, the same way the office's
+   * invoice and estimate screens work it out, and for somebody who may write
+   * the document it is offered on.
+   */
+  const rateOffers = new Map<string, { forEstimate: ReturnType<typeof offerForField>[]; forInvoice: ReturnType<typeof offerForField>[] }>();
+  for (const jobId of jobIds) {
+    const forEstimate = can(ctx.actor, "estimate:write")
+      ? await offersWithin(tx, ctx.actor.organizationId, { jobId, for: "estimate" }) : [];
+    const forInvoice = can(ctx.actor, "invoice:write") || can(ctx.actor, "invoice:raise_on_site")
+      ? await offersWithin(tx, ctx.actor.organizationId, { jobId, for: "invoice" }) : [];
+    rateOffers.set(jobId, { forEstimate: forEstimate.map(offerForField), forInvoice: forInvoice.map(offerForField) });
+  }
+
   const invoiceRows = can(ctx.actor, "invoice:read") ? await tx.select({
     id: schema.invoice.id, jobId: schema.invoice.jobId, number: schema.invoice.number,
     status: schema.invoice.status, total: schema.invoice.total, balance: schema.invoice.balance,
@@ -842,6 +915,7 @@ export async function salesFor(
         feeRole: b.feeRole ?? null,
         itemId: b.itemId ?? null,
       })),
+      rateOffers: rateOffers.get(v.jobId) ?? { forEstimate: [], forInvoice: [] },
       invoices: invoiceRows.filter((i) => i.jobId === v.jobId).map((i) => ({
         id: i.id, number: i.number, status: i.status, total: i.total, balance: i.balance,
       })),
@@ -864,6 +938,12 @@ export async function tasksFor(tx: Database, ctx: ServiceContext) {
     ))
     .orderBy(sql`${schema.task.dueAt} asc nulls last`, desc(schema.task.priority))
     .limit(100);
+  const items = rows.length === 0 ? [] : await tx.select({
+    id: schema.taskChecklistItem.id, taskId: schema.taskChecklistItem.taskId,
+    label: schema.taskChecklistItem.label, doneAt: schema.taskChecklistItem.doneAt,
+  }).from(schema.taskChecklistItem)
+    .where(inArray(schema.taskChecklistItem.taskId, rows.map((r) => r.task.id)))
+    .orderBy(asc(schema.taskChecklistItem.position), asc(schema.taskChecklistItem.createdAt));
   const now = Date.now();
   return rows.map(({ task, checklistTotal, checklistDone }) => ({
     id: task.id,
@@ -876,6 +956,7 @@ export async function tasksFor(tx: Database, ctx: ServiceContext) {
     overdue: task.dueAt !== null && task.dueAt.getTime() < now,
     checklistTotal: Number(checklistTotal),
     checklistDone: Number(checklistDone),
+    checklist: items.filter((i) => i.taskId === task.id).map((i) => ({ id: i.id, label: i.label, done: i.doneAt !== null })),
   }));
 }
 

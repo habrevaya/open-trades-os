@@ -13,7 +13,7 @@ export const OperationKind = z.enum([
   "inspection.record",
   "estimate.create", "estimate.approve", "estimate.decline",
   "invoice.raise",
-  "task.claim", "task.close",
+  "task.claim", "task.close", "task.tick",
   "tip.record",
   "safety.sign",
   "expense.record",
@@ -195,6 +195,16 @@ export const FieldEstimate = z.object({
   })),
 });
 
+const RateOfferForField = z.object({
+  kind: z.enum(["after_hours", "holiday"]),
+  itemId: Uuid,
+  name: z.string(),
+  /** How many of the job's visits it is for, which is the quantity offered. */
+  quantity: z.number().int(),
+  /** One sentence per visit: "2026-10-06 at 19:00, after the 17:00 close". */
+  because: z.array(z.string()),
+});
+
 export const VisitForField = z.object({
   id: Uuid,
   jobId: Uuid,
@@ -343,6 +353,16 @@ export const VisitForField = z.object({
     /** The price book item, which decides whether the plan's discount leaves the line out. Null for a typed line. */
     itemId: Uuid.nullable(),
   })),
+  /**
+   * The after hours or holiday rate, offered because one of the job's visits was booked outside the company's
+   * hours or on a holiday (M02), with the sentence that says why. Two lists because they are not always the same:
+   * an estimate does not offer what another live estimate carries, an invoice not what an approved one does. The
+   * phone prices the item from the price book it carries, `itemId` being the item there. Offered, never added.
+   */
+  rateOffers: z.object({
+    forEstimate: z.array(RateOfferForField),
+    forInvoice: z.array(RateOfferForField),
+  }),
   /** The job's invoices, other than void ones. Empty for a caller who may not read invoices. */
   invoices: z.array(z.object({
     id: Uuid,
@@ -464,6 +484,8 @@ export const getFieldSnapshot = defineRoute({
       overdue: z.boolean(),
       checklistTotal: z.number().int(),
       checklistDone: z.number().int(),
+      /** The checklist items in order, so they can be ticked with no signal. Empty for a task with none. */
+      checklist: z.array(z.object({ id: Uuid, label: z.string(), done: z.boolean() })),
     })),
     /**
      * The toolbox talks on this person's own sheet lines: the ones waiting for
