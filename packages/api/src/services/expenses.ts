@@ -10,6 +10,7 @@ import { closedPeriodCovering, periodFinder } from "./payroll";
 import { settingsWithin } from "./pay-extras";
 import { technicianScopeFilter } from "./scope";
 import { remember, replayed } from "./once";
+import { raiseWithin } from "./staff-notices";
 
 /**
  * WHAT A PERSON PAID FOR THE COMPANY, AND A DAY AWAY
@@ -420,6 +421,26 @@ export async function decide(
     await audit(tx, ctx, `expense.${wanted}`, "expense", row.id, { status: row.status }, {
       status: wanted, amount: row.amount, reason: reason === "" ? null : reason,
     });
+    /**
+     * The person is told, wherever they chose on `/me` (M34's notices), in the
+     * same transaction as the decision: a refusal they only find by looking is
+     * a refusal they find on payday.
+     */
+    const [person] = await tx.select({ userId: schema.membership.userId }).from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(eq(schema.technician.id, row.technicianId)).limit(1);
+    if (person && person.userId !== ctx.actor.userId) {
+      const amount = m.format(m.money(row.amount, row.currency));
+      await raiseWithin(tx, {
+        organizationId: ctx.actor.organizationId, userId: person.userId, kind: "expense_decided",
+        key: `expense:${row.id}:${wanted}`,
+        title: wanted === "approved" ? `Your ${amount} expense was approved` : `Your ${amount} expense was refused`,
+        body: wanted === "approved"
+          ? `${row.description}. It is paid back with your pay.${reason === "" ? "" : ` ${reason}`}`
+          : `${row.description}. ${reason}`,
+        about: { type: "expense", id: row.id },
+      });
+    }
     return (await viewsOf(tx, ctx, eq(schema.expense.id, row.id), 1))[0]!;
   });
 }

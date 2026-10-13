@@ -1,13 +1,15 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { me } from "@opentradesos/api/services";
+import { me, staffNotices } from "@opentradesos/api/services";
 import { can, time } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { Fact, Facts } from "@/components/Detail";
 import { Empty, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
-import { addContact, logCeHours, removeContact, setLine, withdrawCeHours } from "./actions";
+import {
+  addContact, logCeHours, removeContact, saveNoticeSwitches, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
+} from "./actions";
 import { SignDocument } from "./SignDocument";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +44,7 @@ export default async function MyRecordPage() {
     );
   }
   const record = await me.record({ actor: user.actor, db: getDb() });
+  const told = await staffNotices.settings({ actor: user.actor, db: getDb() });
   const zone = user.organizationTimezone;
   const waiting = record.documents.filter((d) => !d.signedAt);
   const signed = record.documents.filter((d) => d.signedAt);
@@ -154,6 +157,8 @@ export default async function MyRecordPage() {
         </ActionForm>
       </section>
 
+      <NoticeSettings told={told} zone={zone} />
+
       {record.technicianId ? (
         <section className="mt-8" aria-labelledby="licences">
           <h2 id="licences" className="text-base font-semibold">Licences and certifications</h2>
@@ -257,5 +262,61 @@ export default async function MyRecordPage() {
         </section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * WHAT YOU ARE TOLD, AND WHERE
+ *
+ * One row per kind of notice, with a box for the app's bell, the phone app and
+ * a text. Texts are turned on here first, by the person, with their own number
+ * and a box ticked beside the exact words they agree to; nobody in the office
+ * can turn somebody else's on.
+ */
+function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffNotices.settings>>; zone: string }) {
+  const box = "h-4 w-4 rounded border-steel-300";
+  return (
+    <section id="notices" className="mt-8" aria-labelledby="notices-heading">
+      <h2 id="notices-heading" className="text-base font-semibold">What you are told, and where</h2>
+      <p className="mt-1 text-sm text-ink-700">
+        The bell at the top of the menu, the phone app{told.phones > 0 ? "" : " (you are not signed in to it on a phone)"}, and a text to your own mobile.
+      </p>
+      <ActionForm action={saveNoticeSwitches} submit="Save what I am told" className="mt-3 space-y-3">
+        <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Text</Th></>}>
+          {told.kinds.map((k) => (
+            <tr key={k.kind}>
+              <Td><span className="font-medium">{k.label}</span><span className="block text-xs text-ink-500">{k.description}</span></Td>
+              <Td><input type="checkbox" name={`${k.kind}.inApp`} defaultChecked={k.inApp} aria-label={`${k.label}: in the app`} className={box} /></Td>
+              <Td><input type="checkbox" name={`${k.kind}.push`} defaultChecked={k.push} aria-label={`${k.label}: on the phone app`} className={box} /></Td>
+              <Td>
+                <input type="checkbox" name={`${k.kind}.text`} defaultChecked={k.text} disabled={!told.texts.on}
+                       aria-label={`${k.label}: by text`} className={box} />
+              </Td>
+            </tr>
+          ))}
+        </Table>
+      </ActionForm>
+
+      <h3 className="mt-6 text-sm font-semibold">Texts to your mobile</h3>
+      {told.texts.on ? (
+        <div className="mt-1 space-y-2 text-sm">
+          <p className="text-ink-700">
+            Texts go to <span className="font-mono">{told.texts.mobile}</span>, since {told.texts.since ? formatIn(told.texts.since, zone) : ""}.
+            They come from the company&apos;s number, never at night (they wait until morning), and stop if you reply STOP.
+          </p>
+          <ActionForm action={turnOffTexts} submit="Turn texts off" tone="quiet" className="inline-flex" />
+        </div>
+      ) : !told.companyCanText ? (
+        <p className="mt-1 text-sm text-ink-700">The company has no number that can send texts yet, so texts cannot be turned on.</p>
+      ) : (
+        <ActionForm action={turnOnTexts} submit="Turn texts on" className="mt-2 max-w-xl space-y-3">
+          <TextField label="Your mobile number" name="mobilePhone" type="tel" required maxLength={40} placeholder="(512) 555-0142" />
+          <label className="flex items-start gap-2 text-sm text-ink-700">
+            <input type="checkbox" name="agreed" required className={`mt-0.5 ${box}`} />
+            <span>{told.texts.agreement}</span>
+          </label>
+        </ActionForm>
+      )}
+    </section>
   );
 }

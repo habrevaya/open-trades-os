@@ -9224,6 +9224,25 @@ export interface GetMultiDayRebalanceOutput {
   driveNote: string;
 }
 
+export interface GetMyNoticeSettingsOutput {
+  kinds: Array<{
+    inApp: boolean;
+    push: boolean;
+    text: boolean;
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    label: string;
+    description: string;
+  }>;
+  texts: {
+    on: boolean;
+    mobile: string | null;
+    since: string | null;
+    agreement: string;
+  };
+  phones: number;
+  companyCanText: boolean;
+}
+
 export interface GetMyPayStatementsOutput {
   technician: boolean;
   statements: Array<{
@@ -14270,6 +14289,20 @@ export interface ListMyExpensesOutput {
   }>;
 }
 
+export interface ListMyNoticesOutput {
+  notices: Array<{
+    id: string;
+    kind: string;
+    kindLabel: string;
+    title: string;
+    body: string | null;
+    href: string;
+    createdAt: string;
+    readAt: string | null;
+  }>;
+  unread: number;
+}
+
 export interface ListMySafetyMeetingsOutput {
   meetings: Array<{
     meetingId: string;
@@ -18181,6 +18214,15 @@ export interface ReadChatOutput {
   }>;
 }
 
+export interface ReadMyNoticesInput {
+  ids?: string[];
+  all?: boolean;
+}
+
+export interface ReadMyNoticesOutput {
+  marked: number;
+}
+
 export interface ReceiveExternalWorkOrderInput {
   sourceSystem: string;
   externalId: string;
@@ -22042,6 +22084,59 @@ export interface SetMessagingCampaignStatusOutput {
   statusReason: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
+}
+
+export interface SetMyNoticeSettingsInput {
+  kinds: Array<{
+    inApp: boolean;
+    push: boolean;
+    text: boolean;
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+  }>;
+}
+
+export interface SetMyNoticeSettingsOutput {
+  kinds: Array<{
+    inApp: boolean;
+    push: boolean;
+    text: boolean;
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    label: string;
+    description: string;
+  }>;
+  texts: {
+    on: boolean;
+    mobile: string | null;
+    since: string | null;
+    agreement: string;
+  };
+  phones: number;
+  companyCanText: boolean;
+}
+
+export interface SetMyNoticeTextsInput {
+  on: boolean;
+  mobilePhone?: string | null;
+  agreed?: boolean;
+}
+
+export interface SetMyNoticeTextsOutput {
+  kinds: Array<{
+    inApp: boolean;
+    push: boolean;
+    text: boolean;
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    label: string;
+    description: string;
+  }>;
+  texts: {
+    on: boolean;
+    mobile: string | null;
+    since: string | null;
+    agreement: string;
+  };
+  phones: number;
+  companyCanText: boolean;
 }
 
 export interface SetMyOnboardingLineInput {
@@ -27357,6 +27452,8 @@ export interface GetMultiDayRebalanceInput {
   days?: number;
 }
 
+export type GetMyNoticeSettingsInput = Record<string, never>;
+
 export type GetMyPayStatementsInput = Record<string, never>;
 
 export type GetMyRecordInput = Record<string, never>;
@@ -28227,6 +28324,11 @@ export type ListMessagingRegistrationsInput = Record<string, never>;
 export type ListMyCashTipsInput = Record<string, never>;
 
 export type ListMyExpensesInput = Record<string, never>;
+
+export interface ListMyNoticesInput {
+  limit?: number;
+  unread?: boolean | null;
+}
 
 export type ListMySafetyMeetingsInput = Record<string, never>;
 
@@ -30220,6 +30322,7 @@ export interface OperationTypes {
   getMemberHold: { input: GetMemberHoldInput; output: GetMemberHoldOutput };
   getMemberPricing: { input: GetMemberPricingInput; output: GetMemberPricingOutput };
   getMultiDayRebalance: { input: GetMultiDayRebalanceInput; output: GetMultiDayRebalanceOutput };
+  getMyNoticeSettings: { input: GetMyNoticeSettingsInput; output: GetMyNoticeSettingsOutput };
   getMyPayStatements: { input: GetMyPayStatementsInput; output: GetMyPayStatementsOutput };
   getMyRecord: { input: GetMyRecordInput; output: GetMyRecordOutput };
   getMyTimeclock: { input: GetMyTimeclockInput; output: GetMyTimeclockOutput };
@@ -30433,6 +30536,7 @@ export interface OperationTypes {
   listMessagingRegistrations: { input: ListMessagingRegistrationsInput; output: ListMessagingRegistrationsOutput };
   listMyCashTips: { input: ListMyCashTipsInput; output: ListMyCashTipsOutput };
   listMyExpenses: { input: ListMyExpensesInput; output: ListMyExpensesOutput };
+  listMyNotices: { input: ListMyNoticesInput; output: ListMyNoticesOutput };
   listMySafetyMeetings: { input: ListMySafetyMeetingsInput; output: ListMySafetyMeetingsOutput };
   listNetworkMembers: { input: ListNetworkMembersInput; output: ListNetworkMembersOutput };
   listObligations: { input: ListObligationsInput; output: ListObligationsOutput };
@@ -30618,6 +30722,7 @@ export interface OperationTypes {
   raiseProjectDraw: { input: RaiseProjectDrawParams & RaiseProjectDrawInput; output: RaiseProjectDrawOutput };
   readAuditLog: { input: ReadAuditLogInput; output: ReadAuditLogOutput };
   readChat: { input: ReadChatInput; output: ReadChatOutput };
+  readMyNotices: { input: ReadMyNoticesInput; output: ReadMyNoticesOutput };
   receiveExternalWorkOrder: { input: ReceiveExternalWorkOrderInput; output: ReceiveExternalWorkOrderOutput };
   receivePurchaseOrder: { input: ReceivePurchaseOrderParams & ReceivePurchaseOrderInput; output: ReceivePurchaseOrderOutput };
   receiveStock: { input: ReceiveStockInput; output: ReceiveStockOutput };
@@ -30815,6 +30920,8 @@ export interface OperationTypes {
   setMembershipActive: { input: SetMembershipActiveParams & SetMembershipActiveInput; output: SetMembershipActiveOutput };
   setMessagingBrandStatus: { input: SetMessagingBrandStatusParams & SetMessagingBrandStatusInput; output: SetMessagingBrandStatusOutput };
   setMessagingCampaignStatus: { input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput; output: SetMessagingCampaignStatusOutput };
+  setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
+  setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
@@ -31318,6 +31425,7 @@ export const OPERATIONS = {
   getMemberHold: { method: "GET", path: "/v1/booking/member-hold", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   getMemberPricing: { method: "GET", path: "/v1/customers/{id}/member-pricing", pathParams: ["id"], queryParams: ["propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   getMultiDayRebalance: { method: "GET", path: "/v1/dispatch/rebalance/days", pathParams: [], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getMyNoticeSettings: { method: "GET", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   getMyPayStatements: { method: "GET", path: "/v1/me/pay-statements", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
   getMyRecord: { method: "GET", path: "/v1/me", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   getMyTimeclock: { method: "GET", path: "/v1/timeclock/me", pathParams: [], queryParams: ["weekOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
@@ -31531,6 +31639,7 @@ export const OPERATIONS = {
   listMessagingRegistrations: { method: "GET", path: "/v1/messaging/registrations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listMyCashTips: { method: "GET", path: "/v1/me/cash-tips", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
   listMyExpenses: { method: "GET", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
+  listMyNotices: { method: "GET", path: "/v1/me/notices", pathParams: [], queryParams: ["limit","unread"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   listMySafetyMeetings: { method: "GET", path: "/v1/safety/my-meetings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   listNetworkMembers: { method: "GET", path: "/v1/network/members", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listObligations: { method: "GET", path: "/v1/obligations", pathParams: [], queryParams: ["overdueOnly","kind","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -31716,6 +31825,7 @@ export const OPERATIONS = {
   raiseProjectDraw: { method: "POST", path: "/v1/project-draws/{id}/raise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   readAuditLog: { method: "GET", path: "/v1/audit", pathParams: [], queryParams: ["entityType","entityId","actorUserId","action","from","to","before","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["audit:read"] },
   readChat: { method: "POST", path: "/v1/public/chat/transcript", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  readMyNotices: { method: "POST", path: "/v1/me/notices/read", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   receiveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   receivePurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   receiveStock: { method: "POST", path: "/v1/stock/receipts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -31913,6 +32023,8 @@ export const OPERATIONS = {
   setMembershipActive: { method: "POST", path: "/v1/memberships/{membershipId}/active", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setMessagingBrandStatus: { method: "POST", path: "/v1/messaging/brands/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMessagingCampaignStatus: { method: "POST", path: "/v1/messaging/campaigns/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -35077,6 +35189,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Where each kind of notice reaches you.
+   *
+   * GET /v1/me/notice-settings. Needs profile:own.
+   */
+  getMyNoticeSettings(input: GetMyNoticeSettingsInput = {} as GetMyNoticeSettingsInput, options?: CallOptions): Promise<GetMyNoticeSettingsOutput> {
+    return this.call("getMyNoticeSettings", input, options);
+  }
+
+  /**
    * Your own pay statements and commission, for closed pay periods.
    *
    * GET /v1/me/pay-statements. Needs payroll:own.
@@ -36994,6 +37115,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Your notices, newest first, and how many you have not read.
+   *
+   * GET /v1/me/notices. Needs profile:own.
+   */
+  listMyNotices(input: ListMyNoticesInput = {} as ListMyNoticesInput, options?: CallOptions): Promise<ListMyNoticesOutput> {
+    return this.call("listMyNotices", input, options);
+  }
+
+  /**
    * The talks I am on, waiting for my signature first.
    *
    * GET /v1/safety/my-meetings. Needs field:sync.
@@ -38656,6 +38786,15 @@ export abstract class GeneratedOperations {
    */
   readChat(input: ReadChatInput, options?: CallOptions): Promise<ReadChatOutput> {
     return this.call("readChat", input, options);
+  }
+
+  /**
+   * Mark your notices read.
+   *
+   * POST /v1/me/notices/read. Needs profile:own.
+   */
+  readMyNotices(input: ReadMyNoticesInput = {} as ReadMyNoticesInput, options?: CallOptions): Promise<ReadMyNoticesOutput> {
+    return this.call("readMyNotices", input, options);
   }
 
   /**
@@ -40429,6 +40568,24 @@ export abstract class GeneratedOperations {
    */
   setMessagingCampaignStatus(input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput, options?: CallOptions): Promise<SetMessagingCampaignStatusOutput> {
     return this.call("setMessagingCampaignStatus", input, options);
+  }
+
+  /**
+   * Choose where each kind of notice reaches you.
+   *
+   * POST /v1/me/notice-settings. Needs profile:own.
+   */
+  setMyNoticeSettings(input: SetMyNoticeSettingsInput, options?: CallOptions): Promise<SetMyNoticeSettingsOutput> {
+    return this.call("setMyNoticeSettings", input, options);
+  }
+
+  /**
+   * Turn texts to your own mobile on or off.
+   *
+   * POST /v1/me/notice-texts. Needs profile:own.
+   */
+  setMyNoticeTexts(input: SetMyNoticeTextsInput, options?: CallOptions): Promise<SetMyNoticeTextsOutput> {
+    return this.call("setMyNoticeTexts", input, options);
   }
 
   /**

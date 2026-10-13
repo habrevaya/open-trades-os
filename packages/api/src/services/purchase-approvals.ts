@@ -6,6 +6,7 @@ import {
 } from "./context";
 import * as once from "./once";
 import * as email from "./email";
+import { raiseWithin } from "./staff-notices";
 
 /**
  * WHO HAS TO SAY YES BEFORE AN ORDER GOES OUT
@@ -413,7 +414,7 @@ const officeBase = (env: Record<string, string | undefined> = process.env): stri
  * TELL THE PEOPLE AN ORDER IS WAITING FOR.
  *
  * Everybody holding the role the waiting step names, by email, through the
- * company's own email path. Not the people who already decided a step of
+ * company's own email path, and by a notice wherever each of them chose. Not the people who already decided a step of
  * this order, because they cannot decide another. Once per person per step
  * per round: a step asked again after an edit is a new round and tells them
  * again, and anything else that calls this twice tells nobody twice.
@@ -457,6 +458,19 @@ export async function tellApproversWithin(tx: Database, ctx: ServiceContext, ord
 
   for (const holder of holders) {
     if (decided.has(holder.userId) || toldNow.has(holder.userId)) continue;
+    /**
+     * On the bell, the phone and their own mobile, as each approver chose on
+     * `/me` (M34's notices). Keyed on the step and the round, so a step asked
+     * again after an edit tells them again, and only somebody who may read
+     * orders is told about one.
+     */
+    await raiseWithin(tx, {
+      organizationId: ctx.actor.organizationId, userId: holder.userId, kind: "po_approval",
+      key: `po_approval:${orderId}:${step.step}:${roundStart.getTime()}`,
+      title: `Purchase order ${order.number} is waiting for your approval`,
+      body: `To ${order.vendorName}, for ${m.format(total)}.`,
+      about: { type: "purchase_order", id: orderId },
+    });
     const person = personOf.get(holder.userId);
     if (!person?.email) continue;
     const subject = `Purchase order ${order.number} is waiting for your approval`;

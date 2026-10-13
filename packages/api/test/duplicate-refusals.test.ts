@@ -229,6 +229,14 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
   push_delivery_event_device_idx:
     "One notice per change per phone. The push pass inserts with on conflict do nothing, so reading an event twice buzzes nobody twice.",
+  staff_notice_source_idx:
+    "One notice per thing that raised it per person. Raising inserts with on conflict do nothing (and looks first), so an escalation, a retry or a worker looking at a licence on every pass tells a person once.",
+  staff_notice_delivery_target_idx:
+    "One send per notice per phone or number. Raising inserts with on conflict do nothing, so a notice raised twice is not sent twice.",
+  staff_notice_setting_kind_idx:
+    "One row of switches per person per kind, written with on conflict do update: saving a person's switches again replaces them.",
+  staff_text_consent_current_idx:
+    "At most one current text consent per person. The person's own page supersedes the current row and inserts the next with on conflict do nothing, so two tabs saving at once leave one current row.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",
   answering_phone_person_idx:
     "One number per person per company, written with on conflict do update: saving a person's number again replaces it.",

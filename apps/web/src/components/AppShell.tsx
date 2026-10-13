@@ -3,12 +3,14 @@ import { Logo } from "./Logo";
 import { NavIcon } from "./NavIcon";
 import { signOut } from "@/app/(auth)/actions";
 import { setRail } from "@/app/(app)/actions";
+import { markAllNoticesReadFromBell } from "@/app/(app)/notices/actions";
 import type { CurrentUser } from "@/lib/auth";
 import type { branding } from "@opentradesos/api/services";
 import { railCollapsed } from "@/lib/rail";
 import { NAV, isActive, isOpen, activeChild, type NavGroup, type NavItem } from "@/lib/nav";
 import { can } from "@opentradesos/core";
 import { DemoBanner } from "./DemoBanner";
+import { NoticeBell, type Bell } from "./NoticeBell";
 
 /**
  * THE SHELL
@@ -34,7 +36,7 @@ import { DemoBanner } from "./DemoBanner";
  * and it leaks the shape of the system to people who should not have it.
  */
 export async function AppShell({
-  user, brand, sandboxOf = null, children,
+  user, brand, sandboxOf = null, bell = null, children,
 }: {
   user: CurrentUser;
   brand: branding.Branding | null;
@@ -44,6 +46,11 @@ export async function AppShell({
    * exactly like the real thing is one somebody types a real customer into.
    */
   sandboxOf?: { id: string; name: string } | null;
+  /**
+   * The person's notices (M34), read in the layout. Null for somebody with no
+   * record of their own here, who then has no bell.
+   */
+  bell?: Bell | null;
   children: React.ReactNode;
 }) {
   // Set by middleware, because a server component cannot ask for its own URL.
@@ -127,6 +134,18 @@ export async function AppShell({
                    className="h-8 w-full rounded border border-steel-300 bg-canvas px-2 text-sm" />
           </form>
         )}
+
+        {/*
+          THE BELL, above the sections rather than in the footer with sign out,
+          because it is the one thing in the rail that changes on its own and
+          the eye starts at the top. Collapsed, it keeps its place as an icon.
+        */}
+        {bell ? (
+          <div className={`pt-3 ${collapsed ? "px-2" : "px-3"}`}>
+            <NoticeBell bell={bell} timezone={user.organizationTimezone} placement="rail" collapsed={collapsed}
+                        markAllRead={markAllNoticesReadFromBell} />
+          </div>
+        ) : null}
 
         <nav className={`flex-1 overflow-y-auto py-4 ${collapsed ? "px-2" : "px-3"}`}>
           {groups.map((group, index) => (
@@ -231,6 +250,17 @@ export async function AppShell({
           screen size where the tap target is the scarce thing.
         */}
         <header className="sticky top-0 z-40 border-b border-steel-200 bg-canvas print:hidden lg:hidden">
+          {/*
+            The bell sits over the menu's bar, to the left of "Menu", rather
+            than inside the menu: it is the thing worth seeing without opening
+            anything.
+          */}
+          {bell ? (
+            <div className="absolute right-20 top-2.5 z-10">
+              <NoticeBell bell={bell} timezone={user.organizationTimezone} placement="header"
+                        markAllRead={markAllNoticesReadFromBell} />
+            </div>
+          ) : null}
           <details className="group">
             <summary className="flex h-14 cursor-pointer list-none items-center gap-3 px-4">
               {logo ? (
