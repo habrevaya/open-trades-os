@@ -127,13 +127,17 @@ the invoice themselves; the office is told so, never left with a silent
 failure.
 
 **Paying automatically is a second agreement on the first.** A customer who
-agreed can turn on paying each bill as it is issued, in words of its own.
+agreed can turn on paying each bill as it is issued, in words of its own. A
+customer can keep agreements on several cards and chooses which one pays
+automatically; choosing another moves it there.
 The worker charges every bill they are the one paying that was issued after
 they turned it on, a plan's instalments included (M08 invoices those
 straight to open), once per invoice under a unique index. A charge that
 does not go through sends the customer the link to pay and puts a task in
 the office queue. A declined card is tried once more the next day and never
-again; a bank asking the customer to confirm, a card that is expired, lost
+again, on whichever card the customer pays automatically with by then (a
+customer told of a decline often answers by choosing another card), and not
+at all if none does any more; a bank asking the customer to confirm, a card that is expired, lost
 or wrong, and a bank payment that fails days later are not tried again at
 all, because tomorrow will not change the answer. These are the only
 retries there are.
@@ -158,8 +162,9 @@ screen says so.
 
 The sales tax rates the company charges are set up on `/settings/tax`, and on
 the setup wizard's tax step (`/setup/tax`), by somebody holding
-`settings:write`: a name and a percentage from a day for each rate, which one
-is usual, and whether the company charges sales tax at all.
+`settings:write`: a name and a percentage from a day for each rate, or its
+parts (state, county, city) that add up to it, which one is usual, and whether
+the company charges sales tax at all.
 
 ## Using it
 
@@ -212,7 +217,34 @@ charged on; a void and a credit note take back exactly what was posted.
 `/books/sales-tax` and `GET /v1/reports/sales-tax` read tax collected by rate
 from those entries for any period (`report.financial:read`), net of voids and
 credits, with anything else on the account (a payment to the state journalled
-by hand) shown so it reconciles to the ledger.
+by hand) shown so it reconciles to the ledger. An agreement's instalment posts
+through the same by rate path as an invoice, so it is never a row of its own;
+an instalment is not taxed today (see below).
+
+**A rate can be written down in parts.** Most returns ask for the state, the
+county and the city separately, so a rate on `/settings/tax` can be entered as
+its parts ("Split into parts": Texas 6.25%, Travis County 1%, City of Austin
+1%), and the rate charged is their sum, 8.25%, exactly as if it had been typed
+as one figure (`parts` on `POST /v1/tax-rates` and
+`POST /v1/tax-rates/{id}/versions`). A whole percentage typed beside the parts
+must be their sum or the form refuses it, in words; two parts with one name, a
+part of nothing and parts of 100% or more are refused too. The parts belong to
+the version, so a county changing its share is a new version from a day, like a
+new percentage. Nothing looks a part up: they are the company's own figures.
+
+Parts change nothing the customer pays. They decide how the tax already worked
+out is owed: each rate's tax on a document is shared between its parts in
+proportion to their percentages, by largest remainder, so the parts add up to
+the cent, and sales tax payable is posted one entry per part, each naming its
+jurisdiction, its percentage and the sales it was charged on. The parts are
+those of the version in force on the document's date that charged that
+percentage. A void takes back each part exactly as it was posted, read from
+the ledger; a credit note on an invoice gives each jurisdiction back its share
+in the invoice's own proportions. `/books/sales-tax` then shows the same tax a
+second time, **By state, county and city**: one row per part, the state's
+share of every rate on one row, and a rate written as one figure under its own
+name, so the rows add up to the total collected (`byPart` on
+`GET /v1/reports/sales-tax`).
 
 ### Raise and issue
 
@@ -247,7 +279,15 @@ cards the customer lets you charge**, each with who agreed and when, and
 (office manager and accountant presets; owner and admin hold everything; a
 technician does not). It is `POST /v1/invoices/{id}/charge-card`, which also
 needs `payment:collect`, and the person charging is named on the charge and
-in the audit log. The same panel lists every charge of a saved card on the
+in the audit log. **Charge part of it to Visa ending 4242**, under the button,
+charges part of the balance instead (`amount` on the same call): dollars and
+cents, more than nothing and never more than is owed, refused in words
+otherwise. The processor is asked for exactly that figure, it goes on this
+invoice when the webhook says the money moved, and the rest stays owed and can
+be charged the same way later. The office charges the figure on its button:
+if less is owed by the moment the processor is asked, nothing is charged and
+the office is told. A tip is never part of an office charge, part or whole;
+only the customer adds one, on the page. The same panel lists every charge of a saved card on the
 invoice: by whom or by the automatic payment, and what became of it, read
 from the payment attempt, so it says paid as soon as the webhook has said
 so. A second charge is refused while one is still with the processor.
@@ -391,15 +431,28 @@ timezone, every customer owing more than the amount set on open invoices
 (counted by whoever pays them) is emailed a link to their statement for the
 month before. Each customer is sent at most one per month, whatever the worker
 does: the record of it is keyed on the customer and the month under a unique
-index, and is written in the same transaction as the email. With **Text it to
-customers whose main contact prefers texts** ticked, the run texts the link to a
-customer whose main contact prefers texts and emails everybody else; a text that
-cannot go is emailed instead, and the row says why. It is off unless somebody
-ticks it, including on a run set up before texting existed, because a contact
-says it prefers texts unless somebody changed it, and a company that chose
-emailed statements did not choose to text its customers. The same page lists
-every statement sent, by hand or by the run, with how and where it went, what was
-owed then, and what became of it.
+index, and is written in the same transaction as the email.
+
+It goes to whoever the customer's bills are addressed to. An invoice can be
+addressed to one of the paying customer's own contacts, **Addressed to** on the
+invoice's page (`PUT /v1/invoices/{id}/bill-to`, `invoice:write`): the accounts
+clerk at a property manager rather than the person who booked the work. It
+changes nothing about the money, can be set on a draft or an issued bill, paid
+or not, and is refused for a void or written off one and for anybody who is not
+the payer's own contact. The run sends a customer's statement to the person
+their open bills are addressed to, to that person's own email address or number
+(the customer's when the person has none), and by the way that person prefers;
+when the open bills name more than one person, the newest bill's decides and
+the row says so; when they name nobody, the customer's main contact decides, as
+before, with the customer's own address. With **Text it to people who prefer
+texts** ticked, the run texts the link to whoever it goes to when that person
+prefers texts and emails everybody else; a text that cannot go is emailed
+instead, and the row says why. It is off unless somebody ticks it, including on
+a run set up before texting existed, because a contact says it prefers texts
+unless somebody changed it, and a company that chose emailed statements did not
+choose to text its customers. The same page lists every statement sent, by hand
+or by the run, with how and where it went, to which person, what was owed then,
+and what became of it.
 
 ### Deposits
 
@@ -482,6 +535,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/invoices/{invoiceId}/send` | `invoice:send` |
 | `POST /v1/invoices/{id}/void` | `invoice:void` |
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
+| `PUT /v1/invoices/{id}/bill-to` | `invoice:write` |
 | `GET /v1/customers/{id}/statement` | `invoice:read` |
 | `POST /v1/customers/{id}/statement/email` | `invoice:send` |
 | `POST /v1/customers/{id}/statement/text` | `invoice:send` |
@@ -558,10 +612,16 @@ every card refund, so with no webhook configured it stays with the card
 processor on the screen. A credit note that has been used or paid out cannot be
 voided; the invoice it settled has to be dealt with on its own.
 A statement is emailed as a link with a PDF attached, or texted as the link
-alone: a text carries no file. The monthly run reads a customer's preference from
-their main contact only, not from who the invoices name. It covers the calendar
-month before and nothing else, and it emails nothing until an email provider is
-connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
+alone: a text carries no file. A statement for any other period is the office's,
+on demand, from the customer's statement page or `GET /v1/customers/{id}/statement`
+with its dates, and is emailed or texted from there; the monthly run covers the
+calendar month before and nothing else, and it emails nothing until an email
+provider is connected. Only the monthly run reads who the bills are addressed
+to: the office's **Email statement** and **Text statement** go to the customer's
+address and main contact's number unless the office types another, and the
+invoice email itself goes to the customer as before. A bill is addressed to one
+person; a statement goes to one person, and copying a second is the office
+typing their address by hand. A tip is taken from the portal and, with cash or a check, on site; the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
@@ -573,20 +633,32 @@ to pay, and the card is not saved again. Paying automatically charges bills
 issued after it was turned on, judged by when the invoice was issued (or,
 for an invoice that was never a draft, written) and by its issue date, so a
 bill backdated before that day is not charged; nothing already owed is swept
-up when it is turned on. One card pays automatically per customer. A charge
-on file takes the whole balance and no tip. The customer is told of a
+up when it is turned on. One card pays automatically per customer, of the
+several they may have agreed, and an automatic payment takes the whole balance
+of each bill; only the office charges part of one. No charge on file carries
+a tip. The customer is told of a
 failure by email to the address on their record, or by text when the email
 cannot go and it is not quiet hours; when neither can go, the office task
 says so. A bank payment returned days later sends the link and leaves the
 office the bank payment's own task. Tax rate determination is deliberately not
-built: the company writes down the rates it charges, a rate is never looked up
-from an address, and BUILD.md says why. A rate is one percentage per sale: a
-county and a city rate charged together are written down as one combined rate,
-and a filing report that splits them by jurisdiction is not built. An item is
-taxed or not, whatever the rate; a reduced rate for one kind of item is the
-office choosing that rate on the line. The report reads only what was posted
-with its rate: invoices issued before rates were recorded on the ledger, and
-agreement billing, are a row of their own rather than placed on a rate. Overdue
+built: the company writes down the rates it charges and their parts, a rate or
+a part is never looked up from an address, and BUILD.md says why. A sale is
+charged one rate; its parts only share that rate's tax between jurisdictions,
+so a part cannot be exempted or charged on its own (a county that taxes labour
+when the state does not is the office choosing another rate for that line).
+The parts are shared from the rounded tax, so a jurisdiction's share is within
+a cent of its own percentage of the sales, not that percentage worked out and
+rounded on its own; a state that wants each part rounded separately would see
+a cent's difference. A document posted before its rate was written down in
+parts stays posted as one figure, and is shown under the rate's name in the
+report by part; nothing is split again after the fact. An item is taxed or
+not, whatever the rate; a reduced rate for one kind of item is the office
+choosing that rate on the line. The report reads only what was posted with its
+rate: invoices issued before rates were recorded on the ledger are a row of
+their own rather than placed on a rate. An agreement's instalment posts by rate
+like an invoice, but is never taxed: whether a service plan is taxable is a
+question of each state's law that nobody has answered here, so an instalment
+carries no tax, as it never has. Overdue
 invoices are chased by the collections agent (M27): a reminder per step the
 company sets, drafted on the company's model key and sent from
 `/invoices/reminders` by a person or on its own when the company lets it. It

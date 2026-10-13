@@ -263,7 +263,7 @@ export const previewContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "What the contract's next annual escalation would do to its cards",
   description:
-    "The next anniversary of the contract's start (a year after the last one applied), the year of the contract it opens, and every price on every card in force the day before it, before and after rising by the contract's escalation rate, to the cent, half up. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. Nothing is written.",
+    "The next anniversary of the contract's start (a year after the last one applied), the year of the contract it opens, and every price on every card in force the day before it, before and after rising by the contract's escalation rate, to the cent, half up. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. Nothing is written.",
   module: "M31",
   permissions: ["pricebook:read"],
   input: z.object({ contractId: Uuid }),
@@ -285,6 +285,7 @@ export const previewContractEscalation = defineRoute({
       labourRates: z.array(EscalatedPrice.extend({ id: Uuid, band: z.string(), jobTypeName: z.string().nullable() })),
       tripCharge: EscalatedPrice.nullable(),
     })),
+    drafts: z.array(z.object({ rateCardId: Uuid, name: z.string(), preparedAt: z.string().datetime() })).optional(),
   }),
 });
 
@@ -293,7 +294,7 @@ export const applyContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "Apply the annual escalation the preview showed",
   description:
-    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen by the rate (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. Refused unless `anniversary` and `rate` are the ones the preview shows now, and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.",
+    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen by the rate (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. Refused unless `anniversary` and `rate` are the ones the preview shows now, and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.",
   module: "M31",
   permissions: ["pricebook:write"],
   idempotent: true,

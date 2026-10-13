@@ -6,6 +6,7 @@ import { can, rates, deadlines, contractBilling as cb } from "@opentradesos/core
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
+import { formatIn } from "@/lib/dates";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import { LABOUR_ROWS, MARKUP_ROWS, clockOf, percentOf } from "@/lib/contract-forms";
 import { ContractTermFields } from "../ContractTerms";
@@ -215,6 +216,15 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
             {rise.escalatedThrough ? ` Last risen on ${rise.escalatedThrough}.` : ""}
           </p>
           {rise.problem && <p className="mt-2 text-sm text-ink-700">{rise.problem}</p>}
+          {rise.drafts && rise.drafts.length > 0 && (
+            <div className="mt-2 rounded border border-steel-200 bg-steel-100 p-3 text-sm text-ink-700" role="note" aria-label="Draft prices">
+              <p>
+                Year {rise.contractYear} prices are ready as a draft, made {formatIn(rise.drafts[0]!.preparedAt, user.organizationTimezone, { dateStyle: "medium" })}:
+                {" "}{rise.drafts.map((d) => d.name).join(", ")}. A draft prices nothing. Nothing changes until somebody presses
+                {" "}Apply year {rise.contractYear} prices below, which writes the cards from today&rsquo;s prices and closes the task in the office queue.
+              </p>
+            </div>
+          )}
           {rise.cards.map((card) => (
             <Table key={card.rateCardId} label={`${card.name} from ${rise.anniversary}`}
                    head={<><Th>{card.name}</Th><Th className="text-right">Now</Th><Th className="text-right">From {rise.anniversary}</Th></>}>

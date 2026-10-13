@@ -1,5 +1,5 @@
 import { type Money, add, subtract, zero, toString, isZero, isNegative, isPositive, allocate, multiply, round, sum, compare, money } from "../money/index.js";
-import { shareTax, asMetadata, type RateTotal } from "../tax/index.js";
+import { shareTax, asMetadata, asPartMetadata, type RateTotal } from "../tax/index.js";
 
 /**
  * POSTING TO THE LEDGER
@@ -442,7 +442,8 @@ export function postInvoice(input: {
  * invoice lines, which is the cache the ledger exists not to trust. So each
  * rate is its own entry, carrying the rate and the sales it was charged on
  * in its metadata, and the entries add up to the document's tax: refused
- * here, before the database, if they do not.
+ * here, before the database, if they do not. A rate written down in parts
+ * is an entry per part, each naming its jurisdiction (`tax.withParts`).
  */
 function taxEntries(
   direction: Direction, total: Money, byRate: readonly RateTotal[] | undefined, memo: string,
@@ -454,7 +455,22 @@ function taxEntries(
   if (compare(stated, total) !== 0) {
     throw new UnbalancedPostingError(subtract(total, stated));
   }
-  return byRate.map((row) => side(ACCOUNTS.TAX_PAYABLE, row.tax, memo, { ...tag, metadata: asMetadata(row) }));
+  return byRate.flatMap((row) => {
+    if (!row.parts || row.parts.length === 0) {
+      return [side(ACCOUNTS.TAX_PAYABLE, row.tax, memo, { ...tag, metadata: asMetadata(row) })];
+    }
+    /**
+     * A rate written down in parts is owed to each part's jurisdiction, so
+     * each is its own entry on sales tax payable, carrying which one it is.
+     * The parts must add up to the rate's tax, refused here like the rates.
+     */
+    const parts = sum(row.parts.map((p) => p.tax), total.currency);
+    if (compare(parts, row.tax) !== 0) throw new UnbalancedPostingError(subtract(row.tax, parts));
+    /** The sales ride on the first part that posts anything: a part of nothing is not written at all. */
+    const carrier = Math.max(0, row.parts.findIndex((p) => !isZero(p.tax)));
+    return row.parts.map((part, i) =>
+      side(ACCOUNTS.TAX_PAYABLE, part.tax, memo, { ...tag, metadata: asPartMetadata(row, part, i === carrier) }));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1086,13 @@ export function postAgreementBilling(input: {
   amount: Money;
   taxAmount?: Money | undefined;
   customerId?: string | undefined;
+  /**
+   * The tax by rate (`tax.byRate`), posted one entry per rate (and per part
+   * of a rate written down in parts) exactly as an invoice's is, so an
+   * instalment's tax lands on its rate in the filing report rather than in a
+   * row of its own. Omitted, the tax is one entry, as it always was.
+   */
+  taxByRate?: readonly RateTotal[] | undefined;
 }): Posting {
   const currency = input.amount.currency;
   const tax = input.taxAmount ?? zero(currency);
@@ -1082,7 +1105,7 @@ export function postAgreementBilling(input: {
     entries: compact([
       dr(ACCOUNTS.AR, add(input.amount, tax), "Agreement billed", tag),
       cr(ACCOUNTS.DEFERRED_REVENUE, input.amount, "Unearned agreement revenue", tag),
-      cr(ACCOUNTS.TAX_PAYABLE, tax, "Sales tax collected", tag),
+      ...taxEntries("credit", tax, input.taxByRate, "Sales tax collected", tag),
     ]),
   });
 }

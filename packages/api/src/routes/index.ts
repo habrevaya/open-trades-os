@@ -132,6 +132,7 @@ export const handlers = {
   issueInvoice: billing.issue,
   deleteInvoice: billing.deleteDraft,
   writeOffInvoice: billing.writeOff,
+  setInvoiceBillTo: billing.setBillTo,
   getArAging: billing.arAging,
 
   // Sell

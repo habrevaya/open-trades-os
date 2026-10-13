@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
 import { organization, businessUnit, user } from "./tenancy";
-import { customer, property } from "./crm";
+import { contact, customer, property } from "./crm";
 import { job, jobType } from "./work";
 import { priceBookItemVersion } from "./pricebook";
 import { taxRate } from "./tax";
@@ -428,6 +428,14 @@ export const invoice = pgTable("invoice", {
    * AR ages by PAYER, not by customer, or a commercial book is unreadable.
    */
   payerCustomerId: uuid("payer_customer_id").references(() => customer.id),
+  /**
+   * The person at whoever pays it the invoice is addressed to: the accounts
+   * clerk at a property manager, the spouse who handles the bills. One of the
+   * paying customer's contacts, or null for the customer as a whole. Changes
+   * nothing about the money; the monthly statement run reads it to decide
+   * who a customer's statement goes to and how they would rather get it.
+   */
+  payerContactId: uuid("payer_contact_id").references(() => contact.id, { onDelete: "set null" }),
   payerExternalName: text("payer_external_name"),
   payerReference: text("payer_reference"),
 

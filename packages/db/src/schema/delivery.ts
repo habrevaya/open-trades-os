@@ -2,7 +2,7 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueInde
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user } from "./tenancy";
-import { customer } from "./crm";
+import { contact, customer } from "./crm";
 import { report } from "./platform";
 import { message } from "./comms";
 
@@ -171,6 +171,13 @@ export const statementDelivery = pgTable("statement_delivery", {
   /** `email` or `sms`: how it went, or how it was tried last. */
   channel: text("channel").notNull().default("email"),
   destination: text("destination"),
+  /**
+   * The person at the customer it went to, when it went to one: the contact
+   * the customer's open invoices are addressed to (`invoice.payer_contact_id`),
+   * whose preferred channel the monthly run followed, or the main contact.
+   * Null when it went to the customer's own address.
+   */
+  contactId: uuid("contact_id").references(() => contact.id, { onDelete: "set null" }),
   closingBalance: money("closing_balance"),
   messageId: uuid("message_id").references(() => message.id, { onDelete: "set null" }),
   portalGrantId: uuid("portal_grant_id"),

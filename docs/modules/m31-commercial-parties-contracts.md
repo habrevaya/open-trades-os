@@ -329,6 +329,30 @@ at a time, oldest first, and the contract records the last one applied. It is
 refused, in words, when the contract has no start date or ends first, when no
 card is in force, or when a card is already loaded from the anniversary.
 
+**Due, thirty days ahead.** The worker looks at every live contract with a rate
+and a start date, and from thirty days before an anniversary (or any time
+after, for one that was missed) it does two things, once per contract per
+anniversary under a unique index: it prepares next year's cards as a draft
+(each card in force risen by the rate, named for the year, from the
+anniversary, never active, so it prices nothing and is not listed among the
+contract's cards), and it raises one task in the office queue, "Year 2 prices
+for Harbor MSA are due on 2026-11-01", due on the anniversary and opening the
+contract, from where the office's escalation rules act on it like any late
+task. The contract's page says the draft is ready, when it was made, and that
+nothing changes until somebody presses **Apply year N prices**
+(`drafts` on `GET /v1/contracts/{contractId}/escalation`). A rate changed on
+the contract before then prepares the draft again and rewrites the task; the
+task stays one. A contract with nothing to rise (no card in force, next year's
+card already loaded, the contract ending first) raises no task.
+
+It is never applied by itself, however long after the anniversary: the client
+is priced by last year's card until a person applies it. Applying it, as above,
+removes the draft, writes the cards in force afresh from the cards they rise
+from, exactly as the preview shows, and closes the task as done by whoever
+pressed it. So a price changed on the old card after the draft was made is
+risen too, and a change made to the draft itself is not kept: change the new
+card after applying it.
+
 ## Billing a job in parts
 
 `GET /v1/jobs/{id}/billing` prices every unbilled line on the job, plus a
@@ -554,11 +578,14 @@ Ariba or Coupa punchout, or a facilities network's invoice API, and the
 being claimed by a file somebody downloaded. The XML is this product's own
 shape, not any standard's.
 
-**Escalation is one rate, applied by a person.** Nothing applies it on its own on
-the anniversary or raises a task when one is due; the contract's page shows it
-from sixty days ahead. A contract whose rises differ by year, or by trade, loads
-next year's card by hand. A rate typed with more than four decimal places of a
-percentage is rounded when it is saved.
+**Escalation is one rate, applied by a person.** Nothing applies it on its own:
+the worker prepares the draft and raises the task thirty days ahead, and the
+rise waits for somebody to apply it, because a client's prices changing with
+nobody looking is the one way to get this wrong that a client notices. The
+draft is for looking at; it is not edited into the new card, which is written
+from the cards in force when the rise is applied. A contract whose rises differ
+by year, or by trade, loads next year's card by hand. A rate typed with more
+than four decimal places of a percentage is rounded when it is saved.
 
 **Tax rates on a split.** Each line is billed at its own rate, but the rates
 are the company's own: nothing looks up a jurisdiction's rate, and a line taxed

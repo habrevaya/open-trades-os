@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  ledger, membership, money as m, time, recurrence, SYSTEM_USER_ID, type Actor,
+  ledger, membership, money as m, tax, time, recurrence, SYSTEM_USER_ID, type Actor,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
@@ -16,6 +16,7 @@ import { resolveIn } from "./entitlements";
 import { within } from "./workflow-schedule";
 import * as once from "./once";
 import { inForceAt } from "./pricebook";
+import * as taxRates from "./tax";
 import * as notices from "./agreement-notices";
 
 /**
@@ -1147,7 +1148,7 @@ async function billWithin(tx: Database, ctx: ServiceContext, input: { agreementB
     memo: `${row.planName}, instalment ${row.billing.sequence}`,
   }).returning();
 
-  await tx.insert(schema.invoiceLine).values({
+  const [line] = await tx.insert(schema.invoiceLine).values({
     organizationId: ctx.actor.organizationId,
     invoiceId: invoice!.id,
     origin: "manual",
@@ -1160,7 +1161,7 @@ async function billWithin(tx: Database, ctx: ServiceContext, input: { agreementB
     taxable: false,
     taxAmount: "0.0000",
     lineTotal: m.toString(amount),
-  });
+  }).returning();
 
   const claimed = await tx.update(schema.agreementBilling).set({
     invoiceId: invoice!.id, status: "invoiced", updatedAt: new Date(),
@@ -1170,11 +1171,24 @@ async function billWithin(tx: Database, ctx: ServiceContext, input: { agreementB
   )).returning({ id: schema.agreementBilling.id });
   if (claimed.length === 0) throw new ConflictError("That instalment is already invoiced.");
 
+  /**
+   * By rate, read from the line as written, like an invoice's: an
+   * instalment is not taxed today (whether a service plan is taxable is the
+   * company's state's question, and nobody has answered it here), so this is
+   * nothing, but an instalment that ever carries tax lands on its rate and
+   * its parts in the filing report rather than on a row of its own.
+   */
+  const invoiceTax = usd(invoice!.taxTotal);
   await writePosting(tx, ctx, ledger.postAgreementBilling({
     invoiceId: invoice!.id,
     occurredAt: new Date(),
     amount,
+    taxAmount: invoiceTax,
     customerId: row.agreement.customerId,
+    taxByRate: await taxRates.withPartsWithin(tx, ctx.actor.organizationId, tax.byRate([{
+      taxable: line!.taxable, taxRate: line!.taxRate, taxRateId: line!.taxRateId,
+      base: usd(line!.lineTotal), tax: usd(line!.taxAmount),
+    }], invoiceTax), row.billing.dueOn),
   }));
 
   await audit(tx, ctx, "agreement.billed", "invoice", invoice!.id, null, invoice);

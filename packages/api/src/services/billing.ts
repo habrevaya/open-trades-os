@@ -446,7 +446,8 @@ async function postIssue(
     totals: input.totals,
     customerId: input.customerId,
     jobId: input.jobId ?? undefined,
-    taxByRate: input.taxByRate,
+    /** Each rate the company wrote down in parts is posted per part, by the parts in force on the issue date. */
+    taxByRate: await taxRates.withPartsWithin(tx, ctx.actor.organizationId, input.taxByRate, input.issuedOn),
   }));
 
   if (input.jobId) {
@@ -707,12 +708,31 @@ export async function postedTaxByRate(
     eq(schema.ledgerEntry.accountCode, ledger.ACCOUNTS.TAX_PAYABLE),
   ));
   if (entries.length === 0 || entries.some((e) => typeof e.metadata["taxRate"] !== "string")) return undefined;
-  return entries.map((e) => ({
-    taxRateId: typeof e.metadata["taxRateId"] === "string" ? e.metadata["taxRateId"] : null,
-    rate: String(e.metadata["taxRate"]),
-    base: m.money(typeof e.metadata["taxableBase"] === "string" ? e.metadata["taxableBase"] : "0", e.currency),
-    tax: m.money(e.amount, e.currency),
-  }));
+  /**
+   * A rate written down in parts posted an entry per part, so the entries
+   * are put back together by rate with their parts inside: a reversal then
+   * takes back each jurisdiction's share exactly as it was posted, and
+   * everything that reads a document by rate (the books sync) still sees
+   * one row per rate.
+   */
+  const rows = new Map<string, tax.RateTotal & { parts?: tax.PartTotal[] }>();
+  for (const e of entries) {
+    const taxRateId = typeof e.metadata["taxRateId"] === "string" ? e.metadata["taxRateId"] : null;
+    const rate = String(e.metadata["taxRate"]);
+    const key = `${taxRateId ?? ""}|${rate}`;
+    const at = rows.get(key) ?? { taxRateId, rate, base: m.zero(e.currency), tax: m.zero(e.currency) };
+    if (typeof e.metadata["taxableBase"] === "string") at.base = m.add(at.base, m.money(e.metadata["taxableBase"], e.currency));
+    at.tax = m.add(at.tax, m.money(e.amount, e.currency));
+    if (typeof e.metadata["part"] === "string") {
+      at.parts = [...(at.parts ?? []), {
+        name: e.metadata["part"],
+        rate: typeof e.metadata["partRate"] === "string" ? e.metadata["partRate"] : "0",
+        tax: m.money(e.amount, e.currency),
+      }];
+    }
+    rows.set(key, at);
+  }
+  return [...rows.values()];
 }
 
 /**
@@ -2311,6 +2331,57 @@ export async function writeOff(
  * writing off a void one, posts a second entry against a receivable that is
  * already gone and takes the ledger out of agreement with itself.
  */
+/**
+ * WHO AT THE PAYER AN INVOICE IS ADDRESSED TO.
+ *
+ * One of the paying customer's own contacts (the payer's when somebody else
+ * pays, the customer's otherwise), or nobody in particular. It changes nothing
+ * about the money, so it can be said of a draft or an issued invoice alike,
+ * and of a paid one, since a statement still lists it; not of a void or
+ * written off one, which nobody is addressed about any more. The monthly
+ * statement run reads it (`statement-delivery.recipientOf`) to send a
+ * customer's statement to the person their bills name, the way that person
+ * prefers. `invoice:write`, because it is part of the invoice.
+ */
+export async function setBillTo(
+  ctx: ServiceContext, input: { id: string; contactId: string | null },
+) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(and(
+        eq(schema.invoice.id, input.id),
+        isNull(schema.invoice.deletedAt),
+        invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor),
+      )).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    if (invoice.status === "void" || invoice.status === "written_off") {
+      throw new ConflictError(`Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}, so it is not addressed to anybody now.`);
+    }
+    const payer = invoice.payerCustomerId ?? invoice.customerId;
+    if (input.contactId) {
+      const [contact] = await tx.select({ id: schema.contact.id }).from(schema.contact)
+        .where(and(
+          eq(schema.contact.id, input.contactId),
+          eq(schema.contact.customerId, payer),
+          isNull(schema.contact.deletedAt),
+        )).limit(1);
+      if (!contact) {
+        throw new UnprocessableError("Not one of the payer's contacts", [{
+          path: "contactId",
+          message: "Choose one of the people on the record of whoever pays this invoice, or nobody in particular.",
+        }]);
+      }
+    }
+    if ((invoice.payerContactId ?? null) !== input.contactId) {
+      await tx.update(schema.invoice).set({ payerContactId: input.contactId, updatedAt: new Date() })
+        .where(eq(schema.invoice.id, invoice.id));
+      await audit(tx, ctx, "invoice.addressed", "invoice", invoice.id,
+        { payerContactId: invoice.payerContactId }, { payerContactId: input.contactId });
+    }
+    return loadInvoice(tx, ctx, invoice.id);
+  });
+}
+
 async function loadForClosing(
   tx: Database, ctx: ServiceContext, id: string,
 ): Promise<typeof schema.invoice.$inferSelect> {

@@ -32,6 +32,8 @@ export const LINKS: Record<string, (id: string) => string> = {
   journal_entry: (id) => `/books#journal-${id}`,
   /** A credit note, or a use of one, deleted in the books opens the credit note. */
   credit_note: (id) => `/invoices/credit-notes/${id}`,
+  /** A contract's escalation due on its anniversary opens the contract, where the prices are applied. */
+  service_contract: (id) => `/contracts/${id}`,
 };
 
 /** The words for a link to one, said the way the queue says them. */
@@ -39,5 +41,5 @@ export const RECORD_NOUN: Record<string, string> = {
   job: "job", customer: "customer", invoice: "invoice", conversation: "conversation",
   estimate: "estimate", agreement: "agreement", task: "late task", incident_report: "incident report",
   visit: "visit", equipment: "unit", call: "call", custom_object_record: "record",
-  journal_entry: "journal entry", credit_note: "credit note",
+  journal_entry: "journal entry", credit_note: "credit note", service_contract: "contract",
 };

@@ -47,7 +47,7 @@ export default async function StatementsPage() {
             ? `On. Every customer owing more than ${DOLLARS.format(Number(monthly.minimumBalance))} is sent their statement for the month before on the ${monthly.dayOfMonth}${suffix(monthly.dayOfMonth)} at ${monthly.time}.`
             : "Off. Nobody is sent a statement unless somebody sends it."}
           {monthly.enabled && monthly.textWhenPreferred
-            ? " By text to customers whose main contact prefers texts, by email to everybody else." : ""}
+            ? " By text to people who prefer texts, by email to everybody else." : ""}
           {monthly.enabled && monthly.nextRunAt ? ` Next: ${formatIn(monthly.nextRunAt, zone)}.` : ""}
         </p>
         {monthly.lastError ? <p className="mt-1 text-sm text-red-600">{monthly.lastError}</p> : null}
@@ -59,7 +59,7 @@ export default async function StatementsPage() {
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="textWhenPreferred" defaultChecked={monthly.textWhenPreferred} />
-              Text it to customers whose main contact prefers texts, and email everybody else
+              Text it to people who prefer texts, and email everybody else
             </label>
             <div className="grid gap-3 sm:grid-cols-3">
               <TextField label="Day of the month (1 to 28)" name="dayOfMonth" type="number" min={1} max={28}
@@ -70,8 +70,10 @@ export default async function StatementsPage() {
             </div>
             <p className="text-xs text-ink-500">
               Owed is counted on open invoices by whoever pays them, so a property manager paying for a tenant
-              is the one sent it. Each customer is sent at most one a month. A text that cannot go (they asked
-              not to be texted, or there is no mobile number) is emailed instead, and the list below says so.
+              is the one sent it. It goes to the person their bills are addressed to (set on each invoice, under
+              Addressed to), or their main contact when the bills name nobody, the way that person prefers.
+              Each customer is sent at most one a month. A text that cannot go (they asked not to be texted, or
+              there is no mobile number) is emailed instead, and the list below says so.
             </p>
           </ActionForm>
         ) : null}
@@ -95,6 +97,7 @@ export default async function StatementsPage() {
                 {row.period ? <span className="block text-xs text-ink-500">Monthly run</span> : null}
               </Td>
               <Td>
+                {row.contactName ? <span className="block">{row.contactName}</span> : null}
                 {row.destination ?? <span className="text-ink-500">No address</span>}
                 <span className="block text-xs text-ink-500">{row.channel === "sms" ? "By text" : "By email"}</span>
               </Td>

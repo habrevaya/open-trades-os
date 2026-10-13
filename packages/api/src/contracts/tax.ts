@@ -6,6 +6,12 @@ const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date is YYYY-MM-DD
 /** As a person types it: "8.25" for eight and a quarter per cent. */
 const Percent = z.string().max(12);
 
+/** One jurisdiction's share of a rate, as the company wrote it down. */
+const RatePartView = z.object({ name: z.string(), rate: RateString, percent: z.string() });
+
+/** A part as it is typed: "Texas" and "6.25". */
+const PartInput = z.object({ name: z.string().max(100), percent: Percent });
+
 export const TaxRateView = z.object({
   id: Uuid,
   name: z.string(),
@@ -21,6 +27,8 @@ export const TaxRateView = z.object({
     effectiveFrom: DateString,
     note: z.string().nullable(),
     state: z.enum(["past", "current", "scheduled"]),
+    /** The jurisdictions the percentage is made of, when it was written down in parts. Empty otherwise. */
+    parts: z.array(RatePartView),
   })),
   customers: z.number().int(),
   addresses: z.number().int(),
@@ -53,13 +61,14 @@ export const createTaxRate = defineRoute({
   path: "/v1/tax-rates",
   summary: "Add a sales tax rate",
   description:
-    "A name and a percentage from a day (today when left off). The first rate a company adds becomes its usual rate, as does any sent with `makeDefault`. A second rate in use with the same name is refused; sending the same name and percentage again returns what is there.",
+    "A name and a percentage from a day (today when left off). The percentage may be given as `parts`, one per jurisdiction (the state's 6.25, the county's 1, the city's 1), and the rate charged is then their sum; a `percent` given beside them must be that sum. Parts change nothing a customer is charged: they decide how each document's tax on this rate is posted, one sales tax entry per part, so tax collected can be filed by jurisdiction. Nothing looks a part up. The first rate a company adds becomes its usual rate, as does any sent with `makeDefault`. A second rate in use with the same name is refused; sending the same name, percentage and parts again returns what is there.",
   module: "M13",
   permissions: ["settings:write"],
   idempotent: true,
   input: z.object({
     name: z.string().min(1).max(100),
-    percent: Percent,
+    percent: Percent.optional(),
+    parts: z.array(PartInput).max(8).optional(),
     effectiveFrom: DateString.optional(),
     makeDefault: z.boolean().optional(),
   }),
@@ -71,11 +80,17 @@ export const addTaxRateVersion = defineRoute({
   path: "/v1/tax-rates/{id}/versions",
   summary: "Change a rate's percentage from a day",
   description:
-    "The rate's new percentage starts on `effectiveFrom`. Documents already written keep what they charged; a draft issued on or after the day is checked against it. A second, different percentage on the same day is refused; the same one sent again returns what is there.",
+    "The rate's new percentage starts on `effectiveFrom`, as one figure or as `parts` that add up to it, as on a new rate. A county changing its share, or a rate first split into parts, is a new version from a day: documents already written keep what they charged and how it was posted; a draft issued on or after the day is checked against it. A second, different percentage or split on the same day is refused; the same one sent again returns what is there.",
   module: "M13",
   permissions: ["settings:write"],
   idempotent: true,
-  input: z.object({ id: Uuid, percent: Percent, effectiveFrom: DateString, note: z.string().max(500).optional() }),
+  input: z.object({
+    id: Uuid,
+    percent: Percent.optional(),
+    parts: z.array(PartInput).max(8).optional(),
+    effectiveFrom: DateString,
+    note: z.string().max(500).optional(),
+  }),
   output: TaxSettings,
 });
 
@@ -113,7 +128,7 @@ export const getSalesTaxReport = defineRoute({
   path: "/v1/reports/sales-tax",
   summary: "Sales tax collected by rate, for filing",
   description:
-    "Read from the ledger: every invoice, void and credit note's entries on sales tax payable between `from` and `to` (days in the company's calendar), grouped by the rate each entry records, with the sales it was charged on. Voids and credits count against the period they happened in. `otherMovements` is everything else on the account in the period (a payment to the state journalled by hand), so the rows and it add up to the account's movement.",
+    "Read from the ledger: every invoice, agreement instalment, void and credit note's entries on sales tax payable between `from` and `to` (days in the company's calendar), grouped by the rate each entry records, with the sales it was charged on. Voids and credits count against the period they happened in. `byPart` is the same tax by jurisdiction, for rates written down in parts: one row per part, the same part on several rates together, and tax from a rate written as one figure under the rate's own name with `inParts: false`; it adds up to `totalCollected`. `otherMovements` is everything else on the account in the period (a payment to the state journalled by hand), so the rows and it add up to the account's movement.",
   module: "M13",
   permissions: ["report.financial:read"],
   input: z.object({ from: DateString, to: DateString }),
@@ -123,6 +138,14 @@ export const getSalesTaxReport = defineRoute({
     rows: z.array(z.object({
       taxRateId: Uuid.nullable(),
       name: z.string(),
+      rate: RateString.nullable(),
+      percent: z.string().nullable(),
+      taxableSales: MoneyString,
+      taxCollected: MoneyString,
+    })),
+    byPart: z.array(z.object({
+      name: z.string(),
+      inParts: z.boolean(),
       rate: RateString.nullable(),
       percent: z.string().nullable(),
       taxableSales: MoneyString,

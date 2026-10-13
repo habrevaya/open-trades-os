@@ -2008,6 +2008,36 @@ returns table (organization_id uuid)
 revoke all on function app.contract_billing_organizations(int) from public;
 grant execute on function app.contract_billing_organizations(int) to background;
 
+-- ---- Companies with a contract that rises on its anniversary ---------------
+-- A contract can say its rates rise by a percentage each year. Thirty days
+-- before an anniversary the worker prepares next year's cards as drafts and
+-- raises a task for a person to apply them. The worker has no tenant until it
+-- picks one, so it asks here which companies have a live contract with a rate
+-- and a start date, as ids and nothing else. Whether an anniversary is due, and
+-- whether its task is already raised, is the service's to decide, under the
+-- unique index on the contract and the anniversary.
+create or replace function app.contract_escalation_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct c.organization_id
+        from public.service_contract c
+       where c.active and c.deleted_at is null
+         and c.escalation_rate is not null and c.escalation_rate > 0
+         and c.starts_on is not null
+         and (c.ends_on is null or c.ends_on >= current_date)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.contract_escalation_organizations(int) from public;
+grant execute on function app.contract_escalation_organizations(int) to background;
+
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
 -- sessions, which is right: a policy letting any authenticated role read the

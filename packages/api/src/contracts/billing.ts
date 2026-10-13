@@ -72,6 +72,8 @@ export const Invoice = z.object({
   customerId: Uuid,
   /** Frequently not the customer: a warranty company, a carrier, an owner. */
   payerCustomerId: Uuid.nullable(),
+  /** The person at whoever pays it the invoice is addressed to, one of their contacts, or null for nobody in particular. */
+  payerContactId: Uuid.nullable().optional(),
   payerExternalName: z.string().nullable(),
   jobId: Uuid.nullable(),
   purchaseOrderNumber: z.string().nullable(),
@@ -592,8 +594,22 @@ export const deleteInvoice = defineRoute({
   output: z.object({ deleted: z.literal(true), id: Uuid }),
 });
 
+export const setInvoiceBillTo = defineRoute({
+  method: "put",
+  path: "/v1/invoices/{id}/bill-to",
+  summary: "Say who at the payer an invoice is addressed to",
+  description:
+    "One of the contacts on whoever pays the invoice (the payer when somebody else pays, the customer otherwise), or `null` for nobody in particular. Changes nothing about the money. The monthly statement run sends a customer's statement to the person their open invoices are addressed to, by the channel that person prefers. Refused for a void or written off invoice, and for a contact that is not the payer's.",
+  module: "M13",
+  permissions: ["invoice:write"],
+  /** Setting a state: the same request twice leaves the same state, and writes the audit line once. */
+  idempotent: true,
+  input: z.object({ id: Uuid, contactId: Uuid.nullable() }),
+  output: Invoice,
+});
+
 export const billingRoutes = {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging,
   voidInvoice, writeOffInvoice, applyPayment, listPayments, recordRefund,
-  updateInvoice, issueInvoice, deleteInvoice,
+  updateInvoice, issueInvoice, deleteInvoice, setInvoiceBillTo,
 } as const;

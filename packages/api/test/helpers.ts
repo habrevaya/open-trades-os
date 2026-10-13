@@ -141,7 +141,7 @@ const ORDER = [
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site",
   /** A contract's billed periods point at the schedule, the contract and an invoice. */
-  "contract_billing_period", "contract_billing_schedule", "service_contract",
+  "contract_billing_period", "contract_billing_schedule", "contract_escalation_notice", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
   /**
    * The discount limit. Nothing points at it: it is matched by organization,

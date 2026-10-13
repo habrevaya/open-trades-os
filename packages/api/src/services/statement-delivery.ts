@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
   SYSTEM_USER_ID, branding as brand, money as m, reporting, type Actor, type Permission,
@@ -174,6 +174,67 @@ export async function preferenceOf(tx: Database, customerId: string): Promise<{ 
   return { prefersText: contact?.preferredChannel === "sms", phone };
 }
 
+/** Who a customer's statement goes to, and how they would rather get it. */
+export interface Recipient {
+  /** The contact it goes to, or null for the customer's own address. */
+  contactId: string | null;
+  contactName: string | null;
+  prefersText: boolean;
+  /** Where an email goes: the contact's own address, else the customer's. */
+  email: string | null;
+  /** Where a text goes: the contact's own number, else the customer's. */
+  phone: string | null;
+  /** Why it is this person, when there was a choice to make. */
+  note: string | null;
+}
+
+/**
+ * WHOEVER THE CUSTOMER'S BILLS ARE ADDRESSED TO.
+ *
+ * A customer's statement lists the bills they pay, so it goes to the person
+ * those bills are addressed to (`invoice.payer_contact_id`): the accounts
+ * clerk at a property manager rather than whoever booked the work, by the way
+ * that person prefers, to their own address or number. When the open bills
+ * are addressed to more than one person, the newest bill's decides, and the
+ * row says so. When none is addressed to anybody, the customer's main contact
+ * decides as before (`preferenceOf`), with the customer's own address.
+ */
+export async function recipientOf(tx: Database, customerId: string): Promise<Recipient> {
+  const named = await tx.select({
+    id: schema.contact.id, name: schema.contact.name, email: schema.contact.email, phone: schema.contact.phone,
+    preferredChannel: schema.contact.preferredChannel,
+  }).from(schema.invoice)
+    .innerJoin(schema.contact, eq(schema.contact.id, schema.invoice.payerContactId))
+    .where(and(
+      sql`coalesce(${schema.invoice.payerCustomerId}, ${schema.invoice.customerId}) = ${customerId}`,
+      inArray(schema.invoice.status, ["open", "partially_paid"]),
+      isNull(schema.invoice.deletedAt),
+      isNull(schema.contact.deletedAt),
+      eq(schema.contact.customerId, customerId),
+    ))
+    .orderBy(desc(schema.invoice.issuedOn), desc(schema.invoice.number));
+  const [customer] = await tx.select({ email: schema.customer.email, phone: schema.customer.phone })
+    .from(schema.customer).where(eq(schema.customer.id, customerId)).limit(1);
+  const own = { email: (customer?.email ?? "").trim() || null, phone: (customer?.phone ?? "").trim() || null };
+
+  const chosen = named[0];
+  if (!chosen) {
+    const main = await preferenceOf(tx, customerId);
+    return { contactId: null, contactName: null, prefersText: main.prefersText, email: own.email, phone: main.phone, note: null };
+  }
+  const people = new Set(named.map((n) => n.id)).size;
+  return {
+    contactId: chosen.id,
+    contactName: chosen.name,
+    prefersText: chosen.preferredChannel === "sms",
+    email: (chosen.email ?? "").trim() || own.email,
+    phone: (chosen.phone ?? "").trim() || own.phone,
+    note: people > 1
+      ? `Their open bills are addressed to ${people} people; it went to ${chosen.name}, named on the newest.`
+      : null,
+  };
+}
+
 /**
  * Send one customer their statement for one period, inside a transaction
  * that is already in the tenant. Shared by the button and the monthly run so
@@ -193,6 +254,8 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   period: string | null;
   scheduleId?: string | undefined;
   fallBack?: boolean | undefined;
+  /** The person it goes to, when the monthly run chose one: their addresses, and why them. */
+  recipient?: Recipient | undefined;
 }): Promise<StatementSendResult | null> {
   const organizationId = ctx.actor.organizationId;
   const statement = await buildStatement(tx, organizationId, input.customerId, {
@@ -201,9 +264,10 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
 
   const [customer] = await tx.select({ email: schema.customer.email })
     .from(schema.customer).where(eq(schema.customer.id, input.customerId)).limit(1);
-  const emailTo = (input.channel === "email" ? input.address ?? customer?.email ?? "" : customer?.email ?? "").trim();
+  const ownEmail = input.recipient ? input.recipient.email : customer?.email ?? null;
+  const emailTo = (input.channel === "email" ? input.address ?? ownEmail ?? "" : ownEmail ?? "").trim();
   const textTo = input.channel === "sms"
-    ? (input.address ?? (await preferenceOf(tx, input.customerId)).phone ?? "").trim()
+    ? (input.address ?? (input.recipient ? input.recipient.phone : (await preferenceOf(tx, input.customerId)).phone) ?? "").trim()
     : "";
 
   const [row] = await tx.insert(schema.statementDelivery).values({
@@ -218,6 +282,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
       ? (textTo === "" ? null : textTo)
       : (emailTo === "" ? null : email.normalizeAddress(emailTo)),
     closingBalance: statement.closingBalance,
+    contactId: input.recipient?.contactId ?? null,
     sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
   }).onConflictDoNothing().returning({ id: schema.statementDelivery.id });
   if (!row) return null;
@@ -297,7 +362,8 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
     channel = "email";
     outcome = await attemptBy("email");
   }
-  const note = textRefusal ? `Not texted: ${textRefusal} Emailed instead.` : null;
+  const note = [input.recipient?.note ?? null, textRefusal ? `Not texted: ${textRefusal} Emailed instead.` : null]
+    .filter((n): n is string => n !== null).join(" ") || null;
 
   if (!outcome.sent) {
     // A link that was never sent is a live key to somebody's account lying
@@ -482,16 +548,18 @@ export async function deliverStatements(tx: Database, input: {
     month: month.key, owing: owing.length, queued: 0, refused: 0, alreadySent: 0, texted: 0, emailedInstead: 0,
   };
   for (const { customer_id: customerId } of owing) {
-    const texts = input.textWhenPreferred === true && (await preferenceOf(tx, customerId)).prefersText;
+    /** The person their bills are addressed to, and the way that person prefers. */
+    const recipient = await recipientOf(tx, customerId);
+    const texts = input.textWhenPreferred === true && recipient.prefersText;
     const sent = await sendOne(tx, ctx, {
       customerId, channel: texts ? "sms" : "email", address: null, from: month.from, to: month.to,
-      period: month.key, scheduleId: input.scheduleId, fallBack: true,
+      period: month.key, scheduleId: input.scheduleId, fallBack: true, recipient,
     });
     if (!sent) result.alreadySent += 1;
     else if (sent.state === "queued") {
       result.queued += 1;
       if (sent.channel === "sms") result.texted += 1;
-      if (sent.note) result.emailedInstead += 1;
+      if (texts && sent.channel === "email") result.emailedInstead += 1;
     } else result.refused += 1;
   }
   return result;
@@ -508,6 +576,8 @@ export interface StatementDeliveryRecord {
   periodTo: string;
   channel: StatementChannel;
   destination: string | null;
+  /** The person at the customer it went to, when it went to one. */
+  contactName: string | null;
   closingBalance: string | null;
   /** The outbox's own word for the message, or null when nothing was queued. */
   messageStatus: string | null;
@@ -523,14 +593,16 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
       row: schema.statementDelivery,
       customerName: schema.customer.name,
       messageStatus: schema.message.status,
+      contactName: schema.contact.name,
     })
       .from(schema.statementDelivery)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.statementDelivery.customerId))
       .leftJoin(schema.message, eq(schema.message.id, schema.statementDelivery.messageId))
+      .leftJoin(schema.contact, eq(schema.contact.id, schema.statementDelivery.contactId))
       .where(input.customerId ? eq(schema.statementDelivery.customerId, input.customerId) : undefined)
       .orderBy(desc(schema.statementDelivery.createdAt))
       .limit(Math.min(input.limit ?? 50, 200));
-    return rows.map(({ row, customerName, messageStatus }) => ({
+    return rows.map(({ row, customerName, messageStatus, contactName }) => ({
       id: row.id,
       customerId: row.customerId,
       customerName,
@@ -539,6 +611,7 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
       periodTo: row.periodTo,
       channel: row.channel as StatementChannel,
       destination: row.destination,
+      contactName: contactName ?? null,
       closingBalance: row.closingBalance === null ? null : m.toString(m.round(usd(row.closingBalance), 2)),
       messageStatus: messageStatus ?? null,
       error: row.error,
