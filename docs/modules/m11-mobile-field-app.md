@@ -381,6 +381,21 @@ channels the server sends to, and registers its token with
 phone away both clear the token. A company can require an access token for its
 Expo project and set `EXPO_ACCESS_TOKEN` for the worker.
 
+### Notices to the person, beside the day
+
+The same phones get the notices the product sends a person about their own work
+(M34): a task given to them, a late task, an order waiting for their approval, a
+toolbox talk they have not signed, their expense answered, their licence running
+out. The worker sends them through the same push service, to every phone the
+person is signed in on, each kind only when they left "Phone app" ticked for it
+on `/me`. Inside the company's quiet hours they go without a sound; none of them
+is work starting that night, so none rings. Each is a row of its own
+(`staff_notice_delivery`, not `push_delivery`) saying whether it went and why
+not; one not sent within twelve hours is skipped, and "the app is gone from this
+phone", at the send or in the receipt, forgets the phone's token exactly as a
+change to the day does. A notice that never reached the phone raises no task:
+it is still on the person's bell in the app.
+
 ### Location while working, and the privacy choices behind it
 
 The phone app shares where its person is with the office, and with the
@@ -595,6 +610,12 @@ so no push notice has been seen on a real phone: the server side is tested
 against a fake of the push service, and a build needs an Expo project id
 (`eas init`) before the app can get a token at all. There is no store listing
 and no icon of its own; a company builds and distributes it.
+
+A notice about a person's own work (M34) opens the app when tapped and not the
+record it is about, because the app opens only a visit from a notice; the record
+is a tap away on the bell in a browser, where the notice is too. Only somebody on
+the board has a phone registered, so office staff with no place on the board get
+these on the bell and by text, never by push.
 
 Notices go to the technicians on a visit's assignment list and to the
 members of the crew it is sent to. Somebody with no phone registered for

@@ -322,8 +322,9 @@ has to ask again for less. A retry finds the first request only when the app cho
 its own claim secret; one the server made is shown once and cannot be handed out
 again, so a retry without one leaves a second request waiting. The notice of a
 request is an email, only to people who can approve and only when an email provider
-is connected; there is no text, and nothing inside the app beyond the Applications
-screen.
+is connected, and a notice (M34) on the bell, the phone app or a text as each of those
+people chose, whether or not email is connected. Nobody is reminded while a request
+waits: each approver is told once, and an unanswered request ends on its own date.
 
 Delivery history is kept for thirty days and a thousand attempts per endpoint and
 not longer; an older answer is gone. A replay cannot reach further back than the

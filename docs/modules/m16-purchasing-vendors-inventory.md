@@ -534,8 +534,11 @@ equipment record a returned unit became is left on their register for the
 office to retire.
 
 An approval step's amount is the whole order's total, never the part of it in a
-category or for a location. Approvers are told by email only, not by text or in
-the app, and only when the company's email is connected.
+category or for a location. Approvers are told by email when the company's email
+is connected, and by a notice (M34) on the bell, the phone app or a text as each
+of them chose, whether or not it is; somebody holding the role who cannot read
+orders (`po:read`) gets the email and no notice. A notice is not repeated while
+an order waits: the approver is told once per step per round, as the email is.
 
 A vendor's reply is written down by a person and never read out of an email, and
 the promise date is the vendor's word, not a delivery tracked by a carrier.

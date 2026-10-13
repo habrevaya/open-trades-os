@@ -320,8 +320,11 @@ paused rather than changed: a different topic, crew or time is a new schedule.
 The phone app signs a talk; it does not record one, add people to one or close
 one, which stay with the office. A signature refused on the phone is told to the
 technician as a problem on their day; the talk is not offered for signing again
-until the office reopens it as a new talk. Nobody is reminded to sign by text or
-push: the unsigned list is the office's to chase. A submission is
+until the office reopens it as a new talk. A person on the sheet whose line
+is still unsigned an hour after the talk was held is told once (M34's notices: the bell,
+the phone app or a text, as they chose), within a week of the talk; a line with nobody of
+the company's behind it, a closed sheet, or a talk older than a week is the office's to
+chase from the unsigned list, and nobody is told twice. A submission is
 tracked and not transmitted, because there is no per authority formatter, and the
 trade pack is explicit that a submission seed describes what the software must
 produce and to whom, never what the business is legally required to do.

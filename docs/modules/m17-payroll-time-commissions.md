@@ -219,7 +219,9 @@ Whoever approves them (`expense:approve`: the office manager, the branch manager
 their own branch's people, the accountant and the owner) answers on
 `/timesheets/expenses`: `GET /v1/expenses` is the queue, waiting ones first, each
 with its receipt and the job it was for, and `POST /v1/expenses/{id}/decision`
-approves it or refuses it with a reason the person reads. The people a reader may
+approves it or refuses it with a reason the person reads. The person is told the
+decision (and the reason) by a notice (M34) on the bell, the phone app or a text, as
+they chose on `/me`, opening `/me/expenses`. The people a reader may
 decide for are the ones their timesheet scope reaches. **A decision is final,**
 because the payroll file is built from it: the same decision again answers with the
 first, and the other one is refused saying who decided. A wrong approval is put right
