@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, geo, recurrence, routing, time } from "@opentradesos/core";
+import { assertCan, recurrence, routing, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as dm from "./dispatch-map";
-import { crews as scopedCrews } from "./people-scope";
 import * as dispatch from "./dispatch";
 import * as crews from "./crews";
 import { crewRefusals } from "./crews";
@@ -116,120 +115,9 @@ async function loadRange(tx: Database, ctx: ServiceContext, dates: string[]) {
   };
 }
 
-/* ------------------------------------------------------------------ crews */
-
-/**
- * A crew, planned across the days like a person. Its key in the planner is
- * `crew:` and its id, so one plan holds people and crews and a visit can
- * never be handed between the two: crew work is offered only to crews and
- * one person's work only to people. Handing a crew's visit to a person is
- * a drag on the board, where somebody decides it.
- */
-interface PlannedCrew {
-  id: string;
-  name: string;
-  color: string | null;
-  start: dm.Place | null;
-}
-
-const CREW = "crew:";
-const crewKey = (id: string) => `${CREW}${id}`;
-const holderOf = (key: string): { technicianId: string | null; crewId: string | null } =>
-  key.startsWith(CREW) ? { technicianId: null, crewId: key.slice(CREW.length) } : { technicianId: key, crewId: null };
-
-/** A crew's visit the planner may move: on the map, nobody on it by name, and not started. */
-export function crewPlannable(v: dm.DayVisit): boolean {
-  return v.crewId !== null
-    && v.place !== null
-    && v.truckWork === "none"
-    && v.technicianIds.length === 0
-    && !(dm.NOT_STOPS as readonly string[]).includes(v.status)
-    && !(dm.UNDER_WAY as readonly string[]).includes(v.status)
-    && !(dm.FINISHED as readonly string[]).includes(v.status)
-    && v.status !== "no_show";
-}
-
-/**
- * The crews a multi day plan considers: every active crew with work in the
- * range, and every active crew with somebody on it this person's board
- * shows, so a branch manager plans their own branch's crews. A crew's day
- * starts where it is based, or where its lead's does, or the company's
- * first location, as the map draws it.
- */
-async function crewsOver(tx: Database, ctx: ServiceContext, days: dm.Day[]): Promise<PlannedCrew[]> {
-  const organizationId = ctx.actor.organizationId;
-  /**
-   * Only this person's own crews are planned: another branch's crew on one
-   * of this branch's visits keeps that visit and is offered no more
-   * (`people-scope.ts`).
-   */
-  const crews = await tx.select().from(schema.crew)
-    .where(and(eq(schema.crew.organizationId, organizationId), eq(schema.crew.active, true), scopedCrews(ctx)))
-    .orderBy(asc(schema.crew.name));
-  if (crews.length === 0) return [];
-  const members = await tx.select({
-    crewId: schema.crewMember.crewId, technicianId: schema.crewMember.technicianId, isLead: schema.crewMember.isLead,
-    home: schema.technician.homeLocationId,
-  }).from(schema.crewMember)
-    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
-    .where(inArray(schema.crewMember.crewId, crews.map((c) => c.id)));
-  const locations = await tx.select().from(schema.location)
-    .where(and(eq(schema.location.organizationId, organizationId), eq(schema.location.active, true)))
-    .orderBy(asc(schema.location.createdAt), asc(schema.location.id));
-  const placeOfLocation = (id: string | null): dm.Place | null => {
-    const row = (id ? locations.find((l) => l.id === id) : undefined) ?? locations[0];
-    const at = row ? geo.parseLatLng(row.latitude, row.longitude) : null;
-    return at && row ? { ...at, precision: row.locationPrecision, source: row.locationSource } : null;
-  };
-  const seen = new Set(days.flatMap((d) => d.technicians.map((t) => t.id)));
-  const working = new Set(days.flatMap((d) => d.visits.map((v) => v.crewId).filter((id): id is string => id !== null)));
-  return crews
-    .filter((c) => working.has(c.id) || members.some((m) => m.crewId === c.id && seen.has(m.technicianId)))
-    .filter((c) => members.some((m) => m.crewId === c.id))
-    .map((c) => {
-      const lead = members.find((m) => m.crewId === c.id && m.isLead);
-      return { id: c.id, name: c.name, color: c.color, start: placeOfLocation(c.homeLocationId ?? lead?.home ?? null) };
-    });
-}
-
-/**
- * A crew's day as the planner plans it, the way `dm.rebalanceTechnicians`
- * plans a person's: work under way or finished first and not planned, the
- * company's working day and lunch around the rest.
- */
-function crewDay(day: dm.Day, crew: PlannedCrew, points: dm.Points, prefix: string) {
-  const stops = day.visits.filter((v) => v.crewId === crew.id && !(dm.NOT_STOPS as readonly string[]).includes(v.status));
-  const locked = stops.filter((v) =>
-    (dm.UNDER_WAY as readonly string[]).includes(v.status) || (dm.FINISHED as readonly string[]).includes(v.status));
-  const lastLocked = [...locked].reverse().find((v) => v.place !== null);
-  let departAt = dm.departureOf(day);
-  if (lastLocked && (dm.UNDER_WAY as readonly string[]).includes(lastLocked.status)) {
-    departAt = Math.max(departAt, dm.minutesFrom(day.origin, lastLocked.arrivedAt ?? new Date()) + lastLocked.estimatedDurationMinutes);
-  }
-  const key = crewKey(crew.id);
-  points.set(`start:${prefix}${key}`, lastLocked ? { place: lastLocked.place, routeId: lastLocked.routeId } : { place: crew.start, routeId: null });
-  points.set(`end:${prefix}${key}`, { place: crew.start ?? lastLocked?.place ?? null, routeId: null });
-  const lunch = day.workday.lunchMinutes > 0
-    ? { minutes: day.workday.lunchMinutes, earliest: dm.atLocal(day, day.workday.lunchEarliest), latest: dm.atLocal(day, day.workday.lunchLatest) }
-    : null;
-  const tech: routing.RebalanceTechnician = {
-    technicianId: key,
-    start: `start:${prefix}${key}`,
-    end: `end:${prefix}${key}`,
-    departAt,
-    shift: {
-      endsAt: dm.atLocal(day, day.workday.dayEndsAt),
-      maxOvertimeMinutes: day.workday.maxOvertimeMinutes,
-      lunch: lunch && departAt <= lunch.latest ? lunch : null,
-    },
-    order: stops.filter(crewPlannable).map((v) => v.id),
-  };
-  return { tech, keep: locked.map((v) => v.id), stops };
-}
-
 /** Whether the planner may move this visit at all: one person's plannable work, or a planned crew's. */
 const movableOn = (day: dm.Day, v: dm.DayVisit, crews: ReadonlySet<string>) =>
-  v.crewId === null ? dm.plannable(day, v) : crewPlannable(v) && crews.has(v.crewId);
+  v.crewId === null ? dm.plannable(day, v) : dm.crewPlannable(v) && crews.has(v.crewId);
 
 /**
  * A visit with several people on it, as the planner sees it: every one of
@@ -248,7 +136,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
   const dates = rangeOf(input.from, input.days);
   const loaded = await guardedRead(ctx, "visit:read", async (tx) => {
     const range = await loadRange(tx, ctx, dates);
-    const crews = await crewsOver(tx, ctx, range.days);
+    const crews = await dm.crewsOver(tx, ctx, range.days);
     const crewIds = new Set(crews.filter((c) => c.start !== null).map((c) => c.id));
     /** Asked once over every visit any day might take, per day, because skills lapse and time off is by day. */
     const everything = range.days.flatMap((d) => d.visits.filter((v) =>
@@ -280,7 +168,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     const leftOut = dm.leftOutOf(day);
     const people = dm.plannedOf(day).filter((t) => !leftOut.some((l) => l.technicianId === t.id));
     const { techs, keepFirst } = dm.rebalanceTechnicians(day, people, points, `${day.date}:`);
-    const crewDays = planned.map((c) => ({ crew: c, ...crewDay(day, c, points, `${day.date}:`) }));
+    const crewDays = planned.map((c) => ({ crew: c, ...dm.crewDay(day, c, points, `${day.date}:`) }));
     const peopleIds = new Set(people.map((t) => t.id));
     const candidates = day.visits.filter((v) => v.crewId === null
       ? (dm.plannable(day, v)
@@ -299,7 +187,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     /** The hours it has on that day: its own where it is, the same time of day where it would go. */
     const window = visitHoursOn(v, from, date, zone);
     if (v.crewId !== null) {
-      return Object.fromEntries(planned.map((c) => [crewKey(c.id), loaded.crewRefusal(c.id, v.jobId, date, window)]));
+      return Object.fromEntries(planned.map((c) => [dm.crewKey(c.id), loaded.crewRefusal(c.id, v.jobId, date, window)]));
     }
     const verdictOf = loaded.verdicts.get(date)!;
     return Object.fromEntries(plan.people.map((t) => [t.id, dm.refusalFor(plan.day, t, v, verdictOf, window ?? undefined)]));
@@ -378,7 +266,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
 
   const nameOf = new Map<string, string>([
     ...days.flatMap((d) => d.technicians.map((t) => [t.id, t.displayName] as const)),
-    ...crews.map((c) => [crewKey(c.id), c.name] as const),
+    ...crews.map((c) => [dm.crewKey(c.id), c.name] as const),
   ]);
   const customer = (id: string) => byId.get(id)?.visit.customerName ?? "A visit";
   const movedAway = new Set(result.dayMoves.map((m) => m.visitId));
@@ -406,7 +294,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     const after = new Map(outcome.after.map((d) => [d.technicianId, d]));
     const changedOrder = (key: string) => after.get(key)!.evaluation.order.join() !== before.get(key)!.evaluation.order.join();
     const orders = plan.techs
-      .filter((t) => !t.technicianId.startsWith(CREW) && changedOrder(t.technicianId))
+      .filter((t) => !t.technicianId.startsWith(dm.CREW) && changedOrder(t.technicianId))
       .map((t) => {
         const kept = plan.keepFirst.get(t.technicianId)!;
         const placed = new Set(after.get(t.technicianId)!.evaluation.order);
@@ -474,8 +362,8 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     dayMoves: result.dayMoves.map((m) => {
       const { visit, date } = byId.get(m.visitId)!;
       const moved = windowOn(visit, dayOf.get(date)!, m.toDate, zone);
-      const from = m.fromTechnicianId ? holderOf(m.fromTechnicianId) : { technicianId: null, crewId: null };
-      const to = holderOf(m.toTechnicianId);
+      const from = m.fromTechnicianId ? dm.holderOf(m.fromTechnicianId) : { technicianId: null, crewId: null };
+      const to = dm.holderOf(m.toTechnicianId);
       /** A team goes with all of its people, and is named by all of them. */
       const team = m.team ? together(m.team.map((id) => nameOf.get(id) ?? "")) : null;
       return {
@@ -497,8 +385,8 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     }),
     /** Visits that stay on their day with somebody else. */
     moves: result.moves.filter((m) => !dayMoveIds.has(m.visitId)).map((m) => {
-      const from = m.from ? holderOf(m.from) : { technicianId: null, crewId: null };
-      const to = holderOf(m.to);
+      const from = m.from ? dm.holderOf(m.from) : { technicianId: null, crewId: null };
+      const to = dm.holderOf(m.to);
       return {
         visitId: m.visitId,
         customerName: customer(m.visitId),
@@ -524,9 +412,9 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     overtimeAfterMinutes: result.overtimeAfter,
     apply: {
       dayMoves: result.dayMoves.map((m) => ({
-        visitId: m.visitId, toDate: m.toDate, ...(m.team ? { technicianIds: m.team } : holderFor(m.toTechnicianId)),
+        visitId: m.visitId, toDate: m.toDate, ...(m.team ? { technicianIds: m.team } : dm.holderFor(m.toTechnicianId)),
       })),
-      moves: result.moves.filter((m) => !dayMoveIds.has(m.visitId)).map((m) => ({ visitId: m.visitId, ...holderFor(m.to) })),
+      moves: result.moves.filter((m) => !dayMoveIds.has(m.visitId)).map((m) => ({ visitId: m.visitId, ...dm.holderFor(m.to) })),
       orders: outcomes.flatMap((o) => o.orders),
       crewOrders: outcomes.flatMap((o) => o.crewOrders),
     },
@@ -534,12 +422,6 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     ...dm.sourceOf(matrix),
   };
 }
-
-/** Who a planned visit goes to, as the apply call takes it: a person or a crew. */
-const holderFor = (key: string): { technicianId: string } | { crewId: string } => {
-  const h = holderOf(key);
-  return h.crewId ? { crewId: h.crewId } : { technicianId: h.technicianId! };
-};
 
 /** A visit moved to another day: to one person, to one crew, or with the several people already on it. */
 type DayMoveInput = {
@@ -627,7 +509,7 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
           throw new ConflictError(`${visit.customerName}'s visit moves only with the people already on it, all of them together.`);
         }
       }
-      const kindFits = visit.crewId !== null ? crewPlannable(visit)
+      const kindFits = visit.crewId !== null ? dm.crewPlannable(visit)
         : team ? dm.teamPlannable(day, visit, plannedIdsOf(day)) : dm.plannable(day, visit);
       if (!kindFits || !daysFor(visit, day.date, dates, { today, open, closed }).dates.includes(move.toDate)) {
         throw new ConflictError(`${visit.customerName}'s visit may not be moved to ${move.toDate}: the customer has not agreed to that day.`);
@@ -696,16 +578,7 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
     /** A crew's order is its visits' route order on the day, set in one go like a person's. */
     for (const order of input.crewOrders ?? []) {
       if (order.visitIds.length === 0 || !dates.includes(order.date)) continue;
-      const { start, end } = time.dayBoundsIn(order.date, zone);
-      const theirs = await tx.select({ id: schema.visit.id }).from(schema.visit)
-        .where(and(eq(schema.visit.crewId, order.crewId), gte(schema.visit.windowStart, start), lte(schema.visit.windowStart, end)));
-      const ids = new Set(theirs.map((t) => t.id));
-      if (order.visitIds.some((id) => !ids.has(id))) {
-        throw new ConflictError("Some of those visits are not on that crew's day.");
-      }
-      for (const [index, visitId] of order.visitIds.entries()) {
-        await tx.update(schema.visit).set({ routeOrder: index + 1, updatedAt: new Date() }).where(eq(schema.visit.id, visitId));
-      }
+      await dm.setCrewOrder(tx, zone, order);
     }
 
     const answer: Applied = {

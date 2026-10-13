@@ -326,10 +326,11 @@ run("crews, routes and the rota on the board", () => {
     expect(map.crews.find((c) => c.id === crew!.id)?.route).toEqual([crewVisit]);
     expect(map.visits.find((v) => v.id === crewVisit)?.crewId).toBe(crew!.id);
 
-    /** And the rebalance leaves it to the crew. */
+    /** And the rebalance leaves it to the crew: planned on the crew's own day, never handed to a person. */
     const proposal = await dispatchMap.rebalance(dispatcher(), { date: DAY });
     expect(proposal.moves.map((m) => m.visitId)).not.toContain(crewVisit);
-    expect(proposal.untouched).toContain(crewVisit);
+    expect(proposal.crews.find((c) => c.crewId === crew!.id)!.after.order).toContain(crewVisit);
+    expect(proposal.technicians.flatMap((t) => t.after.order)).not.toContain(crewVisit);
   });
 
   it("says who is on call, and says so when nobody is", async () => {

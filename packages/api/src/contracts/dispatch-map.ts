@@ -326,12 +326,17 @@ export const RebalancedDay = z.object({
   refused: z.array(Uuid),
 });
 
+/** A visit to a person (`technicianId`) or to a crew (`crewId`), exactly one of the two. */
+const RebalanceMove = z.object({ visitId: Uuid, technicianId: Uuid.optional(), crewId: Uuid.optional() });
+/** A crew's day in order, set as its visits' route order. */
+const RebalanceCrewOrder = z.object({ crewId: Uuid, visitIds: z.array(Uuid).max(60) });
+
 export const getRebalance = defineRoute({
   method: "get",
   path: "/v1/dispatch/rebalance",
   summary: "Propose the whole day rebalanced across the technicians",
   description:
-    "A proposal, never a change. Places the unassigned pile and moves assigned work between technicians where that keeps windows, the end of the working day, the overtime allowed, lunch and skills, and saves real driving; orders each day; leaves locked visits, crew visits, visits with several people and work under way where they are. Each technician's day is shown before and after, with the drive time saved. Applying it is `POST /v1/dispatch/rebalance/apply` with `basis`, `moveAssignments` and `apply`.",
+    "A proposal, never a change. Places the unassigned pile and moves assigned work between technicians where that keeps windows, the end of the working day, the overtime allowed, lunch and skills, and saves real driving; orders each day. Crews are planned beside people, from where each is based on the company's working day: a crew's visit goes only to a crew that passes the check a drag onto a crew makes (its kit, its people, their leave at the visit's hours), and one person's work only to a person. A visit with several people on it is counted on each of their days and stays with all of them; locked visits and work under way stay where they are. Each technician's and each crew's day is shown before and after, with the drive time saved. Applying it is `POST /v1/dispatch/rebalance/apply` with `basis`, `moveAssignments`, `apply` and `crewOrders`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ date: z.string().date() }),
@@ -352,20 +357,35 @@ export const getRebalance = defineRoute({
       before: RebalancedDay,
       after: RebalancedDay,
     })),
+    /** Each planned crew's day as it is and as it would be. */
+    crews: z.array(z.object({
+      crewId: Uuid,
+      name: z.string(),
+      color: z.string().nullable(),
+      before: RebalancedDay,
+      after: RebalancedDay,
+    })),
     moves: z.array(z.object({
       visitId: Uuid,
       customerName: z.string(),
-      /** Null when the visit had nobody. */
+      /** Null when the visit had nobody, or a crew had it. */
       fromTechnicianId: Uuid.nullable(),
+      /** The crew that had it, or null. */
+      fromCrewId: Uuid.nullable(),
       fromName: z.string().nullable(),
-      toTechnicianId: Uuid,
+      /** The person it goes to, or null when it goes to a crew. */
+      toTechnicianId: Uuid.nullable(),
+      /** The crew it goes to, or null when it goes to a person. Crew work only ever goes to a crew. */
+      toCrewId: Uuid.nullable(),
       toName: z.string(),
     })),
     /** Visits it could not place, each with why in a sentence. */
     unplaced: z.array(z.object({ visitId: Uuid, customerName: z.string(), reason: z.string() })),
     /** Technicians left out, with their work where it is, because their day cannot be measured. */
     leftOut: z.array(z.object({ technicianId: Uuid, displayName: z.string(), reason: z.string() })),
-    /** Visits not planned at all (not on the map, a crew's, several people's), left where they are. */
+    /** Crews with work that day that are not planned, with their work where it is, and why. */
+    crewsLeftOut: z.array(z.object({ crewId: Uuid, name: z.string(), reason: z.string() })),
+    /** Visits not planned at all (not on the map, a crew's that is not planned, several people's when one of them is not), left where they are. */
     untouched: z.array(Uuid),
     driveBeforeMinutes: z.number().int(),
     driveAfterMinutes: z.number().int(),
@@ -383,9 +403,11 @@ export const getRebalance = defineRoute({
       windowStart: z.string().datetime().nullable(),
       windowEnd: z.string().datetime().nullable(),
     })),
-    /** Ready for the apply call. */
-    moveAssignments: z.array(z.object({ visitId: Uuid, technicianId: Uuid })),
+    /** Ready for the apply call: each to a person (`technicianId`) or a crew (`crewId`). */
+    moveAssignments: z.array(RebalanceMove),
     apply: z.array(z.object({ technicianId: Uuid, visitIds: z.array(Uuid) })),
+    /** Each changed crew day's order, ready for the apply call. */
+    crewOrders: z.array(RebalanceCrewOrder),
     workday: Workday,
     ...DriveSource,
   }),
@@ -396,15 +418,16 @@ export const applyRebalance = defineRoute({
   path: "/v1/dispatch/rebalance/apply",
   summary: "Apply a rebalanced day somebody looked at",
   description:
-    "Assigns each moved visit and sets each changed day's order through the same assignment and reorder a drag uses, in one transaction, so a skill refusal refuses the whole thing and leaves the day as it was. Refused when the board has changed since the proposal's `basis` was taken.",
+    "Assigns each moved visit and sets each changed day's order through the same assignment and reorder a drag uses, in one transaction, so a skill refusal refuses the whole thing and leaves the day as it was. A move to a crew goes through `POST /v1/visits/{id}/crew`'s own check, so a crew without the kit or the people is refused in words, and each changed crew day's order is set from `crewOrders`. Refused when the board has changed since the proposal's `basis` was taken.",
   module: "M09",
   permissions: ["visit:dispatch", "visit:reschedule"],
   idempotent: true,
   input: z.object({
     date: z.string().date(),
     basis: z.string().min(1).max(100),
-    moves: z.array(z.object({ visitId: Uuid, technicianId: Uuid })).max(200),
+    moves: z.array(RebalanceMove).max(200),
     orders: z.array(z.object({ technicianId: Uuid, visitIds: z.array(Uuid).max(60) })).max(100),
+    crewOrders: z.array(RebalanceCrewOrder).max(100).optional(),
   }),
   output: z.object({ ok: z.literal(true), moved: z.number().int(), reordered: z.number().int() }),
 });

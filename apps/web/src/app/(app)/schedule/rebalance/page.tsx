@@ -65,7 +65,7 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
       </p>
       {applied !== null && (
         <p role="status" className="mt-3 text-sm text-green-700">
-          Done. {applied} {applied === 1 ? "visit has" : "visits have"} a new technician, and each changed day is in its new order.
+          Done. {applied} {applied === 1 ? "visit has" : "visits have"} somebody new, and each changed day is in its new order.
         </p>
       )}
 
@@ -96,7 +96,9 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
           {proposal.workday.lunchMinutes > 0
             ? `, with a ${proposal.workday.lunchMinutes} minute break starting between ${proposal.workday.lunchEarliest} and ${proposal.workday.lunchLatest}`
             : ""}, and up to {proposal.workday.maxOvertimeMinutes} minutes of overtime may be planned.
-          Locked visits, crew work, visits with several people and drivers' days with containers stay where they are.
+          Crews are planned beside people, and crew work only goes to a crew that has the kit and the people for it at
+          those hours. Locked visits, work under way and drivers' days with containers stay where they are, and a visit
+          with several people on it stays with all of them.
         </p>
       </section>
 
@@ -121,11 +123,15 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
       )}
 
       <section aria-label="Each day before and after" className="mt-6 grid gap-4 md:grid-cols-2">
-        {proposal.technicians.map((t) => (
-          <article key={t.technicianId} aria-label={`${t.displayName}'s day`} className="rounded-md border border-steel-200 bg-canvas p-4">
+        {[
+          ...proposal.technicians.map((t) => ({ key: t.technicianId, name: t.displayName, color: t.color, timeOff: t.timeOff, crew: false, before: t.before, after: t.after })),
+          ...proposal.crews.map((c) => ({ key: c.crewId, name: c.name, color: c.color, timeOff: false, crew: true, before: c.before, after: c.after })),
+        ].map((t) => (
+          <article key={t.key} aria-label={t.crew ? `Crew ${t.name}'s day` : `${t.name}'s day`} className="rounded-md border border-steel-200 bg-canvas p-4">
             <h3 className="flex items-center gap-2 font-medium">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: t.color ?? "#64748B" }} aria-hidden />
-              {t.displayName}
+              <span className={`h-2.5 w-2.5 ${t.crew ? "rounded-sm" : "rounded-full"}`} style={{ background: t.color ?? (t.crew ? "#7C3AED" : "#64748B") }} aria-hidden />
+              {t.name}
+              {t.crew && <span className="text-xs font-normal text-ink-500">Crew</span>}
               {t.timeOff && <span className="text-xs font-normal text-red-600">Off today</span>}
             </h3>
             <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
@@ -159,10 +165,13 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
         ))}
       </section>
 
-      {(proposal.unplaced.length > 0 || proposal.leftOut.length > 0) && (
+      {(proposal.unplaced.length > 0 || proposal.leftOut.length > 0 || proposal.crewsLeftOut.length > 0) && (
         <section className="mt-6">
           <h2 className="text-base font-semibold">What it could not place</h2>
           <ul className="mt-2 space-y-1 text-sm">
+            {proposal.crewsLeftOut.map((c) => (
+              <li key={c.crewId}><span className="font-medium">{c.name}</span> is left out. {c.reason}</li>
+            ))}
             {proposal.unplaced.map((u) => (
               <li key={u.visitId}><span className="font-medium">{u.customerName}</span>: {u.reason}</li>
             ))}
@@ -179,7 +188,7 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
           {applies ? (
             <ApplyRebalance payload={{
               date, basis: proposal.basis, key: randomUUID(),
-              moves: proposal.moveAssignments, orders: proposal.apply,
+              moves: proposal.moveAssignments, orders: proposal.apply, crewOrders: proposal.crewOrders,
             }} />
           ) : (
             <p className="text-sm text-ink-500">Applying it needs somebody who dispatches and reorders the board.</p>

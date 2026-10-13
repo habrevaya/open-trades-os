@@ -152,8 +152,9 @@ both. Nearest neighbour construction and 2-opt and or-opt improvement,
 deterministic: the same day in gives the same order out.
 
 **The whole day can be rebalanced, and a person applies it.** "Rebalance the
-day" on the board proposes who takes what across every technician at once:
-it places the unassigned pile and moves assigned work between people, keeping,
+day" on the board proposes who takes what across every technician and every
+crew at once: it places the unassigned pile and moves assigned work between
+people, and between crews, keeping,
 hardest first, who may do the work (skills and time off), arrival windows, the
 overtime limit, lunch inside its window, then less overtime, then less
 driving. It is shown as each day before and after, with the driving saved, and
@@ -214,13 +215,14 @@ at its limit is not moved into, and the apply reads the count again, so a
 booking that came in after the proposal is refused in words rather than
 overfilled.
 
-**Crews are rebalanced across days like people.** Every active crew with
-work in the range, or with somebody on it the person planning can see, is
-planned beside the technicians: its day starts where it is based, works
-the company's hours and lunch, and its visits move between days and
-between crews by the same rules and the same bars. Crew work only ever goes
-to a crew, checked for the crew's kit and its people on the new day (the
-check a drag onto a crew makes), and one person's work only to a person. A
+**Crews are rebalanced like people, on one day and across days.** Every
+active crew with work on the day or in the range, or with somebody on it the
+person planning can see, is planned beside the technicians: its day starts where it is based, works
+the company's hours and lunch, and its visits move between crews (and, in the several day
+proposal, between days) by the same rules and the same bars. Crew work only
+ever goes to a crew, checked for the crew's kit and its people at the
+visit's hours on the day it would be on (the check a drop onto a crew's lane
+makes), and one person's work only to a person. A
 crew whose base is not on the map is left out with its work where it is,
 and said so.
 
@@ -235,8 +237,8 @@ for rather than skipped when the next job would run past its latest start.
 customer was promised a particular person first thing, which no window can
 say. The rebalance never moves it to anybody else and keeps its order among
 that person's locked visits; "Optimise route" keeps it at its place in the day
-and orders the rest around it. Crew work and work under way are left where
-they are too, and a visit with several people on it stays with all of them.
+and orders the rest around it. Work under way is left where it is too, and
+a visit with several people on it stays with all of them.
 A visit has one place in the order however many people are on it, so a
 shared visit takes its place from its lead's day, and the others' days are
 numbered around it.
@@ -266,7 +268,12 @@ where a dispatcher would give it to somebody else. A visit carries a crew or
 people, never both: sending it to a crew takes it off whoever had it, and a
 crew card dragged onto a person on the board hands it to that person, off
 the crew's lane, with their skills and time off checked like any drop and
-the crew's members told it is no longer theirs. Each crew with work today
+the crew's members told it is no longer theirs. The other way round, a
+person's card, or one from the unassigned pile, dropped on a crew's lane goes
+to the crew through the same check the crews screen makes (the crew's kit,
+its people and their leave at the visit's hours), comes off whoever had it,
+and a crew that cannot take it is refused in that check's own words where
+the card was dropped. Each crew with work today
 has a lane of its own beside the people, with its lead, and its day is a line
 on the map in its own colour from where it is based. The routes running today
 are listed above the board with how many stops are done and who runs each,
@@ -348,10 +355,13 @@ many days positions are kept, and how often a phone takes one. Both are on
 
 "Rebalance the day" on the board opens `/schedule/rebalance`, the proposal for
 the whole day: who would take what, each technician's day as it is and as it
-would be, the driving before and after, and what could not be placed with why
-in a sentence. "Apply these changes" applies it. `GET /v1/dispatch/rebalance`
+would be, each crew's day beside them, the driving before and after, and what
+could not be placed with why in a sentence. "Apply these changes" applies it,
+putting crew work on its crew through `POST /v1/visits/{id}/crew`'s own check
+and setting each changed crew day's order. `GET /v1/dispatch/rebalance`
 is the proposal (`visit:read`) and `POST /v1/dispatch/rebalance/apply` applies
-it with its `basis` (`visit:dispatch` and `visit:reschedule`). The Lock button
+it with its `basis`, `moves`, `orders` and `crewOrders` (`visit:dispatch` and
+`visit:reschedule`). The Lock button
 on a card is `POST /v1/visits/{id}/lock` (`visit:dispatch`). The working day it
 plans inside is `GET /v1/dispatch/workday` and `PUT /v1/dispatch/workday`
 (`settings:write`), on `/schedule/technicians` with each person's own hours.
@@ -430,7 +440,8 @@ call. `POST /v1/crews`, `PUT /v1/crews/{id}/members`,
 `POST /v1/visits/{id}/crew` sends a visit to a crew (`visit:dispatch`), and
 each member's phone hears about it (M11). On the board, a crew's card
 dragged onto a person is `POST /v1/visits/{id}/assign`, which takes it off
-the crew.
+the crew, and a person's card dropped on a crew's lane is `POST
+/v1/visits/{id}/crew`, which takes it off the person.
 
 A crew belongs to a branch and is based at a shop. `/schedule/crews` shows each
 crew's branch, and somebody who sees the whole company moves one with
@@ -545,16 +556,16 @@ whose day starts off the map or carries containers. Each of its people is
 held to its window on their own day; the plan does not make them arrive
 together. The rebalance plans lunch and overtime from company settings and
 each person's own hours, not from the overtime policy's thresholds. A crew
-is planned on the company's working day (crews have no hours of their own),
-and the single day "Rebalance the day" still plans people only: crews are
-rebalanced in the several day proposal. A technician whose day has no start
+is planned on the company's working day (crews have no hours of their own).
+A technician whose day has no start
 on the map is left out of it, with their work where it is, and so is a
 driver whose day has containers on it, which "Optimise route" orders by
 what is on the truck instead. The truck's load in the morning of a day
 already under way is worked out from the stops done so far, not recorded.
-A crew card can be handed to one person on the board; sending a person's
-visit to a crew is done on the crews screen or the API, not by dragging
-onto a crew's lane. Live positions come only from the phone app; `/my-day`
+A crew has a lane on the board only on a day it has work, so its first
+visit of a day is sent from the crews screen or the API; a card dropped on a
+crew's lane keeps its place in the order, and the crew's day is reordered by
+the rebalance, not by where the card was dropped. Live positions come only from the phone app; `/my-day`
 in a browser shares none. The path on the map is today's only, from the
 positions the phone sent, so a stretch with no signal is drawn as a
 straight line between the positions either side of it. The map is raster

@@ -857,10 +857,15 @@ export interface ApplyRebalanceInput {
   basis: string;
   moves: Array<{
     visitId: string;
-    technicianId: string;
+    technicianId?: string;
+    crewId?: string;
   }>;
   orders: Array<{
     technicianId: string;
+    visitIds: string[];
+  }>;
+  crewOrders?: Array<{
+    crewId: string;
     visitIds: string[];
   }>;
 }
@@ -10521,12 +10526,47 @@ export interface GetRebalanceOutput {
       refused: string[];
     };
   }>;
+  crews: Array<{
+    crewId: string;
+    name: string;
+    color: string | null;
+    before: {
+      order: string[];
+      driveMinutes: number;
+      finishAt: string;
+      overtimeMinutes: number;
+      overLimitMinutes: number;
+      lunchAt: string | null;
+      lunchLateMinutes: number;
+      late: Array<{
+        visitId: string;
+        lateByMinutes: number;
+      }>;
+      refused: string[];
+    };
+    after: {
+      order: string[];
+      driveMinutes: number;
+      finishAt: string;
+      overtimeMinutes: number;
+      overLimitMinutes: number;
+      lunchAt: string | null;
+      lunchLateMinutes: number;
+      late: Array<{
+        visitId: string;
+        lateByMinutes: number;
+      }>;
+      refused: string[];
+    };
+  }>;
   moves: Array<{
     visitId: string;
     customerName: string;
     fromTechnicianId: string | null;
+    fromCrewId: string | null;
     fromName: string | null;
-    toTechnicianId: string;
+    toTechnicianId: string | null;
+    toCrewId: string | null;
     toName: string;
   }>;
   unplaced: Array<{
@@ -10537,6 +10577,11 @@ export interface GetRebalanceOutput {
   leftOut: Array<{
     technicianId: string;
     displayName: string;
+    reason: string;
+  }>;
+  crewsLeftOut: Array<{
+    crewId: string;
+    name: string;
     reason: string;
   }>;
   untouched: string[];
@@ -10555,10 +10600,15 @@ export interface GetRebalanceOutput {
   }>;
   moveAssignments: Array<{
     visitId: string;
-    technicianId: string;
+    technicianId?: string;
+    crewId?: string;
   }>;
   apply: Array<{
     technicianId: string;
+    visitIds: string[];
+  }>;
+  crewOrders: Array<{
+    crewId: string;
     visitIds: string[];
   }>;
   workday: {

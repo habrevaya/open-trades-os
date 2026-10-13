@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { dispatch, dispatchMap, liveLocation } from "@opentradesos/api/services";
+import { crews, dispatch, dispatchMap, liveLocation } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { refusalOf } from "@/lib/actions";
 
@@ -59,6 +59,23 @@ export async function assignVisit(input: {
 
   revalidatePath("/schedule");
   return { ok: true, unknownSkills, droppedSkills };
+}
+
+/**
+ * A card dropped on a crew's lane: the visit goes to the crew through the
+ * crews screen's own check (the crew's kit, its people and their leave at the
+ * visit's hours), and comes off whoever had it. A crew that cannot take it is
+ * refused in the check's own words, shown where the card was dropped.
+ */
+export async function sendToCrew(input: { visitId: string; crewId: string }): Promise<{ ok: true } | { ok: false; message: string }> {
+  const user = await requireSetupUser();
+  try {
+    await crews.assign({ actor: user.actor, db: getDb() }, { id: input.visitId, crewId: input.crewId });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? "That did not take. Reload the board and try again." };
+  }
+  revalidatePath("/schedule");
+  return { ok: true };
 }
 
 /**

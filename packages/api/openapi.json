@@ -40967,7 +40967,7 @@
       "get": {
         "operationId": "getRebalance",
         "summary": "Propose the whole day rebalanced across the technicians",
-        "description": "A proposal, never a change. Places the unassigned pile and moves assigned work between technicians where that keeps windows, the end of the working day, the overtime allowed, lunch and skills, and saves real driving; orders each day; leaves locked visits, crew visits, visits with several people and work under way where they are. Each technician's day is shown before and after, with the drive time saved. Applying it is `POST /v1/dispatch/rebalance/apply` with `basis`, `moveAssignments` and `apply`.\n\nRequires a session holding: visit:read.",
+        "description": "A proposal, never a change. Places the unassigned pile and moves assigned work between technicians where that keeps windows, the end of the working day, the overtime allowed, lunch and skills, and saves real driving; orders each day. Crews are planned beside people, from where each is based on the company's working day: a crew's visit goes only to a crew that passes the check a drag onto a crew makes (its kit, its people, their leave at the visit's hours), and one person's work only to a person. A visit with several people on it is counted on each of their days and stays with all of them; locked visits and work under way stay where they are. Each technician's and each crew's day is shown before and after, with the drive time saved. Applying it is `POST /v1/dispatch/rebalance/apply` with `basis`, `moveAssignments`, `apply` and `crewOrders`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -41076,7 +41076,7 @@
       "post": {
         "operationId": "applyRebalance",
         "summary": "Apply a rebalanced day somebody looked at",
-        "description": "Assigns each moved visit and sets each changed day's order through the same assignment and reorder a drag uses, in one transaction, so a skill refusal refuses the whole thing and leaves the day as it was. Refused when the board has changed since the proposal's `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
+        "description": "Assigns each moved visit and sets each changed day's order through the same assignment and reorder a drag uses, in one transaction, so a skill refusal refuses the whole thing and leaves the day as it was. A move to a crew goes through `POST /v1/visits/{id}/crew`'s own check, so a crew without the kit or the people is refused in words, and each changed crew day's order is set from `crewOrders`. Refused when the board has changed since the proposal's `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
         "tags": [
           "M09"
         ],
@@ -140175,11 +140175,14 @@
                 "technicianId": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
                 }
               },
               "required": [
-                "visitId",
-                "technicianId"
+                "visitId"
               ]
             },
             "maxItems": 200
@@ -140204,6 +140207,31 @@
               },
               "required": [
                 "technicianId",
+                "visitIds"
+              ]
+            },
+            "maxItems": 100
+          },
+          "crewOrders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visitIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "maxItems": 60
+                }
+              },
+              "required": [
+                "crewId",
                 "visitIds"
               ]
             },
@@ -190048,6 +190076,178 @@
               ]
             }
           },
+          "crews": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "order": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "driveMinutes": {
+                      "type": "integer"
+                    },
+                    "finishAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "overtimeMinutes": {
+                      "type": "integer"
+                    },
+                    "overLimitMinutes": {
+                      "type": "integer"
+                    },
+                    "lunchAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lunchLateMinutes": {
+                      "type": "integer"
+                    },
+                    "late": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "visitId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "lateByMinutes": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "visitId",
+                          "lateByMinutes"
+                        ]
+                      }
+                    },
+                    "refused": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    }
+                  },
+                  "required": [
+                    "order",
+                    "driveMinutes",
+                    "finishAt",
+                    "overtimeMinutes",
+                    "overLimitMinutes",
+                    "lunchAt",
+                    "lunchLateMinutes",
+                    "late",
+                    "refused"
+                  ]
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "order": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "driveMinutes": {
+                      "type": "integer"
+                    },
+                    "finishAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "overtimeMinutes": {
+                      "type": "integer"
+                    },
+                    "overLimitMinutes": {
+                      "type": "integer"
+                    },
+                    "lunchAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lunchLateMinutes": {
+                      "type": "integer"
+                    },
+                    "late": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "visitId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "lateByMinutes": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "visitId",
+                          "lateByMinutes"
+                        ]
+                      }
+                    },
+                    "refused": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    }
+                  },
+                  "required": [
+                    "order",
+                    "driveMinutes",
+                    "finishAt",
+                    "overtimeMinutes",
+                    "overLimitMinutes",
+                    "lunchAt",
+                    "lunchLateMinutes",
+                    "late",
+                    "refused"
+                  ]
+                }
+              },
+              "required": [
+                "crewId",
+                "name",
+                "color",
+                "before",
+                "after"
+              ]
+            }
+          },
           "moves": {
             "type": "array",
             "items": {
@@ -190067,6 +190267,13 @@
                   ],
                   "format": "uuid"
                 },
+                "fromCrewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "fromName": {
                   "type": [
                     "string",
@@ -190074,7 +190281,17 @@
                   ]
                 },
                 "toTechnicianId": {
-                  "type": "string",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "toCrewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "toName": {
@@ -190085,8 +190302,10 @@
                 "visitId",
                 "customerName",
                 "fromTechnicianId",
+                "fromCrewId",
                 "fromName",
                 "toTechnicianId",
+                "toCrewId",
                 "toName"
               ]
             }
@@ -190133,6 +190352,29 @@
               "required": [
                 "technicianId",
                 "displayName",
+                "reason"
+              ]
+            }
+          },
+          "crewsLeftOut": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "crewId",
+                "name",
                 "reason"
               ]
             }
@@ -190213,11 +190455,14 @@
                 "technicianId": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
                 }
               },
               "required": [
-                "visitId",
-                "technicianId"
+                "visitId"
               ]
             }
           },
@@ -190240,6 +190485,30 @@
               },
               "required": [
                 "technicianId",
+                "visitIds"
+              ]
+            }
+          },
+          "crewOrders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "crewId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visitIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "maxItems": 60
+                }
+              },
+              "required": [
+                "crewId",
                 "visitIds"
               ]
             }
@@ -190288,9 +190557,11 @@
           "basis",
           "changed",
           "technicians",
+          "crews",
           "moves",
           "unplaced",
           "leftOut",
+          "crewsLeftOut",
           "untouched",
           "driveBeforeMinutes",
           "driveAfterMinutes",
@@ -190301,6 +190572,7 @@
           "visits",
           "moveAssignments",
           "apply",
+          "crewOrders",
           "workday",
           "driveSource",
           "driveNote"
