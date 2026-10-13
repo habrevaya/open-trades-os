@@ -4,7 +4,7 @@ import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, money as m, pdf, reporting, time, work } from "@opentradesos/core";
 import { contactOf, guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
-import { invoiceScopeFilter, estimateScopeFilter } from "./scope";
+import { invoiceScopeFilter, estimateScopeFilter, jobScopeFilter } from "./scope";
 import { InvalidGrantError, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { proposalWithin } from "./proposals";
 import { buildStatement, type Statement } from "./statements";
@@ -259,6 +259,158 @@ export async function invoicePdfForAccount(db: Database, input: { token: string;
   const customerId = customerOf(grant);
   return inGrant(db, grant, async (tx) =>
     invoiceFile(await invoiceDocWithin(tx, grant.organizationId, input.invoiceId, { customerId, customerFacing: true })));
+}
+
+/* ---------------------------------------------------------- work order */
+
+/** A moment in the company's own clock, in words: "Tue, Oct 6, 9:00 AM". */
+function momentIn(at: Date, zone: string, withZone = false): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: zone,
+    ...(withZone ? { timeZoneName: "short" as const } : {}),
+  }).format(at);
+}
+
+/** A visit's window in words, the second end without its day when it is the same day. */
+function windowIn(start: Date | null, end: Date | null, zone: string): string {
+  if (!start) return "Not booked for a time yet";
+  if (!end) return momentIn(start, zone, true);
+  const sameDay = time.dateIn(start, zone) === time.dateIn(end, zone);
+  const until = sameDay
+    ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone, timeZoneName: "short" }).format(end)
+    : momentIn(end, zone, true);
+  return `${momentIn(start, zone)} to ${until}`;
+}
+
+/**
+ * A job as its work order prints it, for somebody who may read the job: the
+ * same `job:read` and the same scope as the job page, so a technician who sees
+ * only their own work gets a work order for that and a not found for the rest.
+ *
+ * `forTechnician` is the copy that goes in the van: no prices, read without
+ * them rather than printed and hidden, so there is nothing to leave out at
+ * the last step. No copy has a cost (what a part cost the company), the
+ * gate code, or the technician's own notes: the office copy is the one
+ * handed to a customer to sign, and the technician has the gate code and
+ * their notes on their phone.
+ */
+export function workOrderPdf(
+  ctx: ServiceContext, input: { id: string; forTechnician?: boolean | undefined },
+): Promise<PdfFile> {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({
+      number: schema.job.number,
+      numberPrefix: schema.job.numberPrefix,
+      status: schema.job.status,
+      summary: schema.job.summary,
+      description: schema.job.description,
+      customerComplaint: schema.job.customerComplaint,
+      customerId: schema.job.customerId,
+      propertyId: schema.job.propertyId,
+      jobTypeId: schema.job.jobTypeId,
+      businessUnitId: schema.job.businessUnitId,
+    }).from(schema.job).where(and(
+      eq(schema.job.id, input.id),
+      isNull(schema.job.deletedAt),
+      jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
+    )).limit(1);
+    if (!job) throw new NotFoundError("Job");
+
+    const organizationId = ctx.actor.organizationId;
+    const zone = await timezoneOf(tx, organizationId);
+    const prices = !input.forTechnician;
+
+    const [customer] = await tx.select({ name: schema.customer.name, phone: schema.customer.phone })
+      .from(schema.customer).where(eq(schema.customer.id, job.customerId)).limit(1);
+    const [property] = await tx.select({
+      line1: schema.property.addressLine1, line2: schema.property.addressLine2,
+      city: schema.property.city, state: schema.property.state, postalCode: schema.property.postalCode,
+      accessNotes: schema.property.accessNotes, hazardNotes: schema.property.hazardNotes,
+    }).from(schema.property).where(eq(schema.property.id, job.propertyId)).limit(1);
+    const [branch] = job.businessUnitId
+      ? await tx.select({ name: schema.businessUnit.name, code: schema.businessUnit.code })
+        .from(schema.businessUnit).where(eq(schema.businessUnit.id, job.businessUnitId)).limit(1)
+      : [];
+    const [jobType] = job.jobTypeId
+      ? await tx.select({ name: schema.jobType.name }).from(schema.jobType)
+        .where(eq(schema.jobType.id, job.jobTypeId)).limit(1)
+      : [];
+
+    /** A cancelled visit is not work anybody is going to; the rest, in order. */
+    const visits = await tx.select({
+      id: schema.visit.id, status: schema.visit.status,
+      windowStart: schema.visit.windowStart, windowEnd: schema.visit.windowEnd,
+      arrivedAt: schema.visit.arrivedAt, completedAt: schema.visit.completedAt,
+      checklist: schema.visit.checklist,
+    }).from(schema.visit)
+      .where(and(eq(schema.visit.jobId, input.id), ne(schema.visit.status, "cancelled")))
+      .orderBy(asc(schema.visit.sequence), asc(schema.visit.windowStart));
+    const assigned = visits.length === 0 ? [] : await tx.select({
+      visitId: schema.visitAssignment.visitId, isLead: schema.visitAssignment.isLead,
+      name: schema.technician.displayName,
+    }).from(schema.visitAssignment)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+      .where(inArray(schema.visitAssignment.visitId, visits.map((v) => v.id)));
+
+    const lines = await tx.select({
+      name: schema.jobLine.name, description: schema.jobLine.description, kind: schema.jobLine.kind,
+      quantity: schema.jobLine.quantity, unitPrice: schema.jobLine.unitPrice,
+      nonBillableReason: schema.jobLine.nonBillableReason,
+    }).from(schema.jobLine).where(eq(schema.jobLine.jobId, input.id))
+      .orderBy(asc(schema.jobLine.occurredAt), asc(schema.jobLine.createdAt));
+
+    const [org] = await tx.select({ currency: schema.organization.currency })
+      .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+    const currency = org?.currency ?? "USD";
+    const doc: pdf.WorkOrderPdfInput = {
+      company: await companyOf(tx, organizationId),
+      number: job.number,
+      numberPrefix: job.numberPrefix,
+      status: job.status,
+      branch: branch ?? null,
+      jobType: jobType?.name ?? null,
+      summary: job.summary,
+      description: job.description,
+      customerComplaint: job.customerComplaint,
+      customerName: customer?.name ?? "",
+      customerPhone: customer?.phone ?? null,
+      propertyAddress: property
+        ? [property.line1, property.line2, `${property.city}, ${property.state} ${property.postalCode}`].filter(Boolean).join(", ")
+        : "",
+      accessNotes: property?.accessNotes ?? null,
+      hazardNotes: property?.hazardNotes ?? null,
+      visits: visits.map((visit) => ({
+        when: windowIn(visit.windowStart, visit.windowEnd, zone),
+        status: visit.status,
+        /** The lead first, as the board lists them. */
+        technicians: assigned.filter((a) => a.visitId === visit.id)
+          .sort((a, b) => Number(b.isLead) - Number(a.isLead)).map((a) => a.name),
+        arrived: visit.arrivedAt ? momentIn(visit.arrivedAt, zone) : null,
+        completed: visit.completedAt ? momentIn(visit.completedAt, zone) : null,
+        checklist: visit.checklist.map((item) => ({ label: item.label, required: item.required, done: item.doneAt !== null })),
+      })),
+      parts: lines.map((line) => ({
+        name: line.name,
+        description: line.description,
+        kind: line.kind,
+        quantity: line.quantity,
+        unitPrice: prices ? line.unitPrice : null,
+        lineTotal: prices
+          ? m.toString(m.multiply(m.money(line.unitPrice, currency), line.quantity))
+          : null,
+        noCharge: line.nonBillableReason,
+      })),
+      prices,
+      currency,
+      copy: input.forTechnician ? "Printed for the technician" : "Office copy",
+      generatedAt: new Date(),
+    };
+    const number = work.documentNumber(job.numberPrefix, job.number);
+    return {
+      filename: `work-order-${number}${input.forTechnician ? "-technician" : ""}.pdf`,
+      bytes: pdf.workOrderPdf(doc, RENDER),
+    };
+  });
 }
 
 /* ------------------------------------------------------------ proposal */

@@ -46,7 +46,7 @@ covers. It is not an organizational wall and it is not in scope here.
 | Scope applied to people, crews and routes: the technicians list, crews, routes, Team and People, and every place the board, the map, the rebalance and the suggestions offer somebody | Yes, `services/people-scope.ts` |
 | A branch filter on the job, customer, invoice and estimate lists and on reports | Yes, for people who see the whole company; it narrows and never widens |
 | Reports grouped by branch | Yes, a Branch column on the jobs, invoices, estimates, visits and job profitability datasets |
-| Numbering, sequences and documents per branch | One sequence per company, decided; a branch's code can be printed in front of new job and invoice numbers, as a company setting, and is printed wherever the number is shown: screens, the invoice and statement PDFs, the invoice email, reminders, templates and the portal. A sequence per branch is not decided and not built |
+| Numbering, sequences and documents per branch | One sequence per company, decided; a branch's code can be printed in front of new job and invoice numbers, as a company setting, and is printed wherever the number is shown: screens, the invoice and statement PDFs, the job's work order PDF, the invoice email, reminders, templates and the portal. A sequence per branch is not decided and not built |
 | A price book per branch | **No**, not decided |
 | Cross branch elimination | **No** |
 

@@ -148,6 +148,187 @@ export function invoicePdf(input: InvoicePdfInput, options: RenderOptions = {}):
   }, options);
 }
 
+/* ---------------------------------------------------------- work order */
+
+/**
+ * A JOB AS A WORK ORDER, for the technician to carry and the customer to sign.
+ *
+ * What the job is, where, for whom and when; who was sent on each visit;
+ * what to do (the job's own words and each visit's checklist, with what is
+ * already done marked); what was used; and lines for the customer to sign.
+ *
+ * Prices are printed only when the input carries them. The technician's copy
+ * is built without them by the api, so this function never has a price to
+ * leave out by mistake, and it has no cost column to forget at all.
+ */
+export interface WorkOrderPdfInput {
+  company: Company;
+  number: number;
+  /** The branch's code written on the job when it was made ("HOU"), printed in front of the number. */
+  numberPrefix?: string | null | undefined;
+  status: string;
+  /** The job's branch, by name with its code, when it is in one. */
+  branch?: { name: string; code: string | null } | null | undefined;
+  jobType?: string | null | undefined;
+  summary: string;
+  description: string | null;
+  customerComplaint?: string | null | undefined;
+  customerName: string;
+  customerPhone?: string | null | undefined;
+  propertyAddress: string;
+  accessNotes?: string | null | undefined;
+  hazardNotes?: string | null | undefined;
+  visits: Array<{
+    /** The window in the company's own clock and zone, in words: "Tue, Oct 6, 9:00 AM to 11:00 AM CDT". */
+    when: string;
+    status: string;
+    technicians: string[];
+    /** When work started and finished, in words, once they did. */
+    arrived?: string | null | undefined;
+    completed?: string | null | undefined;
+    checklist: Array<{ label: string; required: boolean; done: boolean }>;
+  }>;
+  /** What was used on the job. A price is null on the technician's copy. */
+  parts: Array<{
+    name: string; description: string | null; kind: string; quantity: string;
+    unitPrice: string | null; lineTotal: string | null;
+    /** Why it is not charged (warranty, rework), when it is not. */
+    noCharge: string | null;
+  }>;
+  /** False for the technician's copy, which prints no money at all. */
+  prices: boolean;
+  currency: string;
+  /** "Printed for the technician" or "Office copy", under the title. */
+  copy: string;
+  generatedAt: Date;
+}
+
+const JOB_STATE: Record<string, string> = {
+  lead: "Lead", estimating: "Being priced", scheduled: "Scheduled", in_progress: "Under way",
+  on_hold: "On hold", completed: "Completed", invoiced: "Invoiced", paid: "Paid", cancelled: "Cancelled",
+};
+const VISIT_STATE: Record<string, string> = {
+  unassigned: "Nobody assigned", scheduled: "Scheduled", dispatched: "Sent out", en_route: "On the way",
+  working: "Working", completed: "Completed", cancelled: "Cancelled", no_show: "Customer not there",
+  completed_after_cancellation: "Done after it was cancelled",
+};
+const PART_KIND: Record<string, string> = {
+  part: "Part", labor: "Labour", equipment: "Equipment", subcontractor: "Subcontractor",
+  disposal: "Disposal", permit: "Permit", other: "Other",
+};
+const worded = (map: Record<string, string>, value: string) =>
+  map[value] ?? value.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+export function workOrderPdf(input: WorkOrderPdfInput, options: RenderOptions = {}): Uint8Array {
+  const number = documentNumber(input.numberPrefix, input.number);
+  const money = (v: string | null) => (v === null ? "" : usd(v, input.currency));
+  const flow = new Flow({
+    company: input.company.name,
+    contact: input.company.contact,
+    accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
+    title: `Work order ${number}`,
+    subtitle: input.copy,
+  });
+
+  flow.paragraph(input.summary, { font: "bold", size: 13 });
+  flow.gap(4);
+  flow.facts([
+    ["Status", worded(JOB_STATE, input.status)],
+    ["Branch", input.branch ? (input.branch.code ? `${input.branch.name} (${input.branch.code})` : input.branch.name) : null],
+    ["Kind of job", input.jobType],
+    ["Customer", input.customerName],
+    ["Phone", input.customerPhone],
+    ["Work at", input.propertyAddress],
+    ["Getting in", input.accessNotes],
+    ["Take care", input.hazardNotes],
+  ]);
+
+  const words = [input.customerComplaint ? `The customer says: ${input.customerComplaint}` : null, input.description]
+    .filter((w): w is string => Boolean(w && w.trim()));
+  if (words.length > 0) {
+    flow.gap(12);
+    flow.heading("The work", 11);
+    for (const said of words) { flow.paragraph(said); flow.gap(4); }
+  }
+
+  flow.gap(12);
+  flow.heading("Visits", 11);
+  if (input.visits.length === 0) {
+    flow.paragraph("No visit is booked yet.", { color: MUTED });
+  }
+  input.visits.forEach((visit, i) => {
+    flow.gap(6);
+    flow.paragraph(`Visit ${i + 1}: ${visit.when}`, { font: "bold" });
+    flow.facts([
+      ["Status", worded(VISIT_STATE, visit.status)],
+      ["Who", visit.technicians.length > 0 ? visit.technicians.join(", ") : "Nobody assigned yet"],
+      ["Started", visit.arrived],
+      ["Finished", visit.completed],
+    ]);
+    if (visit.checklist.length > 0) {
+      flow.gap(6);
+      flow.table(
+        [{ label: "Done", width: 48 }, { label: "Checklist" }],
+        visit.checklist.map((item) => [item.done ? "Done" : "", `${item.label}${item.required ? " (must be done)" : ""}`]),
+      );
+    }
+  });
+
+  flow.gap(12);
+  flow.heading(input.prices ? "Parts and labour" : "Parts and labour used", 11);
+  if (input.parts.length === 0) {
+    flow.paragraph("Nothing recorded yet. Write down what you use:", { color: MUTED });
+    flow.table([{ label: "What", width: 300 }, { label: "How many" }], [["", ""], ["", ""], ["", ""]]);
+  } else {
+    const described = (part: WorkOrderPdfInput["parts"][number]) =>
+      [part.name, part.description, part.noCharge ? `No charge: ${part.noCharge}` : null].filter(Boolean).join("\n");
+    if (input.prices) {
+      flow.table(
+        [
+          { label: "What" }, { label: "Kind", width: 80 },
+          { label: "Qty", width: 44, align: "right" },
+          { label: "Price", width: 76, align: "right" }, { label: "Amount", width: 84, align: "right" },
+        ],
+        input.parts.map((part) => [
+          described(part), worded(PART_KIND, part.kind), quantity(part.quantity), money(part.unitPrice), money(part.lineTotal),
+        ]),
+      );
+    } else {
+      flow.table(
+        [{ label: "What" }, { label: "Kind", width: 90 }, { label: "Qty", width: 50, align: "right" }],
+        input.parts.map((part) => [described(part), worded(PART_KIND, part.kind), quantity(part.quantity)]),
+      );
+    }
+  }
+
+  /**
+   * The signature lines, kept together on one page: a customer signing at
+   * the top of a page with what they are agreeing to on the one before is
+   * signing a blank sheet.
+   */
+  flow.gap(18);
+  flow.ensure(120);
+  flow.heading("Customer sign off", 11);
+  flow.paragraph("I agree the work above was done to my satisfaction.", { size: 9, color: MUTED });
+  const lineWidth = (flow.width - 24) / 2;
+  for (const pair of [["Signature", "Date"], ["Name in capitals", "Technician"]] as const) {
+    flow.gap(34);
+    pair.forEach((label, i) => {
+      const x = flow.left + i * (lineWidth + 24);
+      flow.page.line(x, flow.y, x + lineWidth, flow.y, { color: INK, width: 0.6 });
+      flow.page.text(x, flow.y + 11, label, { size: 8, color: MUTED });
+    });
+    flow.gap(12);
+  }
+
+  return flow.finish({
+    title: `${input.company.name} work order ${number}`,
+    createdAt: input.generatedAt,
+    footer: `${input.company.name}, work order ${number}, ${input.copy.toLowerCase()}`,
+  }, options);
+}
+
 /* ------------------------------------------------------------ proposal */
 
 export interface ProposalPdfInput {

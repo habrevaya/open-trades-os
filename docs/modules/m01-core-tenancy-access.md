@@ -307,7 +307,7 @@ branch manager sees, a visit's own shop and branch codes on numbers are built
 (above). Job and invoice numbers are one sequence per company and the price
 book is the same in every branch: numbering per branch and a price book per
 branch are product decisions nobody has made, so neither is built. A job
-carries one branch. There is no job PDF to print a code on, and a proposal
+carries one branch. The job's work order PDF prints the code in front of the job's number and the branch by name (M10), and a proposal
 shows only the estimate's own number, which carries no code; the payer's CSV
 and XML files keep the bare invoice and job numbers in their columns, because
 a payer's system matches on them. A role made on the roles screen before "the

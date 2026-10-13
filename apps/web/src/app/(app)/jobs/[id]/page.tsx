@@ -211,6 +211,17 @@ export default async function JobPage({ params, searchParams }: {
           {label(JOB_STATUS, job.status)}
         </Chip>
       </div>
+      {/*
+        The work order as a PDF: the office's copy with prices, and the copy
+        for the van without them. Downloads under the job's own permission
+        and scope, like the invoice PDF.
+      */}
+      <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <a href={`/jobs/${id}/work-order`} className="underline underline-offset-4">Download the work order</a>
+        <a href={`/jobs/${id}/work-order?for=technician`} className="underline underline-offset-4">
+          Print for the technician, without prices
+        </a>
+      </p>
 
       <Facts>
         {/*
