@@ -10649,6 +10649,19 @@ export interface GetRentalOverageOutput {
   total: string;
 }
 
+export interface GetReviewRemindersOutput {
+  afterDays: number | null;
+  recent: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    askedAt: string;
+    remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
+}
+
 export interface GetReviewWorkListOutput {
   items: Array<{
     id: string;
@@ -22568,6 +22581,7 @@ export interface SetReviewPolicyInput {
     reason: string;
   }>;
   halfLifeDays?: number;
+  reminderAfterDays?: number | null;
 }
 
 export interface SetReviewPolicyOutput {
@@ -22591,6 +22605,24 @@ export interface SetReviewPolicyOutput {
     reason: string;
   }>;
   halfLifeDays: number;
+  reminderAfterDays: number | null;
+}
+
+export interface SetReviewRemindersInput {
+  afterDays: number | null;
+}
+
+export interface SetReviewRemindersOutput {
+  afterDays: number | null;
+  recent: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    askedAt: string;
+    remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
 }
 
 export interface SetSafetyTalkScheduleActiveInput {
@@ -27578,6 +27610,8 @@ export interface GetRentalOverageInput {
   id: string;
 }
 
+export type GetReviewRemindersInput = Record<string, never>;
+
 export type GetReviewWorkListInput = Record<string, never>;
 
 export interface GetRouteProposalInput {
@@ -30312,6 +30346,7 @@ export interface OperationTypes {
   getRental: { input: GetRentalInput; output: GetRentalOutput };
   getRentalDispatch: { input: GetRentalDispatchInput; output: GetRentalDispatchOutput };
   getRentalOverage: { input: GetRentalOverageInput; output: GetRentalOverageOutput };
+  getReviewReminders: { input: GetReviewRemindersInput; output: GetReviewRemindersOutput };
   getReviewWorkList: { input: GetReviewWorkListInput; output: GetReviewWorkListOutput };
   getRouteProposal: { input: GetRouteProposalInput; output: GetRouteProposalOutput };
   getSafetyMeeting: { input: GetSafetyMeetingInput; output: GetSafetyMeetingOutput };
@@ -30891,6 +30926,7 @@ export interface OperationTypes {
   setReportingLine: { input: SetReportingLineInput; output: SetReportingLineOutput };
   setReviewPlatform: { input: SetReviewPlatformInput; output: SetReviewPlatformOutput };
   setReviewPolicy: { input: SetReviewPolicyInput; output: SetReviewPolicyOutput };
+  setReviewReminders: { input: SetReviewRemindersInput; output: SetReviewRemindersOutput };
   setSafetyTalkScheduleActive: { input: SetSafetyTalkScheduleActiveParams & SetSafetyTalkScheduleActiveInput; output: SetSafetyTalkScheduleActiveOutput };
   setServiceRouteStopActive: { input: SetServiceRouteStopActiveParams & SetServiceRouteStopActiveInput; output: SetServiceRouteStopActiveOutput };
   setSoftphonePresence: { input: SetSoftphonePresenceInput; output: SetSoftphonePresenceOutput };
@@ -31410,6 +31446,7 @@ export const OPERATIONS = {
   getRental: { method: "GET", path: "/v1/rentals/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  getReviewReminders: { method: "GET", path: "/v1/reviews/reminders", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId","facilityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getSafetyMeeting: { method: "GET", path: "/v1/safety/meetings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
@@ -31989,6 +32026,7 @@ export const OPERATIONS = {
   setReportingLine: { method: "POST", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setReviewPlatform: { method: "POST", path: "/v1/reviews/platforms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReviewPolicy: { method: "PUT", path: "/v1/reviews/policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setReviewReminders: { method: "PUT", path: "/v1/reviews/reminders", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setSafetyTalkScheduleActive: { method: "POST", path: "/v1/safety/schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   setServiceRouteStopActive: { method: "POST", path: "/v1/service-routes/stops/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setSoftphonePresence: { method: "PUT", path: "/v1/softphone/presence", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
@@ -35518,6 +35556,15 @@ export abstract class GeneratedOperations {
    */
   getRentalOverage(input: GetRentalOverageInput, options?: CallOptions): Promise<GetRentalOverageOutput> {
     return this.call("getRentalOverage", input, options);
+  }
+
+  /**
+   * Whether the one reminder is on, and what the latest did.
+   *
+   * GET /v1/reviews/reminders. Needs review:respond.
+   */
+  getReviewReminders(input: GetReviewRemindersInput = {} as GetReviewRemindersInput, options?: CallOptions): Promise<GetReviewRemindersOutput> {
+    return this.call("getReviewReminders", input, options);
   }
 
   /**
@@ -40729,6 +40776,15 @@ export abstract class GeneratedOperations {
    */
   setReviewPolicy(input: SetReviewPolicyInput, options?: CallOptions): Promise<SetReviewPolicyOutput> {
     return this.call("setReviewPolicy", input, options);
+  }
+
+  /**
+   * Turn the one reminder on, or off.
+   *
+   * PUT /v1/reviews/reminders. Needs settings:write.
+   */
+  setReviewReminders(input: SetReviewRemindersInput, options?: CallOptions): Promise<SetReviewRemindersOutput> {
+    return this.call("setReviewReminders", input, options);
   }
 
   /**

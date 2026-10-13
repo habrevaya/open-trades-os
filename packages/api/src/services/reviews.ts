@@ -108,6 +108,11 @@ export interface PolicyInput {
   closeHour?: number | undefined;
   bands?: rv.ResponseBand[] | undefined;
   halfLifeDays?: number | undefined;
+  /**
+   * Days to wait before the one reminder; null turns it off. Left out, the policy keeps
+   * what it had, so saving the service standard does not quietly switch reminders off.
+   */
+  reminderAfterDays?: number | null | undefined;
 }
 
 export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
@@ -152,8 +157,13 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
        */
       bands: bands.map((band) => ({ ...band })),
       halfLifeDays: input.halfLifeDays ?? 365,
+      ...(input.reminderAfterDays !== undefined ? { reminderAfterDays: input.reminderAfterDays } : {}),
       active: true,
     };
+    if (input.reminderAfterDays !== undefined) {
+      const days = rv.checkReminderDays(input.reminderAfterDays);
+      if (!days.ok) throw new ConflictError(days.reason);
+    }
 
     const [row] = await tx.insert(schema.reviewPolicy).values(values)
       .onConflictDoUpdate({
@@ -165,6 +175,60 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
     await audit(tx, ctx, "review_policy.set", "review_policy", row!.id, null, row!);
     return row!;
   });
+}
+
+/* ------------------------------------------------------------- reminders */
+
+export interface RemindersView {
+  /** Null is off. */
+  afterDays: number | null;
+  /** The latest reminders, sent or decided against, newest first. */
+  recent: {
+    requestId: string; jobNumber: number; customerName: string;
+    askedAt: string; remindedAt: string; sent: boolean; detail: string | null;
+  }[];
+}
+
+/** Whether a reminder goes, and what the last ones did. */
+export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
+  return guardedRead(ctx, "review:respond", async (tx) => {
+    const policy = await policyFor(tx, ctx.actor.organizationId);
+    const rows = await tx.select({
+      id: schema.reviewRequest.id, sentAt: schema.reviewRequest.sentAt, reminderAt: schema.reviewRequest.reminderAt,
+      messageId: schema.reviewRequest.reminderMessageId, detail: schema.reviewRequest.reminderDetail,
+      jobNumber: schema.job.number, customerName: schema.customer.name,
+    }).from(schema.reviewRequest)
+      .innerJoin(schema.job, eq(schema.job.id, schema.reviewRequest.jobId))
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.reviewRequest.customerId))
+      .where(and(sql`${schema.reviewRequest.reminderAt} is not null`, isNull(schema.reviewRequest.deletedAt)))
+      .orderBy(desc(schema.reviewRequest.reminderAt)).limit(25);
+    return {
+      afterDays: policy.reminderAfterDays,
+      recent: rows.map((r) => ({
+        requestId: r.id, jobNumber: r.jobNumber, customerName: r.customerName,
+        askedAt: (r.sentAt ?? r.reminderAt!).toISOString(), remindedAt: r.reminderAt!.toISOString(),
+        sent: r.messageId !== null, detail: r.detail,
+      })),
+    };
+  });
+}
+
+/**
+ * Turn the one reminder on, with how many days to wait, or off. Its own call so
+ * that a screen can change it without sending the whole service standard back.
+ */
+export async function setReminders(ctx: ServiceContext, input: { afterDays: number | null }) {
+  await guardedWrite(ctx, "settings:write", async (tx) => {
+    const verdict = rv.checkReminderDays(input.afterDays);
+    if (!verdict.ok) throw new ConflictError(verdict.reason);
+    const before = await policyFor(tx, ctx.actor.organizationId);
+    const [after] = await tx.update(schema.reviewPolicy)
+      .set({ reminderAfterDays: input.afterDays, updatedAt: new Date() })
+      .where(eq(schema.reviewPolicy.id, before.id)).returning();
+    await audit(tx, ctx, "review_policy.reminders_set", "review_policy", before.id,
+      { reminderAfterDays: before.reminderAfterDays }, { reminderAfterDays: after!.reminderAfterDays });
+  });
+  return reminders(ctx);
 }
 
 /* ------------------------------------------------------------- platforms */
@@ -274,10 +338,17 @@ export async function setPlatform(
  *
  * There is no satisfaction score to read even if somebody wanted to.
  */
-async function factsFor(
+export async function factsFor(
   tx: Database,
   organizationId: string,
   jobId: string,
+  /**
+   * The company chose to ask about every finished job that owes nothing (the
+   * review automation's "Which jobs to ask about"). A job with no invoice owes
+   * nothing, so it reads as settled; without this it reads as unpaid, which is
+   * what the ask has always done.
+   */
+  options: { uninvoicedIsSettled?: boolean } = {},
 ): Promise<rv.JobFacts> {
   const [job] = await tx.select({
     id: schema.job.id,
@@ -305,12 +376,21 @@ async function factsFor(
     .orderBy(desc(schema.visit.completedAt))
     .limit(1);
 
-  const [invoice] = await tx.select({ balance: schema.invoice.balance })
+  /**
+   * EVERY live invoice on the job, not the first one found: a deposit that is
+   * paid beside a final bill that is not is an unpaid job. A voided invoice
+   * owes nothing and says nothing about whether the job was paid. A credit
+   * note that settled an invoice has taken its balance to nothing, so a job
+   * settled that way reads as paid, as it always has.
+   */
+  const invoices = await tx.select({ balance: schema.invoice.balance })
     .from(schema.invoice)
     .where(and(
       eq(schema.invoice.organizationId, organizationId),
       eq(schema.invoice.jobId, jobId),
-    )).limit(1);
+      isNull(schema.invoice.deletedAt),
+      sql`${schema.invoice.status} <> 'void'`,
+    ));
 
   /**
    * A callback is a job whose parent is this one. Unresolved means it is
@@ -380,7 +460,9 @@ async function factsFor(
      * in its life.
      */
     completed: job.completedAt !== null,
-    paid: invoice ? Number(invoice.balance) <= 0 : false,
+    paid: invoices.length > 0
+      ? invoices.every((invoice) => Number(invoice.balance) <= 0)
+      : options.uninvoicedIsSettled === true,
     technicianLeftAt: lastVisit?.completedAt ?? null,
     callback: callback
       ? { resolvedAt: callback.completedAt }
@@ -440,11 +522,13 @@ export async function requestWithin(
     jobId: string; platform?: string | undefined;
     /** Who is to send it when it is queued: the office's request goes by the worker, an automation's by its own run. */
     source?: "office" | "automation" | undefined;
+    /** See `factsFor`: a job with no invoice owes nothing. Set by the automation's "every finished job" choice. */
+    uninvoicedIsSettled?: boolean | undefined;
   },
   now: Date = new Date(),
 ): Promise<RequestOutcome> {
   const policyRow = await policyFor(tx, organizationId);
-  const facts = await factsFor(tx, organizationId, input.jobId);
+  const facts = await factsFor(tx, organizationId, input.jobId, { uninvoicedIsSettled: input.uninvoicedIsSettled === true });
   const decision = rv.decideRequest(facts, requestPolicy(policyRow), now);
 
   /**
@@ -941,6 +1025,8 @@ export async function byTechnician(ctx: ServiceContext) {
 
 export const handlers = {
   setReviewPolicy: (ctx: ServiceContext, input: PolicyInput) => setPolicy(ctx, input),
+  getReviewReminders: (ctx: ServiceContext) => reminders(ctx),
+  setReviewReminders: (ctx: ServiceContext, input: { afterDays: number | null }) => setReminders(ctx, input),
 
   listReviewPlatforms: async (ctx: ServiceContext): Promise<{
     platforms: {

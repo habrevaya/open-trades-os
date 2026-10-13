@@ -433,7 +433,10 @@ the company, and its one or two settings:
   `GET /v1/workflow-templates`); it is turned off from the list like any other.
 - **Ask for a review after a paid job.** On `invoice.paid`: wait some hours, put
   the job to the reviews module's own decision, waiting again if it says later,
-  and send the ask with the review site's link. M20 has the decision.
+  and send the ask with the review site's link. M20 has the decision. Its install
+  also asks "Which jobs to ask about": paid jobs, as before, or every finished job
+  that owes nothing, which adds `invoice.credited` (a credit note settled an invoice)
+  and `job.completed` as triggers and counts a job never invoiced as owing nothing.
 - **Text back a missed call.** On `call.missed`: wait some minutes, stop unless
   nobody has spoken to the caller since, text the number that rang to say the
   company will ring back, and raise a high priority call back in the office

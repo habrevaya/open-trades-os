@@ -78,6 +78,41 @@ export const REVIEW_ASK_WORDING = {
     + "{{ organization.name }}",
 } as const;
 
+/**
+ * What the one reminder says, when a company has turned reminders on (Reviews,
+ * Reminders). Its own words, because it is not the ask again: it says it is a
+ * reminder and the only one. Nothing in it offers anything or asks for a
+ * number of stars, and a test holds it to that.
+ */
+export const REVIEW_REMINDER_WORDING = {
+  sms: "Hi {{ customer.name }}, a quick reminder from {{ organization.name }}. If you have a minute, "
+    + "we would value your honest review of our work: {{ review.url }}",
+  emailSubject: "A quick reminder, {{ customer.name }}",
+  emailBody: "Hi {{ customer.name }},\n\nThis is a short reminder from {{ organization.name }}. If you have a "
+    + "minute, we would value an honest review of the work. You can leave one here:\n\n{{ review.url }}\n\n"
+    + "This is the only reminder we will send. If anything was not right, just reply to this email and we "
+    + "will sort it out.\n\n{{ organization.name }}",
+} as const;
+
+/**
+ * WHICH JOBS THE REVIEW AUTOMATION ASKS ABOUT, a choice made when it is turned on.
+ * `paid` asks when an invoice is paid in full, which is all it did. `finished`
+ * asks about every job that has finished and owes nothing: the paid ones, the
+ * ones a credit note settled, and the ones that were never invoiced. The same
+ * decision and the same rules apply either way, and a job is asked about once.
+ */
+export type ReviewAskJobs = "paid" | "finished";
+
+export const REVIEW_ASK_JOBS: readonly { value: ReviewAskJobs; label: string }[] = [
+  { value: "paid", label: "Jobs whose invoice was paid in full" },
+  { value: "finished", label: "Every finished job that owes nothing: paid, settled with a credit note, or never invoiced" },
+];
+
+export const DEFAULT_REVIEW_ASK_JOBS: ReviewAskJobs = "paid";
+
+export const isReviewAskJobs = (value: unknown): value is ReviewAskJobs =>
+  REVIEW_ASK_JOBS.some((j) => j.value === value);
+
 /** The configuration of the send step for a channel. One place, so the install and the worker say the same thing. */
 export function reviewAskConfig(channel: ReviewAskChannel): Record<string, unknown> {
   if (channel === "email") {
@@ -173,6 +208,15 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
         kind: "choice",
         options: REVIEW_ASK_CHANNELS.map((c) => ({ ...c })),
         defaultChoice: DEFAULT_REVIEW_ASK_CHANNEL,
+      },
+      {
+        key: "jobs",
+        label: "Which jobs to ask about",
+        help: "The second choice also asks about jobs a credit note settled and jobs that were never invoiced. For those, "
+          + "the wait above counts from the job being finished, so make it longer than you take to send an invoice.",
+        kind: "choice",
+        options: REVIEW_ASK_JOBS.map((j) => ({ ...j })),
+        defaultChoice: DEFAULT_REVIEW_ASK_JOBS,
       },
     ],
   },
@@ -309,25 +353,34 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
       return { ok: false, reason: "How to ask has to be by text, by email, or by text first and then email." };
     }
     const how = chosen === "sms" ? "by text" : chosen === "email" ? "by email" : "by text, then by email if the text cannot be sent";
+    const jobs = values["jobs"] === undefined || values["jobs"] === null || values["jobs"] === ""
+      ? DEFAULT_REVIEW_ASK_JOBS : values["jobs"];
+    if (!isReviewAskJobs(jobs)) {
+      return { ok: false, reason: "Which jobs to ask about has to be paid jobs, or every finished job that owes nothing." };
+    }
     if (platform === "") {
       return {
         ok: false,
         reason: "Choose where to send them. Declare a review site with its link under Reviews first.",
       };
     }
+    const hour = hours === 1 ? "hour" : "hours";
 
     return {
       ok: true,
       definition: {
         name: template.name,
-        description:
-          `Installed from the recommended list. ${hours} ${hours === 1 ? "hour" : "hours"} after a job's `
-          + `invoice is paid, ask for a review ${how} if your review rules allow it.`,
+        description: jobs === "paid"
+          ? `Installed from the recommended list. ${hours} ${hour} after a job's `
+            + `invoice is paid, ask for a review ${how} if your review rules allow it.`
+          : `Installed from the recommended list. ${hours} ${hour} after an invoice is paid in full or settled `
+            + `with a credit note, or after a job is finished, ask for a review ${how} if your review rules `
+            + "allow it and the job owes nothing. A job is asked about once.",
         triggerKind: "event",
-        triggerEvents: ["invoice.paid"],
+        triggerEvents: jobs === "paid" ? ["invoice.paid"] : ["invoice.paid", "invoice.credited", "job.completed"],
         steps: [
           { kind: "wait", config: { days: 0, hours } },
-          { kind: "request_review", config: { platform } },
+          { kind: "request_review", config: jobs === "paid" ? { platform } : { platform, uninvoiced: true } },
           { kind: "send_review_request", config: reviewAskConfig(chosen) },
         ],
       },

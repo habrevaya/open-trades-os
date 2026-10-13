@@ -162,6 +162,31 @@ in words, and the run does not turn red. The email carries a subject
 plain words the company changes on the canvas. Neither message offers anything
 for a review or says anything about stars: a test holds the wording to that.
 
+### The one reminder
+
+Off, and off is how a company starts. A company that wants one follow up on an ask
+nobody answered turns it on from "Reminders" on `/reviews` (`PUT /v1/reviews/reminders`,
+`settings:write`, with `afterDays` from 3 to 60, or `null` for off; `GET
+/v1/reviews/reminders` reads it, with the latest ones, `review:respond`; the same field
+is `reminderAfterDays` on `PUT /v1/reviews/policy`, which keeps what it had when it is
+left out). When an ask went out that many days ago and nothing has come in since, the
+worker sends one reminder, by the way the company asks (its installed automation's
+channel, or text), in the reminder's own words, which say it is the only one, through
+the same consent and suppression gate as the ask. It is for every sent ask, whether the
+office queued it or an automation did.
+
+It is skipped, for good and with the reason on the request, when the customer opted out
+or is marked do not service, or when a live review has come in since the ask that is
+tied to that customer or job, or suspected to be theirs and not dismissed (any platform).
+Only that a review exists is read, never what it says or how many stars it gave, so this
+is not asking only the people who will say something nice; and when a review cannot be
+tied to anyone the answer is a reminder, so an unmatched review from the same customer
+does not stop one. It waits, without being used up, while a complaint is open on the job
+or its return visit is, and until the company's sending hours. One reminder, ever: it is
+claimed on the request before anybody is messaged, a refusal (no number, replied STOP) is
+written on the request and is final, and two workers send it once. Core's
+`decideReminder` holds the rules, with a test that proxies its input as the ask's does.
+
 ### Requests the office queued
 
 A request made with `POST /v1/reviews/requests` (the reviews screen) whose
@@ -181,6 +206,21 @@ the worker's: that automation's run parks until the window and sends in its own
 words, so the two never race. A request whose review site has lost its link, or
 whose site's declared rules no longer allow the ask, is marked failed with the
 reason rather than tried again every few seconds.
+
+### Which jobs the automation asks about
+
+`values.jobs` on the install of `review_after_paid` (`Which jobs to ask about` on
+`/automations`) is `paid`, the default and what it always did (an invoice paid in full), or
+`finished`: every finished job that owes nothing. That listens for a credit note settling
+an invoice in full (`invoice.credited`, a new event, which is not `invoice.paid` because
+nobody paid) and for a job being finished (`job.completed`) as well as for a payment, and
+treats a job with no invoice at all as owing nothing. The same decision applies as ever:
+your review rules, the cooldown, an open complaint, a callback, an opt out. A job with an
+invoice that is not paid is still held, and is asked about when it is settled; a job is
+asked about once however many of the three tell the automation about it. For a job never
+invoiced, "Hours to wait" counts from the job being finished, so a company that invoices a
+day later should make it longer than that, or it will be asked about before the bill. A
+job is judged paid when every invoice on it that is not voided has nothing owing.
 
 ### Record and reply
 
@@ -222,6 +262,8 @@ doing this grants it.
 | `POST /v1/reviews/requests/{id}/sent` | `review:respond` |
 | `GET /v1/reviews/requests/withheld` | `review:respond` |
 | `PUT /v1/reviews/policy` | `settings:write` |
+| `GET /v1/reviews/reminders` | `review:respond` |
+| `PUT /v1/reviews/reminders` | `settings:write` |
 | `GET /v1/reviews/platforms` | `settings:read` |
 | `POST /v1/reviews/sync` | `review:respond` |
 | `POST /v1/reviews/{id}/match` | `review:respond` |
@@ -267,14 +309,18 @@ still moderated by Google, so one marked posted here can be absent there; the
 next hourly read shows what Google shows. Editing a reply already posted is
 done on Google. There is no
 sentiment analysis and deliberately no predicted rating. The ask is scheduled
-by the recommended automation, which starts from a paid invoice, and by the
-worker for what the office queues by hand: a job that is never invoiced, or paid
-by a credit note, is never asked about unless somebody asks by hand. How to ask
+by the recommended automation, which starts from a paid invoice (or, by its install, a
+credit note that settled one, or a finished job), and by the worker for what the office
+queues by hand. How to ask
 is by text, by email, or by text first and then email, and nothing else: no
-third channel, no second reminder when the first ask went unanswered, and
-text first and then email is a fallback when the text cannot go, not a follow up
-when it was ignored (nothing here knows whether a review was left by the person
-asked, because a review is matched to a customer only when somebody says so). The
+third channel, and at most one reminder, which a company has to turn on. The reminder
+cannot tell that an unmatched review was left by the person asked, because a review is
+matched to a customer only when somebody says so; it holds off for a suspected match and
+does not for a review nobody has tied to anyone. Text first and then email is a fallback
+when the text cannot go, not a follow up when it was ignored. The reminder uses the
+way the company asks and its own default words; they cannot be edited on a screen.
+There is no screen for the review policy itself: it is set by the API, and only the
+reminder has a form. The
 email ask is tested against the fake email provider, not a live inbox, and the
 worker's due list uses the wording and way of the company's installed automation
 or the default by text, not a choice of its own per request. Both messages go as

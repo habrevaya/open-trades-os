@@ -107853,6 +107853,228 @@
         ]
       }
     },
+    "/v1/reviews/reminders": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getReviewReminders",
+        "summary": "Whether the one reminder is on, and what the latest did",
+        "description": "Requires a session holding: review:respond.",
+        "tags": [
+          "M20"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the one reminder is on, and what the latest did",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetReviewRemindersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "review:respond"
+        ]
+      },
+      "put": {
+        "operationId": "setReviewReminders",
+        "summary": "Turn the one reminder on, or off",
+        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M20"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetReviewRemindersInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Turn the one reminder on, or off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetReviewRemindersOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/reviews/requests": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -189742,6 +189964,65 @@
           "total"
         ]
       },
+      "GetReviewRemindersOutput": {
+        "type": "object",
+        "properties": {
+          "afterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "remindedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sent": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "jobNumber",
+                "customerName",
+                "askedAt",
+                "remindedAt",
+                "sent",
+                "detail"
+              ]
+            }
+          }
+        },
+        "required": [
+          "afterDays",
+          "recent"
+        ]
+      },
       "GetReviewWorkListOutput": {
         "type": "object",
         "properties": {
@@ -249624,6 +249905,14 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 3650
+          },
+          "reminderAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 3,
+            "maximum": 60
           }
         },
         "required": [
@@ -249710,6 +249999,12 @@
           },
           "halfLifeDays": {
             "type": "integer"
+          },
+          "reminderAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -249726,7 +250021,83 @@
           "openHour",
           "closeHour",
           "bands",
-          "halfLifeDays"
+          "halfLifeDays",
+          "reminderAfterDays"
+        ]
+      },
+      "SetReviewRemindersInput": {
+        "type": "object",
+        "properties": {
+          "afterDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 3,
+            "maximum": 60
+          }
+        },
+        "required": [
+          "afterDays"
+        ]
+      },
+      "SetReviewRemindersOutput": {
+        "type": "object",
+        "properties": {
+          "afterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "remindedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sent": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "jobNumber",
+                "customerName",
+                "askedAt",
+                "remindedAt",
+                "sent",
+                "detail"
+              ]
+            }
+          }
+        },
+        "required": [
+          "afterDays",
+          "recent"
         ]
       },
       "SetSafetyTalkScheduleActiveInput": {

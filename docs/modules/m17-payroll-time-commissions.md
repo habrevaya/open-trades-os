@@ -172,7 +172,7 @@ is not on it. The crew check, the map's suggestions and the multi day rebalance 
 it by the hour too:
 
 - The dispatch map's "Suggest who" (`GET /v1/dispatch/suggestions`) and the multi day
-  rebalance (`GET /v1/dispatch/rebalance-days`) refuse a visit to a person only when the
+  rebalance (`GET /v1/dispatch/rebalance/days`) refuse a visit to a person only when the
   visit's hours meet their leave, in words ("Ray Ortiz is on approved time off from 1:00
   PM to 5:00 PM on 2026-10-06, when that visit is."). A person with the afternoon off is
   offered the morning's visits, and one off all day is refused everything, as before.

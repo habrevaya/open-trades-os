@@ -403,7 +403,7 @@ export const WITHHOLDING_RULES: readonly WithholdingRule[] = frozenRules([
  * unbounded search over a misconfigured window (earliest at or after latest)
  * would hang the worker rather than send a request late.
  */
-function nextSendableInstant(at: Date, policy: RequestPolicy): Date {
+function nextSendableInstant(at: Date, policy: Pick<RequestPolicy, "timeZone" | "earliestHour" | "latestHour">): Date {
   const open = policy.earliestHour * 60;
   const close = policy.latestHour * 60;
   let cursor = at;
@@ -481,6 +481,138 @@ export function decideRequest(
   const sendAt = nextSendableInstant(candidate, policy);
 
   return { ask: true, jobId, customerId, sendAt, readyNow: sendAt.getTime() <= now.getTime() };
+}
+
+/* ========================================================================
+ * 2a. THE ONE REMINDER
+ * ===================================================================== */
+
+/**
+ * A SECOND MESSAGE ABOUT ONE JOB, AND THE ONLY ONE.
+ *
+ * Section 2 gives a job one ask, because a second one reads as pressure and
+ * platforms treat it as such. A company can still choose to follow up once on
+ * an ask that got no answer, and this is that choice, held to the narrowest
+ * shape it can take:
+ *
+ *   OFF UNLESS THE COMPANY SAYS HOW MANY DAYS. There is no default number of
+ *   days, for the reason the service standard has none: how long to wait before
+ *   a second message is a decision about how a company talks to its customers.
+ *
+ *   ONE, EVER. A job that has had its reminder gets no more. The count is a
+ *   fact on the request, so two workers racing send it once.
+ *
+ *   NEVER ABOUT WHAT THEY SAID. The reminder is skipped for a customer a review
+ *   is tied to, or only suspected to be from, since the ask went out, whatever
+ *   that review says or how many stars it gave. It reads that a review exists
+ *   and nothing about its content, which is the difference between not nagging
+ *   somebody who already answered and asking only the people who will say
+ *   something nice. When the reviews cannot say who wrote them, the answer is
+ *   no reminder, because the careful mistake is a missed nudge.
+ *
+ *   THE SAME RESPECT AS THE ASK. An opt out, an open complaint, an unresolved
+ *   callback and the company's sending hours all hold it, as they hold the ask.
+ */
+export interface ReminderPolicy {
+  timeZone: string;
+  /** Null is off. */
+  reminderAfterDays: number | null;
+  earliestHour: number;
+  latestHour: number;
+}
+
+export interface ReminderFacts {
+  jobId: string;
+  customerId: string;
+  /** When the ask went out. */
+  askedAt: Date;
+  /** The one reminder has already been sent for this job. */
+  reminded: boolean;
+  /**
+   * A review is tied to this customer, or suspected to be theirs, from after
+   * the ask. Whether one exists, and nothing about what it says.
+   */
+  reviewSince: boolean;
+  optedOut: boolean;
+  complaintOpen: boolean;
+  callback: Callback | null;
+}
+
+/** The complete set of facts the reminder reads, declared as data and enforced by a test, as section 1's list is. */
+export const REMINDER_INPUTS: readonly string[] = Object.freeze([
+  "jobId",
+  "customerId",
+  "askedAt",
+  "reminded",
+  "reviewSince",
+  "optedOut",
+  "complaintOpen",
+  "callback",
+  "callback.resolvedAt",
+]);
+
+export type ReminderWithheld =
+  | "reminders_off"
+  | "reminder_already_sent"
+  | "customer_opted_out"
+  | "review_since_ask"
+  | "complaint_open"
+  | "callback_unresolved"
+  | "too_soon";
+
+export type ReminderDecision =
+  | { remind: true; sendAt: Date; readyNow: boolean }
+  | { remind: false; withheld: ReminderWithheld; explanation: string; clearsOnItsOwn: boolean };
+
+/** Fewer days than this and a reminder is a nag. More than this and it is a second ask about a job nobody remembers. */
+export const MIN_REMINDER_DAYS = 3;
+export const MAX_REMINDER_DAYS = 60;
+
+export function checkReminderDays(days: number | null): { ok: true } | { ok: false; reason: string } {
+  if (days === null) return { ok: true };
+  if (!Number.isInteger(days) || days < MIN_REMINDER_DAYS || days > MAX_REMINDER_DAYS) {
+    return {
+      ok: false,
+      reason: `Remind after between ${MIN_REMINDER_DAYS} and ${MAX_REMINDER_DAYS} whole days, or leave reminders off. `
+        + "Sooner than that is a nag, and later is a message about a job nobody remembers.",
+    };
+  }
+  return { ok: true };
+}
+
+export function decideReminder(facts: ReminderFacts, policy: ReminderPolicy, now: Date): ReminderDecision {
+  const no = (withheld: ReminderWithheld, explanation: string, clearsOnItsOwn: boolean): ReminderDecision =>
+    ({ remind: false, withheld, explanation, clearsOnItsOwn });
+
+  if (policy.reminderAfterDays === null) {
+    return no("reminders_off", "Reminders are off. Turn them on and say how many days to wait.", false);
+  }
+  if (facts.reminded) {
+    return no("reminder_already_sent", "The one reminder this job gets has already gone out.", false);
+  }
+  if (facts.optedOut) {
+    return no("customer_opted_out", "This customer has asked not to be sent review requests.", false);
+  }
+  if (facts.reviewSince) {
+    return no(
+      "review_since_ask",
+      "A review has come in since the ask that is, or may be, this customer's, so a reminder would be a nudge to somebody who has already answered.",
+      false,
+    );
+  }
+  if (facts.complaintOpen) {
+    return no("complaint_open", "There is an open complaint on this job. Somebody owes this customer a conversation first.", true);
+  }
+  if (facts.callback && facts.callback.resolvedAt === null) {
+    return no("callback_unresolved", "The return visit for this job is still open, so there is nothing settled to remind them about.", true);
+  }
+
+  const due = new Date(facts.askedAt.getTime() + policy.reminderAfterDays * DAY_MS);
+  if (due.getTime() > now.getTime()) {
+    return no("too_soon", `The ask went out less than ${policy.reminderAfterDays} days ago.`, true);
+  }
+  const sendAt = nextSendableInstant(due.getTime() > now.getTime() ? due : now, policy);
+  return { remind: true, sendAt, readyNow: sendAt.getTime() <= now.getTime() };
 }
 
 /* ========================================================================

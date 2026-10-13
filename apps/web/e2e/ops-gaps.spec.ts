@@ -259,3 +259,27 @@ test("a morning visit is moved to a day everybody has the afternoon off, because
   await expect(moved.getByRole("row").filter({ hasText: `Morning flexible ${run}` })).toContainText("A range of days");
   await expect(owner.getByRole("region", { name: longDay(NEXT) })).toContainText(`Morning flexible ${run}`);
 });
+
+test("the one reminder to a customer who did not answer is turned on from the reviews screen, and off again", async ({ owner }) => {
+  const policy = await owner.request.put("/api/v1/reviews/policy", { data: { timeZone: "America/Chicago" } });
+  expect(policy.ok(), await policy.text()).toBe(true);
+
+  await owner.goto("/reviews");
+  const reminders = owner.getByRole("region", { name: "Reminders" });
+  await expect(reminders).toContainText("Off. Each customer is asked once.");
+  await reminders.getByLabel(/Remind after this many days/).fill("5");
+  await reminders.getByRole("button", { name: "Save" }).click();
+  await expect(reminders).toContainText("On. If nobody has answered 5 days after the ask");
+  await expect(reminders).toContainText("Nobody gets more than one.");
+  const read = await owner.request.get("/api/v1/reviews/reminders");
+  expect(((await read.json()) as { afterDays: number | null }).afterDays).toBe(5);
+
+  // A gap that is a nag is refused in words.
+  await reminders.getByLabel(/Remind after this many days/).fill("1");
+  await reminders.getByRole("button", { name: "Save" }).click();
+  await expect(reminders.getByRole("alert").filter({ hasText: /between 3 and 60/ })).toBeVisible();
+
+  await reminders.getByLabel(/Remind after this many days/).fill("");
+  await reminders.getByRole("button", { name: "Save" }).click();
+  await expect(reminders).toContainText("Off. Each customer is asked once.");
+});

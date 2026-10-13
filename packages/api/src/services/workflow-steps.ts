@@ -1017,6 +1017,8 @@ export async function requestReview(
 
   const outcome = await reviews.requestWithin(tx, ctx.actor.organizationId, {
     jobId, source: "automation", ...(platform ? { platform } : {}),
+    /** The install's "every finished job that owes nothing": a job never invoiced owes nothing. */
+    ...(config["uninvoiced"] === true ? { uninvoicedIsSettled: true } : {}),
   }, now);
 
   const output: Record<string, unknown> = {
