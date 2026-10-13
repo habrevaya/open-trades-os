@@ -63,7 +63,8 @@ test("a contract's rise is prepared as a draft and a task thirty days ahead, and
 
   await owner.goto(contractUrl);
   await rise.getByRole("button", { name: "Apply year 2 prices" }).click();
-  await expect(rise.getByRole("status")).toContainText(`risen from ${anniversary}`);
+  // The button goes once it is applied: the contract now says when it last rose.
+  await expect(rise).toContainText(`Last risen on ${anniversary}.`);
   await owner.reload();
   await expect(owner.getByRole("heading", { name: "Harbor schedule (year 2)" })).toBeVisible();
   await expect(owner.getByRole("note", { name: "Draft prices" })).toHaveCount(0);
