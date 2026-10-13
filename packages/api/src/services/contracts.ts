@@ -605,6 +605,8 @@ export async function overview(ctx: ServiceContext) {
       .where(and(
         eq(schema.rateCard.organizationId, ctx.actor.organizationId),
         isNull(schema.rateCard.deletedAt),
+        /** A draft of next year's prices is not one of the contract's cards until somebody applies it. */
+        isNull(schema.rateCard.draftFor),
       ))
       .orderBy(asc(schema.rateCard.name));
 

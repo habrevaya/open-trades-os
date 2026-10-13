@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, money, rate } from "./_shared";
 import { organization } from "./tenancy";
@@ -405,8 +406,49 @@ export const rateCard = pgTable("rate_card", {
   escalatedFromId: uuid("escalated_from_id"),
   /** The rate it was risen by, as applied, beside the card it came from. */
   escalationRate: rate("escalation_rate"),
+  /**
+   * The anniversary this card is prepared for, while it is a DRAFT: next
+   * year's prices written by the worker thirty days ahead for a person to
+   * look at, never active and so never pricing anything. Applying the
+   * escalation writes the card in force afresh from the card it rises from
+   * and removes the draft; the draft is never made the card by itself.
+   * Null on every card that is, or was, in force.
+   */
+  draftFor: date("draft_for"),
   ...timestamps,
-}, (t) => ({ orgIdx: index("rate_card_org_idx").on(t.organizationId) }));
+}, (t) => ({
+  orgIdx: index("rate_card_org_idx").on(t.organizationId),
+  /** One draft per card per anniversary, so a worker that goes round twice prepares it once. */
+  draftIdx: uniqueIndex("rate_card_draft_idx").on(t.organizationId, t.escalatedFromId, t.draftFor)
+    .where(sql`${t.draftFor} is not null`),
+}));
+
+/**
+ * AN ANNIVERSARY'S ESCALATION, DUE AND RAISED.
+ *
+ * The worker's record that it raised the office's task for one contract's
+ * anniversary, and prepared the draft cards, thirty days ahead. The unique
+ * index on the contract and the anniversary is the claim: one task per
+ * anniversary, however many times the worker goes round. Applying the
+ * escalation (a person, on the contract) closes the task and marks this
+ * applied; nothing here applies anything.
+ */
+export const contractEscalationNotice = pgTable("contract_escalation_notice", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  anniversary: date("anniversary").notNull(),
+  /** The rate the drafts were risen by. A rate changed on the contract since prepares them again. */
+  rate: rate("rate").notNull(),
+  /** The office task raised about it. A loose reference, as every task's subject is. */
+  taskId: uuid("task_id"),
+  preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+  /** When a person applied it, and so the task was closed. */
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  onceIdx: uniqueIndex("contract_escalation_notice_once_idx").on(t.organizationId, t.contractId, t.anniversary),
+}));
 
 export const labourBand = pgEnum("labour_band", ["standard", "after_hours", "weekend", "holiday"]);
 

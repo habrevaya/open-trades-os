@@ -7,6 +7,7 @@ import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
 import { clockPass } from "./contract-clocks";
 import { billingPass as contractBillingPass } from "./contract-billing";
+import { noticePass as escalationNoticePass } from "./contract-escalation";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { adsPass } from "./ads";
 import type { AdsDeps } from "./ad-platforms";
@@ -482,6 +483,20 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] contract billing:", (error as Error).message);
+    }
+    /**
+     * A contract's annual escalation coming due: thirty days ahead, next
+     * year's cards prepared as drafts and one task raised for a person to
+     * apply them. Its own try, and each company's failure is kept to that
+     * company. It never applies a rise; the task is once per anniversary
+     * under a unique index.
+     */
+    try {
+      for (const result of await escalationNoticePass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] contract escalation ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] contract escalation:", (error as Error).message);
     }
     /**
      * Toolbox talks on a schedule, raised on their day with the crew's

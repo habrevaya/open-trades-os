@@ -813,6 +813,13 @@
       "when": 1791753386022,
       "tag": "0115_open_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1791753933904,
+      "tag": "0116_parched_viper",
+      "breakpoints": true
     }
   ]
 }
