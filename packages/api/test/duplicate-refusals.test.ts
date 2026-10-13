@@ -360,6 +360,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   voice_agent_session_call_idx:
     "One phone assistant conversation per call. Inserted with on conflict do nothing, and a call that already had one goes to voicemail.",
   voice_agent_session_token_idx: "A random token's hash, generated here. A collision is a bug, not a duplicate somebody typed.",
+  queue_callback_call_idx:
+    "One callback per call. Inserted with on conflict do nothing when the caller presses 1, so a key press the carrier reports twice asks once.",
   softphone_presence_person_idx: "One heartbeat row per person per company, upserted every minute while they take calls in the browser.",
   discount_policy_org_idx: "One policy per company, upserted.",
   setup_step_key_idx: "One row per setup step per company, upserted when a step is marked done or reopened.",

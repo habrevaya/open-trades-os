@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, can, voice, holidays as holidayRules, time, type Actor, type telephony as tel } from "@opentradesos/core";
 import {
@@ -14,6 +14,7 @@ import * as transcription from "./transcription";
 import * as voiceAgent from "./voice-agent";
 import * as callQueues from "./call-queues";
 import * as softphone from "./softphone";
+import * as callbacks from "./queue-callbacks";
 import { memberActor } from "./session";
 import { loadHolidays } from "./holidays";
 import { emit } from "./events";
@@ -322,6 +323,12 @@ export const STEPS = [
   "agent-done",
   /** A waiting line: each turn of the music, how the caller left, and the person answering. */
   "queue-wait", "queue-done", "queue-answer", "queue-connect",
+  /**
+   * A caller in a line pressed a key during the music (1 asks to be called
+   * back), how a call placed to ring the group for a callback ended, and how
+   * ringing the caller back went.
+   */
+  "queue-callback", "queue-leg", "callback-dialed",
   /** A call somebody placed from the browser, the question put to the person called, and how it ended. */
   "softphone", "softphone-consent", "softphone-dialed",
 ] as const;
@@ -388,6 +395,28 @@ export async function handle(
   const ctx: ServiceContext = { actor: voiceActor(connection.organizationId), db };
   const wire: Wire = { connection, deps, url, now };
 
+  const replied = await answerStep(db, ctx, step, form, query, wire);
+  /**
+   * Somebody may have just come free (a call ended), or a callback may have
+   * just been asked for or put back to wait: ring for the callbacks that are
+   * due. After the step's own answer is decided, and never at its expense: a
+   * carrier that cannot be reached for this leaves the caller's call alone.
+   */
+  if (KICKS.has(step) && replied.status === 200) {
+    await ringCallbacks(ctx, wire).catch((error: unknown) => {
+      console.error(`[voice] ringing for callbacks failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+  return replied;
+}
+
+/** The steps after which somebody may be free to make a callback, or one is newly waiting. */
+const KICKS = new Set<Step>(["status", "dialed", "queue-done", "queue-leg", "callback-dialed", "softphone-dialed"]);
+
+async function answerStep(
+  db: Database, ctx: ServiceContext, step: Step, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  const { connection, now } = wire;
   switch (step) {
     case "incoming": return incoming(db, ctx, form, wire);
     case "connect": return connect(ctx, form, wire);
@@ -403,6 +432,9 @@ export async function handle(
     case "queue-done": return queueDone(ctx, form, query, wire);
     case "queue-answer": return queueAnswer(ctx, form, query, wire);
     case "queue-connect": return queueConnect(ctx, form, query, now);
+    case "queue-callback": return queueCallback(ctx, form, query, wire);
+    case "queue-leg": return queueLeg(ctx, form, query, now);
+    case "callback-dialed": return callbackDialed(ctx, form, query, wire);
     case "softphone": return softphoneCall(db, ctx, form, wire);
     case "softphone-consent": return softphoneConsent(ctx, form, query, wire);
     case "softphone-dialed": return softphoneDialed(ctx, form, now);
@@ -955,7 +987,12 @@ async function status(ctx: ServiceContext, form: Record<string, string>, now: Da
       } : {}),
       updatedAt: now,
     }).where(eq(schema.call.id, call.id));
-    if (unanswered) await callTracking.emitMissed(tx, ctx, call.id);
+    /**
+     * A caller who asked to be called back and hung up is not missed yet: a
+     * callback is on its way. If it cannot be made, handing it to the office
+     * announces the miss then.
+     */
+    if (unanswered && !(await callbacks.forCall(tx, call.id))) await callTracking.emitMissed(tx, ctx, call.id);
     return empty;
   });
 }
@@ -1083,7 +1120,14 @@ async function agentDone(
  * phone or browser in this round, each answered by `queue-answer`. They are
  * placed after the transaction commits, so a slow carrier holds no
  * connection, and a failure to ring one phone is written on the call rather
- * than keeping the caller from their music.
+ * than keeping the caller from their music. Somebody the company knows to be
+ * on another call is left out of the round (`queue-callbacks.ts` says how it
+ * knows), so a person finishing one call is not rung over the top of it.
+ *
+ * Callers who asked to be called back still hold their place, so a caller's
+ * place counts them, and on a line that offers it the whole turn is a key
+ * press away from becoming a callback: the words and the music are said
+ * inside the wait for a key, and 1 is `queue-callback`.
  */
 async function queueWait(
   ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
@@ -1097,35 +1141,63 @@ async function queueWait(
     if (!queue || call.queueId !== queue.id) return { verbs: [{ verb: "leave" }] as voice.Verb[], ring: null };
     const group = await phoneMenus.loadRingGroup(tx, org, queue.ringGroupId);
     const position = Number(form["QueuePosition"]);
+    const [ahead] = call.queuedAt ? await tx.select({ n: sql<number>`count(*)::int` }).from(schema.queueCallback).where(and(
+      eq(schema.queueCallback.queueId, queue.id),
+      sql`${schema.queueCallback.status} in ('waiting', 'calling')`,
+      lt(schema.queueCallback.joinedAt, call.queuedAt),
+    )) : [];
     const step = voice.waitStep({
-      queue, position: Number.isInteger(position) && position > 0 ? position : 1,
+      queue,
+      position: (Number.isInteger(position) && position > 0 ? position : 1) + (ahead?.n ?? 0),
       waitedSeconds: Number(form["QueueTime"]), rungAt: call.queueRungAt, ringSeconds: group?.ringSeconds ?? 20,
       now: wire.now,
     });
     if (step.kind === "leave") return { verbs: [{ verb: "leave" }] as voice.Verb[], ring: null };
+    const first = call.queueTurns === 0;
+    await tx.update(schema.call).set({ queueTurns: call.queueTurns + 1, updatedAt: wire.now }).where(eq(schema.call.id, call.id));
 
     let ring: { numbers: string[]; from: string; timeoutSeconds: number; callId: string } | null = null;
     if (step.ring && group) {
       const online = await softphone.onlineUsers(tx, org, wire.now);
-      const round = voice.ringRound(voice.ringPlan(group, await phoneMenus.directoryFor(tx, org), online), call.queueRings);
+      const directory = await phoneMenus.directoryFor(tx, org);
+      const plan = voice.ringPlan(group, directory, online);
+      const round = voice.freeRound(plan, call.queueRings, await callbacks.busyNumbers(tx, org, directory, wire.now));
       const from = call.receivedOnE164 ?? (await numberOf(tx, call))?.e164 ?? null;
-      if (round && from) {
-        ring = { numbers: round.numbers, from, timeoutSeconds: group.ringSeconds, callId: call.id };
+      if (round.step && from) {
+        ring = { numbers: round.step.numbers, from, timeoutSeconds: group.ringSeconds, callId: call.id };
         await tx.update(schema.call).set({
-          queueRungAt: wire.now, queueRings: call.queueRings + 1, updatedAt: wire.now,
+          queueRungAt: wire.now,
+          /** One after another: the round after this one starts with the person after the one rung now. */
+          queueRings: plan.steps.length > 1 ? round.index + 1 : call.queueRings + 1,
+          updatedAt: wire.now,
         }).where(eq(schema.call.id, call.id));
+        if (first && round.skipped.length > 0) await note(tx, call, `Not rung, already on a call: ${round.skipped.join(", ")}.`);
       } else if (call.queueRings === 0 && call.queueRungAt === null) {
-        await note(tx, call, `Nobody in the ${group.name} ring group could be rung for the ${queue.name} waiting line.`);
+        const why = round.skipped.length > 0 ? ", because everybody in it was on another call" : "";
+        await note(tx, call, `Nobody in the ${group.name} ring group could be rung for the ${queue.name} waiting line${why}.`);
         await tx.update(schema.call).set({ queueRungAt: wire.now, updatedAt: wire.now }).where(eq(schema.call.id, call.id));
       }
     }
-    return {
-      verbs: [
-        ...(step.say ? [{ verb: "say" as const, text: step.say }] : []),
-        { verb: "play" as const, url: queue.holdMusicUrl ?? voice.DEFAULT_HOLD_MUSIC },
-      ] as voice.Verb[],
-      ring,
-    };
+
+    const estimate = first && queue.announceWait ? await callbacks.estimatedWait(tx, queue.id, wire.now) : null;
+    const offer = queue.offerCallback && voice.callbackNumber(call.fromE164) !== null;
+    const said = [
+      step.say,
+      estimate !== null ? voice.estimatedWaitWords(estimate) : null,
+      offer ? voice.CALLBACK_OFFER : null,
+    ].filter((part): part is string => Boolean(part)).join(" ");
+    const music = queue.holdMusicUrl ?? voice.DEFAULT_HOLD_MUSIC;
+    const hops = count(query.get("h"), MAX_HOPS + 1);
+    const verbs: voice.Verb[] = offer
+      ? [{
+          verb: "gather", action: wire.url("queue-callback", { q: queue.id, ...(hops > 0 ? { h: hops } : {}) }),
+          numDigits: 1, timeoutSeconds: 1, say: said, play: music,
+        }]
+      : [
+          ...(said ? [{ verb: "say" as const, text: said }] : []),
+          { verb: "play" as const, url: music },
+        ];
+    return { verbs, ring };
   });
 
   if (plan.ring) {
@@ -1148,8 +1220,50 @@ async function queueWait(
 }
 
 /**
- * A person in the line's group picked up. Put them through to whoever is at
- * the front, or tell them somebody else already has the caller.
+ * A key pressed while the music played. 1, on a line that offers it, is "call
+ * me back instead": the callback is written down with the time the caller
+ * joined the line, which is the place they keep, and they are taken out of
+ * the carrier's line, which brings them to `queue-done` to hear what happens
+ * next. Any other key is ignored and the music goes on.
+ */
+async function queueCallback(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await callBySid(tx, form["CallSid"]);
+    const queue = await callQueues.loadQueue(tx, ctx.actor.organizationId, query.get("q") ?? "");
+    const back = call ? voice.callbackNumber(call.fromE164) : null;
+    if (!call || !queue || call.queueId !== queue.id || call.queueResult !== null || !queue.offerCallback || !back) {
+      return empty;
+    }
+    if ((form["Digits"] ?? "").trim() !== "1") {
+      return reply([{ verb: "say", text: "Sorry, that is not an option. To be called back instead of waiting, press 1." }]);
+    }
+    const [made] = await tx.insert(schema.queueCallback).values({
+      organizationId: ctx.actor.organizationId, queueId: queue.id, callId: call.id, callbackE164: back,
+      joinedAt: call.queuedAt ?? wire.now,
+    }).onConflictDoNothing().returning();
+    if (made) {
+      const waited = Number(form["QueueTime"]);
+      await note(tx, call, `Asked to be called back on ${back} instead of waiting${
+        Number.isFinite(waited) && waited > 0 ? `, after ${Math.round(waited)} seconds in line` : ""}.`);
+      await audit(tx, ctx, "call.callback_requested", "call", call.id, null, { queueId: queue.id, number: back });
+    }
+    return reply([{ verb: "leave" }]);
+  });
+}
+
+/**
+ * A person in the line's group picked up. Put them through to whoever is
+ * next: the caller waiting longest, or the caller who asked to be called back
+ * and joined before them. Or tell them somebody else already has the caller.
+ *
+ * A callback is claimed before anything is dialled, so two people picking up
+ * at the same moment cannot both ring the same caller back. Then the caller
+ * is dialled from the company's number with the person already on the line,
+ * so the caller is never answered by a phone still ringing. The callback is
+ * logged as a call the office placed, and never recorded: nobody on it was
+ * asked.
  */
 async function queueAnswer(
   ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
@@ -1164,15 +1278,42 @@ async function queueAnswer(
      * because a caller the phone assistant spoke to first was answered
      * before they ever joined the line.
      */
-    const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.call).where(and(
-      eq(schema.call.queueId, queue.id),
-      isNull(schema.call.queueResult),
-      sql`${schema.call.queuedAt} is not null`,
-    ));
-    if (!waiting || waiting.n === 0) {
+    const waitingSince = await callbacks.longestWaiting(tx, queue.id);
+    const callback = await callbacks.nextCallback(tx, queue.id, wire.now);
+    const user = await whoAnswered(tx, org, form["To"] ?? "");
+    const next = voice.nextInLine(waitingSince, callback?.joinedAt ?? null);
+
+    if (next === "callback" && callback) {
+      const [claimed] = await tx.update(schema.queueCallback).set({
+        status: "calling", attempts: callback.attempts + 1, answeredByUserId: user, updatedAt: wire.now,
+      }).where(and(eq(schema.queueCallback.id, callback.id), eq(schema.queueCallback.status, "waiting"))).returning();
+      if (claimed) {
+        const [original] = await tx.select().from(schema.call).where(eq(schema.call.id, claimed.callId)).limit(1);
+        const from = original?.receivedOnE164 ?? (original ? (await numberOf(tx, original))?.e164 : null) ?? null;
+        if (original && from) {
+          const [placed] = await tx.insert(schema.call).values({
+            organizationId: org, direction: "outbound", phoneNumberId: original.phoneNumberId,
+            fromE164: from, toE164: claimed.callbackE164, customerId: original.customerId,
+            placedByUserId: user, status: "ringing", startedAt: wire.now,
+            providerCallId: form["CallSid"] ? `twilio:${form["CallSid"]}` : null,
+            routedBecause: `Calling back a caller who asked to be called back from the ${queue.name} waiting line.`,
+          }).onConflictDoNothing().returning({ id: schema.call.id });
+          await tx.update(schema.queueCallback).set({ callbackCallId: placed?.id ?? null, updatedAt: wire.now })
+            .where(eq(schema.queueCallback.id, claimed.id));
+          return reply([
+            { verb: "say", text: `A ${queue.name} caller asked to be called back. Calling them now.` },
+            {
+              verb: "dial", to: claimed.callbackE164, callerId: from, timeoutSeconds: 30,
+              action: wire.url("callback-dialed", { k: claimed.id }),
+            },
+          ]);
+        }
+        await callbacks.handToOffice(tx, ctx, claimed, "The number they called could not be found to call them back from.");
+      }
+    }
+    if (waitingSince === null) {
       return reply([{ verb: "say", text: "Thanks. The caller has already been answered." }, { verb: "hangup" }]);
     }
-    const user = await whoAnswered(tx, org, form["To"] ?? "");
     return reply([
       { verb: "say", text: `A ${queue.name} caller is waiting. Putting you through.` },
       { verb: "dialQueue", queue: voice.carrierQueueName(queue.id), url: wire.url("queue-connect", { q: queue.id, ...(user ? { u: user } : {}) }) },
@@ -1201,8 +1342,10 @@ async function queueConnect(
 }
 
 /**
- * The caller left the line: answered, gave up, or waited as long as the line
- * keeps anybody and goes where it overflows to, usually voicemail.
+ * The caller left the line: answered, gave up, asked to be called back, or
+ * waited as long as the line keeps anybody and goes where it overflows to,
+ * usually voicemail. How long they waited is kept, because an answered
+ * caller's wait is what the next caller's estimate is made from.
  */
 async function queueDone(
   ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
@@ -1214,9 +1357,15 @@ async function queueDone(
     const waited = Number(form["QueueTime"]);
     const outcome = voice.queueOutcome(form["QueueResult"], Number.isFinite(waited) ? waited : 0);
     await tx.update(schema.call).set({
-      queueResult: (form["QueueResult"] ?? "unknown").slice(0, 40), updatedAt: wire.now,
+      queueResult: (form["QueueResult"] ?? "unknown").slice(0, 40),
+      queueWaitSeconds: Number.isFinite(waited) && waited >= 0 ? Math.round(waited) : call.queueWaitSeconds,
+      updatedAt: wire.now,
     }).where(eq(schema.call.id, call.id));
-    if (outcome.kind === "answered") return reply([{ verb: "hangup" }]);
+    if (outcome.kind === "answered" || outcome.kind === "moved") return outcome.kind === "moved" ? empty : reply([{ verb: "hangup" }]);
+    const callback = await callbacks.forCall(tx, call.id);
+    if (callback && callback.status === "waiting") {
+      return reply([{ verb: "say", text: voice.callbackConfirmation(callback.callbackE164) }, { verb: "hangup" }]);
+    }
     if (outcome.kind === "gone") {
       await note(tx, call, outcome.why);
       await tx.update(schema.call).set({ status: voice.laterStatus(call.status, "abandoned"), updatedAt: wire.now })
@@ -1232,6 +1381,218 @@ async function queueDone(
     if (answered.voicemail) await callTracking.emitMissed(tx, ctx, call.id);
     return reply(answered.verbs);
   });
+}
+
+/**
+ * A call placed to ring the group for a callback has ended, picked up or not.
+ * One fewer of its round is still ringing; the call that rang the caller back
+ * on it, if that is what it became, is over.
+ */
+async function queueLeg(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, now: Date,
+): Promise<VoiceReply> {
+  const id = query.get("k") ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return empty;
+  return inTenant(ctx, async (tx) => {
+    await tx.update(schema.queueCallback).set({
+      legsOut: sql`greatest(${schema.queueCallback.legsOut} - 1, 0)`, updatedAt: now,
+    }).where(eq(schema.queueCallback.id, id));
+    const leg = await callBySid(tx, form["CallSid"]);
+    const reported = voice.providerCallStatus(form["CallStatus"]);
+    if (leg && leg.direction === "outbound" && reported && reported !== "ringing" && reported !== "in_progress") {
+      const seconds = Number(form["CallDuration"]);
+      await tx.update(schema.call).set({
+        status: voice.laterStatus(leg.status, reported),
+        endedAt: leg.endedAt ?? now,
+        ...(Number.isFinite(seconds) && seconds >= 0 && leg.durationSeconds === null ? { durationSeconds: seconds } : {}),
+        updatedAt: now,
+      }).where(eq(schema.call.id, leg.id));
+    }
+    return empty;
+  });
+}
+
+/**
+ * How ringing the caller back went. Picked up: the callback is done, and the
+ * caller's own call says who called them back. Not picked up: tried once more
+ * after a pause, and after that it becomes a task for the office. The person
+ * who made the call is told which, before their line closes.
+ */
+async function callbackDialed(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  const id = query.get("k") ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return reply([{ verb: "hangup" }]);
+  return inTenant(ctx, async (tx) => {
+    const [callback] = await tx.select().from(schema.queueCallback)
+      .where(and(eq(schema.queueCallback.organizationId, ctx.actor.organizationId), eq(schema.queueCallback.id, id))).limit(1);
+    if (!callback || callback.status !== "calling") return reply([{ verb: "hangup" }]);
+    const outcome = voice.dialOutcome(form["DialCallStatus"]);
+    const talked = Number(form["DialCallDuration"] ?? 0);
+    if (callback.callbackCallId) {
+      const [placed] = await tx.select().from(schema.call).where(eq(schema.call.id, callback.callbackCallId)).limit(1);
+      if (placed) {
+        await tx.update(schema.call).set({
+          status: voice.laterStatus(placed.status, outcome.status),
+          ...(outcome.answered && !placed.answeredAt
+            ? { answeredAt: new Date(wire.now.getTime() - (Number.isFinite(talked) ? talked : 0) * 1000) }
+            : {}),
+          ...(Number.isFinite(talked) && talked > 0 ? { durationSeconds: talked } : {}),
+          updatedAt: wire.now,
+        }).where(eq(schema.call.id, placed.id));
+      }
+    }
+    const who = (callback.answeredByUserId
+      ? (await phoneMenus.directoryFor(tx, ctx.actor.organizationId)).people.get(callback.answeredByUserId)?.name
+      : null) ?? "the office";
+
+    if (outcome.answered) {
+      await tx.update(schema.queueCallback).set({
+        status: "done", outcome: `Called back by ${who}.`, endedAt: wire.now, updatedAt: wire.now,
+      }).where(eq(schema.queueCallback.id, callback.id));
+      await callbacks.noteOnCall(tx, callback.callId, `Called back by ${who}, and they picked up.`);
+      return reply([{ verb: "hangup" }]);
+    }
+    if (callback.attempts >= voice.CALLBACK_ATTEMPTS) {
+      await callbacks.handToOffice(tx, ctx, callback,
+        `They did not pick up when called back ${callback.attempts} times.`);
+      return reply([
+        { verb: "say", text: "They did not pick up. Calling them back is now a task for the office." },
+        { verb: "hangup" },
+      ]);
+    }
+    await tx.update(schema.queueCallback).set({
+      status: "waiting", rungAt: null, legsOut: 0,
+      notBefore: new Date(wire.now.getTime() + voice.CALLBACK_RETRY_SECONDS * 1000), updatedAt: wire.now,
+    }).where(eq(schema.queueCallback.id, callback.id));
+    await callbacks.noteOnCall(tx, callback.callId,
+      `${who} rang them back and they did not pick up. They will be tried again in ${voice.CALLBACK_RETRY_SECONDS / 60} minutes.`);
+    return reply([
+      { verb: "say", text: `They did not pick up. They will be tried again in ${voice.CALLBACK_RETRY_SECONDS / 60} minutes.` },
+      { verb: "hangup" },
+    ]);
+  });
+}
+
+/**
+ * Ring the group for the callbacks that are due: the one at the front of
+ * each line, once the last round for it has finished, and not while the
+ * line has callers on hold (their own rounds already ring the group, and the
+ * person who picks up is given whichever of the two joined first).
+ *
+ * Driven by the carrier: a call ending anywhere at the company is somebody
+ * perhaps coming free, and a round's last call ending is the next round's
+ * cue. The worker runs it too, so a callback asked for at a quiet moment is
+ * not left waiting for the next call to end. Calls are placed after the
+ * transaction commits; one the carrier would not place is one fewer still
+ * ringing, written on the caller's call.
+ */
+async function ringCallbacks(ctx: ServiceContext, wire: Wire): Promise<number> {
+  const org = ctx.actor.organizationId;
+  const now = wire.now;
+  const rounds = await inTenant(ctx, async (tx) => {
+    await callbacks.expireDue(tx, ctx, now);
+    const waiting = await tx.select().from(schema.queueCallback).where(and(
+      eq(schema.queueCallback.organizationId, org),
+      sql`${schema.queueCallback.status} in ('waiting', 'calling')`,
+    )).orderBy(asc(schema.queueCallback.joinedAt)).limit(100);
+    if (waiting.length === 0) return [];
+
+    const out: { callbackId: string; callId: string; queueId: string; from: string; numbers: string[]; seconds: number }[] = [];
+    const seen = new Set<string>();
+    let directory: voice.Directory | null = null;
+    let busy: Set<string> | null = null;
+    let online: Set<string> | null = null;
+    for (const callback of waiting) {
+      if (!callback.queueId || seen.has(callback.queueId)) continue;
+      seen.add(callback.queueId);
+      /** One callback at a time per line: the one at the front, and only once the last round has finished ringing. */
+      const ringing = callback.legsOut > 0 && callback.rungAt !== null && now.getTime() - callback.rungAt.getTime() < 120_000;
+      if (callback.status !== "waiting" || ringing) continue;
+      if (callback.notBefore && callback.notBefore > now) continue;
+      if (callback.rungAt && now.getTime() - callback.rungAt.getTime() < voice.CALLBACK_MIN_ROUND_SECONDS * 1000) continue;
+      if (await callbacks.longestWaiting(tx, callback.queueId)) continue;
+      const queue = await callQueues.loadQueue(tx, org, callback.queueId);
+      const group = queue ? await phoneMenus.loadRingGroup(tx, org, queue.ringGroupId) : null;
+      if (!queue || !group) continue;
+      directory ??= await phoneMenus.directoryFor(tx, org);
+      online ??= await softphone.onlineUsers(tx, org, now);
+      busy ??= await callbacks.busyNumbers(tx, org, directory, now);
+      const plan = voice.ringPlan(group, directory, online);
+      const round = voice.freeRound(plan, callback.rings, busy);
+      if (!round.step) continue;
+      const [original] = await tx.select().from(schema.call).where(eq(schema.call.id, callback.callId)).limit(1);
+      const from = original?.receivedOnE164 ?? (original ? (await numberOf(tx, original))?.e164 : null) ?? null;
+      if (!from) continue;
+      await tx.update(schema.queueCallback).set({
+        rungAt: now, legsOut: round.step.numbers.length,
+        rings: plan.steps.length > 1 ? round.index + 1 : callback.rings + 1, updatedAt: now,
+      }).where(eq(schema.queueCallback.id, callback.id));
+      /** Somebody rung for one callback is not free for the next line's in the same moment. */
+      for (const number of round.step.numbers) busy.add(number);
+      out.push({
+        callbackId: callback.id, callId: callback.callId, queueId: queue.id, from,
+        numbers: round.step.numbers, seconds: group.ringSeconds,
+      });
+    }
+    return out;
+  });
+
+  for (const round of rounds) {
+    const failed: string[] = [];
+    for (const to of round.numbers) {
+      const placed = await wire.connection.provider.placeCall({
+        to, from: round.from, url: wire.url("queue-answer", { q: round.queueId }), timeoutSeconds: round.seconds,
+        statusUrl: wire.url("queue-leg", { k: round.callbackId }),
+      });
+      if (!placed.ok) failed.push(`${voice.isClientAddress(to) ? "a browser" : to} (${placed.message})`);
+    }
+    if (failed.length > 0) {
+      await inTenant(ctx, async (tx) => {
+        await tx.update(schema.queueCallback).set({
+          legsOut: sql`greatest(${schema.queueCallback.legsOut} - ${failed.length}, 0)`, updatedAt: now,
+        }).where(eq(schema.queueCallback.id, round.callbackId));
+        await callbacks.noteOnCall(tx, round.callId, `Could not ring ${failed.join(", ")} to call them back.`);
+      });
+    }
+  }
+  return rounds.length;
+}
+
+/**
+ * The worker's pass over a company's callbacks: hand to the office the ones
+ * that waited too long, and ring for the ones that are due. A company with
+ * no carrier connected, or an installation with no public address, can ring
+ * nobody, and only the first half runs.
+ */
+export async function sweepCallbacks(db: Database, organizationId: string, deps: VoiceDeps = DEFAULT_DEPS, now: Date = new Date()): Promise<number> {
+  const ctx: ServiceContext = { actor: voiceActor(organizationId), db };
+  const wire = await inTenant(ctx, async (tx) => {
+    const [pending] = await tx.select({ id: schema.queueCallback.id }).from(schema.queueCallback).where(and(
+      eq(schema.queueCallback.organizationId, organizationId),
+      sql`${schema.queueCallback.status} in ('waiting', 'calling')`,
+    )).limit(1);
+    if (!pending) return null;
+    try {
+      const base = baseOf(deps);
+      const carrier = await carrierFor(tx, organizationId, deps);
+      const connection: VoiceConnection = {
+        connectionId: carrier.connectionId, organizationId, token: carrier.token, provider: carrier.provider,
+      };
+      const url: StepUrl = (s, params) => {
+        const search = params && Object.keys(params).length > 0
+          ? `?${new URLSearchParams(Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])))}`
+          : "";
+        return `${base}${voiceWebhookPath(carrier.token, s)}${search}`;
+      };
+      return { connection, deps, url, now } satisfies Wire;
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error;
+      await callbacks.expireDue(tx, ctx, now);
+      return null;
+    }
+  });
+  return wire ? ringCallbacks(ctx, wire) : 0;
 }
 
 /* --------------------------------------------------------- the browser phone */

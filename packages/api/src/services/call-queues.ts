@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { replayed, remember } from "./once";
 import { directoryFor } from "./phone-menus";
+import * as callbacks from "./queue-callbacks";
 
 /**
  * WAITING LINES
@@ -35,6 +36,8 @@ export interface QueueView {
   announcePosition: boolean;
   holdMusicUrl: string | null;
   overflowTo: Destination;
+  offerCallback: boolean;
+  announceWait: boolean;
 }
 
 type Row = typeof schema.callQueue.$inferSelect;
@@ -47,12 +50,17 @@ export const queueOf = (row: Row): voice.CallQueue => ({
   announcePosition: row.announcePosition,
   holdMusicUrl: row.holdMusicUrl,
   overflowTo: row.overflowTo as Destination,
+  offerCallback: row.offerCallback,
+  announceWait: row.announceWait,
 });
 
 async function viewOf(tx: Database, row: Row): Promise<QueueView> {
   const [group] = await tx.select({ name: schema.ringGroup.name }).from(schema.ringGroup)
     .where(eq(schema.ringGroup.id, row.ringGroupId)).limit(1);
-  return { ...queueOf(row), ringGroupName: group?.name ?? null };
+  return {
+    ...queueOf(row), offerCallback: row.offerCallback, announceWait: row.announceWait,
+    ringGroupName: group?.name ?? null,
+  };
 }
 
 /** One line, as a call reaches it mid way. Null when it has been deleted. */
@@ -79,6 +87,8 @@ export interface QueueInput {
   announcePosition?: boolean | undefined;
   holdMusicUrl?: string | null | undefined;
   overflowTo: Destination;
+  offerCallback?: boolean | undefined;
+  announceWait?: boolean | undefined;
 }
 
 /** The voicemail box is one box today, whatever a caller sent. */
@@ -111,6 +121,8 @@ export async function saveQueue(ctx: ServiceContext, input: QueueInput & { id?: 
       announcePosition: input.announcePosition ?? true,
       holdMusicUrl: input.holdMusicUrl?.trim() || null,
       overflowTo: normal(input.overflowTo),
+      offerCallback: input.offerCallback ?? before?.offerCallback ?? false,
+      announceWait: input.announceWait ?? before?.announceWait ?? false,
     };
     const directory = await directoryFor(tx, ctx.actor.organizationId);
     (directory.queues as Map<string, string>).set(id, queue.name || "this");
@@ -120,6 +132,7 @@ export async function saveQueue(ctx: ServiceContext, input: QueueInput & { id?: 
     const values = {
       name: queue.name, ringGroupId: queue.ringGroupId, maxWaitSeconds: queue.maxWaitSeconds,
       announcePosition: queue.announcePosition, holdMusicUrl: queue.holdMusicUrl, overflowTo: queue.overflowTo as never,
+      offerCallback: queue.offerCallback ?? false, announceWait: queue.announceWait ?? false,
     };
     const [row] = creating
       ? await tx.insert(schema.callQueue).values({ id, organizationId: ctx.actor.organizationId, ...values }).returning()
@@ -163,6 +176,17 @@ export async function deleteQueue(ctx: ServiceContext, id: string) {
     await tx.update(schema.call).set({ queueId: null, updatedAt: new Date() }).where(and(
       eq(schema.call.queueId, id), sql`${schema.call.queueResult} is null`,
     ));
+    /**
+     * Somebody waiting to be called back was promised a call: with the line
+     * gone there is nobody to ring for them, so each becomes a task for the
+     * office to call them by hand, rather than a promise nobody keeps.
+     */
+    const waiting = await tx.select().from(schema.queueCallback).where(and(
+      eq(schema.queueCallback.queueId, id), sql`${schema.queueCallback.status} in ('waiting', 'calling')`,
+    ));
+    for (const callback of waiting) {
+      await callbacks.handToOffice(tx, ctx, callback, `The ${queue.name} waiting line was deleted before they were called back.`);
+    }
     await tx.delete(schema.callQueue).where(eq(schema.callQueue.id, id));
     await audit(tx, ctx, "call_queue.deleted", "call_queue", id, queue, null);
     return { id, deleted: true as const };
@@ -172,11 +196,14 @@ export async function deleteQueue(ctx: ServiceContext, id: string) {
 const queueInput = (input: {
   name: string; ringGroupId: string; maxWaitSeconds?: number | undefined; announcePosition?: boolean | undefined;
   holdMusicUrl?: string | null | undefined; overflowTo: Destination;
+  offerCallback?: boolean | undefined; announceWait?: boolean | undefined;
 }): QueueInput => ({
   name: input.name, ringGroupId: input.ringGroupId, overflowTo: input.overflowTo,
   ...(input.maxWaitSeconds !== undefined ? { maxWaitSeconds: input.maxWaitSeconds } : {}),
   ...(input.announcePosition !== undefined ? { announcePosition: input.announcePosition } : {}),
   ...(input.holdMusicUrl !== undefined ? { holdMusicUrl: input.holdMusicUrl } : {}),
+  ...(input.offerCallback !== undefined ? { offerCallback: input.offerCallback } : {}),
+  ...(input.announceWait !== undefined ? { announceWait: input.announceWait } : {}),
 });
 
 export const handlers = {

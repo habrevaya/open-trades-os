@@ -141,13 +141,15 @@ async function syncAccounting(db: Database, organizationId: string): Promise<voi
 
 /**
  * The marketing side's own upkeep: pool numbers quiet visitors still hold go
- * back, call recordings past a declared retention are deleted, and referral
- * rewards that have come due are granted. Each is idempotent, so a pass that
- * finds nothing to do costs a few reads.
+ * back, call recordings past a declared retention are deleted, referral
+ * rewards that have come due are granted, and callers waiting to be called
+ * back are rung for, or handed to the office once they have waited too long.
+ * Each is idempotent, so a pass that finds nothing to do costs a few reads.
  */
 async function marketingUpkeep(db: Database, organizationId: string): Promise<void> {
   await websiteTracking.releaseIdle(db, organizationId);
   await voice.sweepRecordings(db, organizationId);
+  await voice.sweepCallbacks(db, organizationId);
   await referrals.grantDue(db, organizationId);
 }
 

@@ -22,6 +22,10 @@ const QueueInput = {
   announcePosition: z.boolean().optional(),
   holdMusicUrl: z.string().max(500).nullable().optional(),
   overflowTo: Destination,
+  /** Offer a caller, by pressing 1, to be called back instead of waiting, keeping their place. Off unless set. */
+  offerCallback: z.boolean().optional(),
+  /** Tell a caller how long callers have lately waited, when enough were answered to say. Off unless set. */
+  announceWait: z.boolean().optional(),
 };
 
 const Queue = z.object({
@@ -34,6 +38,8 @@ const Queue = z.object({
   /** Null plays the carrier's own hold music. */
   holdMusicUrl: z.string().nullable(),
   overflowTo: Destination,
+  offerCallback: z.boolean(),
+  announceWait: z.boolean(),
 });
 
 export const listCallQueues = defineRoute({
@@ -51,7 +57,7 @@ export const createCallQueue = defineRoute({
   path: "/v1/call-queues",
   summary: "Make a waiting line",
   description:
-    "A caller sent to a waiting line hears hold music and, when announcePosition is on, their place in line each time the music comes round. The people in ringGroupId are rung (all at once, or one after another round by round, as the group says, and in the browser for anybody taking calls there) until one answers and is put through to the caller at the front. After maxWaitSeconds the caller goes to overflowTo, usually voicemail. The wait is checked each time the music finishes, so a long track lets a caller wait longer than the setting.",
+    "A caller sent to a waiting line hears hold music and, when announcePosition is on, their place in line each time the music comes round. The people in ringGroupId are rung (all at once, or one after another round by round, as the group says, and in the browser for anybody taking calls there) until one answers and is put through to the caller at the front. After maxWaitSeconds the caller goes to overflowTo, usually voicemail. The wait is checked each time the music finishes, so a long track lets a caller wait longer than the setting. Somebody the company knows to be on another call is left out of each round. With offerCallback, a caller may press 1 to be called back instead, keeping their place: the next person free is rung first, then the caller from the company's number; a caller not reached twice, or not called back within an hour, becomes a task for the office. With announceWait, a caller is told on joining how long callers have lately waited, from the last answered callers in the line, and nothing when fewer than five were answered in the last three hours.",
   module: "M18",
   permissions: ["settings:write"],
   idempotent: true,

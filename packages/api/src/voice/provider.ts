@@ -79,6 +79,8 @@ export interface VoiceProvider {
    */
   placeCall(input: {
     to: string; from: string; url: string; timeoutSeconds: number;
+    /** Where the carrier says how the call ended, when the caller needs to know. */
+    statusUrl?: string | undefined;
   }): Promise<VoiceResult<{ callSid: string }>>;
   /**
    * Start recording a call already in progress. Only ever called after the

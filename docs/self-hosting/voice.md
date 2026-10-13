@@ -92,6 +92,17 @@ any other. Pick a hold track of a minute or two: the longest wait is checked
 only between plays, so a ten minute track lets a caller wait ten minutes past
 the limit.
 
+A line that offers callbacks says the offer inside a `Gather` around the
+music; a caller pressing 1 reaches `/queue-callback`, is taken out of the
+Twilio queue with `Leave`, and hears at `/queue-done` that they will be called
+back. The group is then rung for them by outbound calls that carry a status
+callback (`/queue-leg`), so the end of one round is the cue for the next, and
+whoever answers is connected to the caller by a `Dial` from the company's
+number (`/callback-dialed` says how it went). Between calls the worker rings
+for waiting callbacks on its passes and hands to the office those that have
+waited an hour, so run the worker if you turn callbacks on. Every round is an
+outbound call per phone on the company's Twilio bill.
+
 ## The phone assistant and the voice relay
 
 The phone assistant (M27) is the company's own model answering a call. Twilio

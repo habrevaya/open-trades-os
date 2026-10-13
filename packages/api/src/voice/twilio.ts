@@ -212,6 +212,10 @@ export function createTwilioVoice(
         To: input.to, From: input.from, Url: input.url, Method: "POST",
         Timeout: String(Math.max(5, Math.min(60, Math.round(input.timeoutSeconds)))),
       });
+      if (input.statusUrl) {
+        form.set("StatusCallback", input.statusUrl);
+        form.set("StatusCallbackMethod", "POST");
+      }
       return call(`${account}/Calls.json`, { method: "POST", form }, (payload) => ({
         callSid: String(payload["sid"] ?? ""),
       }));

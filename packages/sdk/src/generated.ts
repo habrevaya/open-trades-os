@@ -2569,6 +2569,8 @@ export interface CreateCallQueueInput {
   } | {
     kind: "agent";
   };
+  offerCallback?: boolean;
+  announceWait?: boolean;
 }
 
 export interface CreateCallQueueOutput {
@@ -2603,6 +2605,8 @@ export interface CreateCallQueueOutput {
   } | {
     kind: "agent";
   };
+  offerCallback: boolean;
+  announceWait: boolean;
 }
 
 export interface CreateCampaignInput {
@@ -12374,6 +12378,8 @@ export interface ListCallQueuesOutput {
     } | {
       kind: "agent";
     };
+    offerCallback: boolean;
+    announceWait: boolean;
   }>;
 }
 
@@ -24163,6 +24169,8 @@ export interface UpdateCallQueueInput {
   } | {
     kind: "agent";
   };
+  offerCallback?: boolean;
+  announceWait?: boolean;
 }
 
 export interface UpdateCallQueueOutput {
@@ -24197,6 +24205,8 @@ export interface UpdateCallQueueOutput {
   } | {
     kind: "agent";
   };
+  offerCallback: boolean;
+  announceWait: boolean;
 }
 
 export interface UpdateCampaignInput {

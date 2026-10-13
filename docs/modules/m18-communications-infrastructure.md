@@ -249,9 +249,57 @@ the line allows (thirty seconds to thirty minutes) the caller goes where it
 overflows to, voicemail unless the owner chose otherwise, and the call says how
 long they waited. A caller who hangs up while waiting is a missed call.
 
+Somebody already on a call is left out of each round: the next person in turn
+who is free, or everybody free at once. This product knows a person is on a
+call when it saw them pick up (in the browser, from a waiting line, a
+callback, or on a number that whispers) or place one from the browser, until
+the carrier says the call is over; somebody who answered a plain forwarded call
+on their own phone is not seen picking up, so they are still rung. A call the
+carrier never reported the end of stops counting after three hours. The first
+round's call says who was left out ("Not rung, already on a call").
+
+**Saying how long.** With "Tell callers how long callers have lately waited"
+on, a caller is told once, as they join, "Most callers lately have been
+answered within about 3 minutes": the longer end of the waits of the last
+twenty callers this line put through in the past three hours (three in four of
+them were answered within it), rounded up to whole minutes. With fewer than
+five answered lately nothing is said at all, and it is said as what happened
+lately, never as a promise about this call. Off on lines made before it; on by
+default on the form for a new line.
+
+**Being called back.** With "Let callers press 1 to be called back" on (off
+unless the owner turns it on), every turn of the music offers it, and the
+caller can press 1 at any moment of the music. They are told "We will call you
+back on" their own number, read back a digit at a time, and hang up. Only the
+number they called from is rung, and a caller whose number was withheld is
+never offered it. They keep their place: the next person free in the line's
+ring group (and anybody already on a call is not rung) is given whichever of
+the callers still on hold and the callers waiting to be called back joined
+the line first, and a caller on hold behind a callback hears that there is a
+caller ahead of them. That person is rung first; when they pick up they hear
+"A Service line caller asked to be called back. Calling them now." and the
+caller is rung from the company's number with them already on the line. The
+callback is logged as a call the office placed, by that person, and is never
+recorded, because nobody on it was asked. Two people picking up at once
+cannot both ring the same caller: the callback is claimed first. A caller who
+does not pick up is tried once more five minutes later; after that, or if
+nobody in the group was free within an hour of asking, it becomes a high
+priority task on the office's queue ("Call back +1 512 ..."), on the customer
+when there is one, and only then is the caller's call a missed call, which is
+what the missed call text back listens for. Deleting a line turns its waiting
+callbacks into tasks the same way. The caller's own call says, under "Where it
+went", when they asked, who rang them back and whether they picked up.
+
+When nobody is on hold, the group is rung for the callback at the front of
+each line by the carrier's own reports: a call ending anywhere at the company
+(somebody perhaps coming free), and the last call of a round ending (the next
+round's cue). The worker does the same on its passes, and hands to the office
+the callbacks that have waited an hour.
+
 `GET /v1/call-queues`, `POST /v1/call-queues`, `PUT /v1/call-queues/{id}` and
 `DELETE /v1/call-queues/{id}`, `settings:read` to read and `settings:write` to
-change, the same as menus. A line, and the group it rings, cannot be deleted
+change, the same as menus; `offerCallback` and `announceWait` are the two
+settings above. A line, and the group it rings, cannot be deleted
 while something still sends callers to it.
 
 ### The phone assistant
@@ -430,10 +478,18 @@ hours or holidays of its own. JustCall has no voice adapter.
 
 Waiting lines: the longest wait and the caller's place are checked each time
 the hold music finishes, so a long track lets a caller wait past the limit by
-up to its length. There is no estimated wait, no offer to be called back
-instead of waiting, and nobody is skipped for being on another call already:
-everybody in the round is rung, and each round is an outbound call on the
-company's carrier bill.
+up to its length. Each round is an outbound call per phone on the company's
+carrier bill, and so is each round rung for a callback, for up to an hour. A
+person on a call is skipped only when this product saw them pick up or place
+it (see Waiting lines above); one who answered a plain forwarded call on their
+own phone is still rung. The callback offer is said inside the carrier's wait
+for a key with the music, and taking the caller out of the line on a 1 is
+Twilio's documented `Leave` from a key press: like the rest of the line it has
+been tested against a fake carrier, not a live one. A caller is rung back only
+on the number they called from; they cannot type another. A callback is never
+recorded. The estimate is the same for every caller in the line whatever
+their place, said once as they join, and it is not said at all from fewer than
+five answered callers in the last three hours.
 
 Browser phone: a call lasts only as long as the `/phone` page stays open, so
 somebody taking calls keeps it in a tab of its own. There is no transfer to a

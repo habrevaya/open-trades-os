@@ -207,6 +207,19 @@ function QueueForm({ queue, choices }: { queue?: callQueues.QueueView | undefine
         <input type="checkbox" name="announcePosition" defaultChecked={queue?.announcePosition ?? true} />
         Tell callers their place in line each time the music comes round
       </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="announceWait" defaultChecked={queue?.announceWait ?? true} />
+        Tell callers how long callers have lately waited, once enough have been answered to say
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="offerCallback" defaultChecked={queue?.offerCallback ?? false} />
+        Let callers press 1 to be called back instead of waiting, keeping their place
+      </label>
+      <p className="text-xs text-ink-500">
+        A caller who asks to be called back hangs up. The next person free in the ring group is rung first, then
+        the caller, from your number. Nobody already on a call is rung. If the caller does not pick up twice, or
+        nobody is free within an hour, it goes on your tasks to call them yourself.
+      </p>
       <TextField label="Hold music, the address of an MP3 (leave empty for the phone company's own)" name="holdMusicUrl"
                  defaultValue={queue?.holdMusicUrl ?? ""} placeholder="https://example.com/hold.mp3" />
       <p className="text-xs text-ink-500">
@@ -370,7 +383,8 @@ export default async function PhoneMenusPage() {
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
           When everybody is on another call: the caller hears music and their place in line, the phones in a ring
           group are rung until somebody is free to take them, and after the longest wait you allow they go to
-          voicemail. Send callers to a line from a menu option, like any other place a call can go.
+          voicemail. Anybody already on a call is not rung. Send callers to a line from a menu option, like any
+          other place a call can go.
         </p>
         <ul className="mt-3 space-y-4">
           {queues.map((queue) => (
@@ -381,6 +395,14 @@ export default async function PhoneMenusPage() {
                 {Math.round(queue.maxWaitSeconds / 60)} minute{queue.maxWaitSeconds === 60 ? "" : "s"}
                 {queue.announcePosition ? ", told their place in line" : ""}.
               </p>
+              {queue.announceWait || queue.offerCallback ? (
+                <p className="mt-1 text-sm text-ink-700">
+                  {[
+                    queue.announceWait ? "Callers hear how long callers have lately waited." : null,
+                    queue.offerCallback ? "Callers can press 1 to be called back instead of waiting." : null,
+                  ].filter(Boolean).join(" ")}
+                </p>
+              ) : null}
               {writes ? (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-sm underline underline-offset-4">Change it</summary>

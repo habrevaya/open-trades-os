@@ -1,5 +1,6 @@
 import type { RoutingDestination } from "../telephony/index.js";
 import { destinationProblem, type Check, type Directory, type RingPlan, type RingStep } from "./menus.js";
+import { dialable } from "./softphone.js";
 
 /**
  * A WAITING LINE
@@ -30,6 +31,17 @@ export interface CallQueue {
   holdMusicUrl: string | null;
   /** Where a caller goes once they have waited the longest the company allows. Usually voicemail. */
   overflowTo: RoutingDestination;
+  /**
+   * Whether a caller is offered, by pressing 1, to be called back instead of
+   * waiting, keeping their place. Off unless the owner turns it on, because
+   * it is a promise the office then has to keep.
+   */
+  offerCallback?: boolean | undefined;
+  /**
+   * Whether a caller is told how long callers have recently waited, when
+   * enough have been answered lately to say. Off unless the owner turns it on.
+   */
+  announceWait?: boolean | undefined;
 }
 
 export const MIN_WAIT_SECONDS = 30;
@@ -156,12 +168,21 @@ export function ringRound(plan: RingPlan, round: number): RingStep | null {
 
 export type QueueOutcome =
   | { kind: "answered" }
+  | { kind: "moved" }
   | { kind: "overflow"; why: string }
   | { kind: "gone"; why: string };
 
 /** How a caller left the line, from the carrier's `QueueResult`. */
 export function queueOutcome(result: string | undefined, waitedSeconds: number): QueueOutcome {
   switch (result) {
+    /**
+     * Taken out of the line by somebody in the office (put on hold, or
+     * passed to a colleague, from the browser phone). The call goes on
+     * wherever they sent it, so nothing more happens here.
+     */
+    case "redirected":
+    case "redirected-from-bridged":
+      return { kind: "moved" };
     case "bridged":
       return { kind: "answered" };
     case "hangup":
@@ -181,4 +202,143 @@ function minutes(seconds: number): string {
   const m = Math.floor(whole / 60);
   const s = whole % 60;
   return `${m} minute${m === 1 ? "" : "s"}${s > 0 ? ` ${s} second${s === 1 ? "" : "s"}` : ""}`;
+}
+
+/* --------------------------------------------- skipping people on a call */
+
+/**
+ * Who to ring on this round, leaving out anybody already on a call.
+ *
+ * `busy` is the numbers and browser addresses of people the company knows to
+ * be talking to somebody right now. A number outside the company (an
+ * answering service) is never known to be busy, so it is always rung.
+ *
+ * All at once: the round is everybody who is free. One after another: the
+ * next person in turn who is free, starting where this round would have
+ * started; `index` says which, so the next round starts after them. Null when
+ * everybody is busy or there is nobody to ring, with the people left out.
+ */
+export function freeRound(
+  plan: RingPlan, round: number, busy: ReadonlySet<string>,
+): { step: RingStep; index: number; skipped: string[] } | { step: null; index: null; skipped: string[] } {
+  const skipped: string[] = [];
+  const count = plan.steps.length;
+  for (let offset = 0; offset < count; offset += 1) {
+    const index = (((round + offset) % count) + count) % count;
+    const step = plan.steps[index]!;
+    const numbers: string[] = [];
+    const labels: string[] = [];
+    step.numbers.forEach((number, i) => {
+      if (busy.has(number)) skipped.push(step.labels[i] ?? number);
+      else {
+        numbers.push(number);
+        labels.push(step.labels[i] ?? number);
+      }
+    });
+    if (numbers.length > 0) return { step: { numbers, labels }, index, skipped: [...new Set(skipped)] };
+  }
+  return { step: null, index: null, skipped: [...new Set(skipped)] };
+}
+
+/* ------------------------------------------------------ the estimated wait */
+
+/** How many answered callers there have to have been lately before a wait is estimated at all. */
+export const MIN_WAITS_TO_ESTIMATE = 5;
+/** The most recent answered callers an estimate is made from. */
+export const ESTIMATE_FROM_LAST = 20;
+/** How far back "lately" reaches. A morning's waits say nothing about the evening. */
+export const ESTIMATE_WITHIN_HOURS = 3;
+
+/**
+ * How long callers have lately waited before they were answered, in seconds,
+ * or null when it cannot honestly be said.
+ *
+ * The longer end rather than the middle: three in four of the recent callers
+ * were answered within it. A caller told three minutes who waits six has been
+ * lied to; one told six who waits three has had a good day. Fewer than five
+ * answered callers lately is not enough to say anything, so nothing is said.
+ */
+export function estimateWait(waits: readonly number[]): number | null {
+  const usable = waits.filter((w) => Number.isFinite(w) && w >= 0).slice(0, ESTIMATE_FROM_LAST);
+  if (usable.length < MIN_WAITS_TO_ESTIMATE) return null;
+  const sorted = [...usable].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.75) - 1)]!;
+}
+
+/** The estimate, as a caller hears it: whole minutes, rounded up, and never a promise about this call. */
+export function estimatedWaitWords(seconds: number): string {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return minutes === 1
+    ? "Most callers lately have been answered within about a minute."
+    : `Most callers lately have been answered within about ${minutes} minutes.`;
+}
+
+/* ------------------------------------------------------- being called back */
+
+/** Said every time the music comes round on a line that offers it. */
+export const CALLBACK_OFFER = "To be called back instead of waiting, keeping your place in line, press 1.";
+
+/**
+ * How many times the caller is rung back before the office is asked to do it
+ * by hand, how long after a ring nobody answered the next try waits, and how
+ * long a callback is kept waiting for somebody free before it, too, becomes a
+ * task for the office. An hour of ringing the office's phones is a bill and a
+ * nuisance, and a caller who asked at five to six should hear from a person
+ * the next morning rather than from nobody.
+ */
+export const CALLBACK_ATTEMPTS = 2;
+export const CALLBACK_RETRY_SECONDS = 5 * 60;
+export const CALLBACK_EXPIRES_SECONDS = 60 * 60;
+/**
+ * The least time between two rounds of ringing for one callback. A carrier
+ * that refuses every call at once would otherwise be asked again as fast as
+ * it can answer.
+ */
+export const CALLBACK_MIN_ROUND_SECONDS = 15;
+
+/**
+ * The number a caller is rung back on: the one they called from, when it is
+ * one a phone can dial. A withheld number, a short code or an emergency
+ * number is null, and such a caller is never offered a callback, because
+ * there would be nobody to ring.
+ */
+export function callbackNumber(from: string | null | undefined): string | null {
+  const text = (from ?? "").trim();
+  if (!/^\+[1-9]\d{7,14}$/.test(text) || WITHHELD.has(text)) return null;
+  return dialable(text).ok ? text : null;
+}
+
+/**
+ * What Twilio puts in the caller's number when it was withheld: anonymous,
+ * restricted, unknown and blocked. Each looks like a foreign number, and
+ * ringing one would ring a stranger abroad on the company's bill.
+ */
+const WITHHELD = new Set(["+266696687", "+86282452253", "+8656696", "+2562533"]);
+
+/** A number read out a digit at a time, in the groups people write it in. */
+export function spokenNumber(e164: string): string {
+  const digits = e164.replace(/\D/g, "");
+  const local = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  const groups = local.length === 10 ? [local.slice(0, 3), local.slice(3, 6), local.slice(6)] : [local];
+  return groups.map((g) => g.split("").join(" ")).join(", ");
+}
+
+/** What a caller hears once they have asked to be called back. */
+export function callbackConfirmation(e164: string): string {
+  return `Thanks. We will call you back on ${spokenNumber(e164)} when it is your turn, so you can hang up now. Goodbye.`;
+}
+
+/**
+ * Who is next: the caller waiting longest on the line, or the one who asked
+ * to be called back, whichever joined first. A callback keeps the place its
+ * caller had, so somebody who joined after them does not go ahead of them for
+ * having stayed on the line.
+ */
+export function nextInLine(
+  waitingSince: Date | null, callbackSince: Date | null,
+): "caller" | "callback" | null {
+  if (!waitingSince && !callbackSince) return null;
+  if (!callbackSince) return "caller";
+  if (!waitingSince) return "callback";
+  return callbackSince.getTime() <= waitingSince.getTime() ? "callback" : "caller";
 }

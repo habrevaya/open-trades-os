@@ -200,6 +200,8 @@ const ORDER = [
   // campaign, a campaign points at a brand.
   /** What the phone assistant did on a call points at the call and the booking request it took. */
   "voice_agent_session",
+  /** A callback a caller asked for points at their call, the call that rang them back, and the line. */
+  "queue_callback",
   "message_attachment", "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
   // Nothing points at a recording policy: it is matched by jurisdiction
