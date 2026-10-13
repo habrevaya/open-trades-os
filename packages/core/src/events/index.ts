@@ -50,6 +50,16 @@ export interface EventSpec {
 }
 
 export const EVENTS = {
+  /* ------------------------------------------------------------- customers */
+
+  /**
+   * A customer was added, by the office, a booking, a lead or an import. A
+   * customer brought in from a spreadsheet with automations held raises it
+   * like any other and starts nothing (M30), so "when a customer is added,
+   * text a welcome" is safe to build before the customer list comes in.
+   */
+  "customer.created": { summary: "A customer was added", entity: "customer", emitted: true },
+
   /* ------------------------------------------------------------------ work */
 
   "job.created": { summary: "A job was booked", entity: "job", emitted: true },

@@ -72,8 +72,10 @@ recording work that happened is never refused.
 **History is not announced.** A back-dated invoice, payment or job completion
 emits no domain event, so no workflow sends "your invoice is ready" or "how
 did we do" to a customer about work from three years ago. Creates without a
-date (customers, jobs, visits) do emit their events: pause automations that
-message customers on "created" events for the length of a migration.
+date (customers, jobs, visits) do emit their events: through the API, pause
+automations that message customers on "created" events for the length of a
+migration. A spreadsheet brought in on the screen does not need that: see
+"Automations are held" below.
 
 **Provenance.** Every importable create takes `externalRef: { source, id }`:
 the source system, in lower case, and its own id for the record. The pair is
@@ -190,10 +192,15 @@ An estimate's outcome comes in on `POST /v1/estimates` as `outcome`: approved
 on a day with the option that won (and who signed, when the source says),
 declined on a day with the reason, or expired on a day. It needs
 `data:import`, emits no event and records no signature, so loading history
-starts no automation. An imported approval converts like any other.
+starts no automation. An imported approval converts like any other. The day it
+was sent comes in beside its outcome as `sentOn`, also `data:import` and
+announcing nothing; it is refused without an outcome, because an estimate
+recorded as sent and still waiting is one a follow up would chase about an
+answer the customer gave in the old system, and refused before the day it was
+written or after the day it was decided.
 
 Not yet accepted, and reported by the toolkit as gaps: the day an estimate was
-sent or converted, customer notes, partial billing addresses, a price book item
+converted, customer notes, partial billing addresses, a price book item
 without a code, and a person who never had a login. A property's coordinates
 are not taken when it is created; they are set afterwards with
 `POST /v1/properties/{id}/pin`, which the geocoder then never moves.
@@ -202,9 +209,11 @@ are not taken when it is created; they are set afterwards with
 
 `Settings > Bring in a spreadsheet` (`/settings/imports`) is for an owner who
 has files exported from wherever the company was before and nobody to drive
-the toolkit. It takes five kinds of file: customers with their addresses and
-a person to contact, equipment, price book items, past jobs, and past
-invoices with what was paid on them. CSV only: no workbook reader is part of
+the toolkit. It takes six kinds of file: customers with their addresses and
+a person to contact, equipment, price book items, past jobs, past invoices
+with their lines and what was paid on them, past payments, each split across
+the invoices it paid, and past estimates with how they ended and the day they
+were sent. CSV only: no workbook reader is part of
 this product, and a workbook uploaded by mistake is refused with how to save
 it as CSV. A file can be 5 MB and ten thousand rows; a larger one is refused
 in words, to be split.
@@ -247,7 +256,17 @@ stops between batches and pressing the button again carries on.
 | Equipment | `POST /v1/equipment`, at the customer's address the row names by street, or their main one |
 | Price book items | `POST /v1/pricebook/items` |
 | Past jobs | `POST /v1/jobs` with `completedAt` or `cancelledAt`, or as a lead when the row says open |
-| Past invoices | `POST /v1/invoices` with `issuedOn`, one line at the amount before tax, the tax as charged and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
+| Past invoices | `POST /v1/invoices` with `issuedOn`, a line per row (its quantity at its price each, or one at its amount before tax) with the tax as charged on it and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
+| Past payments | `POST /v1/payments` dated the day it was paid, with an allocation per row to the invoice that row names, and whatever a row names no invoice for held for the customer |
+| Past estimates | `POST /v1/estimates` with `issuedOn`, one option of one line at the amount before tax, taxed at the rate its tax was charged at or not at all, its `outcome` (approved on its one option, declined with the reason, expired) and `sentOn`; the total is checked against the file's to the cent afterwards |
+
+**An estimate comes in as it ended.** Approved, declined or expired, each with
+the day it was decided, or open. An open one comes in as a draft, to send from
+here, and one that says it was sent and is still open is refused with that
+reason: recorded as sent, it would be chased by a follow up about an answer
+the customer gave in the old system. Its tax is never the company's rate of
+today; a file whose tax does not come out to the cent at the rate it implies is
+refused in words.
 
 A job, a unit or an invoice finds its customer by the customer's id from a
 customers file brought in under the same "came from" name, or by an email
@@ -256,6 +275,24 @@ the wrong customer's account is worse than a refused row. An invoice finds its
 job by the job's id or by the number it kept. A number the source printed is
 kept when it is a whole number; one like `INV-1042` is said in the invoice's
 memo instead.
+
+**Several rows can be one invoice or one payment.** That is how accounting
+programs export them: an invoice of three lines is three rows with one invoice
+number, and a cheque that paid two invoices is two rows with one payment id.
+In a past invoices or past payments file, the rows sharing an id are one
+record: the first carries the rest, they are checked and loaded together as one
+create, and every one of them takes the outcome. What they share (the invoice
+date, whose it is, the invoice's Total, what was paid on it, the day a payment
+was paid) only has to be on one row, and where more than one row fills it they
+have to agree, or every row of the record is refused naming the two that
+disagree. An invoice's Total is the whole invoice's, checked against its lines
+added up; a line's Before tax and Tax are that line's, or Quantity at Price
+each makes its amount. A payment's rows each name the invoice that share went
+to, by the id an invoices file gave it under the same "came from" name or by the
+number it kept, and a payment names its customer or takes the invoices'. The
+same invoice twice in one payment is refused. Without an id column nothing is
+grouped, and two rows the same are the same row twice. The counts on the screen
+are rows, so a loaded invoice of three lines is three loaded.
 
 **A second upload makes no copies.** Each record carries `externalRef`: the
 "came from" name and the row's id column, or failing that the code or number
@@ -280,10 +317,19 @@ or loading also needs each create's own permission. The screen sits in the
 rail under Settings, shown under `settings:read` and opened under
 `data:import`, like Take a copy.
 
-**Automations still run on created records.** A customer or a job loaded from a
-file emits "created" like one typed in, unless the job ended more than a week
-ago. The screen says so above the columns for those two kinds and links to
-Automations, to pause the ones that message customers first.
+**Automations are held.** "Do not start automations for what this file brings
+in" is on the upload form and beside the columns, ticked unless the owner
+unticks it, and changeable until the first row is loaded (`holdAutomations` on
+`POST /v1/imports` and `POST /v1/imports/{id}/mapping`). A record a file brings
+in still raises its events, `customer.created` and `job.created` among them,
+exactly as one typed in does, because webhooks, reports and the run log read
+them; each event carries the file it came from (`domain_event.import_run_id`),
+and the workflow engine starts nothing for an event from a file with the switch
+on: the run log shows it skipped as imported. Every event the file raised is
+held, not only the created ones, because a job finished last week brings in
+`job.completed` and a recent paid invoice `invoice.paid`, and a review request
+on either is the same text to the same customers. A record typed in, or one
+from a file with the switch off, starts them as before.
 
 ## Taking a copy
 
@@ -561,20 +607,34 @@ already exists.
 Nothing in this repository reads another product's export format. The
 migration toolkit is separate and loads through `/api/v1` with a connected
 app's token; the spreadsheet screen reads plain CSV whose columns the owner
-matches. It reads no workbook files, only CSV. It brings in one invoice line per
-invoice (the amount before tax, with the tax as charged), not the lines of the
-original, and one payment per invoice, not a payment split across invoices,
-a refund or a credit. Customer notes, estimates, visits and photographs do
-not come in through it; the toolkit's routes take the last three. A file is
-matched to customers by id or email and never by name. A file and its rows
-are kept after loading so the screen can show what happened, and there is no
-button to forget one. Customers and jobs loaded from a file still start the
-automations that run on "created". Equipment takes `externalRef` on create
-and refuses a second unit for it, but the register's reads do not yet return
-it or filter by it.
+matches. It reads no workbook files, only CSV, because no workbook reader is a
+dependency. An invoice's lines carry a quantity, a price each, a description
+and the tax charged on them, not a price book item, a discount or a cost; a
+refund or a credit does not come in through it. An estimate comes in as one
+option of one line at its amount, not the options and lines of the original.
+Customer notes do not come in, because this product has no customer note to
+load into: the customer's `notes` column is read by no route or screen, and
+giving customers dated notes is M03's to build first. Past visits on past jobs
+do not come in through the screen: adding a visit to a past job is the toolkit's
+(`POST /v1/jobs/{id}/visits` with `externalRef`), and a file of them would also
+have to find each technician by an address, put each visit at a time on a day
+the technician may by now have marked as time off, and complete it without
+counting it toward that person's pay, none of which the screen decides yet.
+Photographs come in only through the toolkit. A file is matched to customers by
+id or email and never by name, and a payment to its invoices by id or number.
+Rows are grouped into one invoice or one payment only by an id column. A file
+and its rows are kept after loading so the screen can show what happened, and
+there is no button to forget one. Holding automations holds what the file's
+own events would start, and nothing else: webhooks still receive those events,
+each naming the file, and an automation on a clock or on a record waiting (an unpaid invoice
+past due, M29) can still reach a record brought in, because it starts from the
+record rather than from the file's event. Through the API, a create has no
+switch: pause automations for the length of a migration. Equipment takes
+`externalRef` on create and refuses a second unit for it, but the register's
+reads do not yet return it or filter by it.
 
-An estimate's history carries its outcome but not the day it was sent or
-converted.
+An estimate's history carries its outcome and the day it was sent, but not the
+day it was converted.
 
 The zip of spreadsheets is a download from the screen and a scheduled copy; the
 API has no route that streams it, because the API answers in JSON, so a program

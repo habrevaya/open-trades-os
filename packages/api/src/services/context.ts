@@ -56,6 +56,13 @@ export interface ServiceContext {
    * means nothing lifts one, which is the safe way round to be unknown.
    */
   sessionStartedAt?: Date;
+  /**
+   * The spreadsheet whose row this create is loading (services/imports.ts).
+   * Never taken from a request: only the import sets it, and `emit` writes
+   * it on every event the row raises, which is what the workflow engine reads
+   * to start nothing for a file brought in with automations held.
+   */
+  importRunId?: string;
 }
 
 export interface RequestMeta {

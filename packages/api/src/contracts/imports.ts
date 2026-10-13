@@ -40,6 +40,8 @@ const RunSummary = z.object({
   kind: Kind,
   fileName: z.string(),
   source: z.string(),
+  /** "Do not start automations for what this file brings in". On unless turned off. */
+  holdAutomations: z.boolean(),
   status: Status,
   rows: z.number().int(),
   counts: Counts,
@@ -100,9 +102,9 @@ export const listImports = defineRoute({
 export const startImport = defineRoute({
   method: "post",
   path: "/v1/imports",
-  summary: "Upload a spreadsheet of customers, equipment, price book items, past jobs or past invoices",
+  summary: "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments or past estimates",
   description:
-    "A CSV, as text, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds.",
+    "A CSV, as text, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.",
   module: "M30",
   permissions: ["data:import"],
   idempotent: true,
@@ -111,6 +113,8 @@ export const startImport = defineRoute({
     fileName: z.string().min(1).max(300),
     /** Capped well above the five megabytes the service takes, so a file over that is refused in words rather than by the schema. */
     csv: z.string().max(20_000_000),
+    /** "Do not start automations for what this file brings in". */
+    holdAutomations: z.boolean().default(true),
   }),
   output: RunDetail,
 });
@@ -141,6 +145,8 @@ export const mapImport = defineRoute({
     source: Source,
     dayFirst: z.boolean().default(false),
     saveAs: z.string().min(1).max(100).optional(),
+    /** Turn "Do not start automations for what this file brings in" on or off. Omitted, it stays as it is. */
+    holdAutomations: z.boolean().optional(),
   }),
   output: RunDetail,
 });
@@ -163,7 +169,7 @@ export const loadImport = defineRoute({
   path: "/v1/imports/{id}/load",
   summary: "Load the next batch of checked rows",
   description:
-    "Only once every row has been checked. The next hundred ready rows go in through the same creates as `POST /v1/customers`, `POST /v1/equipment`, `POST /v1/pricebook/items`, `POST /v1/jobs`, `POST /v1/invoices` and `POST /v1/payments`, in ONE transaction: all of the batch or none of it. A row refused now (something changed since the check) is marked refused with its reason and the rest of the batch is tried again without it, so a batch is never half loaded. Call again while `more` is true.",
+    "Only once every row has been checked. The next hundred ready records go in through the same creates as `POST /v1/customers`, `POST /v1/equipment`, `POST /v1/pricebook/items`, `POST /v1/jobs`, `POST /v1/invoices` and `POST /v1/payments`, an invoice of several rows or a payment split across invoices as one create carrying all its rows, in ONE transaction: all of the batch or none of it. A row refused now (something changed since the check) is marked refused with its reason and the rest of the batch is tried again without it, so a batch is never half loaded. Call again while `more` is true.",
   module: "M30",
   permissions: ["data:import"],
   idempotent: true,

@@ -245,6 +245,7 @@ export const listJobs = defineRoute({
   module: "M10",
   permissions: ["job:read"],
   input: PageRequest.extend({
+    /** The job's number (`1042` or `#1042`), or words in its summary or the customer's name, every word somewhere. */
     q: z.string().max(200).optional(),
     status: z.array(JobStatus).optional(),
     customerId: Uuid.optional(),

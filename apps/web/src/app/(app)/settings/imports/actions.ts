@@ -24,7 +24,11 @@ export async function uploadSpreadsheet(_previous: FormState, form: FormData): P
   }
   let made: string | null = null;
   const result = await attempt(form, async () => {
-    const started = await spreadsheetImports.start(await ctx(), { kind, fileName: upload.name, csv: await upload.text() });
+    const started = await spreadsheetImports.start(await ctx(), {
+      kind, fileName: upload.name, csv: await upload.text(),
+      /** A box ticked unless the owner untick it; unticked sends nothing. */
+      holdAutomations: field(form, "holdAutomations") === "1",
+    });
     made = started.id;
   });
   revalidatePath("/settings/imports");
@@ -49,6 +53,7 @@ export async function saveColumns(_previous: FormState, form: FormData): Promise
   const result = await attempt(form, async () => {
     await spreadsheetImports.map(await ctx(), {
       id, columns, source: sourceName(field(form, "source")), dayFirst: field(form, "dayFirst") === "1",
+      holdAutomations: field(form, "holdAutomations") === "1",
       ...(saveAs ? { saveAs } : {}),
     });
     return { message: saveAs ? `Saved, and kept as "${saveAs}" for the next file like this one.` : "Saved. Every row has been read again." };

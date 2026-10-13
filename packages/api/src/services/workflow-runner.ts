@@ -89,6 +89,18 @@ export async function handleEvent(
     const rows = await candidates(tx, event.organizationId, event.name);
     const summaries: RunSummary[] = [];
 
+    /**
+     * Raised by a row of a spreadsheet: whether that file was brought in with
+     * automations held. Read off the file rather than stamped on the event,
+     * so the event says only where it came from and the switch is in one
+     * place. A file is never deleted, so a missing one is not a case.
+     */
+    const [file] = event.importRunId && rows.length > 0
+      ? await tx.select({ held: schema.importRun.holdAutomations }).from(schema.importRun)
+        .where(eq(schema.importRun.id, event.importRunId)).limit(1)
+      : [];
+    const heldByImport = file?.held === true;
+
     for (const { workflow, version } of rows) {
       /**
        * Every run this workflow has ever produced would be the honest input
@@ -119,6 +131,7 @@ export async function handleEvent(
           previous: (event.payload as { previous?: Record<string, unknown> }).previous,
           causationDepth: event.causationDepth,
           causedByRunId: event.causedByRunId ?? undefined,
+          heldByImport,
         },
         ownRunIds,
       );

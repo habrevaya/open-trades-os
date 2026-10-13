@@ -235,6 +235,25 @@ create index if not exists customer_name_trgm_idx
 create index if not exists property_address_trgm_idx
   on public.property using gin (address_line1 gin_trgm_ops);
 
+-- What the search box and the lists' `q` look in besides a customer's name
+-- and street (api/services/text-search.ts): every word typed is an ILIKE on
+-- one of these, and without the index each is a scan of the table. Email and
+-- phone too, which the customer list has searched since it was written.
+create index if not exists customer_email_trgm_idx
+  on public.customer using gin (email gin_trgm_ops);
+create index if not exists customer_phone_trgm_idx
+  on public.customer using gin (phone gin_trgm_ops);
+create index if not exists property_address2_trgm_idx
+  on public.property using gin (address_line2 gin_trgm_ops);
+create index if not exists job_summary_trgm_idx
+  on public.job using gin (summary gin_trgm_ops);
+create index if not exists estimate_title_trgm_idx
+  on public.estimate using gin (title gin_trgm_ops);
+create index if not exists equipment_serial_trgm_idx
+  on public.equipment using gin (serial_number gin_trgm_ops);
+create index if not exists equipment_make_model_trgm_idx
+  on public.equipment using gin (manufacturer gin_trgm_ops, model gin_trgm_ops);
+
 -- ---- Login, without the application role ever reading a hash ------------
 -- SECURITY DEFINER so it runs as the owner and can read `credential` past the
 -- deny-all policy above. It returns a user id or null, never the hash.

@@ -8,6 +8,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 import { CustomFieldFilter } from "@/components/CustomFieldFilter";
 import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
+import { ListSearch, searchWords } from "@/components/ListSearch";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function EstimatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{ q?: string; sort?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -28,9 +29,11 @@ export default async function EstimatesPage({
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "estimate");
   const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
+  /** The estimate's number, or words in its title or the customer's name. */
+  const q = searchWords(params.q);
   const [{ page, refusal }, waiting] = await Promise.all([
     withFieldFilter((withField) => estimates.list(ctx, {
-      limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
+      limit: 100, ...(q ? { q } : {}), ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
     })),
     estimates.unsold(ctx, { sort, limit: 50 }),
   ]);
@@ -98,11 +101,17 @@ export default async function EstimatesPage({
         list: an estimate belongs to a branch through its job, and the unsold
         pipeline above is the company's follow up list.
       */}
-      <BranchFilter options={options} action="/estimates" current={branch} keep={{ sort: params.sort, ...fieldKeep }} />
-      <CustomFieldFilter action="/estimates" declared={declared} keep={{ sort: params.sort, branch }}
+      <ListSearch action="/estimates" q={q} label="Search estimates" placeholder="An estimate number, its title, or the customer"
+                  keep={{ sort: params.sort, branch, ...fieldKeep }} />
+      <BranchFilter options={options} action="/estimates" current={branch} keep={{ q, sort: params.sort, ...fieldKeep }} />
+      <CustomFieldFilter action="/estimates" declared={declared} keep={{ q, sort: params.sort, branch }}
                          pairs={pairs} refusal={refusal} noun="estimates" />
       {page.data.length === 0 ? (
-        branch ? (
+        q ? (
+          <Empty title="No estimates match">
+            Nothing you can open matches &quot;{q}&quot;. Try the number alone, or part of the customer&apos;s name.
+          </Empty>
+        ) : branch ? (
           <Empty title="No estimates in that branch">
             An estimate belongs to a branch through its job. One written before there was a job is in none.
           </Empty>

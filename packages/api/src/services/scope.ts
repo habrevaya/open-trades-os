@@ -186,6 +186,33 @@ export function customerScopeFilter(scope: Scope, actor: ScopeContext): SQL | un
 }
 
 /**
+ * Reading addresses, and the units at them.
+ *
+ * An address is the customer's, and is narrowed the way the customer is
+ * (`scopeOf(ctx, "customer")`), but by the WORK AT IT: at a restricted scope
+ * an address is visible when a job the account can see is at that address.
+ * Not every address of a customer they can see, which would hand a
+ * technician sent to a landlord's one flat the street of every other one, and
+ * not an address with no work at it yet, for the reason an invoice with no
+ * job is invisible below: there is nothing they did there.
+ *
+ * Neither the address list nor the unit register applies this today; it is
+ * what the search box narrows them by (services/search.ts), so the box never
+ * becomes the way round the customer scope.
+ */
+export function propertyVisibility(scope: Scope, actor: ScopeContext, propertyId: SQL): SQL | undefined {
+  if (scope === "all") return undefined;
+  const visible = jobVisibility(scope, actor, sql`pj.id`);
+  if (visible === undefined) return undefined;
+  return sql`exists (
+    select 1 from public.job pj
+    where pj.property_id = ${propertyId}
+      and pj.deleted_at is null
+      and ${visible}
+  )`;
+}
+
+/**
  * Reading invoices and estimates.
  *
  * Both hang off a job, and both allow that job to be null: an invoice can be

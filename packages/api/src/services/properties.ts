@@ -2,11 +2,13 @@ import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm"
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedRead, guardedWrite, clean, cleanAll, decodeCursor, paginate, NotFoundError,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean, cleanAll, decodeCursor, paginate, NotFoundError, scopeOf,
 } from "./context";
 import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as taxRates from "./tax";
+import { propertyVisibility } from "./scope";
+import { textFilter } from "./text-search";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } from "../contracts/properties";
@@ -176,6 +178,32 @@ export async function list(ctx: ServiceContext, input: ListInput) {
         equipmentCount: counts.get(row.id) ?? 0,
       })),
     };
+  });
+}
+
+/**
+ * ADDRESSES BY THEIR STREET, FOR THE SEARCH BOX.
+ *
+ * Every word typed in the street, on either line. Narrowed the way the
+ * customer is (`propertyVisibility` in services/scope.ts): somebody whose
+ * customers are narrowed finds only the addresses of work they can see, which
+ * the address list above does not do and the search box must, because a
+ * street is the first thing anybody types into it.
+ */
+export async function findByStreet(ctx: ServiceContext, input: { q: string; limit: number }) {
+  return guardedRead(ctx, "property:read", async (tx) => {
+    const rows = await tx.select({
+      id: schema.property.id, line1: schema.property.addressLine1, line2: schema.property.addressLine2,
+      city: schema.property.city, state: schema.property.state, postalCode: schema.property.postalCode,
+    }).from(schema.property)
+      .where(and(
+        isNull(schema.property.deletedAt),
+        textFilter(input.q, [schema.property.addressLine1, schema.property.addressLine2]) ?? sql`false`,
+        propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.property.id}`),
+      ))
+      .orderBy(schema.property.addressLine1, schema.property.id)
+      .limit(input.limit + 1);
+    return { data: rows.slice(0, input.limit), hasMore: rows.length > input.limit };
   });
 }
 

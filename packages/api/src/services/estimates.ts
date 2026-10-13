@@ -12,6 +12,7 @@ import { listFilter } from "./custom-fields";
 import { layoutForNew } from "./proposal-templates";
 import { admitDate, requireImport } from "./history";
 import { estimateScopeFilter, estimateBranchFilter } from "./scope";
+import { textFilter } from "./text-search";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
@@ -220,6 +221,15 @@ export async function createIn(
       const verdict = est.checkHistory(input.outcome, {
         optionCount: input.options.length,
         issuedOn,
+        today: time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)),
+      });
+      if (!verdict.ok) throw new ConflictError(verdict.message);
+    }
+    if (input.sentOn !== undefined) {
+      requireImport(ctx);
+      const verdict = est.checkSentOn(input.sentOn, {
+        issuedOn,
+        outcome: input.outcome,
         today: time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)),
       });
       if (!verdict.ok) throw new ConflictError(verdict.message);
@@ -446,6 +456,10 @@ export async function createIn(
       const { start } = time.dayBoundsIn(input.outcome.on, await timezoneOf(tx, ctx.actor.organizationId));
       await tx.update(schema.estimate).set({
         status: input.outcome.status,
+        /** Midday on the day it was sent, in the company's calendar: the day is what history knows. */
+        ...(input.sentOn !== undefined
+          ? { sentAt: time.instantOfLocal(input.sentOn, 12 * 60, await timezoneOf(tx, ctx.actor.organizationId)) }
+          : {}),
         decidedAt: input.outcome.status === "expired" ? null : start,
         selectedOptionId: input.outcome.status === "approved"
           ? optionIds[input.outcome.chosenOption!] ?? null : null,
@@ -454,7 +468,7 @@ export async function createIn(
         updatedAt: new Date(),
       }).where(eq(schema.estimate.id, estimateId));
       await audit(tx, ctx, "estimate.outcome_imported", "estimate", estimateId, null, {
-        status: input.outcome.status, on: input.outcome.on,
+        status: input.outcome.status, on: input.outcome.on, sentOn: input.sentOn ?? null,
       });
     }
 
@@ -520,6 +534,8 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
         input.businessUnitId ? estimateBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.estimate, input),
+        // Its number, or words in the customer's name or the estimate's own title.
+        textFilter(input.q, [schema.customer.name, schema.estimate.title], schema.estimate.number),
         await listFilter(tx, ctx.actor.organizationId, "estimate", input, sql`${schema.estimate.customFields}`),
         after ? lt(schema.estimate.id, after) : undefined,
       ))

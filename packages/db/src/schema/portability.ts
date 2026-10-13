@@ -182,6 +182,13 @@ export const importRun = pgTable("import_run", {
   /** What the rows' `externalRef` source is: the same name across files is how a job finds its customer. */
   source: text("source").notNull(),
   dayFirst: boolean("day_first").notNull().default(false),
+  /**
+   * "Do not start automations for what this file brings in", on unless the
+   * owner turns it off. Every event the file's creates raise carries the
+   * run (`domain_event.import_run_id`), and the workflow engine starts
+   * nothing for one from a run with this on.
+   */
+  holdAutomations: boolean("hold_automations").notNull().default(true),
   /** The header row, as written. */
   header: jsonb("header").$type<string[]>().notNull(),
   /** Per column, in the header's order, the field it fills or null for none. */
@@ -215,6 +222,13 @@ export const importRow = pgTable("import_row", {
   cells: jsonb("cells").$type<string[]>().notNull(),
   /** The id its record is given as `externalRef`, worked out when the columns are mapped. */
   sourceKey: text("source_key"),
+  /**
+   * The row this one is part of, by its number, when several rows are one
+   * record: the second line of an invoice, or the second invoice a cheque
+   * paid. That row loads them together and this one takes its outcome; it
+   * is never tried on its own.
+   */
+  partOf: integer("part_of"),
   outcome: text("outcome").notNull().default("waiting"),
   reason: text("reason"),
   recordId: uuid("record_id"),

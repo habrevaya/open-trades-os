@@ -8,6 +8,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 import { CustomFieldFilter } from "@/components/CustomFieldFilter";
 import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
+import { ListSearch, searchWords } from "@/components/ListSearch";
 import { work } from "@opentradesos/core";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +43,7 @@ function daysOverdue(dueOn: string | null, today: string): number {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{ q?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -51,9 +52,11 @@ export default async function InvoicesPage({
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "invoice");
   const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
+  /** The invoice's number, or words in the customer's name. */
+  const q = searchWords(params.q);
 
   const { page, refusal } = await withFieldFilter((withField) => billing.list(ctx, {
-    limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
+    limit: 100, ...(q ? { q } : {}), ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
   }));
   // The company's today. A shop in Austin looking at a server in UTC at nine
   // in the evening would otherwise be told an invoice is a day later than it
@@ -64,8 +67,10 @@ export default async function InvoicesPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Invoices" count={page.data.length} />
-      <BranchFilter options={options} action="/invoices" current={branch} keep={fieldKeep} />
-      <CustomFieldFilter action="/invoices" declared={declared} keep={{ branch }} pairs={pairs}
+      <ListSearch action="/invoices" q={q} label="Search invoices" placeholder="An invoice number or the customer"
+                  keep={{ branch, ...fieldKeep }} />
+      <BranchFilter options={options} action="/invoices" current={branch} keep={{ q, ...fieldKeep }} />
+      <CustomFieldFilter action="/invoices" declared={declared} keep={{ q, branch }} pairs={pairs}
                          refusal={refusal} noun="invoices" />
 
       {late > 0 && (
@@ -75,7 +80,11 @@ export default async function InvoicesPage({
       )}
 
       {page.data.length === 0 ? (
-        branch ? (
+        q ? (
+          <Empty title="No invoices match">
+            Nothing you can open matches &quot;{q}&quot;. Try the number alone, or part of the customer&apos;s name.
+          </Empty>
+        ) : branch ? (
           <Empty title="No invoices in that branch">
             An invoice belongs to a branch through its job. One raised with no job is in none.
           </Empty>

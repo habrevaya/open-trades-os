@@ -41,6 +41,11 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
   const options = [{ value: "", label: "Leave this column out" }, ...run.fields.map((f) => ({ value: f.key, label: f.label }))];
   const shown = rules.fieldsOf(run.kind).filter((f) => run.preview.some((p) => p.values[f.key] !== undefined));
   const c = run.counts;
+  /**
+   * Rows, for a file where several rows can be one invoice or one payment:
+   * "Load 3 invoices" for two invoices would be a promise the count breaks.
+   */
+  const loadNoun = (n: number) => (rules.isGrouped(run.kind) ? (n === 1 ? "row" : "rows") : n === 1 ? one : `${one}s`);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 lg:px-6">
@@ -53,13 +58,16 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
         {run.mappingName ? `, matched with your saved columns "${run.mappingName}"` : ""}.
       </p>
 
-      {run.kind === "customers" || run.kind === "jobs" ? (
-        <p className="mt-3 max-w-3xl rounded-md border border-amber-700 bg-amber-tint p-3 text-sm text-ink-900">
-          Automations that start when a {run.kind === "customers" ? "customer" : "job"} is added will start for each one
-          loaded, unless it is a job finished or cancelled more than a week ago. If any of them text or email customers,
-          pause them under <a href="/automations" className="underline underline-offset-4">Automations</a> first.
+      {run.holdAutomations ? (
+        <p className="mt-3 max-w-3xl text-sm text-ink-700">
+          Automations will not start for anything this file brings in.
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-3 max-w-3xl rounded-md border border-amber-700 bg-amber-tint p-3 text-sm text-ink-900">
+          Automations will start for what this file brings in, the same as for records typed in. If any of them text or
+          email customers, they will go to everybody on the file. Tick &quot;Do not start automations&quot; below to stop that.
+        </p>
+      )}
 
       {editable ? (
         <section className="mt-8" aria-labelledby="columns">
@@ -92,6 +100,16 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
             </p>
             <TextField label="Save these columns as (optional)" name="saveAs" placeholder="From the old office system"
                        className="block max-w-md" />
+            <label className="flex max-w-3xl items-start gap-2 text-sm">
+              <input type="checkbox" name="holdAutomations" value="1" defaultChecked={run.holdAutomations} className="mt-1 h-4 w-4" />
+              <span>
+                <span className="font-medium">Do not start automations for what this file brings in</span>
+                <span className="block text-ink-500">
+                  A welcome text, a review request or anything else under{" "}
+                  <a href="/automations" className="underline underline-offset-4">Automations</a> starts only for records typed in.
+                </span>
+              </span>
+            </label>
           </ActionForm>
         </section>
       ) : null}
@@ -129,7 +147,7 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
               Rows go in {rules.BATCH_SIZE} at a time, and each batch goes in whole or not at all.
             </p>
             <Runner id={run.id} step="load" rows={run.rows}
-                    label={run.status === "loading" ? "Carry on loading" : `Load ${c.ready.toLocaleString("en-US")} ${c.ready === 1 ? one : `${one}s`}`} />
+                    label={run.status === "loading" ? "Carry on loading" : `Load ${c.ready.toLocaleString("en-US")} ${loadNoun(c.ready)}`} />
           </>
         ) : null}
       </section>

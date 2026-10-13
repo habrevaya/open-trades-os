@@ -75,6 +75,14 @@ export const domainEvent = pgTable("domain_event", {
   causedByRunId: uuid("caused_by_run_id"),
   /** How many automation hops deep this is. Cheap to check, hard to fake. */
   causationDepth: integer("causation_depth").notNull().default(0),
+  /**
+   * The spreadsheet whose rows caused this, when one did (M30): the record
+   * the event is about was brought in from a file rather than typed in. The
+   * workflow engine reads the file's switch through it, and starts nothing
+   * for an event from a file brought in with automations held, which is how
+   * a customer list loaded on a Tuesday does not text every customer on it.
+   */
+  importRunId: uuid("import_run_id"),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   ...timestamps,
 }, (t) => ({

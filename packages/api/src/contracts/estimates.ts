@@ -164,6 +164,15 @@ export const createEstimate = defineRoute({
       reason: z.string().max(1000).optional(),
     }).optional(),
     /**
+     * The day it was sent, for an estimate brought from another system that
+     * ended (`outcome`). Needs `data:import`, and is recorded as it was: no
+     * message, no link and no `estimate.sent`. Refused without an outcome,
+     * because an estimate recorded as sent and still waiting is one a follow
+     * up would chase about an answer the customer gave years ago; one still
+     * open comes in unsent, to send from here.
+     */
+    sentOn: z.string().date().optional(),
+    /**
      * The sales tax rate on the taxable lines, as a fraction: 0.0825. Left
      * off (with `taxRateId` too), it is the company's rate for this customer
      * and address on the day it is written (`/v1/tax-rates`), or nothing for
@@ -200,6 +209,8 @@ export const listEstimates = defineRoute({
   module: "M07",
   permissions: ["estimate:read"],
   input: PageRequest.extend({
+    /** The estimate's number (`1042` or `#1042`), or words in the customer's name or its title. */
+    q: z.string().max(200).optional(),
     status: z.array(EstimateStatus).optional(),
     customerId: Uuid.optional(),
     jobId: Uuid.optional(),

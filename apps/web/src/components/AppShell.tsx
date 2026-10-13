@@ -116,8 +116,9 @@ export async function AppShell({
         </a>
 
         {/*
-          ONE BOX THAT FINDS THINGS: a customer, a job by its number, one of the
-          company's own records. A plain GET to /search, so it works before
+          ONE BOX THAT FINDS THINGS: customers, jobs, invoices, estimates,
+          addresses, units and the company's own records, each as its own list
+          would show this person. A plain GET to /search, so it works before
           any JavaScript has loaded. Collapsed, the rail has no room for a box
           and the page has one.
         */}

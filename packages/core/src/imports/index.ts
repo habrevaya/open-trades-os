@@ -1,6 +1,6 @@
 import { parseCsv } from "../custom-objects/index.js";
 import { csvCell } from "../reporting/csv.js";
-import { add, compare, money, subtract, toString, isZero, isNegative } from "../money/index.js";
+import { add, compare, money, multiply, round, subtract, sum, toString, isZero, isNegative, isPositive } from "../money/index.js";
 
 /**
  * BRINGING IN A SPREADSHEET
@@ -29,7 +29,7 @@ import { add, compare, money, subtract, toString, isZero, isNegative } from "../
  * spreadsheet shows it as text rather than running it.
  */
 
-export const IMPORT_KINDS = ["customers", "equipment", "pricebook", "jobs", "invoices"] as const;
+export const IMPORT_KINDS = ["customers", "equipment", "pricebook", "jobs", "invoices", "payments", "estimates"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 
 export const isImportKind = (value: string): value is ImportKind =>
@@ -55,9 +55,32 @@ export const KIND_LABEL: Record<ImportKind, { label: string; row: string; summar
   },
   invoices: {
     label: "Past invoices and their payments", row: "invoice",
-    summary: "One row per invoice, with its date and total, and what was paid on it and when.",
+    summary: "One row per invoice, with its date and total, and what was paid on it and when. "
+      + "An invoice with several lines is several rows with the same invoice number, one per line.",
+  },
+  estimates: {
+    label: "Past estimates", row: "estimate",
+    summary: "One row per estimate, with the customer, its amount, the day it was written and sent, and how it ended: approved, declined or expired.",
+  },
+  payments: {
+    label: "Past payments", row: "payment",
+    summary: "One row per invoice a payment paid, with the payment's id, the invoice, the amount and the day. "
+      + "A payment split across invoices is several rows with the same payment id.",
   },
 };
+
+/**
+ * THE KINDS WHERE SEVERAL ROWS ARE ONE RECORD.
+ *
+ * An invoice with three lines is three rows with one invoice number, and a
+ * cheque that paid two invoices is two rows with one payment id: that is how
+ * every accounting program exports them. The rows sharing an id are read
+ * together and go in as one create, the first row carrying the rest; for any
+ * other kind a second row with the same id is the same record twice, and is
+ * refused naming the first.
+ */
+export const GROUPED_KINDS: readonly ImportKind[] = ["invoices", "payments"];
+export const isGrouped = (kind: ImportKind): boolean => GROUPED_KINDS.includes(kind);
 
 /** A file larger than this is several files. Five megabytes is tens of thousands of rows. */
 export const MAX_BYTES = 5 * 1024 * 1024;
@@ -69,8 +92,8 @@ export const BATCH_SIZE = 100;
 export const MAX_KEY_LENGTH = 190;
 
 export type FieldType =
-  | "text" | "money" | "date" | "boolean"
-  | "customerType" | "jobStatus" | "paymentMethod" | "itemKind";
+  | "text" | "money" | "date" | "boolean" | "quantity"
+  | "customerType" | "jobStatus" | "paymentMethod" | "itemKind" | "estimateOutcome";
 
 export interface ImportField {
   key: string;
@@ -171,12 +194,42 @@ export const FIELDS: Record<ImportKind, readonly ImportField[]> = {
     { key: "issuedOn", label: "Invoice date", type: "date", required: true, words: ["date", "invoice date", "issued", "issued on", "issue date", "date issued", "created", "billed on"] },
     { key: "dueOn", label: "Due date", type: "date", words: ["due", "due date", "due on", "date due"] },
     { key: "description", label: "What it was for", type: "text", max: 200, words: ["description", "item", "service", "memo", "details", "line", "for"] },
-    { key: "subtotal", label: "Before tax", type: "money", words: ["subtotal", "sub total", "net", "amount before tax", "pre tax"] },
+    { key: "quantity", label: "Quantity", type: "quantity", words: ["quantity", "qty", "hours", "line quantity"] },
+    { key: "unitPrice", label: "Price each", type: "money", words: ["price each", "unit price", "price", "rate", "line rate"] },
+    { key: "subtotal", label: "Before tax", type: "money", words: ["subtotal", "sub total", "net", "before tax", "amount before tax", "pre tax", "line amount", "line total"] },
     { key: "tax", label: "Tax", type: "money", words: ["tax", "sales tax", "tax amount", "tax total"] },
     { key: "total", label: "Total", type: "money", words: ["total", "amount", "invoice total", "grand total", "total amount", "total due"] },
     { key: "paid", label: "Amount paid", type: "money", words: ["paid", "amount paid", "payment", "payments", "paid amount", "total paid"] },
     { key: "paidOn", label: "Paid on", type: "date", words: ["paid on", "payment date", "date paid", "paid date"] },
     { key: "method", label: "Paid by", type: "paymentMethod", words: ["method", "payment method", "paid by", "payment type", "paid with"] },
+  ],
+  estimates: [
+    { ...REF, words: [...REF.words, "estimate id", "quote id", "proposal id"] },
+    { key: "number", label: "Estimate number", type: "text", max: MAX_KEY_LENGTH, words: ["estimate number", "estimate no", "estimate", "quote number", "quote no", "quote", "proposal number", "number"] },
+    CUSTOMER_REF,
+    CUSTOMER_EMAIL,
+    STREET,
+    { key: "jobRef", label: "Job's id or number", type: "text", max: MAX_KEY_LENGTH, words: ["job id", "job number", "job", "work order", "job no"] },
+    { key: "title", label: "What it was for", type: "text", max: 200, words: ["title", "description", "summary", "estimate title", "quote title", "name", "for"] },
+    { key: "issuedOn", label: "Written on", type: "date", required: true, words: ["date", "estimate date", "quote date", "written", "written on", "created", "created on", "issued", "issued on", "issue date"] },
+    { key: "sentOn", label: "Sent on", type: "date", words: ["sent", "sent on", "date sent", "sent date"] },
+    { key: "subtotal", label: "Before tax", type: "money", words: ["subtotal", "sub total", "before tax", "amount before tax", "pre tax", "net"] },
+    { key: "tax", label: "Tax", type: "money", words: ["tax", "sales tax", "tax amount", "tax total"] },
+    { key: "total", label: "Total", type: "money", words: ["total", "amount", "estimate total", "quote total", "grand total", "value", "price"] },
+    { key: "outcome", label: "How it ended", type: "estimateOutcome", words: ["status", "outcome", "result", "estimate status", "quote status", "stage"] },
+    { key: "decidedOn", label: "Decided on", type: "date", words: ["decided", "decided on", "approved on", "declined on", "accepted on", "closed on", "won on", "lost on", "outcome date", "date decided", "date approved", "approved date"] },
+    { key: "reason", label: "Why it was declined", type: "text", max: 1000, words: ["reason", "decline reason", "declined reason", "lost reason", "why"] },
+  ],
+  payments: [
+    { ...REF, words: [...REF.words, "payment id", "payment number", "receipt number", "transaction id"] },
+    CUSTOMER_REF,
+    CUSTOMER_EMAIL,
+    { key: "invoiceRef", label: "Invoice's id or number", type: "text", max: MAX_KEY_LENGTH, words: ["invoice id", "invoice number", "invoice", "invoice no", "inv", "applied to", "invoice ref"] },
+    { key: "amount", label: "Amount", type: "money", required: true, words: ["amount", "amount applied", "applied", "amount paid", "paid", "payment amount", "payment"] },
+    { key: "paidOn", label: "Paid on", type: "date", required: true, words: ["date", "paid on", "payment date", "date paid", "received", "received on", "date received"] },
+    { key: "method", label: "Paid by", type: "paymentMethod", words: ["method", "payment method", "paid by", "payment type", "paid with", "type"] },
+    { key: "checkNumber", label: "Check number", type: "text", max: 50, words: ["check number", "check no", "cheque number", "check"] },
+    { key: "memo", label: "Note", type: "text", max: 1000, words: ["memo", "note", "notes", "description"] },
   ],
 };
 
@@ -296,14 +349,26 @@ export function mappingProblems(kind: ImportKind, columns: readonly (string | nu
   if (kind === "customers" && !has("name") && !has("firstName") && !has("lastName")) {
     problems.push("No column is set to Name, or to First name and Last name. Every customer needs a name.");
   }
+  if (kind === "payments" && !has("customerRef") && !has("customerEmail") && !has("invoiceRef")) {
+    problems.push("No column is set to Customer's id, Customer's email or Invoice's id or number, so there is no way to tell whose each payment is.");
+  }
+  if (kind === "invoices" && has("quantity") && !has("unitPrice")) {
+    problems.push("A column is set to Quantity and none to Price each. A quantity needs the price of one to make a line.");
+  }
   if ((kind === "equipment" || kind === "jobs" || kind === "invoices") && !has("customerRef") && !has("customerEmail")) {
     problems.push(`No column is set to Customer's id or Customer's email, so there is no way to tell whose each ${KIND_LABEL[kind].row} is.`);
   }
   if (kind === "jobs" && !has("summary") && !has("description")) {
     problems.push("No column is set to What the job was, or to Notes. Every job needs to say what it was.");
   }
-  if (kind === "invoices" && !has("total") && !has("subtotal")) {
-    problems.push("No column is set to Total or to Before tax. Every invoice needs an amount.");
+  if (kind === "estimates" && !has("total") && !has("subtotal")) {
+    problems.push("No column is set to Total or to Before tax. Every estimate needs an amount.");
+  }
+  if (kind === "estimates" && !has("customerRef") && !has("customerEmail")) {
+    problems.push("No column is set to Customer's id or Customer's email, so there is no way to tell whose each estimate is.");
+  }
+  if (kind === "invoices" && !has("total") && !has("subtotal") && !has("unitPrice")) {
+    problems.push("No column is set to Total, Before tax or Price each. Every invoice needs an amount.");
   }
   if (kind === "invoices" && has("paid") && !has("paidOn")) {
     problems.push("A column is set to Amount paid and none to Paid on. A payment without its date would land in today's books.");
@@ -380,6 +445,16 @@ export function parseDate(raw: string, dayFirst = false): Parsed {
   return no(`"${text}" is not a date this can read. Write it like 2021-03-04 or 3/4/2021.`);
 }
 
+/** How many: "2", "1.5", "0.25". Above zero, at most four places, and never a guess. */
+export function parseQuantity(raw: string): Parsed {
+  const text = raw.trim().replace(/,(?=\d{3}(?:\D|$))/g, "");
+  if (!/^\d*\.?\d+$/.test(text)) return no(`"${raw.trim()}" is not a quantity.`);
+  if ((text.split(".")[1]?.length ?? 0) > 4) return no(`"${raw.trim()}" has more than four decimal places.`);
+  const value = toString(money(text.startsWith(".") ? `0${text}` : text));
+  if (!isPositive(money(value))) return no("A quantity has to be more than nothing.");
+  return ok(value);
+}
+
 export function parseYesNo(raw: string): Parsed {
   const text = raw.trim().toLowerCase();
   if (["yes", "y", "true", "1", "x", "taxable", "taxed"].includes(text)) return ok("true");
@@ -418,6 +493,19 @@ export function parsePaymentMethod(raw: string): Parsed {
   return ok("other");
 }
 
+/**
+ * How an estimate ended. Open is an answer too: it was never decided, and
+ * comes in as a draft to send from here.
+ */
+export function parseEstimateOutcome(raw: string): Parsed {
+  const text = raw.trim().toLowerCase().replace(/[^a-z]+/g, " ").trim();
+  if (["approved", "accepted", "won", "sold", "signed", "yes", "converted", "closed won", "booked"].includes(text)) return ok("approved");
+  if (["declined", "rejected", "lost", "no", "closed lost", "turned down"].includes(text)) return ok("declined");
+  if (["expired", "lapsed", "timed out"].includes(text)) return ok("expired");
+  if (["open", "pending", "sent", "draft", "waiting", "new", "viewed", "awaiting response", "follow up"].includes(text)) return ok("open");
+  return no(`"${raw.trim()}" is not how an estimate ended this can read. Use approved, declined, expired or open.`);
+}
+
 function parseItemKind(raw: string): Parsed {
   const text = raw.trim().toLowerCase();
   if (["service", "services"].includes(text)) return ok("service");
@@ -434,10 +522,12 @@ function parseCell(field: ImportField, raw: string, dayFirst: boolean): Parsed {
     case "money": return parseAmount(raw);
     case "date": return parseDate(raw, dayFirst);
     case "boolean": return parseYesNo(raw);
+    case "quantity": return parseQuantity(raw);
     case "customerType": return parseCustomerType(raw);
     case "jobStatus": return parseJobStatus(raw);
     case "paymentMethod": return parsePaymentMethod(raw);
     case "itemKind": return parseItemKind(raw);
+    case "estimateOutcome": return parseEstimateOutcome(raw);
     default: {
       const text = raw.trim();
       if (field.max !== undefined && text.length > field.max) {
@@ -454,6 +544,14 @@ export interface ReadOptions {
   dayFirst: boolean;
   /** The company's today, so a date after it is refused here rather than by the first service that sees it. */
   today: string;
+  /**
+   * The row is one of several that are one record (`readGroup`): a line of
+   * an invoice, or one invoice a payment paid. Its Before tax and Tax are
+   * the line's; what the rows share (the invoice date, whose it is, its
+   * Total, the day a payment was paid) only has to be on one of them, and
+   * is checked once across the rows rather than against this one.
+   */
+  line?: boolean | undefined;
 }
 
 export interface ReadRow {
@@ -497,11 +595,15 @@ export function readRow(
       problems.push(`${field.label} is ${values[field.key]}, which has not happened yet.`);
     }
   }
+  const sharedKeys = options.line ? sharedOf(kind) : [];
   for (const field of fields) {
+    if (sharedKeys.includes(field.key)) continue;
     if (field.required && values[field.key] === undefined && !problems.some((p) => p.startsWith(`${field.label}:`))) {
       problems.push(kind === "invoices" && field.key === "issuedOn"
         ? "It has no invoice date. Without one it would be put in today's books instead of the day it was sent."
-        : `${field.label} is empty.`);
+        : kind === "payments" && field.key === "paidOn"
+          ? "It has no day it was paid. Without one the payment would be put in today's books."
+          : `${field.label} is empty.`);
     }
   }
   const missing = (keys: string[]) => keys.filter((k) => values[k] === undefined && !problems.some((p) => p.startsWith(`${label(k)}:`)));
@@ -529,10 +631,22 @@ export function readRow(
     }
     case "equipment":
     case "jobs":
+    case "estimates":
     case "invoices": {
+      if (options.line) break;
       if (values["customerRef"] === undefined && values["customerEmail"] === undefined
         && !problems.some((p) => p.startsWith("Customer"))) {
         problems.push("Neither the customer's id nor their email is filled in, so there is no telling whose it is.");
+      }
+      break;
+    }
+    case "payments": {
+      if (!options.line && values["customerRef"] === undefined && values["customerEmail"] === undefined && values["invoiceRef"] === undefined
+        && !problems.some((p) => p.startsWith("Customer") || p.startsWith("Invoice"))) {
+        problems.push("Neither the invoice nor the customer is filled in, so there is no telling whose money it is.");
+      }
+      if (values["amount"] !== undefined && !isPositive(money(values["amount"]))) {
+        problems.push("Amount has to be more than nothing. Record money given back as a refund on the payment instead.");
       }
       break;
     }
@@ -562,7 +676,34 @@ export function readRow(
     if (status !== undefined) values["status"] = status;
   }
 
-  if (kind === "invoices") {
+  if (kind === "estimates") readEstimate(values, problems, label);
+
+  if (kind === "invoices" && values["unitPrice"] !== undefined) {
+    /**
+     * A quantity at a price each makes the line's amount before tax, rounded
+     * to the cent the way the invoice rounds it. A Before tax beside them
+     * has to agree, because a row that disagrees with itself does not say
+     * which number is wrong.
+     */
+    const before = lineAmount(values["quantity"] ?? "1", values["unitPrice"]);
+    if (values["subtotal"] !== undefined && compare(money(values["subtotal"]), money(before)) !== 0) {
+      problems.push(`${trimQuantity(values["quantity"] ?? "1")} at ${trimMoney(values["unitPrice"])} is ${trimMoney(before)}, not the ${trimMoney(values["subtotal"])} in Before tax.`);
+    }
+    values["subtotal"] = before;
+  }
+
+  if (kind === "invoices" && options.line) {
+    /** One line of several: its own amount, with the invoice's total checked across the rows by `readGroup`. */
+    const sub = values["subtotal"];
+    if (sub === undefined && !problems.some((p) => p.startsWith("Before tax:") || p.startsWith("Price each:"))) {
+      problems.push("A line of an invoice with several needs its own amount: fill in Before tax, or Price each.");
+    } else if (sub !== undefined) {
+      const tax = values["tax"] ?? "0";
+      if (isNegative(money(sub))) problems.push("The amount before tax is below zero. Bring in a credit as a credit note instead.");
+      else if (!isZero(money(tax)) && isZero(money(sub))) problems.push("It has tax on nothing: the amount before tax is zero.");
+      values["tax"] = toString(money(tax));
+    }
+  } else if (kind === "invoices") {
     const amounts = invoiceAmounts(values);
     if (!amounts.ok) problems.push(amounts.why);
     else {
@@ -583,6 +724,57 @@ export function readRow(
   }
 
   return { values, problems };
+}
+
+/**
+ * AN ESTIMATE AS IT ENDED. Its amounts the way an invoice's are read; then
+ * how it ended, which needs the day when it was decided and never a day
+ * when it was not; and the day it was sent, which only an estimate that
+ * ended may carry. One sent and still waiting is not brought in as sent,
+ * because a follow up that chases waiting estimates would chase one the
+ * customer answered in the old system years ago; it is refused, to bring in
+ * as open and send from here, or with how it ended.
+ */
+function readEstimate(values: Record<string, string>, problems: string[], label: (key: string) => string): void {
+  const amounts = invoiceAmounts(values);
+  if (!amounts.ok) problems.push(amounts.why.replace("Bring in a credit as a credit note instead.", "An estimate is for an amount."));
+  else {
+    values["subtotal"] = amounts.subtotal;
+    values["tax"] = amounts.tax;
+    values["total"] = amounts.total;
+  }
+  const outcome = values["outcome"] ?? (values["decidedOn"] !== undefined ? undefined : "open");
+  const decided = values["decidedOn"];
+  if (outcome === undefined) {
+    if (!problems.some((p) => p.startsWith(`${label("outcome")}:`))) {
+      problems.push("It has a day it was decided and does not say how it ended. Fill in approved, declined or expired.");
+    }
+    return;
+  }
+  values["outcome"] = outcome;
+  if (outcome === "open") {
+    if (decided !== undefined) problems.push("It has a day it was decided and says it is still open. Change one of them.");
+    if (values["sentOn"] !== undefined) {
+      problems.push("It was sent and is still waiting for an answer. Bring it in as open with no day sent, to send from here, or say how it ended.");
+    }
+  } else if (decided === undefined) {
+    if (!problems.some((p) => p.startsWith(`${label("decidedOn")}:`))) {
+      problems.push(`It says it was ${outcome} and not when. Fill in the day in Decided on.`);
+    }
+  }
+  const written = values["issuedOn"];
+  if (written !== undefined && decided !== undefined && decided < written) {
+    problems.push(`It was decided on ${decided}, before it was written on ${written}.`);
+  }
+  if (values["sentOn"] !== undefined && written !== undefined && values["sentOn"] < written) {
+    problems.push(`It was sent on ${values["sentOn"]}, before it was written on ${written}.`);
+  }
+  if (values["sentOn"] !== undefined && decided !== undefined && values["sentOn"] > decided) {
+    problems.push(`It was sent on ${values["sentOn"]}, after it was decided on ${decided}.`);
+  }
+  if (values["reason"] !== undefined && outcome !== "declined") {
+    problems.push(`It has a reason it was declined and says it was ${outcome}.`);
+  }
 }
 
 /**
@@ -624,6 +816,142 @@ export function taxRateOf(tax: string, subtotal: string): string {
   return `${whole}.${frac}`;
 }
 
+/** A line's amount before tax: the quantity at the price each, rounded to the cent as the invoice rounds it. */
+export function lineAmount(quantity: string, unitPrice: string): string {
+  return toString(round(multiply(money(unitPrice), quantity), 2));
+}
+
+/** A quantity as a person reads it: "2", "1.5". */
+export function trimQuantity(value: string): string {
+  const [whole = "0", frac = ""] = value.split(".");
+  const kept = frac.replace(/0+$/, "");
+  return kept ? `${whole}.${kept}` : whole;
+}
+
+/* -------------------------------------------------- several rows, one record */
+
+export interface InvoiceLine { name: string; quantity: string; unitPrice: string; subtotal: string; tax: string }
+export interface Allocation { invoiceRef: string | null; amount: string }
+
+export interface GroupRead {
+  /** What the record is, from its rows: the fields they share, and the amounts across them. */
+  values: Record<string, string>;
+  /** An invoice's lines, one per row. Empty for anything else. */
+  lines: InvoiceLine[];
+  /** A payment's share of each invoice, one per row. Empty for anything else. */
+  allocations: Allocation[];
+  /** Why the rows cannot load together, each a sentence. */
+  problems: string[];
+}
+
+/** What the rows of one invoice say once: the invoice, not the line. */
+const INVOICE_SHARED = ["ref", "number", "customerRef", "customerEmail", "jobRef", "issuedOn", "dueOn", "total", "paid", "paidOn", "method"];
+/** What the rows of one payment say once: the payment, not the invoice it paid. */
+const PAYMENT_SHARED = ["ref", "customerRef", "customerEmail", "paidOn", "method", "checkNumber", "memo"];
+const sharedOf = (kind: ImportKind): string[] =>
+  kind === "invoices" ? INVOICE_SHARED : kind === "payments" ? PAYMENT_SHARED : [];
+
+/**
+ * THE ROWS OF ONE INVOICE OR ONE PAYMENT, READ TOGETHER.
+ *
+ * Each row has already been read on its own (`readRow`, with `line` for an
+ * invoice of several rows). What is read here is what only the rows together
+ * can say: the fields they share have to agree wherever they are filled, a
+ * Total is the invoice's and has to equal its lines added up, and what was
+ * paid on it is checked against that. A row that disagrees with another is
+ * refused naming both, because loading either version would be a guess.
+ */
+export function readGroup(
+  kind: ImportKind, rows: ReadonlyArray<{ row: number; values: Record<string, string> }>,
+): GroupRead {
+  const fields = FIELDS[kind];
+  const label = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
+  const problems: string[] = [];
+  const shared = kind === "payments" ? PAYMENT_SHARED : INVOICE_SHARED;
+  const values: Record<string, string> = {};
+  const from: Record<string, number> = {};
+  for (const { row, values: v } of rows) {
+    for (const key of shared) {
+      const value = v[key];
+      if (value === undefined) continue;
+      if (values[key] === undefined) {
+        values[key] = value;
+        from[key] = row;
+      } else if (values[key] !== value && !problems.some((p) => p.includes(`says ${label(key)} is`))) {
+        problems.push(`Row ${from[key]} says ${label(key)} is ${values[key]} and row ${row} says ${value}. They are one ${KIND_LABEL[kind].row}, so they have to agree.`);
+      }
+    }
+  }
+
+  if (rows.length > 1 && (kind === "invoices" || kind === "payments")) {
+    /** What one row would have been refused for, asked of the rows together. */
+    if (kind === "invoices" && values["issuedOn"] === undefined) {
+      problems.push("It has no invoice date. Without one it would be put in today's books instead of the day it was sent.");
+    }
+    if (kind === "payments" && values["paidOn"] === undefined) {
+      problems.push("It has no day it was paid. Without one the payment would be put in today's books.");
+    }
+    const whose = values["customerRef"] !== undefined || values["customerEmail"] !== undefined
+      || (kind === "payments" && rows.every(({ values: v }) => v["invoiceRef"] !== undefined));
+    if (!whose) {
+      problems.push(kind === "payments"
+        ? "Neither the invoice nor the customer is filled in, so there is no telling whose money it is."
+        : "Neither the customer's id nor their email is filled in, so there is no telling whose it is.");
+    }
+  }
+
+  if (kind === "payments") {
+    const allocations: Allocation[] = [];
+    const seen = new Map<string, number>();
+    for (const { row, values: v } of rows) {
+      const invoiceRef = v["invoiceRef"] ?? null;
+      if (invoiceRef !== null) {
+        const before = seen.get(invoiceRef);
+        if (before !== undefined) problems.push(`Rows ${before} and ${row} both put this payment on invoice ${invoiceRef}. Put it on one row.`);
+        else seen.set(invoiceRef, row);
+      }
+      if (v["amount"] !== undefined) allocations.push({ invoiceRef, amount: v["amount"] });
+    }
+    values["amount"] = toString(sum(allocations.map((a) => money(a.amount))));
+    return { values, lines: [], allocations, problems };
+  }
+
+  if (kind !== "invoices") return { values: { ...rows[0]?.values }, lines: [], allocations: [], problems };
+
+  const lines: InvoiceLine[] = rows
+    .filter(({ values: v }) => v["subtotal"] !== undefined)
+    .map(({ values: v }) => {
+      const priced = v["unitPrice"] !== undefined;
+      return {
+        name: v["description"] ?? "As billed",
+        quantity: priced ? v["quantity"] ?? "1" : "1",
+        unitPrice: priced ? v["unitPrice"]! : v["subtotal"]!,
+        subtotal: v["subtotal"]!,
+        tax: v["tax"] ?? "0",
+      };
+    });
+  if (rows.length === 1) {
+    /** One row is the whole invoice, read and checked by `readRow` already. */
+    return { values: { ...rows[0]!.values }, lines, allocations: [], problems };
+  }
+  const subtotal = round(sum(lines.map((l) => money(l.subtotal))), 2);
+  const tax = round(sum(lines.map((l) => money(l.tax))), 2);
+  const total = add(subtotal, tax);
+  if (values["total"] !== undefined && compare(money(values["total"]), total) !== 0 && lines.length === rows.length) {
+    problems.push(`Its ${rows.length} lines come to ${trimMoney(toString(total))}, not the ${trimMoney(values["total"])} in Total.`);
+  }
+  values["subtotal"] = toString(subtotal);
+  values["tax"] = toString(tax);
+  values["total"] = toString(total);
+  const paid = values["paid"];
+  if (paid !== undefined && !isZero(money(paid))) {
+    if (isNegative(money(paid))) problems.push("Amount paid is below zero. Record a refund on the payment instead.");
+    else if (compare(money(paid), total) > 0) problems.push(`It says ${trimMoney(paid)} was paid on an invoice of ${trimMoney(toString(total))}.`);
+    if (values["paidOn"] === undefined) problems.push("It says money was paid and not when. Without the day the payment would be put in today's books.");
+  }
+  return { values, lines, allocations: [], problems };
+}
+
 /** An amount as a person reads it: two places, more only when it has them. */
 export function trimMoney(value: string): string {
   const [whole = "0", frac = ""] = value.split(".");
@@ -639,7 +967,7 @@ export function trimMoney(value: string): string {
 export function naturalKey(kind: ImportKind, values: Record<string, string>): string | null {
   if (values["ref"]) return values["ref"];
   if (kind === "pricebook" && values["code"]) return values["code"];
-  if ((kind === "jobs" || kind === "invoices") && values["number"]) return values["number"];
+  if ((kind === "jobs" || kind === "invoices" || kind === "estimates") && values["number"]) return values["number"];
   return null;
 }
 

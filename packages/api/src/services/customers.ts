@@ -1,4 +1,4 @@
-import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm";
+import { and, eq, desc, lt, isNull, inArray, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { assertCan, tags as tagRules } from "@opentradesos/core";
 import type { z } from "zod";
@@ -9,6 +9,8 @@ import {
 import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter, customerBranchFilter } from "./scope";
+import { textFilter } from "./text-search";
+import { emit } from "./events";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import * as taxRates from "./tax";
@@ -100,14 +102,9 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       input.type ? eq(schema.customer.type, input.type) : undefined,
       byExternal(schema.customer, input),
       // Trigram search across the three things a CSR actually types while
-      // somebody is on the phone. A pg_trgm index backs each of them.
-      input.q
-        ? or(
-            ilike(schema.customer.name, `%${input.q}%`),
-            ilike(schema.customer.email, `%${input.q}%`),
-            ilike(schema.customer.phone, `%${input.q}%`),
-          )
-        : undefined,
+      // somebody is on the phone, every word somewhere in one of them, so
+      // "smith john" finds John Smith and a typed `%` is a percent sign.
+      textFilter(input.q, [schema.customer.name, schema.customer.email, schema.customer.phone]),
       tagFilter(input),
       byField,
       // A branch somebody picked: customers that branch has done work for.
@@ -310,6 +307,15 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
 
     const [saved] = await tx.select().from(schema.customer).where(eq(schema.customer.id, customer!.id)).limit(1);
     await audit(tx, ctx, "customer.created", "customer", customer!.id, null, saved!);
+    /**
+     * What a workflow subscribes to, beside the audit line somebody reads
+     * afterwards. A customer loaded from a file raises it too, carrying the
+     * file, and the engine holds it when the file said to (M30).
+     */
+    await emit(tx, ctx, {
+      name: "customer.created", entityType: "customer", entityId: customer!.id,
+      payload: { customer: asCustomer(clean(ctx, "customer", saved!)) },
+    });
     return asCustomer(clean(ctx, "customer", saved!));
   });
 }

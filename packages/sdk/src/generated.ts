@@ -3042,6 +3042,7 @@ export interface CreateEstimateInput {
     signerName?: string;
     reason?: string;
   };
+  sentOn?: string;
   taxRate?: string;
   taxRateId?: string | null;
   options: Array<{
@@ -8097,9 +8098,10 @@ export interface GetHostedFormOutput {
 
 export interface GetImportOutput {
   id: string;
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
   fileName: string;
   source: string;
+  holdAutomations: boolean;
   status: "mapping" | "checking" | "checked" | "loading" | "finished";
   rows: number;
   counts: {
@@ -13601,7 +13603,7 @@ export interface ListHolidaysOutput {
 export interface ListImportMappingsOutput {
   mappings: Array<{
     id: string;
-    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
     name: string;
     source: string;
     dayFirst: boolean;
@@ -13613,9 +13615,10 @@ export interface ListImportMappingsOutput {
 export interface ListImportsOutput {
   imports: Array<{
     id: string;
-    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
     fileName: string;
     source: string;
+    holdAutomations: boolean;
     status: "mapping" | "checking" | "checked" | "loading" | "finished";
     rows: number;
     counts: {
@@ -16699,13 +16702,15 @@ export interface MapImportInput {
   source: string;
   dayFirst?: boolean;
   saveAs?: string;
+  holdAutomations?: boolean;
 }
 
 export interface MapImportOutput {
   id: string;
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
   fileName: string;
   source: string;
+  holdAutomations: boolean;
   status: "mapping" | "checking" | "checked" | "loading" | "finished";
   rows: number;
   counts: {
@@ -21119,6 +21124,8 @@ export interface SearchEverythingOutput {
       detail: string | null;
       href: string;
     }>;
+    more: boolean;
+    seeAll: string | null;
   }>;
 }
 
@@ -23072,16 +23079,18 @@ export interface StartConversationOutput {
 }
 
 export interface StartImportInput {
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
   fileName: string;
   csv: string;
+  holdAutomations?: boolean;
 }
 
 export interface StartImportOutput {
   id: string;
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
   fileName: string;
   source: string;
+  holdAutomations: boolean;
   status: "mapping" | "checking" | "checked" | "loading" | "finished";
   rows: number;
   counts: {
@@ -28038,6 +28047,7 @@ export interface ListEstimateDraftsInput {
 export interface ListEstimatesInput {
   cursor?: string;
   limit?: number;
+  q?: string;
   status?: Array<"draft" | "sent" | "viewed" | "approved" | "declined" | "expired" | "converted">;
   customerId?: string;
   jobId?: string;
@@ -28122,6 +28132,7 @@ export interface ListInvoiceTipsInput {
 export interface ListInvoicesInput {
   cursor?: string;
   limit?: number;
+  q?: string;
   status?: Array<"draft" | "open" | "partially_paid" | "paid" | "void" | "written_off">;
   customerId?: string;
   payerCustomerId?: string;
@@ -29252,6 +29263,7 @@ export interface SearchAvailableNumbersInput {
 
 export interface SearchEverythingInput {
   q: string;
+  in?: "customers" | "jobs" | "invoices" | "estimates" | "addresses" | "units";
 }
 
 export interface SendArrivalNoticeParams {
@@ -31493,7 +31505,7 @@ export const OPERATIONS = {
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
-  listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
+  listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
   listExpenses: { method: "GET", path: "/v1/expenses", pathParams: [], queryParams: ["status","technicianId","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listExpiringTechnicianSkills: { method: "GET", path: "/v1/technician-skills/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
@@ -31512,7 +31524,7 @@ export const OPERATIONS = {
   listInvoiceCardsOnFile: { method: "GET", path: "/v1/invoices/{id}/cards-on-file", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listInvoiceDeliveries: { method: "GET", path: "/v1/invoices/{invoiceId}/deliveries", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listInvoiceTips: { method: "GET", path: "/v1/invoices/{id}/tips", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
-  listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
+  listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
   listItemTax: { method: "GET", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -31863,7 +31875,7 @@ export const OPERATIONS = {
   scheduleRentalCollections: { method: "POST", path: "/v1/rental-collections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write","job:write"] },
   scheduleVisit: { method: "POST", path: "/v1/jobs/{id}/visits", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   searchAvailableNumbers: { method: "GET", path: "/v1/marketing/available-numbers", pathParams: [], queryParams: ["areaCode","locality","region"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
-  searchEverything: { method: "GET", path: "/v1/search", pathParams: [], queryParams: ["q"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
+  searchEverything: { method: "GET", path: "/v1/search", pathParams: [], queryParams: ["q","in"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
   sellAgreement: { method: "POST", path: "/v1/agreements", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   sendArrivalNotice: { method: "POST", path: "/v1/visits/{id}/on-my-way", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendCampaign: { method: "POST", path: "/v1/campaigns/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
@@ -39950,7 +39962,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Find a customer, a job or one of the company's own records.
+   * Find customers, jobs, invoices, estimates, addresses, units and the company's own records.
    *
    * GET /v1/search.
    */
@@ -41003,7 +41015,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Upload a spreadsheet of customers, equipment, price book items, past jobs or past invoices.
+   * Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments or past estimates.
    *
    * POST /v1/imports. Needs data:import.
    */

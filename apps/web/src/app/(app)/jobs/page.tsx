@@ -8,13 +8,14 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 import { CustomFieldFilter } from "@/components/CustomFieldFilter";
 import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
+import { ListSearch, searchWords } from "@/components/ListSearch";
 
 export const dynamic = "force-dynamic";
 
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{ q?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -29,9 +30,11 @@ export default async function JobsPage({
   const named = options.branches.find((b) => b.id === branch)?.name;
   const declared = await customFields.formFields(ctx, "job");
   const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
+  /** Words, from this box or from the search box's "See all": every word in the summary or the customer's name, or the number. */
+  const q = searchWords(params.q);
 
   const { page, refusal } = await withFieldFilter((withField) => jobs.list(ctx, {
-    limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
+    limit: 100, ...(q ? { q } : {}), ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
   }));
 
   return (
@@ -45,12 +48,18 @@ export default async function JobsPage({
           </a>
         ) : undefined}
       />
-      <BranchFilter options={options} action="/jobs" current={branch} none keep={fieldKeep} />
-      <CustomFieldFilter action="/jobs" declared={declared} keep={{ branch }} pairs={pairs}
+      <ListSearch action="/jobs" q={q} label="Search jobs" placeholder="A job number, what the job is, or the customer"
+                  keep={{ branch, ...fieldKeep }} />
+      <BranchFilter options={options} action="/jobs" current={branch} none keep={{ q, ...fieldKeep }} />
+      <CustomFieldFilter action="/jobs" declared={declared} keep={{ q, branch }} pairs={pairs}
                          refusal={refusal} noun="jobs" />
 
       {page.data.length === 0 ? (
-        branch ? (
+        q ? (
+          <Empty title="No jobs match">
+            Nothing you can open matches &quot;{q}&quot;. Try fewer words, or part of the customer&apos;s name.
+          </Empty>
+        ) : branch ? (
           <Empty title={branch === "none" ? "Every job is in a branch" : `No jobs in ${named ?? "that branch"}`}>
             Choose every branch to see the whole company&apos;s work.
           </Empty>

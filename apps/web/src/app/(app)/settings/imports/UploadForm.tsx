@@ -49,6 +49,15 @@ export function UploadForm() {
         <span className="text-sm font-medium text-ink-700">The file (CSV)</span>
         <input type="file" name="file" accept=".csv,text/csv" required className="mt-1 block text-sm" />
       </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="holdAutomations" value="1" defaultChecked className="mt-1 h-4 w-4" />
+        <span>
+          <span className="font-medium">Do not start automations for what this file brings in</span>
+          <span className="block text-ink-500">
+            Leave this on so nobody on the list gets a welcome text or a review request about work from years ago.
+          </span>
+        </span>
+      </label>
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" disabled={pending}
                 className="inline-flex h-9 items-center rounded bg-ink-900 px-3.5 text-sm font-medium text-white hover:bg-ink-700 disabled:opacity-60">
