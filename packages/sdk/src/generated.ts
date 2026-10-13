@@ -17523,6 +17523,11 @@ export interface PreviewContractEscalationOutput {
       after: string;
     } | null;
   }>;
+  drafts?: Array<{
+    rateCardId: string;
+    name: string;
+    preparedAt: string;
+  }>;
 }
 
 export interface PreviewJobBillingOutput {
