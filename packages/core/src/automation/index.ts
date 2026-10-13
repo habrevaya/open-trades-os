@@ -159,6 +159,11 @@ export interface TriggerEvent {
   causationDepth: number;
   /** The run that produced this event, if a workflow did. */
   causedByRunId?: string | undefined;
+  /**
+   * A row of a spreadsheet brought in with "Do not start automations for
+   * what this file brings in" on caused this (M30).
+   */
+  heldByImport?: boolean | undefined;
 }
 
 export interface WorkflowSpec {
@@ -171,7 +176,10 @@ export interface WorkflowSpec {
 
 export type TriggerDecision =
   | { run: true }
-  | { run: false; reason: "disabled" | "event_not_subscribed" | "conditions_unmet" | "depth_exceeded" | "self_triggered" };
+  | {
+      run: false;
+      reason: "disabled" | "event_not_subscribed" | "conditions_unmet" | "depth_exceeded" | "self_triggered" | "imported";
+    };
 
 /**
  * Whether an event should start this workflow.
@@ -192,6 +200,18 @@ export function shouldTrigger(
   if (!workflow.enabled) return { run: false, reason: "disabled" };
   if (!workflow.triggerEvents.includes(event.name)) {
     return { run: false, reason: "event_not_subscribed" };
+  }
+  /**
+   * HISTORY BROUGHT IN FROM A FILE IS NOT NEWS. A customer list loaded on a
+   * Tuesday is two thousand `customer.created` events, and "when a customer
+   * is added, text them a welcome" would text all two thousand about a
+   * company they have used for years. Every event the file raised is held,
+   * not only the `.created` ones: a job finished last week brings in
+   * `job.completed` and a recent invoice paid `invoice.paid`, and a review
+   * ask on either is the same text to the same customers.
+   */
+  if (event.heldByImport) {
+    return { run: false, reason: "imported" };
   }
   if (event.causedByRunId && runsOfThisWorkflow.includes(event.causedByRunId)) {
     return { run: false, reason: "self_triggered" };

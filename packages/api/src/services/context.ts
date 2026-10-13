@@ -49,6 +49,13 @@ export interface ServiceContext {
    * device it came from, so revoking that device ends the sign in too.
    */
   deviceTokenHash?: string;
+  /**
+   * The spreadsheet whose row this create is loading (services/imports.ts).
+   * Never taken from a request: only the import sets it, and `emit` writes
+   * it on every event the row raises, which is what the workflow engine reads
+   * to start nothing for a file brought in with automations held.
+   */
+  importRunId?: string;
 }
 
 export interface RequestMeta {

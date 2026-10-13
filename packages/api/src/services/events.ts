@@ -95,6 +95,8 @@ export async function emit(
     actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
     causedByRunId: input.causedByRunId ?? null,
     causationDepth: input.causationDepth ?? 0,
+    /** A row of a spreadsheet caused this; the engine asks that file whether automations are held. */
+    importRunId: ctx.importRunId ?? null,
   }).returning({ id: schema.domainEvent.id, sequence: schema.domainEvent.sequence });
 
   return { id: row!.id, sequence: row!.sequence };

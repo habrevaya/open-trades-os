@@ -15,11 +15,13 @@ import * as equipment from "./equipment";
 import * as pricebook from "./pricebook";
 import * as jobs from "./jobs";
 import * as billing from "./billing";
+import * as estimates from "./estimates";
 import { CustomerCreate } from "../contracts/customers";
 import { JobCreate } from "../contracts/jobs";
 import { registerEquipment } from "../contracts/equipment";
 import { createPriceBookItem } from "../contracts/pricebook";
 import { createInvoice, recordPayment } from "../contracts/billing";
+import { createEstimate } from "../contracts/estimates";
 
 /**
  * BRINGING IN A SPREADSHEET (M30)
@@ -67,11 +69,14 @@ const NEEDS: Record<Kind, Permission[]> = {
   pricebook: ["pricebook:write"],
   jobs: ["customer:read", "job:write"],
   invoices: ["customer:read", "invoice:write", "payment:collect"],
+  payments: ["customer:read", "invoice:read", "payment:collect"],
+  estimates: ["customer:read", "estimate:write"],
 };
 
 /** The table a kind's provenance lives on, by its name in SQL. */
 const TABLE: Record<Kind, string> = {
   customers: "customer", equipment: "equipment", pricebook: "price_book_item", jobs: "job", invoices: "invoice",
+  payments: "payment", estimates: "estimate",
 };
 
 const LIST_LIMIT = 500;
@@ -114,6 +119,7 @@ function summary(run: Run, counts: Record<Outcome, number>) {
     kind: kindOf(run),
     fileName: run.fileName,
     source: run.source,
+    holdAutomations: run.holdAutomations,
     status: run.status as "mapping" | "checking" | "checked" | "loading" | "finished",
     rows: run.rowCount,
     counts,
@@ -221,45 +227,98 @@ async function reread(tx: Database, ctx: ServiceContext, run: Run): Promise<void
   const seenKey = new Map<string, number>();
   const seenNumber = new Map<string, number>();
   const one = rules.KIND_LABEL[kind].row;
+  const grouped = rules.isGrouped(kind);
   const updates = rows.map((row) => {
-    if (incomplete) return { id: row.id, outcome: "waiting", reason: null as string | null, key: null as string | null };
+    if (incomplete) {
+      return {
+        id: row.id, rowNumber: row.rowNumber, outcome: "waiting", reason: null as string | null,
+        key: null as string | null, partOf: null as number | null, extra: [] as string[],
+      };
+    }
     const read = rules.readRow(kind, run.columns, row.cells, { dayFirst: run.dayFirst, today });
     const problems = [...read.problems];
     const natural = rules.naturalKey(kind, read.values);
     const key = natural ?? rowHash(read.values);
+    /** What is wrong with the row's id rather than its reading, kept when its record's rows are read together. */
+    const extra: string[] = [];
     if (natural !== null && natural.length > rules.MAX_KEY_LENGTH) {
-      problems.push(`Its id is longer than ${rules.MAX_KEY_LENGTH} characters.`);
+      extra.push(`Its id is longer than ${rules.MAX_KEY_LENGTH} characters.`);
     }
     const before = seenKey.get(key);
+    /** Another line of an invoice, or another invoice a payment paid: part of the first row with its id. */
+    if (before !== undefined && grouped && natural !== null) {
+      return { id: row.id, rowNumber: row.rowNumber, outcome: "waiting", reason: null as string | null, key, partOf: before, extra };
+    }
     if (before !== undefined) {
-      problems.push(natural !== null
+      extra.push(natural !== null
         ? `Row ${before} has the same id, ${key}. Each ${one} once.`
         : `It is exactly the same as row ${before}.`);
     } else {
       seenKey.set(key, row.rowNumber);
     }
     /* A second row with the same number or code would be refused by the create; said here, naming the first. */
-    const number = kind === "pricebook" ? read.values["code"] : kind === "jobs" || kind === "invoices" ? read.values["number"] : undefined;
+    const number = kind === "pricebook" ? read.values["code"]
+      : kind === "jobs" || kind === "invoices" || kind === "estimates" ? read.values["number"] : undefined;
     if (number !== undefined && before === undefined) {
       const earlier = seenNumber.get(number);
       if (earlier !== undefined) {
-        problems.push(`Row ${earlier} has the same ${kind === "pricebook" ? "code" : "number"}, ${number}.`);
+        extra.push(`Row ${earlier} has the same ${kind === "pricebook" ? "code" : "number"}, ${number}.`);
       } else {
         seenNumber.set(number, row.rowNumber);
       }
     }
+    problems.push(...extra);
     return {
       id: row.id,
+      rowNumber: row.rowNumber,
       outcome: problems.length > 0 ? "refused" : "waiting",
       reason: problems.length > 0 ? problems.join(" ") : null,
       key,
+      partOf: null as number | null,
+      extra,
     };
   });
+
+  /**
+   * THE ROWS OF ONE RECORD, READ TOGETHER. A refusal of any of them is the
+   * whole record's, said once on its first row and carried by the rest, so
+   * the file of refused rows hands back every line of the invoice to fix
+   * together rather than the half that would load on its own.
+   */
+  if (grouped && !incomplete) {
+    const byNumber = new Map(rows.map((r) => [r.rowNumber, r]));
+    const heads = new Map(updates.filter((u) => u.partOf === null).map((u) => [u.rowNumber, u]));
+    const members = new Map<number, typeof updates>();
+    for (const u of updates) {
+      if (u.partOf === null) continue;
+      members.set(u.partOf, [...(members.get(u.partOf) ?? []), u]);
+    }
+    for (const [headNumber, parts] of members) {
+      const head = heads.get(headNumber)!;
+      const together = [head, ...parts];
+      const read = readTogether(kind, run, together.map((u) => ({ rowNumber: u.rowNumber, cells: byNumber.get(u.rowNumber)!.cells })), today);
+      const said = [...head.extra, ...read.problems];
+      const reason = said.length > 0 ? said.join(" ") : null;
+      for (const u of together) {
+        u.outcome = reason ? "refused" : "waiting";
+        u.reason = reason;
+      }
+    }
+    /** A payment on one row is still read as a payment: its amount, and whose it is. */
+    if (kind === "payments") {
+      for (const head of heads.values()) {
+        if (members.has(head.rowNumber) || head.outcome === "refused") continue;
+        const read = readTogether(kind, run, [{ rowNumber: head.rowNumber, cells: byNumber.get(head.rowNumber)!.cells }], today);
+        if (read.problems.length > 0) { head.outcome = "refused"; head.reason = read.problems.join(" "); }
+      }
+    }
+  }
+
   for (let i = 0; i < updates.length; i += 1000) {
     const chunk = updates.slice(i, i + 1000);
     await tx.execute(sql`
       update public.import_row r
-      set outcome = v.outcome, reason = v.reason, source_key = v.key,
+      set outcome = v.outcome, reason = v.reason, source_key = v.key, part_of = null,
           record_id = null, record_label = null, updated_at = now()
       from unnest(
         ${sql.param(chunk.map((u) => u.id))}::uuid[],
@@ -269,12 +328,36 @@ async function reread(tx: Database, ctx: ServiceContext, run: Run): Promise<void
       ) as v(id, outcome, reason, key)
       where r.id = v.id`);
   }
+  /** Each record's further rows, marked as part of its first, one record at a time. */
+  const partsOf = new Map<number, string[]>();
+  for (const u of updates) {
+    if (u.partOf !== null) partsOf.set(u.partOf, [...(partsOf.get(u.partOf) ?? []), u.id]);
+  }
+  for (const [head, ids] of partsOf) {
+    await tx.update(schema.importRow).set({ partOf: head }).where(inArray(schema.importRow.id, ids));
+  }
+}
+
+/**
+ * Several rows as one record: each read as a line when they are an
+ * invoice's, then together (`readGroup`). A row's own problems are said with
+ * its number, because the reason lands on every row of the record.
+ */
+function readTogether(
+  kind: Kind, run: Run, rows: ReadonlyArray<{ rowNumber: number; cells: string[] }>, today: string,
+): rules.GroupRead {
+  const line = rows.length > 1;
+  const read = rows.map((r) => ({ row: r.rowNumber, ...rules.readRow(kind, run.columns, r.cells, { dayFirst: run.dayFirst, today, line }) }));
+  const group = rules.readGroup(kind, read.map((r) => ({ row: r.row, values: r.values })));
+  const own = read.filter((r) => r.problems.length > 0)
+    .map((r) => (rows.length > 1 ? `Row ${r.row}: ${r.problems.join(" ")}` : r.problems.join(" ")));
+  return { ...group, problems: [...own, ...group.problems] };
 }
 
 /* --------------------------------------------------------------- upload, map */
 
 export async function start(
-  ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string },
+  ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string; holdAutomations?: boolean | undefined },
 ) {
   return guardedWrite(ctx, "data:import", async (tx) => {
     const again = await replayed<{ id: string }>(tx, ctx, "import_start");
@@ -301,6 +384,8 @@ export async function start(
       fileName: input.fileName.trim().slice(0, 300) || "spreadsheet.csv",
       source: saved?.source ?? "spreadsheet",
       dayFirst: saved?.dayFirst ?? false,
+      /** On unless the owner said otherwise: a file of history is not news to text anybody about. */
+      holdAutomations: input.holdAutomations ?? true,
       header: file.header,
       columns,
       mappingId: saved?.id ?? null,
@@ -320,6 +405,7 @@ export async function start(
     await reread(tx, ctx, run!);
     await audit(tx, ctx, "import.started", "import_run", run!.id, null, {
       kind: input.kind, fileName: run!.fileName, rows: file.rows.length, mapping: saved?.name ?? null,
+      holdAutomations: run!.holdAutomations,
     });
     await remember(tx, ctx, "import_start", run!.id, { id: run!.id });
     return detail(tx, ctx, run!);
@@ -328,7 +414,10 @@ export async function start(
 
 export async function map(
   ctx: ServiceContext,
-  input: { id: string; columns: Array<string | null>; source: string; dayFirst: boolean; saveAs?: string | undefined },
+  input: {
+    id: string; columns: Array<string | null>; source: string; dayFirst: boolean; saveAs?: string | undefined;
+    holdAutomations?: boolean | undefined;
+  },
 ) {
   return guardedWrite(ctx, "data:import", async (tx) => {
     const run = await loadRun(tx, input.id);
@@ -379,21 +468,26 @@ export async function map(
       mappingId = saved!.id;
     }
 
+    const holdAutomations = input.holdAutomations ?? run.holdAutomations;
     const [updated] = await tx.update(schema.importRun).set({
-      columns, source: input.source, dayFirst: input.dayFirst, mappingId,
+      columns, source: input.source, dayFirst: input.dayFirst, mappingId, holdAutomations,
       status: "mapping", checkedAt: null, updatedAt: new Date(),
     }).where(eq(schema.importRun.id, run.id)).returning();
     await reread(tx, ctx, updated!);
     await audit(tx, ctx, "import.mapped", "import_run", run.id,
-      { columns: run.columns, source: run.source, dayFirst: run.dayFirst },
-      { columns, source: input.source, dayFirst: input.dayFirst, savedAs: name ?? null });
+      { columns: run.columns, source: run.source, dayFirst: run.dayFirst, holdAutomations: run.holdAutomations },
+      { columns, source: input.source, dayFirst: input.dayFirst, savedAs: name ?? null, holdAutomations });
     return detail(tx, ctx, updated!);
   });
 }
 
 /* ---------------------------------------------------------------- one row */
 
-interface Pending { id: string; rowNumber: number; cells: string[]; sourceKey: string | null }
+interface Pending {
+  id: string; rowNumber: number; cells: string[]; sourceKey: string | null;
+  /** The other rows of the same record, in file order: an invoice's further lines, a payment's further invoices. */
+  parts: Array<{ rowNumber: number; cells: string[] }>;
+}
 interface RowResult { id: string; outcome: Outcome; reason: string | null; recordId: string | null; recordLabel: string | null }
 
 /** A row the creates refused, carrying where in the batch it was. */
@@ -404,9 +498,14 @@ class RowRefused extends Error {
   }
 }
 
-/** The service context a row's creates run under: the owner's, with no idempotency key of the upload's own. */
-function rowContext(ctx: ServiceContext, db: Database): ServiceContext {
-  return { actor: ctx.actor, db, ...(ctx.agentId ? { agentId: ctx.agentId } : {}) };
+/**
+ * The service context a row's creates run under: the owner's, with no
+ * idempotency key of the upload's own, and the file named, so every event
+ * the creates raise says it came from this file and the workflow engine can
+ * hold it when the file says so.
+ */
+function rowContext(ctx: ServiceContext, db: Database, run: Run): ServiceContext {
+  return { actor: ctx.actor, db, importRunId: run.id, ...(ctx.agentId ? { agentId: ctx.agentId } : {}) };
 }
 
 const SAID: Record<string, string> = {
@@ -545,11 +644,16 @@ async function loadOne(
 ): Promise<{ outcome: "loaded" | "already"; recordId: string; recordLabel: string }> {
   const kind = kindOf(run);
   const read = rules.readRow(kind, run.columns, row.cells, { dayFirst: run.dayFirst, today: clock.today });
-  if (read.problems.length > 0) throw new ConflictError(read.problems.join(" "));
-  const v = read.values;
-  const key = row.sourceKey ?? rules.naturalKey(kind, v) ?? rowHash(v);
+  /** A record of several rows, or a payment, is read together; anything else is the one row. */
+  const together = rules.isGrouped(kind)
+    ? readTogether(kind, run, [{ rowNumber: row.rowNumber, cells: row.cells }, ...row.parts], clock.today)
+    : null;
+  const problems = together ? together.problems : read.problems;
+  if (problems.length > 0) throw new ConflictError(problems.join(" "));
+  const v = together ? together.values : read.values;
+  const key = row.sourceKey ?? rules.naturalKey(kind, v) ?? rowHash(read.values);
   const externalRef = { source: run.source, id: key };
-  const as = rowContext(ctx, db);
+  const as = rowContext(ctx, db, run);
 
   const existing = await claimed(db, kind, run.source, key);
   if (existing) {
@@ -652,9 +756,6 @@ async function loadOne(
       const customer = await customerFor(db, run.source, v);
       const jobId = v["jobRef"] !== undefined ? await jobFor(db, run.source, v["jobRef"]) : undefined;
       const number = keptNumber(v["number"]);
-      const tax = v["tax"]!;
-      const subtotal = v["subtotal"]!;
-      const taxed = !m.isZero(m.money(tax));
       const input = createInvoice.input.parse({
         ...(number !== undefined ? { number } : {}),
         externalRef,
@@ -663,18 +764,27 @@ async function loadOne(
         issuedOn: v["issuedOn"],
         ...(v["dueOn"] ? { dueOn: v["dueOn"] } : {}),
         ...(number === undefined && v["number"] !== undefined ? { memo: `Numbered ${v["number"]} before.` } : {}),
-        lines: [{
-          name: v["description"] ?? "As billed",
-          quantity: "1",
-          unitPrice: subtotal,
-          taxable: taxed,
-          ...(taxed ? { taxRate: rules.taxRateOf(tax, subtotal), taxAmount: tax } : {}),
-        }],
+        /**
+         * One line per row, each at its quantity and price each (or one at
+         * its amount before tax), with the tax that row says was charged on
+         * it. The rate is what that tax was charged at, and the invoice
+         * checks the two agree to within a cent, line by line.
+         */
+        lines: together!.lines.map((line) => {
+          const taxed = !m.isZero(m.money(line.tax));
+          return {
+            name: line.name,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            taxable: taxed,
+            ...(taxed ? { taxRate: rules.taxRateOf(line.tax, line.subtotal), taxAmount: line.tax } : {}),
+          };
+        }),
         expectedTotals: { total: v["total"] },
       });
       const invoice = await billing.create(as, input);
       const paid = v["paid"];
-      let said = `Invoice ${invoice.number}`;
+      let said = `Invoice ${invoice.number}${together!.lines.length > 1 ? `, ${together!.lines.length} lines` : ""}`;
       if (paid !== undefined && m.isPositive(m.money(paid))) {
         await billing.pay(as, recordPayment.input.parse({
           externalRef: { source: run.source, id: `${key}/payment` },
@@ -688,7 +798,112 @@ async function loadOne(
       }
       return { outcome: "loaded", recordId: invoice.id, recordLabel: said };
     }
+
+    case "estimates": {
+      /**
+       * AN ESTIMATE AS IT ENDED. One option, one line at the amount before
+       * tax, taxed at the rate its tax was charged at (or not at all: never
+       * at the company's rate of today), with how it ended and the day it
+       * was sent recorded through the create's own history fields, which
+       * emit nothing and record no signature. The total is checked against
+       * the file's afterwards, so a cent of rounding is a refusal in words
+       * rather than a quote that disagrees with the customer's copy.
+       */
+      const customer = await customerFor(db, run.source, v);
+      const propertyId = await propertyFor(db, customer, v["street"]);
+      const jobId = v["jobRef"] !== undefined ? await jobFor(db, run.source, v["jobRef"]) : undefined;
+      const number = keptNumber(v["number"]);
+      const subtotal = v["subtotal"]!;
+      const tax = v["tax"]!;
+      const taxed = !m.isZero(m.money(tax));
+      const outcome = v["outcome"] as "approved" | "declined" | "expired" | "open";
+      const title = v["title"] ?? (number === undefined && v["number"] !== undefined ? `Numbered ${v["number"]} before` : undefined);
+      const input = createEstimate.input.parse({
+        ...(number !== undefined ? { number } : {}),
+        externalRef,
+        customerId: customer.id,
+        propertyId,
+        ...(jobId ? { jobId } : {}),
+        ...(title ? { title } : {}),
+        issuedOn: v["issuedOn"],
+        ...(taxed ? { taxRate: rules.taxRateOf(tax, subtotal) } : { taxRateId: null }),
+        options: [{
+          name: "As quoted", isRecommended: true,
+          lines: [{ name: v["title"] ?? "As quoted", quantity: "1", unitPrice: subtotal, taxable: taxed }],
+        }],
+        ...(outcome !== "open" ? {
+          outcome: {
+            status: outcome, on: v["decidedOn"],
+            ...(outcome === "approved" ? { chosenOption: 0 } : {}),
+            ...(outcome === "declined" && v["reason"] ? { reason: v["reason"] } : {}),
+          },
+        } : {}),
+        ...(v["sentOn"] ? { sentOn: v["sentOn"] } : {}),
+      });
+      const estimate = await estimates.create(as, input);
+      const total = estimate.options[0]?.total ?? "0";
+      if (m.compare(m.money(total), m.money(v["total"]!)) !== 0) {
+        throw new ConflictError(
+          `Written here it comes to ${rules.trimMoney(m.toString(m.money(total)))}, not the ${rules.trimMoney(v["total"]!)} in the file. `
+          + "Check its tax: an estimate's tax is worked out from its rate.",
+        );
+      }
+      const how = outcome === "open" ? "open, to send from here" : outcome;
+      return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${how}` };
+    }
+
+    case "payments": {
+      /**
+       * ONE PAYMENT, ON EVERY INVOICE ITS ROWS NAME. Each invoice is found
+       * the way an invoice finds its job: by the id an invoices file gave it
+       * under the same "came from" name, or by the number it kept. A row
+       * naming no invoice is money held for the customer, applied to
+       * nothing, which is what the payment create does with it.
+       */
+      const allocations: Array<{ invoiceId: string; amount: string }> = [];
+      let owner: { id: string; name: string } | null = null;
+      for (const share of together!.allocations) {
+        if (share.invoiceRef === null) continue;
+        const invoice = await invoiceFor(db, run.source, share.invoiceRef);
+        allocations.push({ invoiceId: invoice.id, amount: share.amount });
+        owner ??= { id: invoice.customerId, name: invoice.customerName };
+      }
+      const named = v["customerRef"] !== undefined || v["customerEmail"] !== undefined ? await customerFor(db, run.source, v) : null;
+      const customer = named ?? owner;
+      if (!customer) throw new ConflictError("Neither the invoice nor the customer is filled in, so there is no telling whose money it is.");
+      const payment = await billing.pay(as, recordPayment.input.parse({
+        externalRef,
+        customerId: customer.id,
+        method: v["method"] ?? "other",
+        amount: v["amount"],
+        receivedAt: instantOf(v["paidOn"]!, clock.today, clock.timeZone),
+        allocations,
+        ...(v["checkNumber"] ? { checkNumber: v["checkNumber"] } : {}),
+        ...(v["memo"] ? { notes: v["memo"] } : {}),
+      }));
+      const on = allocations.length === 0 ? "held for them" : allocations.length === 1 ? "on 1 invoice" : `on ${allocations.length} invoices`;
+      return { outcome: "loaded", recordId: payment.id, recordLabel: `Payment of ${rules.trimMoney(v["amount"]!)} from ${customer.name}, ${on}` };
+    }
   }
+}
+
+/** An invoice by the id an invoices file gave it, or by the number it kept. */
+async function invoiceFor(tx: Database, source: string, ref: string): Promise<{ id: string; customerId: string; customerName: string }> {
+  const fields = {
+    id: schema.invoice.id, customerId: schema.invoice.customerId, customerName: schema.customer.name,
+  };
+  const [byRef] = await tx.select(fields).from(schema.invoice)
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.invoice.customerId))
+    .where(byExternal(schema.invoice, { externalSource: source, externalId: ref })).limit(1);
+  if (byRef) return byRef;
+  const number = keptNumber(ref.replace(/^#/, ""));
+  if (number !== undefined) {
+    const [byNumber] = await tx.select(fields).from(schema.invoice)
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.invoice.customerId))
+      .where(eq(schema.invoice.number, number)).limit(1);
+    if (byNumber) return byNumber;
+  }
+  throw new ConflictError(`There is no invoice ${ref}. Bring in the invoices file first, under the same name for where it came from.`);
 }
 
 function unitLabel(category: string, serial: string | null, customer?: string): string {
@@ -719,6 +934,16 @@ async function labelOf(tx: Database, kind: Kind, id: string): Promise<string> {
       const [row] = await tx.select({ number: schema.invoice.number }).from(schema.invoice).where(eq(schema.invoice.id, id)).limit(1);
       return `Invoice ${row?.number ?? ""}`.trim();
     }
+    case "estimates": {
+      const [row] = await tx.select({ number: schema.estimate.number }).from(schema.estimate).where(eq(schema.estimate.id, id)).limit(1);
+      return `Estimate ${row?.number ?? ""}`.trim();
+    }
+    case "payments": {
+      const [row] = await tx.select({ amount: schema.payment.amount, name: schema.customer.name }).from(schema.payment)
+        .innerJoin(schema.customer, eq(schema.customer.id, schema.payment.customerId))
+        .where(eq(schema.payment.id, id)).limit(1);
+      return row ? `Payment of ${rules.trimMoney(String(row.amount))} from ${row.name}` : "A payment";
+    }
   }
 }
 
@@ -727,7 +952,7 @@ async function tryRow(
   ctx: ServiceContext, db: Database, run: Run, row: Pending, clock: { today: string; timeZone: string },
 ): Promise<RowResult> {
   try {
-    const done = await inTenant(rowContext(ctx, db), (sp) => loadOne(sp, ctx, run, row, clock));
+    const done = await inTenant(rowContext(ctx, db, run), (sp) => loadOne(sp, ctx, run, row, clock));
     return { id: row.id, outcome: done.outcome, reason: null, recordId: done.recordId, recordLabel: done.recordLabel };
   } catch (error) {
     const said = refusalOf(error);
@@ -751,6 +976,13 @@ async function writeOutcomes(tx: Database, results: readonly RowResult[]): Promi
         ${sql.param(chunk.map((r) => r.recordLabel))}::text[]
       ) as v(id, outcome, reason, record_id, record_label)
       where r.id = v.id`);
+    /** The rest of each record's rows take the outcome of the row that loaded them. */
+    await tx.execute(sql`
+      update public.import_row f
+      set outcome = h.outcome, reason = h.reason, record_id = h.record_id, record_label = h.record_label, updated_at = now()
+      from public.import_row h
+      where h.id = any(${sql.param(chunk.map((r) => r.id))}::uuid[])
+        and f.run_id = h.run_id and f.part_of = h.row_number`);
   }
 }
 
@@ -773,12 +1005,23 @@ async function progress(tx: Database, run: Run, tried: number, more: (counts: Re
 type Progress = Awaited<ReturnType<typeof progress>>;
 
 async function nextRows(tx: Database, runId: string, outcome: Outcome): Promise<Pending[]> {
-  return tx.select({
+  /** Only the first row of each record is tried; it carries the rest. */
+  const heads = await tx.select({
     id: schema.importRow.id, rowNumber: schema.importRow.rowNumber,
     cells: schema.importRow.cells, sourceKey: schema.importRow.sourceKey,
   }).from(schema.importRow)
-    .where(and(eq(schema.importRow.runId, runId), eq(schema.importRow.outcome, outcome)))
+    .where(and(eq(schema.importRow.runId, runId), eq(schema.importRow.outcome, outcome), isNull(schema.importRow.partOf)))
     .orderBy(asc(schema.importRow.rowNumber)).limit(rules.BATCH_SIZE);
+  if (heads.length === 0) return [];
+  const parts = await tx.select({
+    partOf: schema.importRow.partOf, rowNumber: schema.importRow.rowNumber, cells: schema.importRow.cells,
+  }).from(schema.importRow)
+    .where(and(eq(schema.importRow.runId, runId), inArray(schema.importRow.partOf, heads.map((h) => h.rowNumber))))
+    .orderBy(asc(schema.importRow.rowNumber));
+  return heads.map((head) => ({
+    ...head,
+    parts: parts.filter((p) => p.partOf === head.rowNumber).map((p) => ({ rowNumber: p.rowNumber, cells: p.cells })),
+  }));
 }
 
 /* ------------------------------------------------------------------ check */
@@ -899,7 +1142,7 @@ export async function load(ctx: ServiceContext, input: { id: string }): Promise<
         const results: RowResult[] = [];
         for (const [index, row] of attempt.entries()) {
           try {
-            const done = await inTenant(rowContext(ctx, tx), (sp) => loadOne(sp, ctx, run, row, clock));
+            const done = await inTenant(rowContext(ctx, tx, run), (sp) => loadOne(sp, ctx, run, row, clock));
             results.push({ id: row.id, outcome: done.outcome, reason: null, recordId: done.recordId, recordLabel: done.recordLabel });
           } catch (error) {
             const said = refusalOf(error);
@@ -962,11 +1205,15 @@ export async function removeMapping(ctx: ServiceContext, input: { id: string }) 
 
 export const handlers = {
   listImports: (ctx: ServiceContext) => list(ctx),
-  startImport: (ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string }) => start(ctx, input),
+  startImport: (ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string; holdAutomations?: boolean | undefined }) =>
+    start(ctx, input),
   getImport: (ctx: ServiceContext, input: { id: string }) => get(ctx, input),
   mapImport: (
     ctx: ServiceContext,
-    input: { id: string; columns: Array<string | null>; source: string; dayFirst: boolean; saveAs?: string | undefined },
+    input: {
+      id: string; columns: Array<string | null>; source: string; dayFirst: boolean; saveAs?: string | undefined;
+      holdAutomations?: boolean | undefined;
+    },
   ) => map(ctx, input),
   checkImport: (ctx: ServiceContext, input: { id: string }) => check(ctx, input),
   loadImport: (ctx: ServiceContext, input: { id: string }) => load(ctx, input),

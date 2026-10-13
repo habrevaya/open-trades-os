@@ -42,14 +42,14 @@ export default async function ImportsPage() {
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Bring in a spreadsheet" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        Bring in customers, equipment, price book items, past jobs or past invoices from a file. You match the columns,
+        Bring in customers, equipment, price book items, past jobs, past invoices or past payments from a file. You match the columns,
         we check every row and show you anything that will not go in and why, and only then is anything loaded.
         Bringing in the same file twice does not make copies.
       </p>
       <p className="mt-2 max-w-2xl text-sm text-ink-500">
         CSV files only. In your spreadsheet program choose Save As or Download and pick CSV. A file can be up to 5 MB
         and {rules.MAX_ROWS.toLocaleString("en-US")} rows. Bring in customers first: jobs, equipment and invoices are
-        matched to them.
+        matched to them. Bring in invoices before payments: a payment is matched to the invoices it paid.
       </p>
 
       <section className="mt-6" aria-labelledby="upload">
