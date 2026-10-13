@@ -85,6 +85,10 @@ export const getMultiDayRebalance = defineRoute({
         displayName: z.string(),
         color: z.string().nullable(),
         timeOff: z.boolean(),
+        /** All of the day off. A person with only part of it off is offered the rest of it. */
+        timeOffWholeDay: z.boolean(),
+        /** The hours off, for a part day. A visit is refused to this person only when its hours meet one of them. */
+        timeOffHours: z.array(z.object({ startsAt: z.string().datetime(), endsAt: z.string().datetime() })),
         before: RebalancedDay,
         after: RebalancedDay,
       })),

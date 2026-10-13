@@ -6874,6 +6874,11 @@ export interface GetCrewAvailabilityOutput {
     availableOn: number;
     offOn: number;
   };
+  partDayOff: Array<{
+    technicianId: string;
+    name: string;
+    hours: string;
+  }>;
   leadDesignated: boolean;
   equipmentBasis: "job_type" | "none_declared";
   registeredEquipment: string[];
@@ -7240,6 +7245,11 @@ export interface GetDispatchMapOutput {
     displayName: string;
     color: string | null;
     timeOff: boolean;
+    timeOffWholeDay: boolean;
+    timeOffHours: Array<{
+      startsAt: string;
+      endsAt: string;
+    }>;
     start: {
       locationId: string;
       name: string;
@@ -9118,6 +9128,11 @@ export interface GetMultiDayRebalanceOutput {
       displayName: string;
       color: string | null;
       timeOff: boolean;
+      timeOffWholeDay: boolean;
+      timeOffHours: Array<{
+        startsAt: string;
+        endsAt: string;
+      }>;
       before: {
         order: string[];
         driveMinutes: number;
@@ -10419,6 +10434,11 @@ export interface GetRebalanceOutput {
     displayName: string;
     color: string | null;
     timeOff: boolean;
+    timeOffWholeDay: boolean;
+    timeOffHours: Array<{
+      startsAt: string;
+      endsAt: string;
+    }>;
     before: {
       order: string[];
       driveMinutes: number;
@@ -12883,6 +12903,11 @@ export interface ListCrewsForJobOutput {
       availableOn: number;
       offOn: number;
     };
+    partDayOff: Array<{
+      technicianId: string;
+      name: string;
+      hours: string;
+    }>;
     leadDesignated: boolean;
     equipmentBasis: "job_type" | "none_declared";
     registeredEquipment: string[];

@@ -32414,7 +32414,7 @@
       "get": {
         "operationId": "getCrewAvailability",
         "summary": "Can this crew take this job, on this day",
-        "description": "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.\n\nRequires a session holding: visit:read.",
+        "description": "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Leave is read by the hour: asked about a job that has a visit that date, a person is off when their approved leave meets that visit's hours, and asked about a date alone, when it covers every hour the company works that day; anyone with only part of the day off is listed in `partDayOff`. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -169686,6 +169686,29 @@
               "offOn"
             ]
           },
+          "partDayOff": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "technicianId",
+                "name",
+                "hours"
+              ]
+            }
+          },
           "leadDesignated": {
             "type": "boolean"
           },
@@ -169714,6 +169737,7 @@
           "unavailableEquipment",
           "missingSkills",
           "headcount",
+          "partDayOff",
           "leadDesignated",
           "equipmentBasis",
           "registeredEquipment"
@@ -171501,6 +171525,29 @@
                 "timeOff": {
                   "type": "boolean"
                 },
+                "timeOffWholeDay": {
+                  "type": "boolean"
+                },
+                "timeOffHours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "endsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "startsAt",
+                      "endsAt"
+                    ]
+                  }
+                },
                 "start": {
                   "type": [
                     "object",
@@ -171580,6 +171627,8 @@
                 "displayName",
                 "color",
                 "timeOff",
+                "timeOffWholeDay",
+                "timeOffHours",
                 "start",
                 "startIsCompanyDefault",
                 "inScope",
@@ -181521,6 +181570,29 @@
                       "timeOff": {
                         "type": "boolean"
                       },
+                      "timeOffWholeDay": {
+                        "type": "boolean"
+                      },
+                      "timeOffHours": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "startsAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "endsAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "startsAt",
+                            "endsAt"
+                          ]
+                        }
+                      },
                       "before": {
                         "type": "object",
                         "properties": {
@@ -181671,6 +181743,8 @@
                       "displayName",
                       "color",
                       "timeOff",
+                      "timeOffWholeDay",
+                      "timeOffHours",
                       "before",
                       "after"
                     ]
@@ -188521,6 +188595,29 @@
                 "timeOff": {
                   "type": "boolean"
                 },
+                "timeOffWholeDay": {
+                  "type": "boolean"
+                },
+                "timeOffHours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "endsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "startsAt",
+                      "endsAt"
+                    ]
+                  }
+                },
                 "before": {
                   "type": "object",
                   "properties": {
@@ -188671,6 +188768,8 @@
                 "displayName",
                 "color",
                 "timeOff",
+                "timeOffWholeDay",
+                "timeOffHours",
                 "before",
                 "after"
               ]
@@ -201539,6 +201638,29 @@
                     "offOn"
                   ]
                 },
+                "partDayOff": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "hours": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "name",
+                      "hours"
+                    ]
+                  }
+                },
                 "leadDesignated": {
                   "type": "boolean"
                 },
@@ -201567,6 +201689,7 @@
                 "unavailableEquipment",
                 "missingSkills",
                 "headcount",
+                "partDayOff",
                 "leadDesignated",
                 "equipmentBasis",
                 "registeredEquipment"

@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { test, expect, run, newCustomer } from "./fixtures";
+import { test, expect, run, newCustomer, companyToday } from "./fixtures";
 
 /**
  * SMALLER GAPS IN THE OFFICE AND IN THE FIELD
@@ -171,4 +171,91 @@ test("an escalation rule can count the hours you work, and be switched back to e
   await expect(row).toContainText("When a task is 12 hours late, tell the office managers.");
   await row.getByRole("button", { name: "Count working hours" }).click();
   await expect(row).toContainText("12 working hours late");
+});
+
+/* ------------------------------------------------------------------ part days off */
+
+const ZONE = "America/Chicago";
+const plus = (date: string, days: number) => {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+/** A wall clock time on a day in Austin, as an instant. */
+const clock = (day: string, hour: number) => {
+  const local = new Date(`${day}T${String(hour).padStart(2, "0")}:00:00Z`);
+  const offset = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, timeZoneName: "shortOffset" })
+    .formatToParts(local).find((p) => p.type === "timeZoneName")!.value;
+  return new Date(local.getTime() - Number(offset.replace("GMT", "") || "0") * 3_600_000).toISOString();
+};
+const longDay = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
+  weekday: "long", month: "long", day: "numeric", timeZone: "UTC",
+});
+
+async function api<T>(page: Page, method: "get" | "post" | "put" | "patch", path: string, data?: unknown): Promise<T> {
+  const response = await page.request[method](`/api${path}`, data === undefined ? {} : { data });
+  expect(response.ok(), `${method.toUpperCase()} ${path}: ${await response.text()}`).toBe(true);
+  return response.json() as Promise<T>;
+}
+
+test("a morning visit is moved to a day everybody has the afternoon off, because leave is read by the hour", async ({ owner }) => {
+  test.setTimeout(180_000);
+  /** A Tuesday and the Wednesday after it, far enough out to be clear of the other rebalance spec's days. */
+  let DAY = plus(companyToday(), 19);
+  while (new Date(`${DAY}T12:00:00Z`).getUTCDay() !== 2) DAY = plus(DAY, 1);
+  const NEXT = plus(DAY, 1);
+
+  const { locations } = await api<{ locations: { id: string; name: string }[] }>(owner, "get", "/v1/locations");
+  const shop = locations.find((l) => l.name === "Shop") ?? locations[0]!;
+  await api(owner, "post", `/v1/locations/${shop.id}/pin`, { latitude: 30.33, longitude: -97.72 });
+  const { technicians } = await api<{ technicians: { id: string; displayName: string }[] }>(owner, "get", "/v1/technicians");
+  const sam = technicians.find((t) => t.displayName === "Sam Reyes")!;
+  for (const t of technicians) await api(owner, "patch", `/v1/technicians/${t.id}`, { homeLocationId: shop.id });
+
+  /** Everybody but Sam is off the whole of the first day, so the overflow cannot go to somebody else. */
+  for (const t of technicians.filter((x) => x.id !== sam.id)) {
+    const off = await api<{ id: string }>(owner, "post", "/v1/time-off", {
+      technicianId: t.id, startsAt: clock(DAY, 0), endsAt: clock(DAY, 23), reason: "Training",
+    });
+    await api(owner, "post", `/v1/time-off/${off.id}/approve`, {});
+  }
+  /** And everybody has the afternoon of the second day off: the morning is still theirs. */
+  for (const t of technicians) {
+    const off = await api<{ id: string }>(owner, "post", "/v1/time-off", {
+      technicianId: t.id, startsAt: clock(NEXT, 12), endsAt: clock(NEXT, 17), reason: "Dentist",
+    });
+    await api(owner, "post", `/v1/time-off/${off.id}/approve`, {});
+  }
+
+  const visitIds: string[] = [];
+  for (const [i, lng] of [-97.715, -97.71, -97.705, -97.70, -97.695].entries()) {
+    const name = i === 4 ? `Morning flexible ${run}` : `Morning fixed ${i} ${run}`;
+    const customerId = await newCustomer(owner, {
+      name, address: { street: `${run.slice(-4)}${i} Half Day Rd`, city: "Austin", state: "TX", zip: "78723" },
+    });
+    const { data } = await api<{ data: { id: string }[] }>(owner, "get", `/v1/properties?customerId=${customerId}`);
+    await api(owner, "post", `/v1/properties/${data[0]!.id}/pin`, { latitude: 30.33, longitude: lng });
+    const job = await api<{ visits: { id: string }[] }>(owner, "post", "/v1/jobs", {
+      customerId, propertyId: data[0]!.id, summary: `Two hour job ${i} ${run}`,
+      visit: {
+        windowStart: clock(DAY, 8), windowEnd: clock(DAY, i === 4 ? 11 : 17), estimatedDurationMinutes: 120, technicianIds: [sam.id],
+      },
+    });
+    visitIds.push(job.visits[0]!.id);
+  }
+  const flexible = visitIds[4]!;
+
+  await owner.goto(`/visits/${flexible}`);
+  const agreed = owner.getByRole("region", { name: "Days it may move to" });
+  await agreed.getByLabel("From").fill(DAY);
+  await agreed.getByLabel("To").fill(NEXT);
+  await agreed.getByRole("button", { name: "Save" }).click();
+  await expect(agreed.getByRole("status")).toContainText("Saved.");
+
+  await owner.goto(`/schedule?date=${DAY}`);
+  await owner.getByRole("link", { name: "Rebalance several days" }).click();
+  await expect(owner.getByRole("heading", { level: 1, name: "Rebalance several days" })).toBeVisible();
+  const moved = owner.getByRole("table", { name: "Moved to another day" });
+  await expect(moved.getByRole("row").filter({ hasText: `Morning flexible ${run}` })).toContainText("A range of days");
+  await expect(owner.getByRole("region", { name: longDay(NEXT) })).toContainText(`Morning flexible ${run}`);
 });

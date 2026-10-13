@@ -168,9 +168,30 @@ and `timeOffHours`, the part hours of the day joined and clipped to it. The colu
 says "Off 1:00 PM to the end of the day." and warns of the jobs that run into those
 hours only, and the rest of the day is theirs to be given work; a whole day says
 "Off today.", and a leave that only touches the day (it begins the instant today ends)
-is not on it. The crew check, the map's suggestions and the multi day rebalance still
-count a technician with any approved leave on a day as off for the whole of it, which
-is the conservative reading for the people planning the day. Whoever approves the
+is not on it. The crew check, the map's suggestions and the multi day rebalance read
+it by the hour too:
+
+- The dispatch map's "Suggest who" (`GET /v1/dispatch/suggestions`) and the multi day
+  rebalance (`GET /v1/dispatch/rebalance-days`) refuse a visit to a person only when the
+  visit's hours meet their leave, in words ("Ray Ortiz is on approved time off from 1:00
+  PM to 5:00 PM on 2026-10-06, when that visit is."). A person with the afternoon off is
+  offered the morning's visits, and one off all day is refused everything, as before.
+  A visit moved to another day by the rebalance is asked about at the same times of day
+  on that day. The map's and the rebalance's technicians carry `timeOff` (some leave),
+  `timeOffWholeDay` and `timeOffHours`, as the board's do.
+- The crew check (`GET /v1/crews/{id}/availability`, `GET /v1/crews/for-job` and putting
+  a crew on a visit, `POST /v1/visits/{id}/crew`) asks about the visit's hours when it has
+  them: assigning a crew, and a job with a visit that date, count a member as off when
+  their leave meets those hours, and the refusal says "when that visit is". A question
+  about a date alone, where the job has no visit that day, counts a member as off when
+  their leave covers every hour the company works that day (its weekly hours and holiday
+  list, or eight to five when it keeps none, forgiving a minute so a leave written to
+  23:59 is still a whole day), and lists anybody with only part of the day off in
+  `partDayOff` with their hours, as a note and never a reason to refuse the work. The
+  rule is core's `time.leaveMeets`, `time.leaveCovers` and `holidays.workingSpanOn`,
+  with unit tests. The multi day rebalance asks a crew about the hours the visit
+  would have on each day.
+
 hours answers on `/timesheets/time-off` (`GET /v1/time-off/pending`,
 `POST /v1/time-off/{id}/approve`, `POST /v1/time-off/{id}/decline`, all
 `timesheet:approve`), which also lists the leave already granted that is still
@@ -446,10 +467,11 @@ against the tax authority's allowance. Certified payroll reporting is not built.
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.
-Part of a day off is read by the hour on the booking page, in booking a visit and
-on the dispatch board; the crew check, the dispatch map's suggestions and the multi
-day rebalance still treat any leave on a day as the whole day, so they will not put
-somebody on a day they have a few hours off, which is careful and not exact. There is
+Part of a day off is read by the hour on the booking page, in booking a visit, on the
+dispatch board, in the crew check, in the map's suggestions and in the multi day
+rebalance. The planner keeps a visit out of the hours somebody is off, but it does not
+plan around them: it does not know a person's route would run into the afternoon they
+are off, so a day it orders for them is not shortened to the morning. There is
 no leave of part of the first day and a different part of the last other than the one
 pair of times (from a time on the first day to a time on the last), and no recurring
 part day off.

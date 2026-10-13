@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  workingHoursOn, workingMinutesBetween, type CompanyHoliday, type WeekHours, type WorkingCalendar,
+  workingHoursOn, workingMinutesBetween, workingSpanOn, type CompanyHoliday, type WeekHours, type WorkingCalendar,
 } from "../src/holidays/index.js";
 import { escalationDue, minutesLate } from "../src/tasks/index.js";
 import { instantOfLocal } from "../src/time/index.js";
@@ -126,5 +126,27 @@ describe("escalating by working hours", () => {
   it("still leaves finished and undated tasks alone", () => {
     expect(escalationDue({ ...task, status: "done" }, rule, at("2026-10-09", "12:00"), calendar())).toBe(false);
     expect(escalationDue({ ...task, dueAt: null }, rule, at("2026-10-09", "12:00"), calendar())).toBe(false);
+  });
+});
+
+describe("the stretch of a date the company works", () => {
+  const span = (date: string, over: Partial<WorkingCalendar> = {}) => {
+    const s = workingSpanOn(date, calendar(over));
+    return [s.start.toISOString(), s.end.toISOString()];
+  };
+
+  it("is its hours that day, as instants in its own zone", () => {
+    expect(span("2026-10-05")).toEqual([at("2026-10-05", "08:00").toISOString(), at("2026-10-05", "17:00").toISOString()]);
+  });
+
+  it("is the whole calendar day when it is shut, or keeps no hours, so a question about leave is never about nothing", () => {
+    const whole = [instantOfLocal("2026-10-04", 0, ZONE).toISOString(), instantOfLocal("2026-10-05", 0, ZONE).toISOString()];
+    expect(span("2026-10-04")).toEqual(whole);
+    expect(span("2026-10-04", { week: null })).toEqual(whole);
+  });
+
+  it("is a short day's own hours on a holiday that keeps some", () => {
+    const eve: CompanyHoliday = { name: "Christmas Eve", date: "2026-12-24", repeatsYearly: false, closed: false, openMinute: 480, closeMinute: 720 };
+    expect(span("2026-12-24", { holidays: [eve] })).toEqual([at("2026-12-24", "08:00").toISOString(), at("2026-12-24", "12:00").toISOString()]);
   });
 });

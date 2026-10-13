@@ -175,8 +175,9 @@ window of the agreement visit it delivers, or the days of the week set on
 the customer as the days that suit them (and inside both when there are
 both). Never onto today or off it, because a customer expecting somebody
 this afternoon has not agreed to Thursday, and never onto a day the company
-is closed. The same constraints hold on the new day (skills and time off on
-that day, the window at the same wall clock times, the overtime limit and
+is closed. The same constraints hold on the new day (skills and time off at the
+hours the visit would have on that day, so a person with the afternoon off still
+takes a morning visit, the window at the same wall clock times, the overtime limit and
 lunch), and a visit moves day only when that keeps a promise or a limit,
 places work no day could take, cuts overtime, or saves at least fifteen
 minutes of driving, a higher bar than moving it between two people because
@@ -257,7 +258,8 @@ words.
 
 **Who should take the unassigned work is a suggestion too.** Each unassigned
 visit goes to the technician it adds the least driving to without breaking a
-window, among those whose skills and time off allow it, and every technician
+window, among those whose skills and time off allow it (a person off for part of the day is
+ruled out only of the visits whose hours meet theirs), and every technician
 considered is listed with their figure or the reason they were ruled out.
 Members whose plan promises priority dispatch are placed first, so the
 cheapest gap on the day goes to them, and the suggestion names the plan;
@@ -436,7 +438,9 @@ breaking the series. `/recurring` is the screen.
 
 `POST /v1/time-off` is a request, with `timeclock:own`, so anybody can ask.
 `POST /v1/time-off/{id}/approve` needs `timesheet:approve`. Approved time off is
-on the board and is checked when a visit is booked, for work still to come only.
+on the board and is checked when a visit is booked, for work still to come only. It is read by the hour
+everywhere it is read: the board, booking, putting a crew on a visit, the map's
+suggestions and the multi day rebalance (M17 says how).
 
 ## Permissions
 

@@ -1,4 +1,4 @@
-import { addDays, dateIn, minutesInDay } from "../time/index.js";
+import { addDays, dateIn, dayBoundsIn, instantOfLocal, minutesInDay } from "../time/index.js";
 import type { Holiday as PhoneHoliday } from "../telephony/index.js";
 
 /**
@@ -284,4 +284,23 @@ export function workingMinutesBetween(
     if (total >= stopAt) return total;
   }
   return total;
+}
+
+/**
+ * The stretch of one date the company works, as instants: its hours that day,
+ * or the whole calendar day when it is shut that day or keeps no hours, so a
+ * question about leave on a closed day is asked of the day and never of nothing.
+ * A leave "from 7 to 6" covers every working hour of a company that works 7 to
+ * 6, which a leave measured against the calendar day would not.
+ */
+export function workingSpanOn(
+  date: string, calendar: WorkingCalendar,
+): { start: Date; end: Date } {
+  const hours = workingHoursOn(date, calendar);
+  if (!hours) return dayBoundsIn(date, calendar.timeZone);
+  const whole = dayBoundsIn(date, calendar.timeZone);
+  return {
+    start: hours.openMinute === 0 ? whole.start : instantOfLocal(date, hours.openMinute, calendar.timeZone),
+    end: hours.closeMinute >= 24 * 60 ? whole.end : instantOfLocal(date, hours.closeMinute, calendar.timeZone),
+  };
 }

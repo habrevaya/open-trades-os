@@ -198,6 +198,13 @@ export const CrewVerdict = z.object({
     availableOn: z.number().int(),
     offOn: z.number().int(),
   }),
+  /**
+   * Who is there for part of the day and not for all of it, and when they are not. Said beside the verdict and
+   * never a reason to refuse the work: leave is read by the hour. With the job's visit hours known (the job has a
+   * visit that date) a person whose leave meets them is off and one whose leave does not is on the crew;
+   * for a date alone a person is off when their leave covers every hour the company works that day.
+   */
+  partDayOff: z.array(z.object({ technicianId: Uuid, name: z.string(), hours: z.string() })),
   leadDesignated: z.boolean(),
   /**
    * Where the equipment requirement came from. `none_declared` means the job
@@ -220,7 +227,7 @@ export const getCrewAvailability = defineRoute({
   path: "/v1/crews/{id}/availability",
   summary: "Can this crew take this job, on this day",
   description:
-    "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.",
+    "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Leave is read by the hour: asked about a job that has a visit that date, a person is off when their approved leave meets that visit's hours, and asked about a date alone, when it covers every hour the company works that day; anyone with only part of the day off is listed in `partDayOff`. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({
