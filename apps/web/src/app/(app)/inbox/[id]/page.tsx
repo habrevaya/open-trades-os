@@ -8,6 +8,7 @@ import { formatIn } from "@/lib/dates";
 import { Crumb } from "@/components/Detail";
 import { ReplyBox } from "./ReplyBox";
 import { ConsentSummary } from "./ConsentSummary";
+import { MessageFiles, type MessageFile } from "./MessageFiles";
 import { IntakeDraft } from "../drafts/IntakeDraft";
 import { draftFromThread } from "../drafts/actions";
 import { ActionForm } from "@/components/ActionForm";
@@ -89,7 +90,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
         {thread.messages.map((raw) => {
           const message = raw as typeof raw & {
             subject?: string | null; fromAddress?: string;
-            media?: { contentType: string; storageKey?: string; refused?: string }[];
+            media?: MessageFile[]; htmlText?: string | null;
           };
           const outbound = message.direction === "outbound";
           const otherSender = !outbound && byEmail && message.fromAddress
@@ -104,19 +105,8 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
                 {message.subject ? <p className="mb-1 font-medium">{message.subject}</p> : null}
                 {otherSender ? <p className="mb-1 text-xs">From {message.fromAddress}</p> : null}
                 {message.body ? <p className="whitespace-pre-wrap">{message.body}</p> : null}
-                {/*
-                  Pictures kept here are shown from this product's own copy, so
-                  nobody needs a login at the carrier. Anything not kept says
-                  what it was and why, rather than leaving a gap.
-                */}
-                {(message.media ?? []).map((item, i) => item.storageKey ? (
-                  <a key={i} href={`/inbox/${id}/media/${item.storageKey}`} target="_blank" rel="noreferrer" className="mt-2 block">
-                    <img src={`/inbox/${id}/media/${item.storageKey}`} alt={outbound ? "Picture sent" : "Picture from the customer"}
-                         className="max-h-64 rounded border border-steel-200" />
-                  </a>
-                ) : item.refused ? (
-                  <p key={i} className="mt-2 text-xs italic">{item.refused}</p>
-                ) : null)}
+                <MessageFiles conversationId={id} media={message.media ?? []} outbound={outbound}
+                              htmlText={message.htmlText} body={message.body} />
                 <p className={`mt-1.5 text-xs ${outbound ? "text-steel-300" : "text-ink-500"}`}>
                   {formatIn(message.createdAt, user.organizationTimezone)}
                   {/*

@@ -194,3 +194,147 @@ export function storageKey(input: {
 export const MAX_UPLOAD_ATTEMPTS = 5;
 
 export const shouldRetry = (attempts: number): boolean => attempts < MAX_UPLOAD_ATTEMPTS;
+
+/* ------------------------------------------------- files that come with an email */
+
+/**
+ * WHAT A REPLY BY EMAIL MAY BRING
+ *
+ * A customer answering an invoice attaches a photograph of the boiler or the
+ * PDF of a warranty, and those are kept. Anybody on the internet can email
+ * the reply address, though, so what comes in is held to the same short list
+ * of types every upload here is (decided from the bytes), and to limits of its
+ * own: ten files on one email, ten megabytes each and twenty five in all,
+ * which is what a phone's photographs of one job come to. More than that is
+ * somebody sending the company's server something it did not ask for.
+ */
+export const EMAIL_ATTACHMENTS = {
+  maxFiles: 10,
+  maxFileBytes: 10 * 1024 * 1024,
+  maxTotalBytes: 25 * 1024 * 1024,
+} as const;
+
+/**
+ * Names a computer will run when the file is opened. Refused by name before a
+ * byte is downloaded, so a program that says what it is costs nothing, and
+ * refused by name even when the bytes would pass, because "invoice.pdf.exe"
+ * saved from a download is a name somebody will double click.
+ */
+const PROGRAM_EXTENSIONS = new Set([
+  "exe", "com", "bat", "cmd", "msi", "msp", "msc", "scr", "pif", "cpl", "dll", "sys", "lnk", "reg",
+  "js", "jse", "mjs", "vbs", "vbe", "wsf", "wsh", "ws", "hta", "ps1", "psm1", "psd1", "ps1xml",
+  "jar", "class", "sh", "bash", "zsh", "csh", "ksh", "command", "app", "dmg", "pkg", "apk", "deb", "rpm",
+  "iso", "img", "vhd", "vhdx", "appx", "msix", "py", "pyw", "pl", "rb", "php", "html", "htm", "xhtml",
+  "svg", "xml", "xsl", "url", "website", "inf", "gadget", "application", "chm", "docm", "xlsm", "pptm",
+]);
+
+/** Content types that are a program or a page, whatever the name says. */
+const PROGRAM_TYPES = [
+  "application/x-msdownload", "application/x-msdos-program", "application/x-ms-installer",
+  "application/vnd.microsoft.portable-executable", "application/x-executable", "application/x-elf",
+  "application/x-mach-binary", "application/x-sh", "application/x-shellscript", "application/java-archive",
+  "application/javascript", "text/javascript", "application/x-javascript", "text/html", "application/xhtml+xml",
+  "image/svg+xml", "application/hta", "application/x-bat", "application/vnd.ms-cab-compressed",
+];
+
+/** Whether a name or a claimed type says the file is a program, a script or a page. */
+export function isProgramName(fileName: string, contentType?: string | null): boolean {
+  const type = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  if (PROGRAM_TYPES.includes(type)) return true;
+  const parts = fileName.toLowerCase().trim().replace(/[.\s]+$/, "").split(".");
+  if (parts.length < 2) return false;
+  return parts.slice(1).some((part) => PROGRAM_EXTENSIONS.has(part.trim()));
+}
+
+/**
+ * Whether the bytes are a program, whatever they were called: a Windows
+ * program ("MZ"), a Linux one (ELF), a Mac one (Mach-O, both byte orders and
+ * the universal kind) or a script that names its interpreter ("#!").
+ */
+export function isProgramBytes(bytes: Uint8Array): boolean {
+  const at = (...magic: number[]) => magic.every((byte, i) => bytes[i] === byte);
+  return at(0x4d, 0x5a)
+    || at(0x7f, 0x45, 0x4c, 0x46)
+    || at(0xfe, 0xed, 0xfa, 0xce) || at(0xfe, 0xed, 0xfa, 0xcf)
+    || at(0xce, 0xfa, 0xed, 0xfe) || at(0xcf, 0xfa, 0xed, 0xfe)
+    || at(0xca, 0xfe, 0xba, 0xbe)
+    || at(0x23, 0x21);
+}
+
+/** One file an email named, as the provider described it before anything was downloaded. */
+export interface EmailAttachmentNamed {
+  fileName: string;
+  contentType: string;
+  /** What the provider says it weighs, when it says. */
+  size?: number | null | undefined;
+}
+
+/**
+ * Which of an email's files are worth downloading, from what the provider
+ * said about them, in order: the first ten that are not programs and are not
+ * said to be over the limit. A refusal says which file and why, in words, for
+ * the thread.
+ */
+export function planEmailAttachments(named: readonly EmailAttachmentNamed[]): Array<{ fetch: true } | { fetch: false; refused: string }> {
+  let taken = 0;
+  return named.map((file) => {
+    const name = displayName(file.fileName);
+    if (isProgramName(file.fileName, file.contentType)) {
+      return { fetch: false, refused: `${name} came with this email and was not kept: it is a program or a script, and those are never kept here.` };
+    }
+    if (taken >= EMAIL_ATTACHMENTS.maxFiles) {
+      return { fetch: false, refused: `${name} came with this email and was not kept: only the first ${EMAIL_ATTACHMENTS.maxFiles} files on one email are kept. It is in the email at your provider.` };
+    }
+    if (typeof file.size === "number" && file.size > EMAIL_ATTACHMENTS.maxFileBytes) {
+      return { fetch: false, refused: `${name} came with this email and was not kept: a file may be up to ${megabytes(EMAIL_ATTACHMENTS.maxFileBytes)} MB and it is ${megabytes(file.size)} MB. It is in the email at your provider.` };
+    }
+    taken += 1;
+    return { fetch: true };
+  });
+}
+
+/**
+ * Whether one downloaded file may be kept: not a program by its bytes, within
+ * the limit for one file and what is left of the limit for the email, and one
+ * of the types kept anywhere here, decided from the bytes.
+ */
+export function checkEmailAttachment(
+  file: { fileName: string; contentType: string; bytes: Uint8Array },
+  options: { bytesAlreadyKept: number },
+): FileVerdict {
+  const name = displayName(file.fileName);
+  if (isProgramName(file.fileName, file.contentType) || isProgramBytes(file.bytes)) {
+    return { ok: false, reason: `${name} came with this email and was not kept: it is a program or a script, and those are never kept here.` };
+  }
+  if (options.bytesAlreadyKept + file.bytes.length > EMAIL_ATTACHMENTS.maxTotalBytes) {
+    return { ok: false, reason: `${name} came with this email and was not kept: the files on one email may come to ${megabytes(EMAIL_ATTACHMENTS.maxTotalBytes)} MB. It is in the email at your provider.` };
+  }
+  const verdict = checkFile(file.bytes, { maxBytes: EMAIL_ATTACHMENTS.maxFileBytes, claimedType: file.contentType });
+  if (!verdict.ok) return { ok: false, reason: `${name} came with this email and was not kept. ${verdict.reason}` };
+  return verdict;
+}
+
+const megabytes = (bytes: number) => Math.max(1, Math.round(bytes / (1024 * 1024)));
+
+/**
+ * A name somebody else chose, made safe to show and to offer as a download:
+ * no folders, no control characters, no quotes, at most a hundred characters,
+ * and never empty.
+ */
+export function displayName(fileName: string): string {
+  const base = fileName.split(/[\\/]/).pop() ?? "";
+  // eslint-disable-next-line no-control-regex
+  const cleaned = base.replace(/[\u0000-\u001f\u007f"<>|*?:]/g, "").replace(/\s+/g, " ").trim().slice(0, 100);
+  return cleaned || "attachment";
+}
+
+/**
+ * The name a kept file is downloaded under: its own name with the extension
+ * of what the bytes ARE, so a file sent as "photo.exe" that passed as a JPEG
+ * could never be saved as a program, and with only letters, digits and a few
+ * marks, because it goes into a header.
+ */
+export function downloadName(fileName: string, extension: string): string {
+  const stem = displayName(fileName).replace(/\.[^.]*$/, "").replace(/[^A-Za-z0-9 ._-]/g, "").trim() || "attachment";
+  return `${stem.slice(0, 80)}.${extension}`;
+}

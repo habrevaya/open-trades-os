@@ -215,10 +215,43 @@ export function parseResendInbound(body: string): InboundEmail | null {
     html: typeof data["html"] === "string" ? data["html"] : null,
     headers: headerMap(data["headers"]),
     attachments: attachments.map((a) => ({
+      ...(typeof a["id"] === "string" ? { id: a["id"] } : {}),
       fileName: typeof a["filename"] === "string" ? a["filename"] : "attachment",
       contentType: typeof a["content_type"] === "string" ? a["content_type"] : "application/octet-stream",
+      ...(typeof a["size"] === "number" ? { size: a["size"] } : {}),
     })),
   };
+}
+
+/** HTTPS anywhere, or the API's own origin (which only a test can point somewhere local). */
+function downloadAllowed(address: string, base: string): boolean {
+  try {
+    const url = new URL(address);
+    return url.protocol === "https:" || url.origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** A body read no further than `limit` bytes, or null when it is longer. */
+async function readAtMost(body: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array | null> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) { out.set(chunk, at); at += chunk.byteLength; }
+  return out;
 }
 
 /**
@@ -327,6 +360,46 @@ export function createResendProvider(
             html: typeof payload["html"] === "string" ? payload["html"] : null,
             headers: headerMap(payload["headers"]),
           };
+        },
+
+        /**
+         * One file: what Resend says about it (its size, and a short lived
+         * address to download it from) from the received emails API, then
+         * the bytes, no further than `maxBytes`.
+         *
+         * The download address is taken only when it is HTTPS or on the API's
+         * own host, so a reply cannot make this server fetch an address on
+         * the company's own network: the address comes from Resend's answer
+         * to a request made with the company's key, and is still checked.
+         */
+        async fetchAttachment(emailId, attachment, maxBytes) {
+          if (!attachment.id) return { ok: false, message: "Resend did not name the file, so it could not be fetched." };
+          let meta: Record<string, unknown>;
+          try {
+            const response = await fetch(
+              `${base}/emails/receiving/${encodeURIComponent(emailId)}/attachments/${encodeURIComponent(attachment.id)}`,
+              { headers: { Authorization: `Bearer ${apiKey}` } },
+            );
+            meta = await response.json().catch(() => ({})) as Record<string, unknown>;
+            if (!response.ok) return { ok: false, message: `Resend refused to describe it: ${String(meta["message"] ?? response.status)}` };
+          } catch (error) {
+            return { ok: false, message: `Resend could not be reached: ${error instanceof Error ? error.message : String(error)}` };
+          }
+          const size = typeof meta["size"] === "number" ? meta["size"] : null;
+          if (size !== null && size > maxBytes) return { ok: false, tooLarge: true, message: "It is over the size limit." };
+          const address = typeof meta["download_url"] === "string" ? meta["download_url"] : null;
+          if (!address || !downloadAllowed(address, base)) {
+            return { ok: false, message: "Resend did not give an address this server will download from." };
+          }
+          try {
+            const response = await fetch(address, { redirect: "error" });
+            if (!response.ok || !response.body) return { ok: false, message: `The download failed with HTTP ${response.status}.` };
+            const read = await readAtMost(response.body, maxBytes);
+            if (!read) return { ok: false, tooLarge: true, message: "It is over the size limit." };
+            return { ok: true, bytes: read, size };
+          } catch (error) {
+            return { ok: false, message: `The download failed: ${error instanceof Error ? error.message : String(error)}` };
+          }
         },
       }
     : { kind: "none", because: delivery.because };

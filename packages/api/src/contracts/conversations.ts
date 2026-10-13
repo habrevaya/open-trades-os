@@ -71,11 +71,20 @@ export const getConversation = defineRoute({
       /** Who it came from: on an email reply, possibly not the address the thread is with. */
       fromAddress: z.string(),
       /**
+       * An inbound email's HTML part as plain text, tags and scripts gone.
+       * The HTML itself is never kept. Null on a text, and on an email with
+       * no HTML part.
+       */
+      htmlText: z.string().nullable(),
+      /**
        * Pictures and files. `storageKey` is set for one kept here (the inbox
-       * shows it); `refused` says why one was not kept.
+       * shows it, and downloads it at `/inbox/{id}/media/{storageKey}`);
+       * `refused` says why one was not kept; `name` is the file's name as an
+       * email carried it.
        */
       media: z.array(z.object({
         contentType: z.string(), storageKey: z.string().nullable(), refused: z.string().nullable(),
+        name: z.string().nullable(),
       })),
     })),
     canReply: z.boolean(),

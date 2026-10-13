@@ -317,6 +317,33 @@ the reply address fresh starts a thread of their own, a retried delivery is
 stored once, and an out of office is kept without announcing anything. An email
 thread in the inbox is answered by email, under its own subject.
 
+Files that come with a reply are kept. Before the reply is written, each file
+Resend names is described by its received emails API and downloaded from the
+address it gives (HTTPS only, read no further than the limit), and the ones
+that pass are kept in the company's own file store, in Postgres or the bucket
+(`FILE_STORAGE`), attached to the message as an `email_attachment` with the
+name it came with. What passes is decided by core's `files` module and checked
+again when the message is written: the types every upload here is held to,
+decided from the bytes (pictures and PDF); never a program or a script, refused
+by its name or claimed type before a byte is downloaded (`.exe`, `.js`, `.bat`,
+`.html`, `.svg` and the rest) and by its bytes whatever it was called (a
+Windows, Linux or Mac program, or a script starting `#!`); ten megabytes a
+file, twenty five on one email, and the first ten files. Every file that was
+not kept is named in the thread with the reason, and so is one that could not
+be fetched: the customer's words are kept either way, and the file is still in
+the email at the provider. In the thread a kept picture is shown and a kept PDF
+is "Download" and its name, both through `/inbox/{id}/media/...`, which serves
+a file only to somebody who may read that conversation (`message:read` and the
+conversation scope) and only when a message in that thread points at it; with
+`?download=1` it is saved under its own name with the extension of what the
+bytes are. `GET /v1/conversations/{id}` gives each file's `name`.
+
+The reply's HTML is kept only as text (`htmlText` on the message): its tags,
+scripts, styles and comments are dropped and its entities read as characters,
+and the HTML itself is never stored. The thread shows that text under "The
+email as it was laid out, as text" when it says more than the plain part, and
+draws it as text, so markup in it is shown as characters and never runs.
+
 ### Pictures
 
 A picture texted in on Twilio is fetched with the account's credentials and
@@ -428,9 +455,14 @@ writes audio out on its passes for a company with new events, so a provider
 that was down catches up on the company's next event or from "Write it out now".
 
 Email replies need a provider that receives mail (Resend); a reply to mail sent
-over plain SMTP still goes to the From mailbox. Files attached to a reply are
-named in the thread and not kept, and the reply's HTML is not kept, only its
-words.
+over plain SMTP still goes to the From mailbox. Attachments are fetched only
+from Resend, and tested against a fake of its received emails API, not a live
+account; another provider's reply files are named and not kept. A file that
+could not be fetched is not fetched again later: the thread says it is still at
+the provider. Only pictures and PDFs are kept, so a Word document, a
+spreadsheet or a zip that came with a reply is named and not kept. A retried
+delivery of a reply already stored downloads its files again before it is
+recognised and dropped. The reply's HTML is kept only as text, never as HTML.
 
 Pictures: JustCall's are kept as the carrier's link only. The carrier keeps its
 own copy of a picture texted in until it is deleted at Twilio.

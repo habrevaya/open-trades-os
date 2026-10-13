@@ -6765,10 +6765,12 @@ export interface GetConversationOutput {
     readAt: string | null;
     subject: string | null;
     fromAddress: string;
+    htmlText: string | null;
     media: Array<{
       contentType: string;
       storageKey: string | null;
       refused: string | null;
+      name: string | null;
     }>;
   }>;
   canReply: boolean;
@@ -11788,6 +11790,7 @@ export interface ListAccountingProblemsOutput {
     kind: "customer" | "invoice" | "payment" | "credit_memo" | "refund" | "credit_note" | "credit_note_application" | "credit_note_void" | "credit_note_refund" | "journal";
     entityId: string;
     idempotencyKey: string;
+    state: "failed" | "deleted";
     attempts: number;
     lastError: string | null;
     updatedAt: string;
