@@ -589,9 +589,40 @@ export const listUnsoldEstimates = defineRoute({
   }),
 });
 
+/**
+ * Giving the customer longer to answer.
+ *
+ * The one change a sent estimate takes: its "Good until" date, later, with a
+ * reason. Nothing priced changes.
+ */
+export const extendEstimateExpiry = defineRoute({
+  method: "post",
+  path: "/v1/estimates/{id}/expiry",
+  summary: "Move a sent estimate's good until date later, with a reason",
+  description:
+    "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, and no event is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.",
+  module: "M07",
+  permissions: ["estimate:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    expiresOn: z.string().date(),
+    reason: z.string().min(1).max(500),
+  }),
+  output: z.object({
+    id: Uuid,
+    number: z.number().int(),
+    status: EstimateStatus,
+    expiresOn: z.string().date(),
+    previousExpiresOn: z.string().date(),
+    /** When the link the customer was last sent stops working; null when there is no live link and it must be sent again. */
+    linkExpiresAt: z.string().datetime().nullable(),
+  }),
+});
+
 export const estimateRoutes = {
   listUnsoldEstimates, listEstimateDeliveries, getProposalTerms, setProposalTerms, getEstimateProposal,
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
-  requestDeposit, applyDeposit, refundDeposit,
+  requestDeposit, applyDeposit, refundDeposit, extendEstimateExpiry,
 } as const;

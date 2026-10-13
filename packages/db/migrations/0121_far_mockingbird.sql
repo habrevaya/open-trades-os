@@ -1,0 +1,1 @@
+ALTER TABLE "estimate" ADD COLUMN "expiry_extended_at" timestamp with time zone;

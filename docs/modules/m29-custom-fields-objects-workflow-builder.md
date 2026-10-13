@@ -247,7 +247,8 @@ a database client.
 **Some questions have to be asked again after a wait.** A branch reads the
 event, so three days after "an estimate was sent" it can only ever say it was
 sent. `stop_unless` asks the database one declared question (today, whether
-the estimate is still waiting for an answer and has not been sent again since)
+the estimate is still waiting for an answer, has not been sent again since and
+has not been given longer by the office since it was sent)
 and, when the answer is no, ends the run as finished with the steps after it
 written down as skipped. A customer who approved on day two is the follow up
 working, not failing. The questions are a catalogue in core, like the dwell

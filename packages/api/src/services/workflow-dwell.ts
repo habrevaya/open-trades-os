@@ -75,11 +75,18 @@ export const SHAPES: DwellShape[] = [
      * reset the clock every time they looked at it without deciding, which
      * is exactly the customer worth chasing.
      */
+    /**
+     * Not one the office gave longer since it was sent: that was a choice
+     * made by hand, and chasing it the moment it was open again, on the old
+     * send date, is the follow up restarting by itself. Sending it again
+     * after that starts it again.
+     */
     sql: `select e.id, e.customer_id, e.number, e.sent_at as since
           from public.estimate e
           where e.status in ('sent', 'viewed')
             and e.sent_at is not null
             and e.sent_at < $cutoff
+            and (e.expiry_extended_at is null or e.sent_at > e.expiry_extended_at)
             and e.deleted_at is null`,
   },
   {

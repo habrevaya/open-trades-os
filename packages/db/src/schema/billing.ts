@@ -116,6 +116,15 @@ export const estimate = pgTable("estimate", {
   expiresOn: date("expires_on"),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   viewedAt: timestamp("viewed_at", { withTimezone: true }),
+  /**
+   * When the office last gave the customer longer (`expires_on` moved later,
+   * with a reason, in the audit log). The "estimate nobody answered" follow
+   * up does not chase an estimate given longer since it was sent: the office
+   * did that by hand, and a chase restarting by itself on an old send date
+   * would message the customer the moment the date moved. Sending it again
+   * starts the follow up again.
+   */
+  expiryExtendedAt: timestamp("expiry_extended_at", { withTimezone: true }),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   declineReason: text("decline_reason"),
   /** Which option the customer actually chose. Drives close-rate and mix reporting. */

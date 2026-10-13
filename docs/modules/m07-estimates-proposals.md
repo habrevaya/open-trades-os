@@ -287,6 +287,40 @@ estimate emits `estimate.sent`, which is what it waits from, and asking again
 after the wait is what stops it when the customer approved on day two or the
 office sent a revised one since. M29 has how the engine does it.
 
+### Give the customer longer
+
+"Can you hold that price until the end of the month?" On the estimate's page,
+**Give them longer to answer** takes a new **good until** date and **Why**, and
+**Move the date** moves it (`POST /v1/estimates/{id}/expiry`, `estimate:write`,
+which the office and technicians hold and a dispatcher or CSR does not). Only
+the date changes: the options, the lines, the prices, the tax and the terms
+stay exactly as they were sent, and the document the customer approves is the
+one they were sent with the later date on it.
+
+Only an estimate the customer has and has not answered: sent, opened or
+expired. A draft has not been sent, so its date has not started; an approved,
+declined or converted one is answered; one with no date never runs out. The
+new date must be later than the one it has, from today on, and within a year
+(past that it is a new estimate with today's prices). The reason, both dates,
+the status before and after and the link's end are in the audit log as
+`estimate.expiry_extended`, with the person. The same date again is the change
+already made.
+
+An expired estimate is open again: opened if the customer had opened it, sent
+if not, so it is back on the unsold list and can be financed, and the worker
+marks it expired again when the new date passes. The link it was last sent with
+works until the end of the new day where the company is, when it would have run
+out sooner; a link that was withdrawn (by a later send, or a send nobody
+received) or used up is never brought back, and the page says to send the
+estimate again for a new one.
+
+The follow up does not start again by itself. The "estimate nobody answered"
+sweep (M29) leaves out an estimate given longer since it was sent, and the
+recommended follow up waiting from the send stops at its question rather than
+chasing ("given longer by the office since it was sent"). No event is raised.
+Sending the estimate again starts both again, because that is the office
+choosing to chase.
+
 ### Price it for a member
 
 A customer holding a running agreement whose plan carries a discount is priced
@@ -349,6 +383,7 @@ read their screen.
 | `PUT /v1/proposal-terms` | `settings:write` |
 | `POST /v1/estimates/{id}/approve` | `estimate:approve` |
 | `POST /v1/estimates/{id}/decline` | `estimate:write` |
+| `POST /v1/estimates/{id}/expiry` | `estimate:write` |
 | `POST /v1/estimates/{id}/convert` | `estimate:write`, `job:write` |
 | `GET /v1/estimate-discount-policy` | `estimate:read` |
 | `PUT /v1/estimates/discount-policy` | `settings:write` |
@@ -378,9 +413,11 @@ is a closed set of section kinds, one cover photograph and photographs per
 option; there are no columns, fonts or per section colours, a layout cannot be
 changed on an estimate once it has been sent. Sending by both channels at once goes only to the customer's
 own email address and mobile number. The follow up is on from the start only for
-a company created since it was; an older company still turns it on. An expired
-estimate is not brought back by a later date: an estimate has no edit, so the date
-it was written with is the date it expires on, and a customer who needs longer is
-sent a new estimate or says yes late, which an expired estimate allows. A draft
+a company created since it was; an older company still turns it on. Only the good
+until date of a sent estimate can be changed, and only later: an estimate has no
+other edit, so a different price or option is a new estimate. Giving longer does
+not tell the customer by itself (the office tells them, or sends the estimate
+again), does not bring back a link that was withdrawn or used up, and the follow
+up does not chase an estimate given longer until it is sent again. A draft
 is never marked expired, so one written with a date in the past is not either until
 it is sent.

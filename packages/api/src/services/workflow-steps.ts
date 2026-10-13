@@ -641,10 +641,20 @@ async function holds(
       if (!id) return { holds: false, because: "the event names no estimate" };
       const [row] = await tx.select({
         status: schema.estimate.status, sentAt: schema.estimate.sentAt, number: schema.estimate.number,
+        expiryExtendedAt: schema.estimate.expiryExtendedAt,
       }).from(schema.estimate).where(eq(schema.estimate.id, id)).limit(1);
       if (!row) return { holds: false, because: "the estimate is gone" };
       if (row.status !== "sent" && row.status !== "viewed") {
         return { holds: false, because: `estimate #${row.number} is ${row.status} now` };
+      }
+      /**
+       * GIVEN LONGER SINCE IT WAS SENT is a no too. The office talked to the
+       * customer and moved the date by hand; a chase waiting from the send
+       * and carrying on afterwards would ask "did you see it?" of somebody
+       * who just asked for more time. Sending it again starts a new one.
+       */
+      if (row.expiryExtendedAt && (!row.sentAt || row.expiryExtendedAt.getTime() > row.sentAt.getTime())) {
+        return { holds: false, because: `estimate #${row.number} was given longer by the office since it was sent` };
       }
       /**
        * SENT AGAIN SINCE is a no as well. A revised estimate sent on day two
