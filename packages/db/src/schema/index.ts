@@ -44,3 +44,4 @@ export * from "./custom-objects";
 export * from "./knowledge";
 export * from "./portability";
 export * from "./plugins";
+export * from "./notices";

@@ -14,6 +14,7 @@ import {
 import { portalBase } from "../lib/portal-base";
 import * as email from "./email";
 import { memberActor } from "./session";
+import { raiseWithin } from "./staff-notices";
 import * as plugins from "./plugins";
 import type { PluginView } from "./plugins";
 
@@ -816,10 +817,11 @@ const NOTICE_GRANTS: Permission[] = ["message:send", "message:read"];
  * is often not the owner, and not everybody, because a request is a question
  * only some people may answer.
  *
- * ONLY WHEN THE COMPANY CAN SEND EMAIL. The ordinary sender decides: with no
- * provider connected it refuses, quietly, and the request still stands on the
- * Applications screen. A notice that could not go is not a reason to refuse
- * the app's request.
+ * BY EMAIL ONLY WHEN THE COMPANY CAN SEND EMAIL. The ordinary sender decides:
+ * with no provider connected it refuses, quietly, and the request still stands
+ * on the Applications screen. A notice that could not go is not a reason to
+ * refuse the app's request. The notice on the bell (and the phone, and a text,
+ * where each person switched those on) goes either way.
  *
  * WHAT IT SAYS is the app's name, who it says made it, how many things it
  * asks for and the page to decide on. Never the claim secret, and not the
@@ -840,10 +842,21 @@ async function tellApprovers(tx: Database, organizationId: string, app: AppRow):
   const asked = app.permissions.length;
   const seen = new Set<string>();
   for (const person of people) {
-    const address = email.normalizeAddress(person.email ?? "");
-    if (address === "" || seen.has(address)) continue;
     const actor = await memberActor(tx, organizationId, person.user_id);
     if (!actor || !can(actor, "integration:write")) continue;
+    /**
+     * A notice too, on the bell, the phone and their own mobile as each of
+     * them chose (M34's notices), whether or not the company sends email. The
+     * notice names the app and nothing it asked for; the page says that.
+     */
+    await raiseWithin(tx, {
+      organizationId, userId: person.user_id, kind: "app_request", key: `app_request:${app.id}`,
+      title: `${app.name} is asking to connect`,
+      body: `It asks for ${asked} ${asked === 1 ? "thing" : "things"}. Nothing is given until somebody says yes.`,
+      about: { type: "connected_app", id: app.id },
+    });
+    const address = email.normalizeAddress(person.email ?? "");
+    if (address === "" || seen.has(address)) continue;
     seen.add(address);
     const lines = [
       `Hello${person.name ? ` ${person.name.split(" ")[0]}` : ""},`,

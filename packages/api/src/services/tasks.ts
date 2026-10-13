@@ -1,10 +1,11 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, taskRules } from "@opentradesos/core";
+import { assertCan, notices, taskRules } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, decodeCursor, paginate, NotFoundError, ConflictError,
+  audit, guardedRead, guardedWrite, decodeCursor, paginate, timezoneOf, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
+import { raiseWithin } from "./staff-notices";
 
 /**
  * TASKS
@@ -216,7 +217,36 @@ export async function create(ctx: ServiceContext, input: TaskInput) {
     await writeChecklist(tx, ctx.actor.organizationId, created!.id, input.checklist ?? []);
 
     await audit(tx, ctx, "task.created", "task", created!.id, null, created);
+    if (created!.assigneeUserId && created!.assigneeUserId !== ctx.actor.userId) {
+      await tellAssignee(tx, created!, `task_assigned:${created!.id}:${created!.assigneeUserId}`);
+    }
     return created!;
+  });
+}
+
+/**
+ * TELL THE PERSON A TASK WAS GIVEN TO (M34's notices).
+ *
+ * In the transaction that gave it to them, so the notice exists exactly when
+ * the assignment does. Keyed on the task, the person and, for a hand over,
+ * the moment of it: a task handed back and forth tells each person each time
+ * it lands on them, and a retry of the same write tells nobody twice.
+ */
+export async function tellAssignee(
+  tx: Database,
+  task: { id: string; organizationId: string; title: string; assigneeUserId: string | null; dueAt: Date | null },
+  key: string,
+): Promise<void> {
+  if (!task.assigneeUserId) return;
+  const zone = task.dueAt ? await timezoneOf(tx, task.organizationId) : null;
+  await raiseWithin(tx, {
+    organizationId: task.organizationId,
+    userId: task.assigneeUserId,
+    kind: "task_assigned",
+    key,
+    title: `A task for you: ${task.title}`,
+    body: task.dueAt && zone ? `Due ${notices.localWhen(task.dueAt, zone)}.` : null,
+    about: { type: "task", id: task.id },
   });
 }
 
@@ -248,7 +278,15 @@ export async function raise(
     raisedByRunId: runId,
   }).onConflictDoNothing().returning({ id: schema.task.id });
 
-  if (inserted[0]) return { id: inserted[0].id, created: true };
+  if (inserted[0]) {
+    if (input.assigneeUserId) {
+      await tellAssignee(tx, {
+        id: inserted[0].id, organizationId, title: input.title.trim(), assigneeUserId: input.assigneeUserId,
+        dueAt: input.dueAt ?? null,
+      }, `task_assigned:${inserted[0].id}:${input.assigneeUserId}`);
+    }
+    return { id: inserted[0].id, created: true };
+  }
 
   const [existing] = await tx.select({ id: schema.task.id }).from(schema.task)
     .where(and(
@@ -280,6 +318,11 @@ export async function update(
     }).where(eq(schema.task.id, input.id)).returning();
 
     await audit(tx, ctx, "task.updated", "task", input.id, before, after);
+    /** Handed to somebody new, by somebody else: they are told. Taking it yourself tells nobody. */
+    if (after!.assigneeUserId && after!.assigneeUserId !== before.assigneeUserId
+        && after!.assigneeUserId !== ctx.actor.userId && !after!.completedAt) {
+      await tellAssignee(tx, after!, `task_assigned:${after!.id}:${after!.assigneeUserId}:${after!.updatedAt.getTime()}`);
+    }
     return after!;
   });
 }

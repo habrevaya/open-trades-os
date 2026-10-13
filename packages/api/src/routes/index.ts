@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
-  me, staffDocuments, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
+  me, staffDocuments, staffNotices, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
   plugins,
 } from "../services/index";
 
@@ -1161,6 +1161,7 @@ export const handlers = {
   ...peopleRecords.handlers,
   // A person's own record, and the documents the company asks its people to sign (M24)
   ...me.handlers,
+  ...staffNotices.handlers,
   ...staffDocuments.handlers,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 

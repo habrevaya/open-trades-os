@@ -5,8 +5,9 @@ import { headers } from "next/headers";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { attempt, field, parsed, refusalOf, type FormState } from "@/lib/actions";
-import { me, timeOff, expenses, ConflictError } from "@opentradesos/api/services";
-import { addMyEmergencyContact, setMyOnboardingLine } from "@opentradesos/api/contracts";
+import { me, timeOff, expenses, staffNotices, ConflictError } from "@opentradesos/api/services";
+import { addMyEmergencyContact, setMyNoticeSettings, setMyNoticeTexts, setMyOnboardingLine } from "@opentradesos/api/contracts";
+import { notices } from "@opentradesos/core";
 import { time } from "@opentradesos/core";
 import { fileAsBase64 } from "@/lib/local-time";
 
@@ -210,5 +211,50 @@ export async function logCeHours(_previous: FormState, form: FormData): Promise<
 export async function withdrawCeHours(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => me.withdrawOwnContinuingEducation(await ctx(), { id: String(form.get("id") ?? "") }));
   if (state?.done) refresh();
+  return state;
+}
+
+/* ------------------------------------------------------------- notices */
+
+/**
+ * Where each kind of notice reaches this person: one box per kind per place,
+ * all saved at once. A box left unticked is off. A text box is only offered
+ * once texts are on; the service refuses one ticked before that anyway.
+ */
+export async function saveNoticeSwitches(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    await staffNotices.setSwitches(await ctx(), parsed(setMyNoticeSettings.input, {
+      kinds: notices.NOTICE_KINDS.map((kind) => ({
+        kind,
+        inApp: form.get(`${kind}.inApp`) === "on",
+        push: form.get(`${kind}.push`) === "on",
+        text: form.get(`${kind}.text`) === "on",
+      })),
+    }));
+    return { message: "Saved." };
+  });
+  if (state?.done) revalidatePath("/me");
+  return state;
+}
+
+/** Texts to their own mobile, on, with the number and the box they ticked, and where they ticked it from. */
+export async function turnOnTexts(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const input = parsed(setMyNoticeTexts.input, {
+      on: true, mobilePhone: field(form, "mobilePhone") ?? "", agreed: form.get("agreed") === "on",
+    });
+    await staffNotices.setTexts(await ctx(), { ...input, ipAddress: (await origin()).ipAddress });
+    return { message: "Texts are on. Choose below which notices come by text." };
+  });
+  if (state?.done) revalidatePath("/me");
+  return state;
+}
+
+export async function turnOffTexts(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    await staffNotices.setTexts(await ctx(), { on: false, ipAddress: (await origin()).ipAddress });
+    return { message: "Texts are off." };
+  });
+  if (state?.done) revalidatePath("/me");
   return state;
 }

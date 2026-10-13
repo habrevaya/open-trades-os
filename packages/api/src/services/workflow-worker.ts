@@ -24,6 +24,7 @@ import { purgePass } from "./retention";
 import { talkPass } from "./safety-talks";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
+import { noticePass } from "./staff-notices";
 import { purgePositions } from "./location";
 import { purgeUnusedClients } from "./oauth";
 import { collectionsPass } from "./rental-billing";
@@ -32,6 +33,7 @@ import type { PaymentDeps } from "./payments";
 import { startBackups } from "./backups";
 import { sweepPass } from "./file-storage";
 import type { PushProvider } from "../push/provider";
+import type { MessagingProvider } from "../comms/provider";
 
 /**
  * THE WORKER
@@ -300,6 +302,18 @@ export interface PassOptions {
    * network.
    */
   push?: false | { provider?: PushProvider };
+  /**
+   * Whether this pass also sends notices to the company's own people (M34):
+   * to their phone app through the same push service as above, which `push`
+   * turns off for both, and by text to their own mobile through the company's
+   * carrier. It also raises the notices nothing else raises, a licence running
+   * out and a talk not signed, every ten minutes per company. `false` turns
+   * all of it off, and so does `push: false`: every send to somebody's phone
+   * stops with it, which is what a pass that turned phones off meant before
+   * staff notices existed. An object passes a carrier, which is how a test
+   * keeps a text off the network.
+   */
+  notices?: false | { sms?: MessagingProvider };
   /**
    * Whether this pass also deletes technicians' positions past their
    * company's retention, and drive times past their provider's expiry. At
@@ -703,6 +717,24 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] push:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Notices to staff, after the phones above and for the same reason: what an
+   * escalation or a decision raised a moment ago goes out on this pass. Its
+   * own try, so a carrier that is down holds up nothing else.
+   */
+  if (options.notices !== false && options.push !== false) {
+    try {
+      await noticePass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.only ? { only: options.only } : {}),
+        ...(options.push?.provider ? { push: options.push.provider } : {}),
+        ...(options.notices?.sms ? { sms: options.notices.sms } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] staff notices:", (error as Error).message);
     }
   }
 

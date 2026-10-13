@@ -218,6 +218,7 @@ export * as disposalFacilities from "./disposal-facilities";
 export * as peopleRecords from "./people-records";
 export * as staffDocuments from "./staff-documents";
 export * as me from "./me";
+export * as staffNotices from "./staff-notices";
 export * as invites from "./invites";
 export * as documents from "./documents";
 export * as visits from "./visits";

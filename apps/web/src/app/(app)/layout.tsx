@@ -1,6 +1,7 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, sandbox } from "@opentradesos/api/services";
+import { branding, sandbox, staffNotices } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
 import { AppShell } from "@/components/AppShell";
 import { MyDayCache } from "@/components/MyDayCache";
 
@@ -17,6 +18,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const brand = await branding.current({ actor: user.actor, db: getDb() });
   /** Whether this company is a sandbox, which every screen then says. Read by everybody, like the brand. */
   const where = await sandbox.current({ actor: user.actor, db: getDb() });
+  /**
+   * The bell's newest few and the unread count, for everybody who has a
+   * record of their own here (every preset does). Their own notices only;
+   * the public demo's read only session has none.
+   */
+  const bell = can(user.actor, "profile:own")
+    ? await staffNotices.list({ actor: user.actor, db: getDb() }, { limit: 8 })
+    : null;
 
   return (
     <>
@@ -37,7 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       )}
       {/* The day kept on this phone for no signal is this person's, or nobody's. */}
       <MyDayCache person={user.userId} />
-      <AppShell user={user} brand={brand} sandboxOf={where.production}>{children}</AppShell>
+      <AppShell user={user} brand={brand} sandboxOf={where.production} bell={bell}>{children}</AppShell>
     </>
   );
 }

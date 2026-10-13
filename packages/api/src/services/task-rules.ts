@@ -5,7 +5,8 @@ import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
-import { writeChecklist } from "./tasks";
+import { tellAssignee, writeChecklist } from "./tasks";
+import { raiseWithin } from "./staff-notices";
 import * as email from "./email";
 import { publicBaseUrl } from "./setup-tokens";
 import { remember, replayed } from "./once";
@@ -38,7 +39,10 @@ import { loadHolidays } from "./holidays";
  * an email when they have an address and the company sends email. The task is
  * the one that always works; the email goes through the same outbox as
  * everything else, and when it cannot go the reason is kept rather than
- * thrown, because a missing mail provider must not stop the escalation.
+ * thrown, because a missing mail provider must not stop the escalation. And a
+ * notice (`staff-notices.ts`): the bell, the phone app and a text to their own
+ * mobile, wherever each person switched late tasks on, and only for somebody
+ * who can open the late task.
  */
 
 /* ------------------------------------------------------------ who's who */
@@ -632,6 +636,7 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
 
       if (made) {
         await writeChecklist(tx, organizationId, made.id, template.checklist);
+        await tellAssignee(tx, made, `task_assigned:${made.id}:${made.assigneeUserId ?? ""}`);
         await audit(tx, ctx, "task.raised_recurring", "task", made.id, null,
           { templateId: template.id, occurrenceOn: day });
         raised.push(made.id);
@@ -736,6 +741,18 @@ export async function escalateFor(
             assigneeUserId: userId,
           });
 
+          /**
+           * And on the bell, the phone and their own mobile, as they chose on
+           * `/me` (M34's notices), beside the email rather than instead of it.
+           * Only somebody who can open the late task is told about it.
+           */
+          await raiseWithin(tx, {
+            organizationId, userId, kind: "task_escalated", key: `task_escalation:${claimed.id}`,
+            title: `Late: ${task.title}`,
+            body: `${hoursLate} hours past due, with ${owner}. Raised by the rule "${rule.name}".`,
+            about: { type: "task", id: task.id },
+          });
+
           const person = people.get(userId);
           if (person?.email) {
             const link = base ? `${base}/tasks/${task.id}` : null;
@@ -762,6 +779,7 @@ export async function escalateFor(
               .set({ assigneeUserId: reassignedTo, updatedAt: new Date() })
               .where(eq(schema.task.id, task.id));
             task.assigneeUserId = reassignedTo;
+            await tellAssignee(tx, task, `task_assigned:${task.id}:${reassignedTo}:escalation:${claimed.id}`);
           } else {
             notes.push("The person this rule hands work to has left, so it stayed where it was.");
           }

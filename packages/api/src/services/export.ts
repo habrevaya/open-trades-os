@@ -185,6 +185,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     source_key: "The id a row's record was given as its provenance: the file's own id, code or "
       + "number, or a hash of the row. The same value is on the record itself.",
   },
+  staff_notice: {
+    source_key: "What raised a notice to somebody, such as task_escalation and the escalation's id, "
+      + "which stops the same thing telling them twice. A key in the sense of a lookup, not a credential.",
+  },
   customer_tag: {
     tag_key: "A customer's tag lower cased with its spaces tidied, which the tag filter compares by. "
       + "A key in the sense of a lookup, not a credential.",

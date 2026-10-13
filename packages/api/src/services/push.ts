@@ -510,8 +510,10 @@ async function tellTheOffice(ctx: ServiceContext, now: Date): Promise<number> {
  * The app is gone from this phone, so stop telling it things. The device row
  * stays, because it is still the record of what that phone sent; only the
  * token goes, and the app registers a new one the next time it is signed in.
+ * Exported for the staff notices (`staff-notices.ts`), which go to the same
+ * phones through the same service and hear the same answer.
  */
-async function forgetToken(tx: Database, ctx: ServiceContext, deviceId: string, reason: string): Promise<number> {
+export async function forgetToken(tx: Database, ctx: ServiceContext, deviceId: string, reason: string): Promise<number> {
   const cleared = await tx.update(schema.device)
     .set({ pushToken: null, updatedAt: new Date() })
     .where(and(eq(schema.device.id, deviceId), isNotNull(schema.device.pushToken)))

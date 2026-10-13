@@ -24,6 +24,14 @@ work is several things.
 Tasks attach to the record they are about, so following one up opens the
 estimate rather than a sentence describing it.
 
+And it tells people. A notice is one sentence about one record for one person:
+a task given to you, a late task, an order waiting for your approval, an app
+asking to connect, a toolbox talk you have not signed, your expense answered,
+your licence running out. It shows on the bell in the app, goes to the phone
+app for somebody who has it, and is texted to their own mobile when they
+turned that on themselves, each kind switched per person on `/me`. Nobody is
+told about a record they cannot open.
+
 ## Key concepts
 
 **A task hangs off the record it is about.** A to-do list of sentences makes
@@ -218,6 +226,77 @@ owners are told and the escalation says so in words.
 `PATCH /v1/task-escalation-rules/{id}`, `GET /v1/tasks/{id}/escalations`,
 `GET /v1/reporting-lines` and `POST /v1/reporting-lines`.
 
+### Notices to the company's own people
+
+The bell sits at the top of the menu (in the bar beside "Menu" on a phone). It
+shows the newest notices for the person signed in, each a sentence, the kind,
+when, and a dot while it is unread; the whole line is the link to the record
+it is about. `/notices` is the whole list (the last hundred, or only the
+unread), with "Mark read" and "Mark all read". Opening one goes through
+`/notices/{id}`, which marks it read and goes to the record, asking again
+whether this person may still open it.
+
+What raises one, each in the same transaction as the thing it is about:
+
+- **A task given to you**, from `/tasks`, `POST /v1/tasks`, a hand over on
+  `PATCH /v1/tasks/{id}`, a recurring template, a workflow, or an escalation
+  rule that hands the task on. Giving one to yourself tells nobody.
+- **A late task**, to everybody an escalation rule tells, beside its task and
+  its email.
+- **An order waiting for your approval**, to each holder of the role the
+  waiting step names, as the approval email is (M16).
+- **An app asking to connect**, to everybody who could approve it (M26).
+- **A toolbox talk not signed**, to a person on the sheet whose line is
+  still unsigned an hour after the talk was held, once, within a week of it
+  (M23). It opens `/my-day`, where they sign.
+- **Your expense answered**, approved or refused with the reason (M17). It
+  opens `/me/expenses`.
+- **A licence or a skill running out**, thirty days before its last day and
+  on the day, raised by the worker once each, to the person who holds it (on
+  `/me`) and to the person they report to (on the holder's own page at
+  `/people/{membershipId}`), when that manager may read the holder's record
+  (M24). A renewal recorded since stops it.
+
+NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
+is resolved the way their own session would be, and the record is opened with
+their permissions and their scope: a late task needs `task:read`, an order
+`po:read`, an app request `settings:read` and `integration:write`, an expense
+or a talk is their own, and a licence is their own or one of the people their
+scope reaches with `user:read`. Where they cannot open it they are not told,
+whatever the rule or the role says: a dispatcher preset, which holds no
+`task:read`, is told about a late task by its task and email but gets no
+notice. The bell asks again when it lists, so somebody whose access was
+narrowed since stops seeing what they can no longer open.
+
+WHERE EACH KIND GOES is the person's own choice, on `/me` under "What you are
+told, and where": one row per kind with a box for the app, the phone app and a
+text. Until they change it, every kind comes in the app and on the phone, and
+none by text. A kind switched off in the app is kept off the bell; the notice
+is still written, so the worker does not raise it again.
+
+ON THE PHONE APP, through the same push service as a technician's notices
+about their day (M11), to every phone they are signed in on, without a sound
+inside the company's quiet hours. Somebody not on the board has no phone
+registered, so a push has nowhere to go and the page says so.
+
+BY TEXT, only after the person turns texts on themselves on `/me`: their own
+mobile number and a ticked box beside the exact words they agree to, kept on
+their consent with when and from where. This consent is theirs and separate
+from customers' consent: a customer's yes for the same number turns nothing on,
+and nobody in the office can turn somebody else's on. A text goes from the
+company's registered number straight to its carrier, not through the inbox,
+because a notice names records only its person may open. It is asked again at
+the moment it goes: a STOP from that number, texts turned off, or a new number
+since stop it with the reason on its row; inside quiet hours it waits until
+they end rather than being lost; a text not sent within twelve hours is
+skipped as old news. Turning texts off stops every text still waiting.
+
+Every send is a row (`staff_notice_delivery`): which phone or number, whether
+it went, and why not. `GET /v1/me/notices`, `POST /v1/me/notices/read`,
+`GET /v1/me/notice-settings`, `POST /v1/me/notice-settings` and
+`POST /v1/me/notice-texts`, all `profile:own` and all the signed in person's
+own, taking no person.
+
 ### Deadlines
 
 `GET /v1/obligations` is what is open and what is overdue.
@@ -264,6 +343,11 @@ them use the task permissions, because an obligation is work in the same queue.
 | `GET /v1/tasks/{id}/escalations` | `task:read` |
 | `GET /v1/reporting-lines` | `user:read` |
 | `POST /v1/reporting-lines` | `user:write` |
+| `GET /v1/me/notices` | `profile:own` |
+| `POST /v1/me/notices/read` | `profile:own` |
+| `GET /v1/me/notice-settings` | `profile:own` |
+| `POST /v1/me/notice-settings` | `profile:own` |
+| `POST /v1/me/notice-texts` | `profile:own` |
 
 Claiming, ticking your own task's checklist and marking your own task done need only
 `task:read`, and they are the writes in the module guarded by a read. Each is acting
@@ -281,6 +365,14 @@ reports.
 **Who gets a task a workflow raised?** Whoever the definition says, which can be a
 person or a queue. A task with nobody on it is still visible, because the queue is
 read by the office rather than only by an assignee.
+
+**Who is told about a late task?** Whoever the rule names, by a task in their
+queue, an email when the company sends email, and a notice wherever they
+switched late tasks on, if they can open tasks at all.
+
+**Can the office turn texts on for somebody?** No. Only the person, on their
+own page, with their own number. The office's part is having a registered
+number that can send texts.
 
 **What raises an obligation today?** One thing: a visit completed after it was
 cancelled. The primitive is built for more than that and nothing else writes one yet.
@@ -303,9 +395,26 @@ Escalation counts hours, not working hours: a task due Friday at five escalates
 on Saturday morning under a twelve hour rule, and a company without weekend
 cover sets the rule at sixty. For the same reason it does not read the holiday
 list: a task due the evening before Christmas escalates on Christmas Day. A rule edited after it has acted does not act
-again on the tasks it already acted on. The notice is a task and an email; there
-is no text message or push notification to staff, because the product has no
-staff messaging channel apart from email.
+again on the tasks it already acted on. The people a rule tells get a task, an
+email, and a notice on the bell, the phone app or a text as each of them chose;
+somebody who cannot open tasks gets the task and the email and no notice.
+
+Notices are raised by the seven things listed under "Notices to the company's
+own people" and nothing else: a deadline about to breach, a visit change
+request, a failed payment and the rest of what the queue holds reach people as
+tasks, as before. A tap on a notice on the phone opens the app, not the record,
+because the app opens only visits from a notice; the bell in a browser opens
+the record. Reading a notice on the phone does not mark it read on the bell. A
+text goes from whichever registered number the company sends customer texts
+from, in the company's quiet hours (not the person's own), and a reply to it
+lands in the inbox like any text from a number nobody recognises; a STOP is
+honoured. There is no daily digest, no notice by email beyond the emails the
+escalation, the approval and the app request already send, and no per company
+setting for which kinds exist or what a new person starts with: the defaults
+(in the app and on the phone, never a text) are fixed. A licence notice goes to
+the holder and to whoever they report to, not to everybody who keeps the
+renewals list, deliberately; a talk is nudged once, an hour after it was held,
+and not again. Notices are kept with no end date and nothing removes them.
 
 Recurring tasks have no fifth given weekday of the month (most months have
 none; the last one is offered instead), no gap of more than fifty two weeks,

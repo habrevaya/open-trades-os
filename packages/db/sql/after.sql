@@ -3299,6 +3299,62 @@ returns table (organization_id uuid)
 revoke all on function app.push_work_organizations(int) from public;
 grant execute on function app.push_work_organizations(int) to background;
 
+-- ---- Companies with a notice to staff to raise or send -------------------
+-- The staff notice pass sends notices to a member of staff's phone app and
+-- their own mobile, and raises the two kinds nothing else raises: a licence
+-- or skill running out, and a toolbox talk somebody has not signed. The same
+-- shape as the functions above: which companies have a delivery waiting or a
+-- receipt owed, a record running out within the notice window, or a talk held
+-- in the last week with a line nobody signed, as ids and nothing else. The
+-- window is generous by a day either side, because the company's own calendar
+-- decides what is due, in the service.
+create or replace function app.staff_notice_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    -- Sends first: a company with a text waiting is never crowded out of the
+    -- limit by companies that only have a licence to look at, which the pass
+    -- visits every ten minutes at most anyway.
+    select x.organization_id from (
+      select d.organization_id, 0 as priority
+        from public.staff_notice_delivery d
+       where d.status in ('queued', 'held', 'sending')
+          or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
+       group by d.organization_id
+      union all
+      select c.organization_id, 1
+        from public.person_certification c
+       where c.status = 'active'
+         and c.expires_on between current_date - 8 and current_date + 32
+       group by c.organization_id
+      union all
+      select s.organization_id, 1
+        from public.technician_skill s
+       where s.ended_on is null
+         and s.expires_on between current_date - 8 and current_date + 32
+       group by s.organization_id
+      union all
+      select m.organization_id, 1
+        from public.safety_meeting m
+        join public.safety_meeting_attendee a on a.meeting_id = m.id
+       where m.closed_at is null
+         and a.signed_at is null
+         and a.technician_id is not null
+         and m.held_at between now() - interval '8 days' and now()
+       group by m.organization_id
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    group by x.organization_id
+    order by min(x.priority)
+    limit p_limit
+  $$;
+
+revoke all on function app.staff_notice_organizations(int) from public;
+grant execute on function app.staff_notice_organizations(int) to background;
+
 -- =========================================================================
 -- THE AD PLATFORMS, ANALYTICS AND REVIEW LISTINGS THE WORKER VISITS
 --

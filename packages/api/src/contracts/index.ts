@@ -101,6 +101,7 @@ import { truckRoutes } from "./trucks";
 import { disposalFacilityRoutes } from "./disposal-facilities";
 import { peopleRecordRoutes } from "./people-records";
 import { selfServiceRoutes } from "./self-service";
+import { staffNoticeRoutes } from "./staff-notices";
 import { customObjectRoutes } from "./custom-objects";
 import { proposalTemplateRoutes } from "./proposal-templates";
 import { sandboxRoutes } from "./sandbox";
@@ -207,6 +208,7 @@ export * from "./trucks";
 export * from "./disposal-facilities";
 export * from "./people-records";
 export * from "./self-service";
+export * from "./staff-notices";
 
 /**
  * Every route in the product, and the only description of them.
@@ -330,6 +332,7 @@ export const routes = {
   ...disposalFacilityRoutes,
   ...peopleRecordRoutes,
   ...selfServiceRoutes,
+  ...staffNoticeRoutes,
   ...customObjectRoutes,
   ...searchRoutes,
   ...proposalTemplateRoutes,
