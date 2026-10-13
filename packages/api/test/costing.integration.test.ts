@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { costing as c, money as m, type Actor } from "@opentradesos/core";
 import * as costing from "../src/services/costing";
 import * as profitability from "../src/services/profitability";
-import type { ServiceContext } from "../src/services/context";
+import { UnprocessableError, type ServiceContext } from "../src/services/context";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -191,5 +191,85 @@ run("the rates", () => {
     await setRates(RATES);
     const hour = await costing.hour(owner(), { baseRate: "30", on: "2026-03-10" });
     expect(hour).toMatchObject({ wage: "30.0000", burden: "7.0000", overhead: "20.0000", total: "57.0000" });
+  });
+});
+
+run("overhead as a mix", () => {
+  /**
+   *   August, 3 hours and $900 of revenue, mix from July:
+   *   $12 an hour        36.00
+   *   $25 per job        25.00
+   *   3% of revenue      27.00
+   *   overhead           88.00
+   */
+  it("charges each part, reports each on the statement and the report, and agrees with core", async () => {
+    await costing.set(owner(), { component: "overhead", basis: "per_hour", rate: "20", effectiveFrom: "2026-01-01" });
+    const mix = await costing.setOverhead(owner(), { effectiveFrom: "2026-07-01", perHour: "12", perJob: "25", percentOfRevenue: "3" });
+    expect(mix.rates.map((r) => r.basis).sort()).toEqual(["per_hour", "per_job", "percent_of_revenue"]);
+
+    const punches = [{ at: "2026-08-04T15:00:00Z", minutes: 180, base: "30" }];
+    const jobId = await job({ revenue: "900", completedAt: "2026-08-04T20:00:00Z", punches });
+    const june = await job({ revenue: "900", completedAt: "2026-06-04T20:00:00Z", punches: [{ at: "2026-06-04T15:00:00Z", minutes: 180, base: "30" }] });
+
+    const statement = await profitability.statement(owner(), { jobId });
+    expect(statement.overheadParts).toEqual({ perHour: "36.0000", perJob: "25.0000", revenueShare: "27.0000" });
+    expect(statement.overhead).toBe("88.0000");
+    expect(statement.fullyLoadedMargin).toBe(m.toString(m.subtract(m.money(statement.grossMargin), m.money("88"))));
+    /** June is before the mix: only January's $20 an hour. */
+    const before = await profitability.statement(owner(), { jobId: june });
+    expect(before.overheadParts).toEqual({ perHour: "60.0000", perJob: "0.0000", revenueShare: "0.0000" });
+
+    const rates = (await costing.list(owner())).rates
+      .map((r) => ({ component: r.component, basis: r.basis, rate: r.rate, effectiveFrom: r.effectiveFrom }));
+    const core = c.overheadParts({ date: "2026-08-04", minutes: 180, revenue: m.money("900") }, rates);
+    expect([m.toString(core.perHour), m.toString(core.perJob), m.toString(core.revenueShare)])
+      .toEqual(["36.0000", "25.0000", "27.0000"]);
+
+    const result = await profitability.summary(owner(), { by: "month", includeInProgress: true, from: "2026-08-01T00:00:00Z" });
+    const row = result.rows[0] as Record<string, unknown>;
+    expect(Number(row["overhead_per_hour"])).toBeCloseTo(36, 2);
+    expect(Number(row["overhead_per_job"])).toBeCloseTo(25, 2);
+    expect(Number(row["overhead_revenue_share"])).toBeCloseTo(27, 2);
+    expect(Number(row["overhead"])).toBeCloseTo(88, 2);
+  });
+
+  it("is replaced whole on a later day, and marks the whole of today's mix in effect", async () => {
+    await costing.setOverhead(owner(), { effectiveFrom: "2026-01-01", perHour: "12", perJob: "25" });
+    const listed = await costing.list(owner());
+    expect(listed.overheadNow).toEqual({
+      effectiveFrom: "2026-01-01",
+      parts: [{ basis: "per_hour", label: "Per paid hour", rate: "12" }, { basis: "per_job", label: "Per job", rate: "25" }],
+    });
+    expect(listed.rates.filter((r) => r.current)).toHaveLength(2);
+
+    await costing.setOverhead(owner(), { effectiveFrom: "2026-03-01", percentOfRevenue: "10" });
+    const jobId = await job({ revenue: "1000", completedAt: "2026-03-05T20:00:00Z", punches: [{ at: "2026-03-05T15:00:00Z", minutes: 60, base: "30" }] });
+    expect((await profitability.statement(owner(), { jobId })).overheadParts)
+      .toEqual({ perHour: "0.0000", perJob: "0.0000", revenueShare: "100.0000" });
+  });
+
+  it("answers a retried mix with the first, refuses a different one on the same day, and adds a part by basis", async () => {
+    const first = await costing.setOverhead(owner(), { effectiveFrom: "2026-05-01", perHour: "12", perJob: "25" });
+    const again = await costing.setOverhead(owner(), { effectiveFrom: "2026-05-01", perHour: "12.00", perJob: "25" });
+    expect(again.rates.map((r) => r.id).sort()).toEqual(first.rates.map((r) => r.id).sort());
+    await expect(costing.setOverhead(owner(), { effectiveFrom: "2026-05-01", perHour: "14" })).rejects.toThrow(/already has rates from/);
+    await expect(costing.setOverhead(owner(), { effectiveFrom: "2026-05-02" })).rejects.toThrow(UnprocessableError);
+    await expect(costing.setOverhead(owner(), { effectiveFrom: "2026-05-02", percentOfRevenue: "101" })).rejects.toThrow(UnprocessableError);
+
+    /** One rate at a time: another basis on that day is another part of its mix, the same basis again is refused. */
+    await costing.set(owner(), { component: "overhead", basis: "percent_of_revenue", rate: "2", effectiveFrom: "2026-05-01" });
+    await expect(costing.set(owner(), { component: "overhead", basis: "per_hour", rate: "13", effectiveFrom: "2026-05-01" }))
+      .rejects.toThrow(/already has a rate/);
+    expect((await costing.list(owner())).rates).toHaveLength(3);
+
+    /** A burden still has one rate a day, whatever its basis. */
+    await costing.set(owner(), { component: "benefits", basis: "per_hour", rate: "3.50", effectiveFrom: "2026-01-01" });
+    await expect(costing.set(owner(), { component: "benefits", basis: "percent_of_wages", rate: "2", effectiveFrom: "2026-01-01" }))
+      .rejects.toThrow(/already has a rate/);
+  });
+
+  it("is set by finance and the owner only", async () => {
+    await expect(costing.setOverhead(as(["office_manager"]), { effectiveFrom: "2026-05-01", perJob: "25" })).rejects.toThrow();
+    await costing.setOverhead(as(["accountant"]), { effectiveFrom: "2026-05-01", perJob: "25" });
   });
 });

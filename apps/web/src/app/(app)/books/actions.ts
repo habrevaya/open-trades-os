@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { journals, budgets, UnprocessableError } from "@opentradesos/api/services";
-import { createJournalEntry, importBudget, setBudgetLine } from "@opentradesos/api/contracts";
+import { createJournalEntry, importBudget, setBudgetForecastMethod, setBudgetLine } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { JOURNAL_ROWS } from "./rows";
 
@@ -81,6 +81,7 @@ export async function saveBudgetLine(_previous: FormState, form: FormData): Prom
       line: field(form, "line") ?? "",
       amounts: Array.from({ length: 12 }, (_, i) => field(form, `month:${i + 1}`) ?? null),
       ...(field(form, "businessUnitId") ? { businessUnitId: field(form, "businessUnitId") } : {}),
+      ...(field(form, "jobTypeId") ? { jobTypeId: field(form, "jobTypeId") } : {}),
     });
     await budgets.setLine(await ctx(), input);
   });
@@ -96,9 +97,21 @@ export async function importBudgetFile(_previous: FormState, form: FormData): Pr
     const input = parsed(importBudget.input, {
       year: field(form, "year"), csv: text,
       ...(field(form, "businessUnitId") ? { businessUnitId: field(form, "businessUnitId") } : {}),
+      ...(field(form, "jobTypeId") ? { jobTypeId: field(form, "jobTypeId") } : {}),
     });
     const done = await budgets.importCsv(await ctx(), input);
     return { message: `Loaded ${done.lines} ${done.lines === 1 ? "line" : "lines"}, ${done.cells} months.` };
+  });
+  revalidatePath("/books/budget");
+  return result;
+}
+
+/** How the year end forecast takes the months to come, for the whole year. */
+export async function chooseForecast(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const input = parsed(setBudgetForecastMethod.input, { year: field(form, "year"), method: field(form, "method") });
+    await budgets.setForecastMethod(await ctx(), input);
+    return { message: input.method === "run_rate" ? "The forecast now uses the run rate." : "The forecast now uses the budget." };
   });
   revalidatePath("/books/budget");
   return result;

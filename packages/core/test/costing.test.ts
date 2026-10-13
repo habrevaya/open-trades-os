@@ -99,3 +99,54 @@ describe("what a journal line on a job does to the margin", () => {
     expect(c.journalCounts(" 5000 ")).toBe("material");
   });
 });
+
+describe("overhead as a mix", () => {
+  const mix: c.CostingRate[] = [
+    { component: "overhead", basis: "per_hour", rate: "20", effectiveFrom: "2026-01-01" },
+    { component: "overhead", basis: "per_hour", rate: "12", effectiveFrom: "2026-07-01" },
+    { component: "overhead", basis: "per_job", rate: "25", effectiveFrom: "2026-07-01" },
+    { component: "overhead", basis: "percent_of_revenue", rate: "3", effectiveFrom: "2026-07-01" },
+  ];
+
+  it("charges every part set on the latest day, each reported on its own", () => {
+    // August, 3 hours and $900: 36.00 by the hour, 25.00 for the job, 27.00 of revenue.
+    const parts = c.overheadParts({ date: "2026-08-04", minutes: 180, revenue: usd("900") }, mix);
+    expect(m.toString(parts.perHour)).toBe("36.0000");
+    expect(m.toString(parts.perJob)).toBe("25.0000");
+    expect(m.toString(parts.revenueShare)).toBe("27.0000");
+    expect(m.toString(parts.total)).toBe("88.0000");
+    expect(m.toString(c.overhead({ date: "2026-08-04", minutes: 180, revenue: usd("900") }, mix))).toBe("88.0000");
+  });
+
+  it("replaces the whole mix on a new day rather than adding to the parts before it", () => {
+    // June is the January mix: only $20 an hour.
+    const june = c.overheadParts({ date: "2026-06-30", minutes: 180, revenue: usd("900") }, mix);
+    expect(m.toString(june.total)).toBe("60.0000");
+    expect(m.isZero(june.perJob)).toBe(true);
+    // A single later part ends the mix: from October only the share of revenue.
+    const later = [...mix, { component: "overhead", basis: "percent_of_revenue", rate: "10", effectiveFrom: "2026-10-01" } as c.CostingRate];
+    const october = c.overheadParts({ date: "2026-10-02", minutes: 180, revenue: usd("900") }, later);
+    expect(m.toString(october.total)).toBe("90.0000");
+    expect(c.overheadMixOn(later, "2026-10-02")).toHaveLength(1);
+  });
+
+  it("charges a cancelled job none of it", () => {
+    expect(m.isZero(c.overheadParts({ date: "2026-08-04", minutes: 180, revenue: usd("900"), cancelled: true }, mix).total)).toBe(true);
+  });
+
+  it("prices an hour with only the per hour part", () => {
+    expect(m.toString(c.hourAt("30", "2026-08-04", mix).overhead)).toBe("12.0000");
+  });
+
+  it("checks the settings form: at least one part, each a rate, a share no more than 100", () => {
+    const ok = c.checkOverheadMix({ perHour: "12", perJob: "", percentOfRevenue: "3", effectiveFrom: "2026-07-01" });
+    expect(ok).toEqual({ ok: true, parts: [{ basis: "per_hour", rate: "12" }, { basis: "percent_of_revenue", rate: "3" }] });
+    const none = c.checkOverheadMix({ effectiveFrom: "2026-07-01" });
+    expect(none.ok).toBe(false);
+    if (!none.ok) expect(none.reason).toContain("at least one");
+    const share = c.checkOverheadMix({ percentOfRevenue: "120", effectiveFrom: "2026-07-01" });
+    expect(share).toMatchObject({ ok: false, field: "percentOfRevenue" });
+    expect(c.checkOverheadMix({ perJob: "abc", effectiveFrom: "2026-07-01" })).toMatchObject({ ok: false, field: "perJob" });
+    expect(c.checkOverheadMix({ perJob: "0", effectiveFrom: "2026-07-01" }).ok).toBe(true);
+  });
+});

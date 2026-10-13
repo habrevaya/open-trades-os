@@ -108,7 +108,11 @@ export function checkRate(input: { component: string; basis: string; rate: strin
   return { ok: true };
 }
 
-/** The rate for one component in effect on a day: the latest that started on or before it. */
+/**
+ * The rate for one component in effect on a day: the latest that started on
+ * or before it. For a burden component, which has one rate a day; overhead
+ * can be a mix of several, read with `overheadMixOn`.
+ */
 export function rateOn(rates: readonly CostingRate[], component: Component, date: string): CostingRate | null {
   let best: CostingRate | null = null;
   for (const rate of rates) {
@@ -153,25 +157,120 @@ export function labourBurden(punches: readonly Punch[], rates: readonly CostingR
 }
 
 /**
- * Overhead charged to one job, at the overhead rate in effect on the job's day.
+ * OVERHEAD AS A MIX. A company can charge overhead on more than one basis at
+ * once: part per paid hour, part per job and part as a share of revenue. Each
+ * part is an overhead row with its own basis, and the parts set on one day are
+ * the mix from that day.
+ *
+ * WHICH ROWS ARE IN EFFECT. The mix on a day is every overhead row on the
+ * latest date on or before it, and nothing from an earlier date. So a mix is
+ * replaced whole: a company charging $20 an hour from January that sets 15% of
+ * revenue from September charges 15% of revenue from September and no longer
+ * the hourly part, which is what overhead with one basis always meant. To add
+ * a part, the whole mix is set again on the new day, which the settings screen
+ * does in one form. The other reading, each basis its own history, would turn
+ * every change of basis a company already made into a mix it never chose.
+ */
+export const OVERHEAD_BASES = ["per_hour", "per_job", "percent_of_revenue"] as const;
+export type OverheadBasis = (typeof OVERHEAD_BASES)[number];
+
+export const OVERHEAD_PART_LABEL: Record<OverheadBasis, string> = {
+  per_hour: "Per paid hour",
+  per_job: "Per job",
+  percent_of_revenue: "Share of revenue",
+};
+
+/** The overhead rows in effect on a day: every one on the latest date on or before it. */
+export function overheadMixOn(rates: readonly CostingRate[], date: string): CostingRate[] {
+  let latest: string | null = null;
+  for (const rate of rates) {
+    if (rate.component !== "overhead" || rate.effectiveFrom > date) continue;
+    if (latest === null || rate.effectiveFrom > latest) latest = rate.effectiveFrom;
+  }
+  if (latest === null) return [];
+  return rates.filter((rate) => rate.component === "overhead" && rate.effectiveFrom === latest);
+}
+
+/** What each part of the mix charged one job, and their total. */
+export interface OverheadParts {
+  perHour: m.Money;
+  perJob: m.Money;
+  revenueShare: m.Money;
+  total: m.Money;
+}
+
+/**
+ * Overhead charged to one job, part by part, at the mix in effect on the
+ * job's day.
  *
  * A cancelled job carries none: nothing was done, and a per job charge on it
  * would make cancellations look like the most expensive work in the company.
  */
+export function overheadParts(
+  job: { date: string; minutes: number; revenue: m.Money; cancelled?: boolean },
+  rates: readonly CostingRate[],
+): OverheadParts {
+  const currency = job.revenue.currency;
+  let perHour = m.zero(currency);
+  let perJob = m.zero(currency);
+  let revenueShare = m.zero(currency);
+  if (!job.cancelled) {
+    for (const rate of overheadMixOn(rates, job.date)) {
+      switch (rate.basis) {
+        case "per_job": perJob = m.add(perJob, m.money(rate.rate, currency)); break;
+        case "per_hour":
+          perHour = m.add(perHour, m.multiply(m.divide(m.money(String(job.minutes), currency), "60"), rate.rate));
+          break;
+        case "percent_of_revenue":
+          revenueShare = m.add(revenueShare, m.divide(m.multiply(job.revenue, rate.rate), "100"));
+          break;
+        default: break;
+      }
+    }
+  }
+  return { perHour, perJob, revenueShare, total: m.add(m.add(perHour, perJob), revenueShare) };
+}
+
+/** Overhead charged to one job: the sum of its parts. */
 export function overhead(
   job: { date: string; minutes: number; revenue: m.Money; cancelled?: boolean },
   rates: readonly CostingRate[],
 ): m.Money {
-  const currency = job.revenue.currency;
-  if (job.cancelled) return m.zero(currency);
-  const rate = rateOn(rates, "overhead", job.date);
-  if (!rate) return m.zero(currency);
-  switch (rate.basis) {
-    case "per_job": return m.money(rate.rate, currency);
-    case "per_hour": return m.multiply(m.divide(m.money(String(job.minutes), currency), "60"), rate.rate);
-    case "percent_of_revenue": return m.divide(m.multiply(job.revenue, rate.rate), "100");
-    default: return m.zero(currency);
+  return overheadParts(job, rates).total;
+}
+
+export type MixCheck =
+  | { ok: true; parts: { basis: OverheadBasis; rate: string }[] }
+  | { ok: false; field: string; reason: string };
+
+/**
+ * Whether a mix can be saved from the settings form: each box empty or a
+ * rate, at least one filled, and the date a calendar date. A zero is allowed
+ * and is how a company switches overhead off from a day.
+ */
+export function checkOverheadMix(input: {
+  perHour?: string | undefined; perJob?: string | undefined; percentOfRevenue?: string | undefined; effectiveFrom: string;
+}): MixCheck {
+  const boxes: [OverheadBasis, string, string | undefined][] = [
+    ["per_hour", "perHour", input.perHour],
+    ["per_job", "perJob", input.perJob],
+    ["percent_of_revenue", "percentOfRevenue", input.percentOfRevenue],
+  ];
+  const parts: { basis: OverheadBasis; rate: string }[] = [];
+  for (const [basis, field, raw] of boxes) {
+    const value = raw?.trim() ?? "";
+    if (value === "") continue;
+    const checked = checkRate({ component: "overhead", basis, rate: value, effectiveFrom: input.effectiveFrom });
+    if (!checked.ok) return { ok: false, field: checked.field === "rate" ? field : checked.field, reason: checked.reason };
+    parts.push({ basis, rate: value });
   }
+  if (parts.length === 0) {
+    return {
+      ok: false, field: "perHour",
+      reason: "Fill in at least one part. To stop charging overhead from a day, put 0 in one of them.",
+    };
+  }
+  return { ok: true, parts };
 }
 
 /** Direct margin less burden and overhead. The second margin, never a replacement for the first. */
@@ -182,13 +281,14 @@ export function fullyLoadedMargin(directMargin: m.Money, burden: m.Money, overhe
 /**
  * What an hour costs at a given base wage on a given day, for the settings
  * screen: the wage, the burden on it, and the overhead if overhead is by the
- * hour. A number an owner can check against their own payroll before trusting
- * the reports built on it.
+ * hour (the per hour part, when overhead is a mix). A number an owner can
+ * check against their own payroll before trusting the reports built on it.
  */
 export function hourAt(baseRate: string, date: string, rates: readonly CostingRate[], currency = "USD") {
   const burden = labourBurden([{ date, minutes: 60, baseRate }], rates, currency);
-  const overheadRate = rateOn(rates, "overhead", date);
-  const perHourOverhead = overheadRate?.basis === "per_hour" ? m.money(overheadRate.rate, currency) : m.zero(currency);
+  const perHourOverhead = overheadMixOn(rates, date)
+    .filter((rate) => rate.basis === "per_hour")
+    .reduce((sum, rate) => m.add(sum, m.money(rate.rate, currency)), m.zero(currency));
   const wage = m.money(baseRate, currency);
   return { wage, burden, overhead: perHourOverhead, total: m.add(m.add(wage, burden), perHourOverhead) };
 }

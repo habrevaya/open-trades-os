@@ -6,12 +6,23 @@ import { Chip } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { formatDay } from "@/lib/dates";
-import { addRate, removeRate } from "./actions";
+import { addRate, removeRate, setOverhead } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const COMPONENTS = rules.COMPONENTS.map((c) => ({ value: c, label: rules.COMPONENT_LABEL[c] }));
 const BASES = rules.BASES.map((b) => ({ value: b, label: rules.BASIS_LABEL[b] }));
+
+/** One part of the overhead in words: "$12.00 per paid hour", "3% of revenue". */
+function partText(basis: rules.OverheadBasis, rate: string): string {
+  if (basis === "percent_of_revenue") return `${rate}% of revenue`;
+  return `$${Number(rate).toFixed(2)} ${basis === "per_hour" ? "per paid hour" : "per job"}`;
+}
+
+/** Today's figure for a part, to start the form from, so changing one part does not drop the others. */
+function currentPart(now: { parts: { basis: string; rate: string }[] } | null, basis: rules.OverheadBasis): string {
+  return now?.parts.find((p) => p.basis === basis)?.rate ?? "";
+}
 
 /**
  * SETTINGS → COSTING
@@ -38,7 +49,7 @@ export default async function CostingPage() {
     );
   }
 
-  const { rates, today } = await costing.list(ctx);
+  const { rates, today, overheadNow } = await costing.list(ctx);
   const writes = can(user.actor, "finance:configure");
   const hour = await costing.hour(ctx, { baseRate: "30" });
 
@@ -54,12 +65,21 @@ export default async function CostingPage() {
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
         An overhead allocation is a choice, not a measurement. By revenue, every job keeps the margin
         percentage it already had; by the hour, a job that ran long is charged twice for the same overrun;
-        per job, a quick call carries as much as an install.
+        per job, a quick call carries as much as an install. You can mix them: part by the hour, part per
+        job and part as a share of revenue, and each job shows what each part charged it.
       </p>
 
       <p className="mt-4 text-sm text-ink-700">
         Today, an hour at a $30.00 wage costs <strong>${Number(hour.total).toFixed(2)}</strong>: the wage,
         ${Number(hour.burden).toFixed(2)} of burden{Number(hour.overhead) > 0 ? ` and $${Number(hour.overhead).toFixed(2)} of overhead` : ""}.
+      </p>
+
+      <p className="mt-2 text-sm text-ink-700" data-testid="overhead-now">
+        {overheadNow
+          ? <>Overhead today, set from {formatDay(overheadNow.effectiveFrom, user.organizationTimezone)}: {overheadNow.parts.map((p, i) => (
+            <span key={p.basis}>{i > 0 ? (i === overheadNow.parts.length - 1 ? " and " : ", ") : ""}<strong>{partText(p.basis, p.rate)}</strong></span>
+          ))}.</>
+          : "No overhead is charged to jobs today."}
       </p>
 
       {rates.length === 0 ? (
@@ -91,11 +111,33 @@ export default async function CostingPage() {
       )}
 
       {writes ? (
+        <section aria-label="Overhead from a date" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="text-base font-semibold">Overhead from a date</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            Fill in one part or several. Whatever you set here is all of your overhead from that day: a part you
+            leave empty is not charged from then, even if it was before. Jobs before the day keep the overhead
+            of their own day. Put 0 in one box to stop charging overhead.
+          </p>
+          <ActionForm action={setOverhead} submit="Set overhead" className="mt-3 grid gap-3 sm:grid-cols-3">
+            <TextField label="Per paid hour ($)" name="perHour" inputMode="decimal" placeholder="12.00"
+                       defaultValue={currentPart(overheadNow, "per_hour")} />
+            <TextField label="Per job ($)" name="perJob" inputMode="decimal" placeholder="25.00"
+                       defaultValue={currentPart(overheadNow, "per_job")} />
+            <TextField label="Share of revenue (%)" name="percentOfRevenue" inputMode="decimal" placeholder="3"
+                       defaultValue={currentPart(overheadNow, "percent_of_revenue")} />
+            <TextField label="From" name="effectiveFrom" type="date" defaultValue={today} required />
+            <TextField label="Note (optional)" name="note" className="sm:col-span-2" />
+          </ActionForm>
+        </section>
+      ) : null}
+
+      {writes ? (
         <section aria-label="Add a rate" className="mt-8 rounded-md border border-steel-200 p-4">
           <h2 className="text-base font-semibold">Add a rate</h2>
           <p className="mt-1 text-sm text-ink-700">
             Burden is a percent of base wages or an amount per paid hour. Overhead is per paid hour, per job, or
-            a percent of the job&rsquo;s revenue. A zero switches one off from its date.
+            a percent of the job&rsquo;s revenue; an overhead rate on a day that already has overhead another way
+            is added to that day&rsquo;s mix. A zero switches one off from its date.
           </p>
           <ActionForm action={addRate} submit="Add rate" className="mt-3 grid gap-3 sm:grid-cols-2">
             <Select label="What" name="component" options={COMPONENTS} />

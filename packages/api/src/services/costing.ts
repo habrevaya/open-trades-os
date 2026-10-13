@@ -34,21 +34,37 @@ export interface RateView {
   createdAt: string;
 }
 
-export async function list(ctx: ServiceContext): Promise<{ rates: RateView[]; today: string }> {
+/** The overhead charged today, part by part, for the settings screen to say in a sentence. */
+export interface OverheadNow {
+  effectiveFrom: string;
+  parts: { basis: c.OverheadBasis; label: string; rate: string }[];
+}
+
+export async function list(ctx: ServiceContext): Promise<{ rates: RateView[]; today: string; overheadNow: OverheadNow | null }> {
   return guardedRead(ctx, "job.cost:read", async (tx) => {
     const rows = await tx.select().from(schema.costingRate)
       .where(eq(schema.costingRate.organizationId, ctx.actor.organizationId))
       .orderBy(asc(schema.costingRate.component), asc(schema.costingRate.effectiveFrom));
     const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     const all = rows.map(toRate);
-    const currentIds = new Set(c.COMPONENTS
+    const currentIds = new Set(c.BURDEN_COMPONENTS
       .map((component) => {
         const hit = c.rateOn(all, component, today);
         return hit ? rows.find((r) => r.component === component && r.effectiveFrom === hit.effectiveFrom)?.id : undefined;
       })
       .filter((id): id is string => !!id));
+    /** Overhead is in effect as a whole mix: every row on its latest day. */
+    const mix = c.overheadMixOn(all, today);
+    for (const r of rows) {
+      if (r.component === "overhead" && mix.some((x) => x.effectiveFrom === r.effectiveFrom)) currentIds.add(r.id);
+    }
     return {
       today,
+      overheadNow: mix.length === 0 ? null : {
+        effectiveFrom: mix[0]!.effectiveFrom,
+        parts: c.OVERHEAD_BASES.flatMap((basis) => mix.filter((x) => x.basis === basis)
+          .map((x) => ({ basis, label: c.OVERHEAD_PART_LABEL[basis], rate: trim(x.rate) }))),
+      },
       rates: rows.map((r) => ({
         id: r.id,
         component: r.component,
@@ -82,9 +98,13 @@ const trim = (value: string) => value.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/
  * Add a rate from a date.
  *
  * A second rate for the same component on the same day is refused in words
- * rather than left to `costing_rate_day_idx`: "which rate applied on the 1st"
- * must have one answer, and changing the one already there is a delete and a
- * new rate, so the history says it was changed.
+ * rather than left to `costing_rate_part_day_idx`: "which rate applied on the
+ * 1st" must have one answer, and changing the one already there is a delete
+ * and a new rate, so the history says it was changed.
+ *
+ * Overhead is the exception by basis: an overhead rate on a day that already
+ * has overhead by ANOTHER basis is a second part of that day's mix, and is
+ * added. The same basis twice is still two answers.
  */
 export async function set(
   ctx: ServiceContext,
@@ -100,6 +120,7 @@ export async function set(
         eq(schema.costingRate.organizationId, ctx.actor.organizationId),
         eq(schema.costingRate.component, component),
         eq(schema.costingRate.effectiveFrom, input.effectiveFrom),
+        ...(component === "overhead" ? [eq(schema.costingRate.basis, input.basis as c.Basis)] : []),
       )).limit(1);
     /**
      * The same rate sent again is the same request, retried: it returns what
@@ -147,6 +168,58 @@ export async function remove(ctx: ServiceContext, input: { id: string }): Promis
   });
 }
 
+/**
+ * Overhead from a date, as a mix: part per paid hour, part per job and part
+ * as a share of revenue, any of them left empty. The settings screen's form,
+ * and the way to change a mix, because a mix is replaced whole on a new day
+ * (see `costing.overheadMixOn` in core): what was charged before keeps being
+ * charged to the jobs of its own days.
+ *
+ * A day that already has overhead is refused in words unless the same mix is
+ * sent again, which is a retried request and returns what is there. Changing a
+ * day's mix is removing its parts and setting it again, so the history says
+ * so.
+ */
+export async function setOverhead(
+  ctx: ServiceContext,
+  input: {
+    effectiveFrom: string; perHour?: string | undefined; perJob?: string | undefined;
+    percentOfRevenue?: string | undefined; note?: string | undefined;
+  },
+): Promise<{ effectiveFrom: string; rates: RateView[] }> {
+  return guardedWrite(ctx, "finance:configure", async (tx) => {
+    const checked = c.checkOverheadMix(input);
+    if (!checked.ok) throw new UnprocessableError("That overhead cannot be saved", [{ path: checked.field, message: checked.reason }]);
+
+    const there = await tx.select().from(schema.costingRate)
+      .where(and(
+        eq(schema.costingRate.organizationId, ctx.actor.organizationId),
+        eq(schema.costingRate.component, "overhead"),
+        eq(schema.costingRate.effectiveFrom, input.effectiveFrom),
+      ));
+    if (there.length > 0) {
+      const same = there.length === checked.parts.length && checked.parts.every((part) => there.some((row) =>
+        row.basis === part.basis && m.compare(m.money(row.rate), m.money(part.rate)) === 0));
+      if (same) return { effectiveFrom: input.effectiveFrom, rates: there.map(view) };
+      throw new ConflictError(
+        `Overhead already has rates from ${input.effectiveFrom}. Remove those first, or start the new overhead on a different day.`,
+      );
+    }
+
+    const rows = await tx.insert(schema.costingRate).values(checked.parts.map((part) => ({
+      organizationId: ctx.actor.organizationId,
+      component: "overhead" as const,
+      basis: part.basis,
+      rate: m.toString(m.money(part.rate)),
+      effectiveFrom: input.effectiveFrom,
+      note: input.note?.trim() || null,
+      createdByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+    }))).returning();
+    for (const row of rows) await audit(tx, ctx, "costing.rate_set", "costing_rate", row.id, null, row);
+    return { effectiveFrom: input.effectiveFrom, rates: rows.map(view) };
+  });
+}
+
 /** What an hour costs at a wage, today, for the settings screen to show beside the rates. */
 export async function hour(ctx: ServiceContext, input: { baseRate: string; on?: string | undefined }) {
   return guardedRead(ctx, "job.cost:read", async (tx) => {
@@ -173,4 +246,8 @@ export const handlers = {
     component: string; basis: string; rate: string; effectiveFrom: string; note?: string | undefined;
   }) => set(ctx, input),
   removeCostingRate: (ctx: ServiceContext, input: { id: string }) => remove(ctx, input),
+  setOverheadMix: (ctx: ServiceContext, input: {
+    effectiveFrom: string; perHour?: string | undefined; perJob?: string | undefined;
+    percentOfRevenue?: string | undefined; note?: string | undefined;
+  }) => setOverhead(ctx, input),
 } as const;

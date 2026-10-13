@@ -201,7 +201,17 @@ export const listCostingRates = defineRoute({
   module: "M15",
   permissions: ["job.cost:read"],
   input: z.object({}),
-  output: z.object({ today: DateString, rates: z.array(CostingRate) }),
+  output: z.object({
+    today: DateString,
+    rates: z.array(CostingRate),
+    /** The overhead charged today, part by part, or null with none set. */
+    overheadNow: z.object({
+      effectiveFrom: DateString,
+      parts: z.array(z.object({
+        basis: z.enum(["per_hour", "per_job", "percent_of_revenue"]), label: z.string(), rate: z.string(),
+      })),
+    }).nullable(),
+  }),
 });
 
 export const setCostingRate = defineRoute({
@@ -209,7 +219,7 @@ export const setCostingRate = defineRoute({
   path: "/v1/costing/rates",
   summary: "Set a burden or overhead rate from a date",
   description:
-    "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one component on one day is refused. Sending the same rate again returns it.",
+    "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.",
   module: "M15",
   permissions: ["finance:configure"],
   idempotent: true,
@@ -221,6 +231,28 @@ export const setCostingRate = defineRoute({
     note: z.string().max(500).optional(),
   }),
   output: CostingRate,
+});
+
+export const setOverheadMix = defineRoute({
+  method: "post",
+  path: "/v1/costing/overhead",
+  summary: "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+  description:
+    "Each part is optional and at least one is given; a 0 stops charging overhead from the day. The parts set on a day are the whole of the overhead from that day until a later day, so a mix is replaced whole rather than added to, and jobs before the day keep the overhead of their own day. A day that already has overhead is refused unless the same mix is sent again, which returns it. Each part is reported on its own on a job's costing and in the profitability measures.",
+  module: "M15",
+  permissions: ["finance:configure"],
+  idempotent: true,
+  input: z.object({
+    effectiveFrom: DateString,
+    /** An amount per paid hour on the job. */
+    perHour: z.string().max(20).optional(),
+    /** An amount per job. */
+    perJob: z.string().max(20).optional(),
+    /** A percentage of the job's revenue. */
+    percentOfRevenue: z.string().max(20).optional(),
+    note: z.string().max(500).optional(),
+  }),
+  output: z.object({ effectiveFrom: DateString, rates: z.array(CostingRate) }),
 });
 
 export const removeCostingRate = defineRoute({
@@ -242,13 +274,15 @@ export const getBudgetReport = defineRoute({
   path: "/v1/budgets/{year}",
   summary: "The year's budget against the ledger, by line and month, with variance",
   description:
-    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; the whole company's report is the lines with no branch, and branch lines are not added into it.",
+    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over; `forecast.assumption` says which, and it is an estimate, never a promise.",
   module: "M15",
   permissions: ["report.financial:read"],
   input: z.object({
     year: Year,
     /** One branch's own lines against what the ledger put in that branch. Left out is the whole company. */
     businessUnitId: Uuid.optional(),
+    /** One job type's own lines against the ledger entries on its jobs. Not with `businessUnitId`. */
+    jobTypeId: Uuid.optional(),
   }),
   output: z.object({
     year: z.number().int(),
@@ -268,6 +302,12 @@ export const getBudgetReport = defineRoute({
         percent: z.number().nullable(), favourable: z.boolean().nullable(),
       }),
       year: z.object({ budget: MoneyString }),
+      /** The year end forecast for the line, against the whole year's budget. */
+      forecast: z.object({
+        closedActual: MoneyString, toCome: MoneyString, forecast: MoneyString,
+        variance: MoneyString, percent: z.number().nullable(), favourable: z.boolean().nullable(),
+        unbudgetedMonths: z.number().int(),
+      }),
     })),
     net: z.object({ budget: MoneyString, actual: MoneyString }).nullable(),
     caveat: z.string(),
@@ -275,7 +315,31 @@ export const getBudgetReport = defineRoute({
     branch: z.object({
       id: Uuid, name: z.string(), entriesWithoutBranch: z.number().int(), withoutBranchDebits: MoneyString,
     }).nullable(),
+    /** For a job type's report: the type, and the year's ledger entries on no job, which its actuals cannot hold. */
+    jobType: z.object({
+      id: Uuid, name: z.string(), entriesWithoutJob: z.number().int(), withoutJobDebits: MoneyString,
+    }).nullable(),
+    forecast: z.object({
+      chosen: z.enum(["budget", "run_rate"]),
+      method: z.enum(["budget", "run_rate"]),
+      closed: z.number().int(),
+      fellBack: z.boolean(),
+      assumption: z.string(),
+      net: z.object({ forecast: MoneyString, budget: MoneyString }).nullable(),
+    }),
   }),
+});
+
+export const setBudgetForecastMethod = defineRoute({
+  method: "put",
+  path: "/v1/budgets/{year}/forecast",
+  summary: "Choose how the year end forecast takes the months to come",
+  description:
+    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over. One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.",
+  module: "M15",
+  permissions: ["finance:configure"],
+  input: z.object({ year: Year, method: z.enum(["budget", "run_rate"]) }),
+  output: z.object({ year: z.number().int(), method: z.enum(["budget", "run_rate"]) }),
 });
 
 export const setBudgetLine = defineRoute({
@@ -283,7 +347,7 @@ export const setBudgetLine = defineRoute({
   path: "/v1/budgets/{year}/lines",
   summary: "Set one budget line's twelve months",
   description:
-    "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month.",
+    "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's; not both.",
   module: "M15",
   permissions: ["finance:configure"],
   input: z.object({
@@ -292,8 +356,12 @@ export const setBudgetLine = defineRoute({
     amounts: z.array(z.string().max(30).nullable()).length(12),
     /** The branch the line is for. Left out is the whole company's own line. */
     businessUnitId: Uuid.optional(),
+    /** The job type the line is for, instead of a branch. */
+    jobTypeId: Uuid.optional(),
   }),
-  output: z.object({ year: z.number().int(), line: z.string(), months: z.number().int(), businessUnitId: Uuid.nullable() }),
+  output: z.object({
+    year: z.number().int(), line: z.string(), months: z.number().int(), businessUnitId: Uuid.nullable(), jobTypeId: Uuid.nullable(),
+  }),
 });
 
 export const removeBudgetLine = defineRoute({
@@ -302,7 +370,7 @@ export const removeBudgetLine = defineRoute({
   summary: "Take a line out of the year's budget",
   module: "M15",
   permissions: ["finance:configure"],
-  input: z.object({ year: Year, line: z.string().min(1).max(40), businessUnitId: Uuid.optional() }),
+  input: z.object({ year: Year, line: z.string().min(1).max(40), businessUnitId: Uuid.optional(), jobTypeId: Uuid.optional() }),
   output: z.object({ year: z.number().int(), line: z.string(), removed: z.literal(true) }),
 });
 
@@ -315,7 +383,7 @@ export const importBudget = defineRoute({
   module: "M15",
   permissions: ["finance:configure"],
   idempotent: true,
-  input: z.object({ year: Year, csv: z.string().min(1).max(200_000), businessUnitId: Uuid.optional() }),
+  input: z.object({ year: Year, csv: z.string().min(1).max(200_000), businessUnitId: Uuid.optional(), jobTypeId: Uuid.optional() }),
   output: z.object({ year: z.number().int(), lines: z.number().int(), cells: z.number().int() }),
 });
 
@@ -412,7 +480,7 @@ export const reverseJournalEntry = defineRoute({
 export const financeRoutes = {
   listFinancingApplications, getInvoiceFinancing, getEstimateFinancing, sendFinancingLink,
   refreshFinancingApplication, getFinancingReport,
-  listCostingRates, setCostingRate, removeCostingRate,
-  getBudgetReport, setBudgetLine, removeBudgetLine, importBudget,
+  listCostingRates, setCostingRate, setOverheadMix, removeCostingRate,
+  getBudgetReport, setBudgetLine, removeBudgetLine, importBudget, setBudgetForecastMethod,
   listJournalEntries, getJournalEntry, createJournalEntry, reverseJournalEntry,
 } as const;

@@ -240,3 +240,111 @@ export function parseBudgetCsv(text: string): ParsedBudget {
 
   return problems.length > 0 ? { ok: false, problems } : { ok: true, cells: out };
 }
+
+/* ------------------------------------------------------------ the forecast */
+
+/**
+ * WHERE THE YEAR IS HEADING, FROM THE YEAR SO FAR
+ *
+ * A year end figure per line: what the months already over actually came to,
+ * plus an assumption for the months still to come. It is an estimate and the
+ * report says so beside it; nothing here is a promise about the rest of the
+ * year, and nothing is posted.
+ *
+ * THE MONTHS ALREADY OVER are the closed ones: every month before the one the
+ * company is in. The month in progress is not read at its actual so far,
+ * because ten days of October are not October, and counting them as the month
+ * would make every forecast read worst on the first of the month. It is a
+ * month still to come, taken like the rest.
+ *
+ * THE MONTHS TO COME are taken one of two ways, and the company chooses:
+ *
+ *   budget     each month at its own budget. The default, because it is the
+ *              figure the company already wrote down for that month, and a
+ *              month with no budget counts as nothing rather than as a guess.
+ *   run_rate   each month at the average of the closed months. Better for a
+ *              company whose budget has stopped describing the year, and wrong
+ *              for a seasonal one, which the screen says.
+ *
+ * With no month closed yet (January, or a year not begun) there is no run
+ * rate, so the budget is used and the result says it fell back.
+ */
+export const FORECAST_METHODS = ["budget", "run_rate"] as const;
+export type ForecastMethod = (typeof FORECAST_METHODS)[number];
+
+export const FORECAST_LABEL: Record<ForecastMethod, string> = {
+  budget: "The months to come at their budget",
+  run_rate: "The months to come at the run rate so far",
+};
+
+/**
+ * How many months of a year are over on a day in the company's calendar: none
+ * for a year not yet begun, twelve for one that has ended, and otherwise the
+ * months before the current one.
+ */
+export function closedMonths(year: number, today: string): number {
+  const [thisYear, thisMonth] = today.split("-").map(Number) as [number, number];
+  if (year < thisYear) return 12;
+  if (year > thisYear) return 0;
+  return thisMonth - 1;
+}
+
+export interface Forecast {
+  /** The year end figure: closed months at their actual plus the months to come. */
+  forecast: m.Money;
+  /** What the closed months came to. */
+  closedActual: m.Money;
+  /** What the months to come are taken at. */
+  toCome: m.Money;
+  closed: number;
+  /** The way the months to come were taken: the one asked for, or the budget when there was no run rate yet. */
+  method: ForecastMethod;
+  fellBack: boolean;
+  /** Months to come with no budget, counted as nothing. Only when they were taken at the budget. */
+  unbudgetedMonths: number;
+  /** The forecast against the whole year's budget, signed and judged as a variance is. */
+  yearBudget: m.Money;
+  variance: Variance;
+}
+
+/**
+ * The year end forecast for one line. `months` is January to December with
+ * each month's budget (null for none) and its actual from the ledger.
+ */
+export function forecastLine(input: {
+  key: LineKey;
+  months: readonly { month: number; budget: m.Money | null; actual: m.Money }[];
+  closed: number;
+  method: ForecastMethod;
+  currency?: string;
+}): Forecast {
+  const currency = input.currency ?? "USD";
+  const closed = Math.max(0, Math.min(12, Math.trunc(input.closed)));
+  let closedActual = m.zero(currency);
+  let yearBudget = m.zero(currency);
+  for (const month of input.months) {
+    if (month.budget) yearBudget = m.add(yearBudget, month.budget);
+    if (month.month <= closed) closedActual = m.add(closedActual, month.actual);
+  }
+
+  const fellBack = input.method === "run_rate" && closed === 0;
+  const method: ForecastMethod = fellBack ? "budget" : input.method;
+  const remaining = input.months.filter((month) => month.month > closed);
+  let toCome = m.zero(currency);
+  let unbudgetedMonths = 0;
+  if (method === "run_rate") {
+    /** Multiplied before it is divided, so the average is not rounded on its way in. */
+    toCome = m.divide(m.multiply(closedActual, String(remaining.length)), String(closed));
+  } else {
+    for (const month of remaining) {
+      if (month.budget) toCome = m.add(toCome, month.budget);
+      else unbudgetedMonths += 1;
+    }
+  }
+  toCome = m.round(toCome);
+  const forecast = m.add(closedActual, toCome);
+  return {
+    forecast, closedActual, toCome, closed, method, fellBack, unbudgetedMonths,
+    yearBudget, variance: variance(input.key, yearBudget, forecast),
+  };
+}

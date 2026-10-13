@@ -12,6 +12,8 @@ export interface CostingData {
   /** At the company's own burden and overhead rates; equal to the gross margin until any are set. */
   labourBurden?: string;
   overhead?: string;
+  /** The overhead part by part, when the company charges it as a mix. */
+  overheadParts?: { perHour: string; perJob: string; revenueShare: string };
   fullyLoadedMargin?: string;
   fullyLoadedMarginPercent?: number | null;
   scheduledHours: string;
@@ -50,6 +52,25 @@ const COUNTED_IN: Record<"revenue" | "material" | "fees", string> = {
  * Provisional is said before the number, not under it: a job with a punch
  * still running reads as the best work in the company until it is not.
  */
+/**
+ * The overhead's parts under the total, only when there is more than one,
+ * because "of which $36.00 by the hour" under a $36.00 total says nothing.
+ */
+function OverheadParts({ parts }: { parts: CostingData["overheadParts"] }) {
+  if (!parts) return null;
+  const shown = ([
+    ["by the hour", parts.perHour], ["for the job", parts.perJob], ["of revenue", parts.revenueShare],
+  ] as const).filter(([, value]) => Number(value) !== 0);
+  if (shown.length < 2) return null;
+  return (
+    <span className="block text-xs text-ink-500" data-testid="overhead-parts">
+      Overhead: {shown.map(([label, value], i) => (
+        <span key={label}>{i > 0 ? ", " : ""}<Money value={value} /> {label}</span>
+      ))}
+    </span>
+  );
+}
+
 export function Costing({ data }: { data: CostingData }) {
   const negative = Number(data.grossMargin) < 0;
   const over = Number(data.hoursOverPlan) > 0;
@@ -85,6 +106,7 @@ export function Costing({ data }: { data: CostingData }) {
           <>
             <Figure label="Burden and overhead">
               <Money value={data.labourBurden ?? "0"} /> <span className="text-ink-500">and</span> <Money value={data.overhead ?? "0"} />
+              <OverheadParts parts={data.overheadParts} />
             </Figure>
             <Figure label="Fully loaded margin">
               <span className={Number(data.fullyLoadedMargin) < 0 ? "text-red-600" : undefined}><Money value={data.fullyLoadedMargin} /></span>

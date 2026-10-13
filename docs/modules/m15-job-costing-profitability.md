@@ -67,6 +67,20 @@ revenue every job keeps its margin percentage, by the hour a job that ran long
 is charged twice for the overrun, per job a quick call carries as much as an
 install.
 
+**Overhead can be a mix.** Part per paid hour, part per job and part as a
+share of revenue, all at once. The parts set on one day are the whole of the
+overhead from that day: a mix is replaced whole on a later day rather than
+added to, because the other reading (each basis its own history) would turn
+every change of basis a company already made into a mix it never chose. So a
+company charging $20 an hour from January that sets 3% of revenue and $25 a
+job from July charges those two from July and no longer the hourly part. Each
+part is reported on its own: on the job's statement as `overheadParts`, under
+the overhead figure on `/jobs/{id}`, and as the `overhead_per_hour`,
+`overhead_per_job` and `overhead_revenue_share` measures on the profitability
+dataset, which add up to `overhead`. The rule is core's `costing.overheadMixOn`
+and `costing.overheadParts`, with unit tests, and an integration test holds the
+SQL to it.
+
 **What people spent for a job is a cost of it.** A receipt a person paid for the
 job that the office approved, and the company's rate for each day somebody was away
 on it, are `expenseCost` on the job's statement and the "Expenses and per diem"
@@ -92,6 +106,39 @@ labour the other 5xxx accounts, overhead 6xxx and above. This product posts no
 wages itself, and posts to materials only freight or duty billed after a
 delivery (M16), so those lines are only as complete as the journals an
 accountant posts (M14), and the report says so.
+
+**A job type has a budget of its own, the same way.** A line can be one job
+type's instead of a branch's (never both), read against the ledger entries on
+that type's jobs: their invoices, discounts, card fees, write offs, commission
+and any journal line that names one of them. A job moved to another type later
+moves its entries with it, because the question is about the kind of work.
+Nothing that is not on a job can be in a job type's figures (rent, trucks,
+payroll, a journal to no job), so a job type's report counts the year's entries
+on no job and adds up their debits, as a branch's counts the entries with no
+branch. The company's report does not add a job type's lines in.
+
+**The forecast is an estimate, and says so.** Every line has a year end
+forecast: the months already over (every month before the one the company is
+in) at what the ledger says, and this month and the rest at their budget, or at
+the run rate of the months already over when the company chooses that. The
+month in progress is not read at its actual so far, because ten days of
+October are not October. The budget is the default because it is the figure
+the company already wrote down; a month with no budget counts as nothing, and
+the line says how many. The run rate reads a seasonal year wrongly, which the
+screen says, and with no month over yet there is none, so the budget is used and
+the screen says that too. The assumption is written above the table every time,
+with "This is an estimate, not a promise." Nothing about it posts or is stored
+but the choice. The rule is core's `budget.forecastLine` and
+`budget.closedMonths`, with unit tests.
+
+**Three judgements the product owner has not made, and the conservative reading
+taken.** The forecast's default is the budget rather than the run rate, because
+it repeats a figure the company chose instead of inventing one. The month in
+progress counts at its budget, not its actual so far, so a forecast does not
+swing on the first of the month. And the forecast is one choice per year that
+every reader sees, set with `finance:configure`, rather than a toggle each
+reader flips, so two people in a meeting are not reading two different year
+ends.
 
 **A branch has a budget of its own.** A budget line can be one branch's, and
 the report can be read for one branch: that branch's lines against the ledger
@@ -170,10 +217,17 @@ is a normal company.
 ### Burden and overhead
 
 `/settings/costing` holds the rates with the day each took effect, what an hour
-at a $30 wage costs today with them, and a form to add one. `GET /v1/costing/rates`
-lists them, `POST /v1/costing/rates` adds one (a second rate for one component on
-one day is refused) and `DELETE /v1/costing/rates/{id}` removes one entered by
-mistake. The job statement, `/jobs/{id}` and the job costing report then show
+at a $30 wage costs today with them, the overhead charged today in a sentence
+("$12.00 per paid hour, $25.00 per job and 3% of revenue"), a form to set
+overhead from a date as a mix (three boxes, any left empty, started from
+today's figures so changing one part does not drop the others), and a form to
+add one rate. `GET /v1/costing/rates` lists them with `overheadNow`,
+`POST /v1/costing/overhead` sets the mix from a date (a day that already has
+overhead is refused unless the same mix is sent again),
+`POST /v1/costing/rates` adds one rate (a second rate for one burden component
+on one day is refused; an overhead rate by another basis on a day that has
+overhead is added to that day's mix) and `DELETE /v1/costing/rates/{id}`
+removes one entered by mistake. The job statement, `/jobs/{id}` and the job costing report then show
 labour burden, overhead and the fully loaded margin; the profitability dataset has
 `labour_burden`, `overhead` and `fully_loaded_margin` as measures.
 
@@ -186,11 +240,26 @@ with a header row of months (`Line,Jan,...,Dec`), where each line in the file
 replaces that line and nothing loads unless the whole file reads. A Branch
 choice above the table reads and sets one branch's budget instead of the
 company's, and a CSV loaded while a branch is chosen goes into that branch.
+A Job type choice beside it does the same for one job type, and the page
+says how much of the year was booked to no job. Asked for a branch and a job
+type at once, the page says to pick one and shows the company's.
+
+Each line has a "Year end forecast" column: the forecast, the year's budget
+and whether it is better or worse, and how many months with no budget were
+counted as nothing. Above the table, "How the forecast is made" says what was
+assumed. "The forecast" section, for whoever sets the budget, chooses how the
+months to come are taken: at their budget, or at the run rate so far, for the
+whole year, which every branch's and job type's report uses too.
+
 `GET /v1/budgets/{year}` is the report, `PUT /v1/budgets/{year}/lines` sets a
 line, `DELETE /v1/budgets/{year}/lines/{line}` removes one and
 `POST /v1/budgets/{year}/import` loads a CSV; each takes `businessUnitId` for a
-branch's own lines, and the report then carries `branch` with the count of
-entries that carry no branch.
+branch's own lines or `jobTypeId` for a job type's (not both), and the report
+then carries `branch` with the count of entries that carry no branch, or
+`jobType` with the count on no job. Every line carries `forecast` and the
+report carries `forecast` with the method chosen, the one used, the months
+already over and the assumption in words. `PUT /v1/budgets/{year}/forecast`
+chooses the method.
 
 ## Permissions
 
@@ -204,7 +273,7 @@ entries that carry no branch.
 
 `job.cost:read` and `report.financial:read` are both on the sensitive list.
 
-Setting burden and overhead rates and the budget needs `finance:configure`,
+Setting burden and overhead rates, the budget and how its forecast is made needs `finance:configure`,
 which the owner, the administrator and the accountant hold and the office
 manager does not: a rate changes what every fully loaded margin says. The rates
 are read with `job.cost:read`, the budget with `report.financial:read`.
@@ -219,10 +288,12 @@ are read with `job.cost:read`, the budget with `report.financial:read`.
 | `POST /v1/reports/drill` | `report:read`, and the report's own permissions |
 | `GET /v1/costing/rates` | `job.cost:read` |
 | `POST /v1/costing/rates` | `finance:configure` |
+| `POST /v1/costing/overhead` | `finance:configure` |
 | `DELETE /v1/costing/rates/{id}` | `finance:configure` |
 | `GET /v1/budgets/{year}` | `report.financial:read` |
 | `PUT /v1/budgets/{year}/lines` | `finance:configure` |
 | `POST /v1/budgets/{year}/import` | `finance:configure` |
+| `PUT /v1/budgets/{year}/forecast` | `finance:configure` |
 
 ## Common questions
 
@@ -239,13 +310,17 @@ attached to it.
 
 ## What is not built
 
-Overhead has one basis at a time: a company that wants part per hour and part
-per job picks the one that matters most. The overtime premium is still not on a
-job, for the reason above. Burden and overhead are applied in reporting only;
-nothing posts them to the ledger, which keeps them as the company's choice
-rather than an entry in its books. The budget can be set per branch (and read
-per branch against what the ledger put in that branch), but not per job type,
-and there is no forecast. A branch's budget is not read for a branch manager's
+Overhead can be a mix of per paid hour, per job and a share of revenue, but
+there is no fourth basis (by material cost, by visit, by truck), and a mix is
+replaced whole on a new day rather than one part at a time. The overtime
+premium is still not on a job, for the reason above. Burden and overhead are
+applied in reporting only; nothing posts them to the ledger, which keeps them
+as the company's choice rather than an entry in its books. The budget can be
+set per branch or per job type, not per branch and job type together, and a
+job type's actuals are only what was booked to its jobs. The forecast is one
+method for the whole year (the budget or the run rate), with no seasonal
+pattern, no forecast by month and no weighting of recent months; it is shown,
+never stored or posted. A branch's budget is not read for a branch manager's
 own branch automatically: the report is a company financial report under
 `report.financial:read`, and whoever holds that chooses the branch. Labour and materials actuals depend on journals, because
 nothing here posts wages or supplier bills. A journal can now put a supplier

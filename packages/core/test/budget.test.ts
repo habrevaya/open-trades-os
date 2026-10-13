@@ -87,3 +87,62 @@ describe("a budget from a spreadsheet", () => {
     expect(parsed.problems.some((p) => p.includes("appears twice"))).toBe(true);
   });
 });
+
+describe("the year end forecast", () => {
+  /** Revenue budgeted at 10,000 a month, and the first three months at 9,000, 12,000 and 9,000. */
+  const months = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    budget: i === 11 ? null : usd("10000"),
+    actual: usd(i === 1 ? "12000" : i < 3 ? "9000" : i === 3 ? "4000" : "0"),
+  }));
+
+  it("counts only the months already over: the month in progress is a month to come", () => {
+    expect(b.closedMonths(2026, "2026-04-10")).toBe(3);
+    expect(b.closedMonths(2025, "2026-04-10")).toBe(12);
+    expect(b.closedMonths(2027, "2026-04-10")).toBe(0);
+    expect(b.closedMonths(2026, "2026-01-31")).toBe(0);
+  });
+
+  it("takes the months to come at their budget, and a month with none as nothing", () => {
+    const f = b.forecastLine({ key: "category:revenue", months, closed: 3, method: "budget" });
+    // 30,000 so far; April to November at 10,000 is 80,000; December has no budget.
+    expect(m.toString(f.closedActual)).toBe("30000.0000");
+    expect(m.toString(f.toCome)).toBe("80000.0000");
+    expect(m.toString(f.forecast)).toBe("110000.0000");
+    expect(f.unbudgetedMonths).toBe(1);
+    expect(m.toString(f.yearBudget)).toBe("110000.0000");
+    expect(f.variance.favourable).toBeNull();
+    // April's 4,000 so far is not read: April is not over.
+    expect(f.method).toBe("budget");
+  });
+
+  it("takes them at the run rate when the company chose it", () => {
+    const f = b.forecastLine({ key: "category:revenue", months, closed: 3, method: "run_rate" });
+    // An average of 10,000 over three months, for nine months: 90,000, so 120,000.
+    expect(m.toString(f.toCome)).toBe("90000.0000");
+    expect(m.toString(f.forecast)).toBe("120000.0000");
+    expect(f.variance.favourable).toBe(true);
+    expect(f.unbudgetedMonths).toBe(0);
+  });
+
+  it("rounds a run rate to the cent and judges a cost the other way", () => {
+    const cost = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, budget: usd("100"), actual: usd(i < 3 ? "110.01" : "0") }));
+    const f = b.forecastLine({ key: "category:labour", months: cost, closed: 3, method: "run_rate" });
+    // 330.03 over three months, for nine: 990.09.
+    expect(m.toString(f.forecast)).toBe("1320.1200");
+    expect(f.variance.favourable).toBe(false);
+  });
+
+  it("falls back to the budget with no month over yet, and says so", () => {
+    const f = b.forecastLine({ key: "category:revenue", months, closed: 0, method: "run_rate" });
+    expect(f.method).toBe("budget");
+    expect(f.fellBack).toBe(true);
+    expect(m.toString(f.forecast)).toBe("110000.0000");
+  });
+
+  it("is the actual for a year that is over", () => {
+    const f = b.forecastLine({ key: "category:revenue", months, closed: 12, method: "budget" });
+    expect(m.toString(f.forecast)).toBe("34000.0000");
+    expect(m.isZero(f.toCome)).toBe(true);
+  });
+});
