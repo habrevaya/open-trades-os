@@ -1,0 +1,1 @@
+ALTER TABLE "commission_event" ADD COLUMN "split_note" text;

@@ -368,6 +368,12 @@ export const NAV: NavGroup[] = [
            */
           { href: "/payroll/commissions", label: "Commission plans" },
           /**
+           * Commissions several people share, waiting to be split and settled.
+           * Shown with `payroll:read` like its siblings; the page needs
+           * `commission:read`, and settling `commission:configure`.
+           */
+          { href: "/payroll/commissions/splits", label: "Shared commission" },
+          /**
            * When overtime starts and what each classification is paid. It
            * inherits `payroll:read` to be SHOWN and the page needs
            * `timesheet:read` to read and `payroll:configure` to change, for the

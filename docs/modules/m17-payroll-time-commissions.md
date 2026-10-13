@@ -223,6 +223,49 @@ write. `POST /v1/commissions` settles an earning,
 `POST /v1/payroll/commission-payments` records them as paid, which is a payroll
 act and takes `payroll:export`. `/payroll/commissions` is the screen.
 
+### A commission several people share
+
+`/payroll/commissions/splits` ("Shared commission" under Payroll) lists the
+invoices waiting to be shared: sent or paid, not voided or written off, on a job
+two or more people were assigned to, made since the company's first commission
+plan, with no commission settled yet (`GET /v1/commissions/shared`,
+`commission:read`). Under them, "Shared lately" is the last twenty earnings paid
+to more than one person, each person's part, and the reason given for the split.
+
+"Share it" opens `/payroll/commissions/splits/{invoiceId}`: what the invoice
+earns under the plan, and who gets what under the even split between the people
+on the job, worked out by core (`GET /v1/commissions/split-proposal`,
+`commission:read`, which writes nothing). The office changes the shares, adds
+somebody who was not on the visits (the person who sold it, say) or puts 0 to
+leave somebody out, and "Work it out" shows each part again through the same
+code settling uses, so what is on the screen is what will be owed. A share is a
+part of the whole, not a percent: 2 and 1 is two thirds and one third, and the
+odd cent goes to the biggest share. With two plans in force the page asks which
+one. Anything settling would refuse (a margin plan with no cost, a split of
+zeros) is said on the page instead.
+
+**Within the rule.** The total is the plan's and is never changed on this
+screen; the shares only divide it. The rule is core's (`labor.checkShares`,
+`labor.evenShares`, `labor.sameSplit`, with unit tests), and the API's settling
+refuses the same splits in the same words: nobody twice, a weight a decimal of
+at most six places, at least one share above zero.
+
+"Settle this split" (`POST /v1/commissions/splits`, `commission:configure`) is
+the same settling as `POST /v1/commissions`, with one more rule: **a split that
+is not the even one between the people on the job needs a reason.** The reason
+is kept on the earning and written into each person's part ("Shared this way by
+the office: ..."), which is the sentence they read beside the commission on
+their own pay statement, and the audit records the split proposed beside the one
+settled. Sent again with the same split, it answers with what was settled; a
+different split for an invoice that has already earned is refused, because
+settling twice pays twice.
+
+**A judgement the product owner has not made, and the conservative reading
+taken.** Only the split screen asks for a reason. `POST /v1/commissions` with
+named shares, which existed before the screen, still settles without one, so an
+integration that sends its own split keeps working; its earning is audited with
+its parts as it always was.
+
 ### What people paid for the company, and a day away
 
 A technician records what they paid out of their own pocket: the amount, the day,
@@ -404,6 +447,9 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `POST /v1/payroll/exports` | `payroll:export` |
 | `GET /v1/commissions` | `commission:read` |
 | `POST /v1/commissions/plans` | `commission:configure` |
+| `GET /v1/commissions/shared` | `commission:read` |
+| `GET /v1/commissions/split-proposal` | `commission:read` |
+| `POST /v1/commissions/splits` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
 | `POST /v1/payroll/tip-payments` | `payroll:export` |
 | `GET /v1/payroll/overtime-policies` | `timesheet:read` |
@@ -465,9 +511,13 @@ the hours clocked against the job, not against one visit of it. Reimbursements a
 are recorded, decided and exported, but not posted to the ledger, only for people on
 the board, and a decision on a reimbursement cannot be taken back; there is no mileage
 rate, no per diem that varies by place or by meal, and nothing checks a per diem
-against the tax authority's allowance. Certified payroll reporting is not built. Commission
-splits across several people are computed by core and settled one earning at a
-time rather than from a screen. A person's own statement is gross pay: what the
+against the tax authority's allowance. Certified payroll reporting is not built. A commission
+several people share is settled from the split screen one invoice at a time:
+there is no settling a page of them at once, no standing rule per job type or
+per person (a salesperson's fixed share, say), and nothing settles a commission
+by itself when an invoice is paid. A split already settled is not changed on the
+screen: the way to put one right is a reversal and settling again. Only the split
+screen asks for a reason for an uneven split; the older settling route does not. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.
 Part of a day off is read by the hour on the booking page, in booking a visit, on the
 dispatch board, in the crew check, in the map's suggestions and in the multi day

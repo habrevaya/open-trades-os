@@ -527,6 +527,9 @@ export const handlers = {
   settleCommission: commissions.handlers.settleCommission,
   reverseCommission: commissions.handlers.reverseCommission,
   listCommissionEarnings: commissions.handlers.listCommissionEarnings,
+  listSharedCommissions: commissions.handlers.listSharedCommissions,
+  getCommissionSplit: commissions.handlers.getCommissionSplit,
+  settleCommissionSplit: commissions.handlers.settleCommissionSplit,
 
   declarePayPeriod: payroll.handlers.declarePayPeriod,
   listPayPeriods: payroll.handlers.listPayPeriods,

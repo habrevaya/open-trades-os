@@ -52,7 +52,9 @@ export default async function CommissionsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
-      <PageHeader title="Commission plans" count={plans.length} />
+      <PageHeader title="Commission plans" count={plans.length} action={
+        <a href="/payroll/commissions/splits" className="text-sm font-medium underline underline-offset-4">Shared commission</a>
+      } />
 
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
         What a technician earns on top of their hours. A plan is superseded rather than edited, so

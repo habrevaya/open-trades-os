@@ -1,8 +1,8 @@
 import { and, asc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { labor, ledger, money as m, time } from "@opentradesos/core";
+import { labor, ledger, money as m, time, work } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, timezoneOf, ConflictError, NotFoundError,
+  guardedRead, guardedWrite, audit, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
 } from "./context";
 import { writePosting } from "./ledger";
@@ -215,6 +215,10 @@ export interface SettleInput {
    * been closed.
    */
   occurredAt?: Date | undefined;
+  /** Why it is shared this way, when the office changed the even split. Kept on the earning and in each part's explanation. */
+  splitNote?: string | undefined;
+  /** The split the screen proposed, for the audit to say whether it was changed. */
+  proposed?: readonly labor.CommissionShare[] | undefined;
 }
 
 /**
@@ -250,180 +254,200 @@ export interface SettleInput {
  * first so the error is a sentence rather than a constraint violation.
  */
 export async function settle(ctx: ServiceContext, input: SettleInput) {
-  return guardedWrite(ctx, "commission:configure", async (tx) => {
-    const [invoice] = await tx.select().from(schema.invoice)
-      .where(and(
-        eq(schema.invoice.id, input.invoiceId),
-        isNull(schema.invoice.deletedAt),
-      )).limit(1);
-    if (!invoice) throw new NotFoundError("Invoice");
+  return guardedWrite(ctx, "commission:configure", (tx) => settleIn(tx, ctx, input));
+}
 
-    if (invoice.status === "draft") {
-      /**
-       * A draft has not been posted to the ledger, so no revenue has been
-       * recognised and there is nothing to take a share of. Settling one would
-       * create a liability against a sale that may never happen.
-       */
-      throw new ConflictError(
-        `Invoice ${invoice.number} is still a draft. Nothing has been earned on it yet.`,
-      );
-    }
-    if (invoice.status === "void" || invoice.status === "written_off") {
-      throw new ConflictError(
-        `Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}. `
-        + "Commission is not earned on an invoice the company was never paid for.",
-      );
-    }
+/**
+ * Everything settling decides before it writes: the invoice, the plan, the
+ * shares, the facts the plan reads, and core's verdict. The preview on the
+ * split screen and settling itself both come through here, so what the office
+ * is shown is what is settled.
+ */
+async function prepare(tx: Database, ctx: ServiceContext, input: SettleInput) {
+  const [invoice] = await tx.select().from(schema.invoice)
+    .where(and(
+      eq(schema.invoice.id, input.invoiceId),
+      isNull(schema.invoice.deletedAt),
+    )).limit(1);
+  if (!invoice) throw new NotFoundError("Invoice");
 
-    const [existing] = await tx.select({ id: schema.commissionEvent.id })
-      .from(schema.commissionEvent)
-      .where(and(
-        eq(schema.commissionEvent.organizationId, ctx.actor.organizationId),
-        eq(schema.commissionEvent.invoiceId, invoice.id),
-      )).limit(1);
-    if (existing) {
-      throw new ConflictError(
-        `Invoice ${invoice.number} has already earned a commission. Settling it again would pay it twice `
-        + "and carry the liability twice, and the only symptom is a job appearing in two payroll runs.",
-      );
-    }
-
-    const plan = await resolvePlan(tx, ctx, input.planId);
-    const shares = await resolveShares(tx, ctx, invoice.jobId, input.shares);
-
+  if (invoice.status === "draft") {
     /**
-     * NET REVENUE, matching `ledger.postInvoice`: it credits revenue with the
-     * subtotal and debits contra revenue with the discount, so what the
-     * company actually earned on this document is the difference. The tax is a
-     * liability to a jurisdiction and is not ours to share.
+     * A draft has not been posted to the ledger, so no revenue has been
+     * recognised and there is nothing to take a share of. Settling one would
+     * create a liability against a sale that may never happen.
      */
-    const revenue = m.subtract(usd(invoice.subtotal), usd(invoice.discountTotal));
+    throw new ConflictError(
+      `Invoice ${invoice.number} is still a draft. Nothing has been earned on it yet.`,
+    );
+  }
+  if (invoice.status === "void" || invoice.status === "written_off") {
+    throw new ConflictError(
+      `Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}. `
+      + "Commission is not earned on an invoice the company was never paid for.",
+    );
+  }
 
-    if (plan.basis === "percent_of_collected" && invoice.status !== "paid") {
-      throw new ConflictError(
-        `Invoice ${invoice.number} has ${invoice.amountPaid} of ${invoice.total} collected. `
-        + "This plan pays on what was collected, so it cannot be settled until the invoice is paid in full. "
-        + "Settling it now would either pay a share of money that has not arrived, or split one invoice's "
-        + "commission into instalments, after which a refund has to decide which instalment it came out of.",
-      );
-    }
+  const [existing] = await tx.select({ id: schema.commissionEvent.id })
+    .from(schema.commissionEvent)
+    .where(and(
+      eq(schema.commissionEvent.organizationId, ctx.actor.organizationId),
+      eq(schema.commissionEvent.invoiceId, invoice.id),
+    )).limit(1);
+  if (existing) {
+    throw new ConflictError(
+      `Invoice ${invoice.number} has already earned a commission. Settling it again would pay it twice `
+      + "and carry the liability twice, and the only symptom is a job appearing in two payroll runs.",
+    );
+  }
 
-    const cost = invoice.jobId ? await costOf(tx, invoice.jobId) : null;
-    const occurredAt = input.occurredAt ?? new Date();
+  const plan = await resolvePlan(tx, ctx, input.planId);
+  const shares = await resolveShares(tx, ctx, invoice.jobId, input.shares);
 
+  /**
+   * NET REVENUE, matching `ledger.postInvoice`: it credits revenue with the
+   * subtotal and debits contra revenue with the discount, so what the
+   * company actually earned on this document is the difference. The tax is a
+   * liability to a jurisdiction and is not ours to share.
+   */
+  const revenue = m.subtract(usd(invoice.subtotal), usd(invoice.discountTotal));
+
+  if (plan.basis === "percent_of_collected" && invoice.status !== "paid") {
+    throw new ConflictError(
+      `Invoice ${invoice.number} has ${invoice.amountPaid} of ${invoice.total} collected. `
+      + "This plan pays on what was collected, so it cannot be settled until the invoice is paid in full. "
+      + "Settling it now would either pay a share of money that has not arrived, or split one invoice's "
+      + "commission into instalments, after which a refund has to decide which instalment it came out of.",
+    );
+  }
+
+  const cost = invoice.jobId ? await costOf(tx, invoice.jobId) : null;
+  const occurredAt = input.occurredAt ?? new Date();
+
+  /**
+   * BACKDATING INTO A CLOSED PERIOD IS REFUSED.
+   *
+   * A commission dated into a fortnight that has been exported and paid
+   * changes a figure the bureau holds, the technician has been paid on, and
+   * tax has been withheld and remitted against. Nothing anywhere would say
+   * it moved: the export is already out, and the next one covers a different
+   * period. The same argument the accounting close makes about a late
+   * invoice pushed into a filed quarter.
+   */
+  const closed = await closedPeriodCovering(tx, ctx.actor.organizationId, occurredAt);
+  if (closed) {
+    throw new ConflictError(
+      `${occurredAt.toISOString()} falls inside ${closed.label}, which was closed at `
+      + `${closed.closedAt.toISOString()} and has been run. Reopen that period if this really belongs `
+      + "in it, or date the earning in a period that is still open.",
+    );
+  }
+
+  const event: labor.CommissionEvent = {
+    id: invoice.id,
+    jobId: invoice.jobId ?? invoice.id,
+    invoiceId: invoice.id,
+    occurredAt,
+    revenue,
+    ...(cost ? { cost } : {}),
     /**
-     * BACKDATING INTO A CLOSED PERIOD IS REFUSED.
-     *
-     * A commission dated into a fortnight that has been exported and paid
-     * changes a figure the bureau holds, the technician has been paid on, and
-     * tax has been withheld and remitted against. Nothing anywhere would say
-     * it moved: the export is already out, and the next one covers a different
-     * period. The same argument the accounting close makes about a late
-     * invoice pushed into a filed quarter.
+     * Only on the basis that uses it. Recording a collected figure on a
+     * revenue plan would imply the plan looked at it.
      */
-    const closed = await closedPeriodCovering(tx, ctx.actor.organizationId, occurredAt);
-    if (closed) {
-      throw new ConflictError(
-        `${occurredAt.toISOString()} falls inside ${closed.label}, which was closed at `
-        + `${closed.closedAt.toISOString()} and has been run. Reopen that period if this really belongs `
-        + "in it, or date the earning in a period that is still open.",
-      );
-    }
+    ...(plan.basis === "percent_of_collected" ? { collected: revenue } : {}),
+    shares: shares.map((share) => ({ personId: share.technicianId, weight: share.weight })),
+  };
 
-    const event: labor.CommissionEvent = {
-      id: invoice.id,
-      jobId: invoice.jobId ?? invoice.id,
-      invoiceId: invoice.id,
-      occurredAt,
-      revenue,
-      ...(cost ? { cost } : {}),
-      /**
-       * Only on the basis that uses it. Recording a collected figure on a
-       * revenue plan would imply the plan looked at it.
-       */
-      ...(plan.basis === "percent_of_collected" ? { collected: revenue } : {}),
-      shares: shares.map((share) => ({ personId: share.technicianId, weight: share.weight })),
-    };
+  const verdict = labor.computeCommission(toCorePlan(plan), event);
+  if (!verdict.ok) throw new ConflictError(verdict.reason);
+  return { invoice, plan, shares, revenue, cost, occurredAt, verdict };
+}
 
-    const verdict = labor.computeCommission(toCorePlan(plan), event);
-    if (!verdict.ok) throw new ConflictError(verdict.reason);
+async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
+  const { invoice, plan, shares, revenue, cost, occurredAt, verdict } = await prepare(tx, ctx, input);
+  const note = input.splitNote?.trim() || null;
 
-    const [row] = await tx.insert(schema.commissionEvent).values({
+  const [row] = await tx.insert(schema.commissionEvent).values({
+    organizationId: ctx.actor.organizationId,
+    planId: plan.id,
+    invoiceId: invoice.id,
+    jobId: invoice.jobId,
+    basis: plan.basis,
+    appliedRate: plan.rate,
+    appliedFlatAmount: plan.flatAmount,
+    revenue: m.toString(revenue),
+    cost: cost ? m.toString(cost) : null,
+    collected: plan.basis === "percent_of_collected" ? m.toString(revenue) : null,
+    total: m.toString(verdict.total),
+    occurredAt,
+    explanation: verdict.explanation,
+    splitNote: note,
+    ledgerTransactionId: null,
+  }).returning();
+
+  for (const [index, part] of verdict.parts.entries()) {
+    await tx.insert(schema.commissionEntry).values({
       organizationId: ctx.actor.organizationId,
-      planId: plan.id,
-      invoiceId: invoice.id,
-      jobId: invoice.jobId,
-      basis: plan.basis,
-      appliedRate: plan.rate,
-      appliedFlatAmount: plan.flatAmount,
-      revenue: m.toString(revenue),
-      cost: cost ? m.toString(cost) : null,
-      collected: plan.basis === "percent_of_collected" ? m.toString(revenue) : null,
-      total: m.toString(verdict.total),
+      eventId: row!.id,
+      reversalId: null,
+      technicianId: part.personId,
+      kind: "earned",
+      weight: shares[index]!.weight,
+      shareIndex: index,
+      amount: m.toString(part.amount),
+      explanation: note ? `${part.explanation} Shared this way by the office: ${note}` : part.explanation,
       occurredAt,
-      explanation: verdict.explanation,
-      ledgerTransactionId: null,
-    }).returning();
-
-    for (const [index, part] of verdict.parts.entries()) {
-      await tx.insert(schema.commissionEntry).values({
-        organizationId: ctx.actor.organizationId,
-        eventId: row!.id,
-        reversalId: null,
-        technicianId: part.personId,
-        kind: "earned",
-        weight: shares[index]!.weight,
-        shareIndex: index,
-        amount: m.toString(part.amount),
-        explanation: part.explanation,
-        occurredAt,
-      });
-    }
-
-    /**
-     * ZERO POSTS NOTHING. A job that lost money under a margin plan earns no
-     * commission, and a posting with no entries is not a posting: it would be
-     * a transaction id on a row with nothing behind it, which reads in the
-     * register as a commission somebody cannot find.
-     */
-    let transactionId: string | null = null;
-    if (m.isPositive(verdict.total)) {
-      transactionId = await writePosting(tx, ctx, ledger.postCommissionEarned({
-        commissionEventId: row!.id,
-        occurredAt,
-        amount: verdict.total,
-        ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
-        customerId: invoice.customerId,
-      }));
-      await tx.update(schema.commissionEvent)
-        .set({ ledgerTransactionId: transactionId, updatedAt: new Date() })
-        .where(eq(schema.commissionEvent.id, row!.id));
-    }
-
-    await audit(tx, ctx, "commission.earned", "commission_event", row!.id, null, {
-      invoiceId: invoice.id, planId: plan.id, total: m.toString(verdict.total),
-      parts: verdict.parts.map((p) => ({ technicianId: p.personId, amount: m.toString(p.amount) })),
     });
+  }
 
-    return {
-      id: row!.id,
-      invoiceId: invoice.id,
-      planId: plan.id,
-      basis: plan.basis,
-      revenue: m.toString(revenue),
-      cost: cost ? m.toString(cost) : null,
-      total: m.toString(verdict.total),
-      explanation: verdict.explanation,
+  /**
+   * ZERO POSTS NOTHING. A job that lost money under a margin plan earns no
+   * commission, and a posting with no entries is not a posting: it would be
+   * a transaction id on a row with nothing behind it, which reads in the
+   * register as a commission somebody cannot find.
+   */
+  let transactionId: string | null = null;
+  if (m.isPositive(verdict.total)) {
+    transactionId = await writePosting(tx, ctx, ledger.postCommissionEarned({
+      commissionEventId: row!.id,
       occurredAt,
-      ledgerTransactionId: transactionId,
-      parts: verdict.parts.map((part, index) => ({
-        technicianId: part.personId,
-        weight: shares[index]!.weight,
-        amount: m.toString(part.amount),
-        explanation: part.explanation,
-      })),
-    };
+      amount: verdict.total,
+      ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+      customerId: invoice.customerId,
+    }));
+    await tx.update(schema.commissionEvent)
+      .set({ ledgerTransactionId: transactionId, updatedAt: new Date() })
+      .where(eq(schema.commissionEvent.id, row!.id));
+  }
+
+  await audit(tx, ctx, "commission.earned", "commission_event", row!.id, null, {
+    invoiceId: invoice.id, planId: plan.id, total: m.toString(verdict.total),
+    parts: verdict.parts.map((p, i) => ({ technicianId: p.personId, weight: shares[i]!.weight, amount: m.toString(p.amount) })),
+    ...(input.proposed ? {
+      proposed: input.proposed.map((p) => ({ technicianId: p.personId, weight: p.weight })),
+      changed: !labor.sameSplit(input.proposed, shares.map((x) => ({ personId: x.technicianId, weight: x.weight }))),
+    } : {}),
+    ...(note ? { splitNote: note } : {}),
   });
+
+  return {
+    id: row!.id,
+    invoiceId: invoice.id,
+    planId: plan.id,
+    basis: plan.basis,
+    revenue: m.toString(revenue),
+    cost: cost ? m.toString(cost) : null,
+    total: m.toString(verdict.total),
+    explanation: verdict.explanation,
+    occurredAt,
+    ledgerTransactionId: transactionId,
+    parts: verdict.parts.map((part, index) => ({
+      technicianId: part.personId,
+      weight: shares[index]!.weight,
+      amount: m.toString(part.amount),
+      explanation: note ? `${part.explanation} Shared this way by the office: ${note}` : part.explanation,
+    })),
+  };
 }
 
 /* -------------------------------------------------------------- reversing */
@@ -717,6 +741,353 @@ export async function earnings(
   });
 }
 
+/* --------------------------------------------------- shared, from a screen */
+
+/** A person in a split: on the job or added by the office, with what they would be paid. */
+export interface SplitPerson {
+  technicianId: string;
+  name: string;
+  /** Assigned to one of the job's visits. */
+  onJob: boolean;
+  /** Their weight in the even split proposed, or "0" for somebody the office added. */
+  proposedWeight: string;
+  /** Their weight in the split shown. */
+  weight: string;
+  /** What they would be paid under it. Null when the split cannot be settled. */
+  amount: string | null;
+  explanation: string | null;
+}
+
+export interface SplitProposal {
+  invoice: {
+    id: string; number: string; status: string; customerName: string;
+    jobId: string | null; jobNumber: string | null;
+  };
+  /** The active plans, for choosing one when there are several. */
+  plans: { id: string; label: string }[];
+  /** Everybody else the office could add to the split: the person who sold it is not always on the visits. */
+  others: { technicianId: string; name: string }[];
+  planId: string | null;
+  planLabel: string | null;
+  revenue: string | null;
+  total: string | null;
+  explanation: string | null;
+  people: SplitPerson[];
+  /** The split shown differs from the even one proposed, so settling it needs a reason. */
+  changed: boolean;
+  /** Why it cannot be settled as shown, in a sentence, or null. */
+  refusal: string | null;
+  /** Already settled: what was paid to whom, and the reason given for the split. */
+  settled: {
+    eventId: string; total: string; occurredAt: Date; splitNote: string | null;
+    parts: { technicianId: string; name: string; weight: string | null; amount: string }[];
+  } | null;
+}
+
+/** The people on a job's visits, by name. Who a shared commission is proposed between. */
+async function peopleOnJob(tx: Database, jobId: string | null): Promise<{ technicianId: string; name: string }[]> {
+  if (!jobId) return [];
+  return tx.selectDistinct({ technicianId: schema.visitAssignment.technicianId, name: schema.technician.displayName })
+    .from(schema.visitAssignment)
+    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+    .where(eq(schema.visit.jobId, jobId))
+    .orderBy(asc(schema.technician.displayName), asc(schema.visitAssignment.technicianId));
+}
+
+/**
+ * A SHARED COMMISSION, WORKED OUT BEFORE IT IS SETTLED.
+ *
+ * The even split between the people on the job is proposed, which is what
+ * settling without shares has always done, and core works out each person's
+ * part under the plan. With `shares`, the office's own split instead, worked
+ * out the same way, so what the screen shows is exactly what settling it
+ * writes: both come through `prepare`. Anything settling would refuse (a
+ * margin plan with no cost, two active plans and none named, a split of
+ * zeros) comes back as `refusal`, in the same words, rather than as an error.
+ *
+ * `commission:read`, because it writes nothing.
+ */
+export async function proposal(
+  ctx: ServiceContext,
+  input: { invoiceId: string; planId?: string | undefined; shares?: readonly ShareInput[] | undefined },
+): Promise<SplitProposal> {
+  return guardedRead(ctx, "commission:read", async (tx) => {
+    const [row] = await tx.select({
+      invoice: schema.invoice, customerName: schema.customer.name,
+      jobNumber: schema.job.number, jobPrefix: schema.job.numberPrefix,
+    }).from(schema.invoice)
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.invoice.customerId))
+      .leftJoin(schema.job, eq(schema.job.id, schema.invoice.jobId))
+      .where(and(
+        eq(schema.invoice.organizationId, ctx.actor.organizationId),
+        eq(schema.invoice.id, input.invoiceId),
+        isNull(schema.invoice.deletedAt),
+      )).limit(1);
+    if (!row) throw new NotFoundError("Invoice");
+    const invoice = row.invoice;
+
+    const onJob = await peopleOnJob(tx, invoice.jobId);
+    const proposed = labor.evenShares(onJob.map((p) => p.technicianId));
+    const given: ShareInput[] = input.shares && input.shares.length > 0
+      ? input.shares.map((s) => ({ technicianId: s.technicianId, weight: s.weight }))
+      : proposed.map((s) => ({ technicianId: s.personId, weight: s.weight }));
+
+    const added = given.filter((s) => !onJob.some((p) => p.technicianId === s.technicianId)).map((s) => s.technicianId);
+    const names = new Map(onJob.map((p) => [p.technicianId, p.name]));
+    if (added.length > 0) {
+      const extra = await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+        .from(schema.technician)
+        .where(and(eq(schema.technician.organizationId, ctx.actor.organizationId), inArray(schema.technician.id, added)));
+      for (const person of extra) names.set(person.id, person.name);
+    }
+
+    const plans = await tx.select({ id: schema.commissionPlan.id, label: schema.commissionPlan.label })
+      .from(schema.commissionPlan)
+      .where(and(eq(schema.commissionPlan.organizationId, ctx.actor.organizationId), eq(schema.commissionPlan.active, true)))
+      .orderBy(asc(schema.commissionPlan.label));
+
+    const everybody = await tx.select({ technicianId: schema.technician.id, name: schema.technician.displayName })
+      .from(schema.technician)
+      .where(eq(schema.technician.organizationId, ctx.actor.organizationId))
+      .orderBy(asc(schema.technician.displayName));
+
+    const [event] = await tx.select().from(schema.commissionEvent)
+      .where(and(eq(schema.commissionEvent.organizationId, ctx.actor.organizationId), eq(schema.commissionEvent.invoiceId, invoice.id)))
+      .limit(1);
+    const settled = event ? await settledSplit(tx, event) : null;
+
+    let worked: Awaited<ReturnType<typeof prepare>> | null = null;
+    let refusal: string | null = null;
+    if (!settled) {
+      try {
+        worked = await prepare(tx, ctx, { invoiceId: invoice.id, ...(input.planId ? { planId: input.planId } : {}), shares: given });
+      } catch (error) {
+        /** A refusal settling would make, said on the screen instead of thrown at it. */
+        if (error instanceof ConflictError || error instanceof NotFoundError) refusal = error.message;
+        else throw error;
+      }
+    }
+
+    const people: SplitPerson[] = [
+      ...onJob.map((p) => p.technicianId),
+      ...given.map((s) => s.technicianId).filter((id) => !onJob.some((p) => p.technicianId === id)),
+    ].filter((id, i, all) => all.indexOf(id) === i).map((technicianId) => {
+      const index = given.findIndex((s) => s.technicianId === technicianId);
+      const part = worked && index >= 0 ? worked.verdict.parts[index] : undefined;
+      return {
+        technicianId,
+        name: names.get(technicianId) ?? "Unknown",
+        onJob: onJob.some((p) => p.technicianId === technicianId),
+        proposedWeight: proposed.find((s) => s.personId === technicianId)?.weight ?? "0",
+        weight: index >= 0 ? given[index]!.weight : "0",
+        amount: part ? m.toString(part.amount) : null,
+        explanation: part ? part.explanation : null,
+      };
+    });
+
+    return {
+      invoice: {
+        id: invoice.id, number: work.documentNumber(invoice.numberPrefix, invoice.number), status: invoice.status,
+        customerName: row.customerName, jobId: invoice.jobId,
+        jobNumber: row.jobNumber === null ? null : work.documentNumber(row.jobPrefix, row.jobNumber),
+      },
+      plans,
+      others: everybody.filter((p) => !given.some((s) => s.technicianId === p.technicianId)
+        && !onJob.some((o) => o.technicianId === p.technicianId)),
+      planId: worked?.plan.id ?? input.planId ?? null,
+      planLabel: worked?.plan.label ?? null,
+      revenue: worked ? m.toString(worked.revenue) : null,
+      total: worked ? m.toString(worked.verdict.total) : null,
+      explanation: worked?.verdict.explanation ?? null,
+      people,
+      changed: !labor.sameSplit(proposed, given.map((s) => ({ personId: s.technicianId, weight: s.weight }))),
+      refusal: settled ? `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)} has already earned its commission.` : refusal,
+      settled,
+    };
+  });
+}
+
+/** An earning as it was settled: each person's part, their weight and the reason given for the split. */
+async function settledSplit(tx: Database, event: typeof schema.commissionEvent.$inferSelect) {
+  const parts = await tx.select({
+    technicianId: schema.commissionEntry.technicianId, name: schema.technician.displayName,
+    weight: schema.commissionEntry.weight, amount: schema.commissionEntry.amount,
+  }).from(schema.commissionEntry)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.commissionEntry.technicianId))
+    .where(and(eq(schema.commissionEntry.eventId, event.id), eq(schema.commissionEntry.kind, "earned")))
+    .orderBy(asc(schema.commissionEntry.shareIndex));
+  return {
+    eventId: event.id, total: event.total, occurredAt: event.occurredAt, splitNote: event.splitNote,
+    parts: parts.map((p) => ({ technicianId: p.technicianId, name: p.name, weight: p.weight, amount: p.amount })),
+  };
+}
+
+export interface SharedEarning {
+  invoiceId: string;
+  invoiceNumber: string;
+  status: string;
+  customerName: string;
+  jobNumber: string;
+  revenue: string;
+  issuedAt: Date;
+  people: { technicianId: string; name: string }[];
+}
+
+/**
+ * EARNINGS SEVERAL PEOPLE SHARE, WAITING TO BE SETTLED, and the last ones
+ * that were.
+ *
+ * Waiting: an invoice that has been sent or paid, not voided or written off,
+ * on a job more than one person was assigned to, with no commission settled
+ * yet. Only invoices made since the company declared its first commission
+ * plan, because nothing told anybody an older one earned commission; one of
+ * those can still be opened and settled by its own link. Newest first, fifty
+ * at a time.
+ *
+ * Settled: the last twenty earnings paid to more than one person, with each
+ * part and the reason the office gave when it changed the even split.
+ */
+export async function shared(ctx: ServiceContext): Promise<{
+  waiting: SharedEarning[];
+  settled: {
+    invoiceId: string; invoiceNumber: string; total: string; occurredAt: Date; splitNote: string | null;
+    parts: { technicianId: string; name: string; weight: string | null; amount: string }[];
+  }[];
+}> {
+  return guardedRead(ctx, "commission:read", async (tx) => {
+    const org = ctx.actor.organizationId;
+    const waiting = await tx.execute<{
+      id: string; number: number; number_prefix: string | null; status: string; revenue: string; created_at: Date;
+      customer_name: string; job_id: string; job_number: number; job_prefix: string | null;
+    }>(sql`
+      select i.id, i.number, i.number_prefix, i.status::text as status,
+             (i.subtotal - i.discount_total)::numeric(14,4)::text as revenue, i.created_at,
+             c.name as customer_name, j.id as job_id, j.number as job_number, j.number_prefix as job_prefix
+      from public.invoice i
+      join public.job j on j.id = i.job_id
+      join public.customer c on c.id = i.customer_id
+      where i.organization_id = ${org}
+        and i.deleted_at is null
+        and i.status not in ('draft', 'void', 'written_off')
+        and not exists (select 1 from public.commission_event ce where ce.invoice_id = i.id)
+        and i.created_at >= (select min(cp.created_at) from public.commission_plan cp where cp.organization_id = ${org})
+        and (
+          select count(distinct va.technician_id) from public.visit_assignment va
+          join public.visit v on v.id = va.visit_id where v.job_id = j.id
+        ) >= 2
+      order by i.created_at desc
+      limit 50
+    `);
+    const people = new Map<string, { technicianId: string; name: string }[]>();
+    for (const row of waiting) {
+      if (!people.has(row.job_id)) people.set(row.job_id, await peopleOnJob(tx, row.job_id));
+    }
+
+    const events = await tx.execute<{ id: string }>(sql`
+      select ce.id from public.commission_event ce
+      where ce.organization_id = ${org}
+        and (select count(*) from public.commission_entry e where e.event_id = ce.id and e.kind = 'earned') >= 2
+      order by ce.occurred_at desc
+      limit 20
+    `);
+    const settled = [];
+    for (const { id } of events) {
+      const [event] = await tx.select({ event: schema.commissionEvent, number: schema.invoice.number, prefix: schema.invoice.numberPrefix })
+        .from(schema.commissionEvent)
+        .innerJoin(schema.invoice, eq(schema.invoice.id, schema.commissionEvent.invoiceId))
+        .where(eq(schema.commissionEvent.id, id)).limit(1);
+      if (!event) continue;
+      const split = await settledSplit(tx, event.event);
+      settled.push({
+        invoiceId: event.event.invoiceId, invoiceNumber: work.documentNumber(event.prefix, event.number),
+        total: split.total, occurredAt: split.occurredAt, splitNote: split.splitNote, parts: split.parts,
+      });
+    }
+
+    return {
+      waiting: waiting.map((row) => ({
+        invoiceId: row.id,
+        invoiceNumber: work.documentNumber(row.number_prefix, row.number),
+        status: row.status,
+        customerName: row.customer_name,
+        jobNumber: work.documentNumber(row.job_prefix, row.job_number),
+        revenue: row.revenue,
+        issuedAt: new Date(row.created_at),
+        people: people.get(row.job_id) ?? [],
+      })),
+      settled,
+    };
+  });
+}
+
+/**
+ * SETTLE A SHARED COMMISSION FROM THE SPLIT SCREEN.
+ *
+ * The same settling as `settle`, under `commission:configure`, with one more
+ * rule: a split that is not the even one proposed between the people on the
+ * job needs a reason, because the person paid less than an even share is
+ * owed an answer, and it is written on the earning and into each part's
+ * explanation, which is what they read on their statement. The audit records
+ * the split proposed beside the one settled.
+ *
+ * Sent again with the same split, it answers with what was settled; a
+ * different split for an invoice that has already earned is refused, as
+ * settling twice always is.
+ */
+export async function settleSplit(
+  ctx: ServiceContext,
+  input: { invoiceId: string; planId?: string | undefined; shares: readonly ShareInput[]; reason?: string | undefined },
+) {
+  return guardedWrite(ctx, "commission:configure", async (tx) => {
+    const [invoice] = await tx.select({ id: schema.invoice.id, jobId: schema.invoice.jobId }).from(schema.invoice)
+      .where(and(eq(schema.invoice.organizationId, ctx.actor.organizationId), eq(schema.invoice.id, input.invoiceId), isNull(schema.invoice.deletedAt)))
+      .limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+
+    /** A person at zero is not paid: they are left out rather than given a part of nothing. */
+    const shares = input.shares.filter((s) => SHARE_IS_POSITIVE(s.weight));
+    const checked = labor.checkShares(input.shares.map((s) => ({ personId: s.technicianId, weight: s.weight })));
+    if (!checked.ok) throw new UnprocessableError("That split cannot be settled", [{ path: "shares", message: checked.reason }]);
+
+    const [existing] = await tx.select().from(schema.commissionEvent)
+      .where(and(eq(schema.commissionEvent.organizationId, ctx.actor.organizationId), eq(schema.commissionEvent.invoiceId, invoice.id)))
+      .limit(1);
+    if (existing) {
+      const split = await settledSplit(tx, existing);
+      const same = labor.sameSplit(
+        split.parts.map((p) => ({ personId: p.technicianId, weight: p.weight ?? "1" })),
+        shares.map((s) => ({ personId: s.technicianId, weight: s.weight })),
+      );
+      if (same) {
+        return { id: existing.id, invoiceId: invoice.id, total: existing.total, splitNote: existing.splitNote, replayed: true as const };
+      }
+      throw new ConflictError("That invoice has already earned its commission, shared another way. Settling it again would pay it twice.");
+    }
+
+    const proposed = labor.evenShares((await peopleOnJob(tx, invoice.jobId)).map((p) => p.technicianId));
+    const changed = !labor.sameSplit(proposed, shares.map((s) => ({ personId: s.technicianId, weight: s.weight })));
+    const reason = input.reason?.trim() ?? "";
+    if (changed && reason === "") {
+      throw new UnprocessableError("A reason for the split", [{
+        path: "reason",
+        message: "This is not an even split between the people on the job. Say why, in a sentence the people paid will read.",
+      }]);
+    }
+    const done = await settleIn(tx, ctx, {
+      invoiceId: invoice.id,
+      ...(input.planId ? { planId: input.planId } : {}),
+      shares,
+      proposed,
+      ...(changed ? { splitNote: reason } : {}),
+    });
+    return { id: done.id, invoiceId: invoice.id, total: done.total, splitNote: changed ? reason : null, replayed: false as const };
+  });
+}
+
+/** A weight above zero, read exactly. */
+const SHARE_IS_POSITIVE = (weight: string) => labor.SHARE_WEIGHT.test(weight) && /[1-9]/.test(weight);
+
 /* ------------------------------------------------------------- internals */
 
 async function resolvePlan(
@@ -806,34 +1177,14 @@ async function resolveShares(
     shares = assigned.map((row) => ({ technicianId: row.technicianId, weight: "1" }));
   }
 
-  const seen = new Set<string>();
-  for (const share of shares) {
-    if (seen.has(share.technicianId)) {
-      /**
-       * A technician named twice is a split that pays them two shares, and the
-       * weights still sum to the whole, so the commission is right and one
-       * person's half of it is wrong. Nothing downstream can see it.
-       */
-      throw new ConflictError("The same technician appears twice in that split.");
-    }
-    seen.add(share.technicianId);
-    if (!/^\d+(\.\d{1,6})?$/.test(share.weight)) {
-      throw new ConflictError(`"${share.weight}" is not a share weight. Weights are positive decimals, such as "2" and "1".`);
-    }
-  }
-
   /**
-   * `money.allocate` throws a RangeError on weights summing to zero, which
-   * would surface as a five hundred. Refused here with a sentence instead,
-   * because a split of zeros is a real thing somebody types when they mean
-   * nobody should be paid.
+   * The rule is core's (`labor.checkShares`), so this and the split screen
+   * refuse the same splits in the same words: a person named twice, a weight
+   * that is not a decimal, and a split of zeros, which `money.allocate` would
+   * otherwise throw on as a server error.
    */
-  if (shares.every((share) => !m.isPositive(usd(share.weight)))) {
-    throw new ConflictError(
-      "Every share in that split is zero, so there is nothing to divide. "
-      + "Leave the commission unsettled instead.",
-    );
-  }
+  const checked = labor.checkShares(shares.map((share) => ({ personId: share.technicianId, weight: share.weight })));
+  if (!checked.ok) throw new ConflictError(checked.reason);
 
   const ids = shares.map((share) => share.technicianId);
   const known = await tx.select({ id: schema.technician.id }).from(schema.technician)
@@ -1017,7 +1368,37 @@ export const handlers = {
     ...(input.creditedCost ? { creditedCost: input.creditedCost } : {}),
   }),
 
+  getCommissionSplit: (ctx: ServiceContext, input: {
+    invoiceId: string; planId?: string | undefined; shares?: string | undefined;
+  }) => proposal(ctx, {
+    invoiceId: input.invoiceId,
+    ...(input.planId ? { planId: input.planId } : {}),
+    ...(input.shares ? { shares: parseShares(input.shares) } : {}),
+  }),
+
+  listSharedCommissions: (ctx: ServiceContext) => shared(ctx),
+
+  settleCommissionSplit: (ctx: ServiceContext, input: {
+    invoiceId: string; planId?: string | undefined;
+    shares: readonly { technicianId: string; weight: string }[]; reason?: string | undefined;
+  }) => settleSplit(ctx, input),
+
   listCommissionEarnings: (ctx: ServiceContext, input: {
     technicianId?: string | undefined; from?: string | undefined; to?: string | undefined;
   }) => earnings(ctx, input),
 } as const;
+
+/**
+ * Shares as a query string carries them: `id:2,id:1`. Anything that does not
+ * read is refused in words rather than dropped, because a split missing a
+ * person is a different split.
+ */
+export function parseShares(text: string): ShareInput[] {
+  return text.split(",").map((pair) => pair.trim()).filter((pair) => pair !== "").map((pair) => {
+    const [technicianId, weight] = pair.split(":");
+    if (!technicianId || weight === undefined || !/^[0-9a-f-]{36}$/i.test(technicianId)) {
+      throw new UnprocessableError("Not a split", [{ path: "shares", message: `"${pair}" is not a person and a share.` }]);
+    }
+    return { technicianId, weight: weight.trim() };
+  });
+}

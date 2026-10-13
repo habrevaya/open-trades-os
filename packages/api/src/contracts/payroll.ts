@@ -160,6 +160,97 @@ export const settleCommission = defineRoute({
   }),
 });
 
+/* ------------------------------------------- shared commission, from a screen */
+
+const SettledSplit = z.object({
+  eventId: Uuid,
+  total: MoneyString,
+  occurredAt: z.string().datetime(),
+  /** The reason the office gave for a split other than the even one, or null. */
+  splitNote: z.string().nullable(),
+  parts: z.array(z.object({ technicianId: Uuid, name: z.string(), weight: RateString.nullable(), amount: MoneyString })),
+});
+
+export const listSharedCommissions = defineRoute({
+  method: "get",
+  path: "/v1/commissions/shared",
+  summary: "Commissions several people share: waiting to be settled, and the last ones settled",
+  description:
+    "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the even split.",
+  module: "M17",
+  permissions: ["commission:read"],
+  input: z.object({}),
+  output: z.object({
+    waiting: z.array(z.object({
+      invoiceId: Uuid, invoiceNumber: z.string(), status: z.string(), customerName: z.string(),
+      jobNumber: z.string(), revenue: MoneyString, issuedAt: z.string().datetime(),
+      people: z.array(z.object({ technicianId: Uuid, name: z.string() })),
+    })),
+    settled: z.array(z.object({
+      invoiceId: Uuid, invoiceNumber: z.string(), total: MoneyString, occurredAt: z.string().datetime(),
+      splitNote: z.string().nullable(),
+      parts: z.array(z.object({ technicianId: Uuid, name: z.string(), weight: RateString.nullable(), amount: MoneyString })),
+    })),
+  }),
+});
+
+export const getCommissionSplit = defineRoute({
+  method: "get",
+  path: "/v1/commissions/split-proposal",
+  summary: "How an invoice's commission would be shared, worked out before it is settled",
+  description:
+    "The even split between the people on the job's visits is proposed, and core works out each person's part under the plan. With `shares` (`technicianId:weight` pairs separated by commas, weights not percentages: \"2\" and \"1\" is two thirds and one third), the split given instead, worked out the same way. What settling would refuse comes back as `refusal`, in the same words. `changed` says the split is not the even one, which settling from the split screen needs a reason for. Writes nothing.",
+  module: "M17",
+  permissions: ["commission:read"],
+  input: z.object({
+    invoiceId: Uuid,
+    planId: Uuid.optional(),
+    shares: z.string().max(2000).optional(),
+  }),
+  output: z.object({
+    invoice: z.object({
+      id: Uuid, number: z.string(), status: z.string(), customerName: z.string(),
+      jobId: Uuid.nullable(), jobNumber: z.string().nullable(),
+    }),
+    plans: z.array(z.object({ id: Uuid, label: z.string() })),
+    /** The company's other technicians, who can be added to the split. */
+    others: z.array(z.object({ technicianId: Uuid, name: z.string() })),
+    planId: Uuid.nullable(),
+    planLabel: z.string().nullable(),
+    revenue: MoneyString.nullable(),
+    total: MoneyString.nullable(),
+    explanation: z.string().nullable(),
+    people: z.array(z.object({
+      technicianId: Uuid, name: z.string(), onJob: z.boolean(),
+      proposedWeight: RateString, weight: RateString,
+      amount: MoneyString.nullable(), explanation: z.string().nullable(),
+    })),
+    changed: z.boolean(),
+    refusal: z.string().nullable(),
+    settled: SettledSplit.nullable(),
+  }),
+});
+
+export const settleCommissionSplit = defineRoute({
+  method: "post",
+  path: "/v1/commissions/splits",
+  summary: "Settle a commission several people share, from the split screen",
+  description:
+    "The same settling as `POST /v1/commissions`, with one more rule: a split other than the even one between the people on the job needs `reason`, which is kept on the earning and written into each part's explanation, the sentence the person paid reads on their statement. A share of 0 leaves that person out. The plan's total is never changed here, only how it is divided. The audit records the split proposed beside the one settled. Sent again with the same split it answers with what was settled; a different split for an invoice that has already earned is refused.",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({
+    invoiceId: Uuid,
+    planId: Uuid.optional(),
+    shares: z.array(z.object({ technicianId: Uuid, weight: RateString })).min(1).max(20),
+    reason: z.string().max(500).optional(),
+  }),
+  output: z.object({
+    id: Uuid, invoiceId: Uuid, total: MoneyString, splitNote: z.string().nullable(), replayed: z.boolean(),
+  }),
+});
+
 export const CreditReason = z.enum(["refund", "credit_note", "write_off", "callback"]);
 
 export const reverseCommission = defineRoute({
@@ -530,6 +621,7 @@ export const getMyTimeclock = defineRoute({
 export const payrollRoutes = {
   listCommissionBases, listCommissionPlans, declareCommissionPlan, deactivateCommissionPlan,
   settleCommission, reverseCommission, listCommissionEarnings,
+  listSharedCommissions, getCommissionSplit, settleCommissionSplit,
   declarePayPeriod, listPayPeriods, closePayPeriod, reopenPayPeriod,
   getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions, payTips,
   getMyTimeclock,
