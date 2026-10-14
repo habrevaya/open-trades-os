@@ -6,6 +6,7 @@ import {
 } from "./context";
 import { inForceAt } from "./pricebook";
 import { holidaysForJob } from "./holidays";
+import { loadWeek } from "./business-hours";
 
 /**
  * AFTER HOURS AND HOLIDAY RATES
@@ -138,23 +139,6 @@ export interface RateOffer {
   because: string[];
 }
 
-/**
- * The week's hours from the rows online booking keeps, or null when none are
- * declared. Exported for a pricing rule on work outside the company's hours
- * (`services/plugins.ts`), so "outside your hours" means the same thing on
- * the rate offered here and on the rule.
- */
-export async function weekOf(tx: Database): Promise<holidayRules.WeekHours | null> {
-  const rows = await tx.select().from(schema.businessHours);
-  if (rows.length === 0) return null;
-  return Array.from({ length: 7 }, (_, dow) => {
-    const row = rows.find((r) => r.dayOfWeek === dow && r.businessUnitId === null) ?? rows.find((r) => r.dayOfWeek === dow);
-    const open = holidayRules.minutesOf(row?.opensAt);
-    const close = holidayRules.minutesOf(row?.closesAt);
-    return !row || row.closed || open === null || close === null ? null : { openMinute: open, closeMinute: close };
-  });
-}
-
 /** What the offer is for: the bill, or the estimate that comes before it. */
 export type OfferFor = "invoice" | "estimate";
 
@@ -182,15 +166,16 @@ export async function offersWithin(
 ): Promise<RateOffer[]> {
   const row = await settingsRow(tx);
   if (!row || (!row.afterHoursItemId && !row.holidayItemId)) return [];
-  const [job] = await tx.select({ id: schema.job.id }).from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1);
+  const [job] = await tx.select({ id: schema.job.id, branchId: schema.job.businessUnitId }).from(schema.job)
+    .where(eq(schema.job.id, input.jobId)).limit(1);
   if (!job) throw new NotFoundError("Job");
 
   const visits = await tx.select({ windowStart: schema.visit.windowStart }).from(schema.visit)
     .where(and(eq(schema.visit.jobId, input.jobId), ne(schema.visit.status, "cancelled")))
     .orderBy(asc(schema.visit.windowStart));
   const zone = await timezoneOf(tx, organizationId);
-  const week = await weekOf(tx);
-  /** The job's branch's own holidays beside the company's. */
+  /** The job's branch's own week and holidays, the company's where the branch keeps none. */
+  const week = (await loadWeek(tx, organizationId, job.branchId)).week;
   const holidays = await holidaysForJob(tx, organizationId, input.jobId);
 
   const found = { after_hours: [] as string[], holiday: [] as string[] };

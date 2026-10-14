@@ -196,7 +196,31 @@ ring group, voicemail, another menu, whoever is on call, a number outside
 the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
 Outside the business hours online booking keeps, calls go where the menu's
-after hours setting says, usually whoever is on call. The company's holiday list
+after hours setting says, usually whoever is on call. A number can answer for
+one branch ("Answers for" beside how it rings on `/settings`, `businessUnitId`
+on `PATCH /v1/marketing/tracking-numbers/{id}/routing`), and then that branch's
+week and holidays are read instead of the company's, with the company's week
+for a branch that keeps none (M02).
+
+A number can also keep hours and days off of its own: an emergency line open
+around the clock, or a sales line shorter than the office. Its page,
+`/settings/numbers/{id}` ("Its hours and days off" beside how it rings), says
+what its calls go by now and chooses where its hours come from: its branch's
+(the company's for a number in no branch), the company's whatever its branch,
+or its own. `GET /v1/phone-numbers/{id}/hours` (`settings:read`) reads it and
+`PUT /v1/phone-numbers/{id}/hours` (`settings:write`, the permission its
+routing is set with) sets `hoursFrom` and, for its own, all seven `days`;
+choosing its own with no week written is refused in words, so a number is
+never routed by a week nobody set. Its own days off are kept with
+`POST /v1/phone-numbers/{id}/holidays` and
+`DELETE /v1/phone-numbers/{id}/holidays/{holidayId}`, with the same rules as
+the company's list, checked against its own list alone. A number keeping its
+own hours reads its own week and its own days off and none of the company's,
+so the company's Christmas does not shut an emergency line; a day the line
+closes too is added to its own list. A number's own days off are on no other
+list: Settings, Holidays, booking and every other reader never see them. Its
+own week and days off are kept when it is switched to its branch or the
+company, and used again when it is switched back. The holiday list
 (`/settings/holidays`, M02) is read with them: on a closed holiday a call goes
 where an after hours call goes whatever the weekday, and on a short day the
 day's own hours decide. Every save is checked
@@ -509,9 +533,11 @@ Calls: none of the waiting line, the phone assistant or the browser phone has
 been tried on a live phone line. Each is built from Twilio's documentation and
 tested against a fake carrier: signed webhooks, a WebSocket client playing
 ConversationRelay's part, and a fake REST API. A menu takes key presses only,
-not spoken answers. Business hours come from online booking and the holiday
-list from Settings, one of each for the whole company: a number cannot keep
-hours or holidays of its own. JustCall has no voice adapter.
+not spoken answers. A number keeping its own hours keeps one week, the same
+every week of the year, and a phone menu answering it goes by that week as a
+whole: a menu cannot keep hours of its own apart from the number's. A number
+has one branch, so a line shared by two branches goes by one of them or by
+the company. JustCall has no voice adapter.
 
 Waiting lines: the longest wait and the caller's place are checked each time
 the hold music finishes, so a long track lets a caller wait past the limit by

@@ -403,7 +403,7 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
   const territories = await count(tx.select({ n }).from(schema.territory)
     .where(and(eq(schema.territory.organizationId, org), eq(schema.territory.active, true))));
   const hours = await count(tx.select({ n }).from(schema.businessHours)
-    .where(and(eq(schema.businessHours.organizationId, org), eq(schema.businessHours.closed, false))));
+    .where(and(eq(schema.businessHours.organizationId, org), isNull(schema.businessHours.businessUnitId), isNull(schema.businessHours.phoneNumberId), eq(schema.businessHours.closed, false))));
   const windows = await count(tx.select({ n }).from(schema.arrivalWindow)
     .where(eq(schema.arrivalWindow.organizationId, org)));
   const holidays = await count(tx.select({ n }).from(schema.companyHoliday)

@@ -4,7 +4,7 @@ import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, ConflictError } from "@opentradesos/api/services";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 /**
@@ -299,9 +299,11 @@ export async function setRouting(_previous: unknown, form: FormData) {
       whisper: form.get("whisper") === "yes",
       recordCalls: form.get("recordCalls") === "yes",
       routeByHours: form.get("routeByHours") === "yes",
+      /** Only when the form offered it: a company with no branches sends none, and the number keeps what it had. */
+      ...(form.has("businessUnitId") ? { businessUnitId: String(form.get("businessUnitId")) || null } : {}),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return refused(form, error.message);
+    if (error instanceof ConflictError || error instanceof NotFoundError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/settings");

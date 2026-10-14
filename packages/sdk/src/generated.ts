@@ -262,6 +262,42 @@ export interface AddMyEmergencyContactOutput {
   }>;
 }
 
+export interface AddNumberHolidayInput {
+  name: string;
+  date?: string;
+  repeatsYearly?: boolean;
+  rule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed?: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  closed: boolean;
+  opensAt?: string | null;
+  closesAt?: string | null;
+}
+
+export interface AddNumberHolidayOutput {
+  id: string;
+  name: string;
+  date: string;
+  repeatsYearly: boolean;
+  rule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId: string | null;
+  branchName: string | null;
+  when: string;
+  closed: boolean;
+  opensAt: string | null;
+  closesAt: string | null;
+  nextOn: string | null;
+  hours: string;
+}
+
 export interface AddOnboardingTemplateItemInput {
   role?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   roleId?: string | null;
@@ -1623,6 +1659,7 @@ export interface BuyTrackingNumberOutput {
   afterHoursForwardsToE164: string | null;
   menuId: string | null;
   adopted: boolean;
+  businessUnitId: string | null;
 }
 
 export interface CampaignRecipientsOutput {
@@ -1891,6 +1928,13 @@ export type ClaimTaskInput = Record<string, unknown>;
 export interface ClaimTaskOutput {
   id: string;
   assigneeUserId: string | null;
+}
+
+export type ClearBranchHoursInput = Record<string, unknown>;
+
+export interface ClearBranchHoursOutput {
+  businessUnitId: string;
+  removed: number;
 }
 
 export type ClearDiscountPolicyInput = Record<string, unknown>;
@@ -9862,6 +9906,53 @@ export interface GetNetworkRollupOutput {
   }>;
 }
 
+export interface GetNumberHoursOutput {
+  id: string;
+  e164: string;
+  label: string | null;
+  routedHere: boolean;
+  usesHours: boolean;
+  businessUnitId: string | null;
+  branchName: string | null;
+  hoursFrom: "branch" | "company" | "own";
+  ownWeek: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  ownHolidays: Array<{
+    id: string;
+    name: string;
+    date: string;
+    repeatsYearly: boolean;
+    rule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+    businessUnitId: string | null;
+    branchName: string | null;
+    when: string;
+    closed: boolean;
+    opensAt: string | null;
+    closesAt: string | null;
+    nextOn: string | null;
+    hours: string;
+  }>;
+  routedBy: {
+    source: "number" | "branch" | "company" | "none";
+    whose: string;
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+  };
+}
+
 export interface GetOnCallNowOutput {
   at: string;
   onCall: {
@@ -11372,7 +11463,12 @@ export interface GetServiceRouteDensityOutput {
   travelComplete: boolean;
   travelNote: string;
   overtimeAfterMinutes: number | null;
-  dayBasis: "overtime_policy" | "business_hours" | "unknown";
+  dayBasis: "overtime_policy" | "business_hours" | "closed" | "unknown";
+  on: string | null;
+  holiday: string | null;
+  closedOn: string | null;
+  openMinutes: number | null;
+  notDueCount: number;
   minutesOverThreshold: number | null;
   runsIntoOvertime: boolean | null;
   explanation: string;
@@ -12823,6 +12919,26 @@ export interface ListBranchOptionsOutput {
   }>;
   yours: string | null;
   narrowed: boolean;
+}
+
+export interface ListBusinessHoursOutput {
+  company: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  branches: Array<{
+    businessUnitId: string;
+    name: string;
+    source: "branch" | "company";
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+  }>;
 }
 
 export interface ListBusinessUnitsOutput {
@@ -20397,6 +20513,12 @@ export interface RemoveMyEmergencyContactOutput {
   }>;
 }
 
+export type RemoveNumberHolidayInput = Record<string, unknown>;
+
+export interface RemoveNumberHolidayOutput {
+  removed: boolean;
+}
+
 export type RemoveOnboardingTemplateItemInput = Record<string, unknown>;
 
 export interface RemoveOnboardingTemplateItemOutput {
@@ -22561,6 +22683,7 @@ export interface SetBusinessHoursInput {
     closesAt: string | null;
     closed: boolean;
   }>;
+  businessUnitId?: string | null;
 }
 
 export interface SetBusinessHoursOutput {
@@ -23149,6 +23272,63 @@ export interface SetMyOnboardingLineOutput {
   };
 }
 
+export interface SetNumberHoursInput {
+  hoursFrom: "branch" | "company" | "own";
+  days?: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+}
+
+export interface SetNumberHoursOutput {
+  id: string;
+  e164: string;
+  label: string | null;
+  routedHere: boolean;
+  usesHours: boolean;
+  businessUnitId: string | null;
+  branchName: string | null;
+  hoursFrom: "branch" | "company" | "own";
+  ownWeek: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  ownHolidays: Array<{
+    id: string;
+    name: string;
+    date: string;
+    repeatsYearly: boolean;
+    rule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+    businessUnitId: string | null;
+    branchName: string | null;
+    when: string;
+    closed: boolean;
+    opensAt: string | null;
+    closesAt: string | null;
+    nextOn: string | null;
+    hours: string;
+  }>;
+  routedBy: {
+    source: "number" | "branch" | "company" | "none";
+    whose: string;
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+  };
+}
+
 export interface SetNumberRoutingInput {
   forwardsToE164?: string | null;
   whisper?: boolean;
@@ -23156,6 +23336,7 @@ export interface SetNumberRoutingInput {
   routeByHours?: boolean;
   afterHoursForwardsToE164?: string | null;
   menuId?: string | null;
+  businessUnitId?: string | null;
 }
 
 export interface SetNumberRoutingOutput {
@@ -23174,6 +23355,7 @@ export interface SetNumberRoutingOutput {
   afterHoursForwardsToE164: string | null;
   menuId: string | null;
   adopted: boolean;
+  businessUnitId: string | null;
 }
 
 export interface SetOnboardingLineInput {
@@ -27866,6 +28048,10 @@ export interface AddIncidentPhotoParams {
   id: string;
 }
 
+export interface AddNumberHolidayParams {
+  id: string;
+}
+
 export interface AddProjectPhaseParams {
   projectId: string;
 }
@@ -28063,6 +28249,10 @@ export interface ClaimAppCredentialParams {
 
 export interface ClaimTaskParams {
   id: string;
+}
+
+export interface ClearBranchHoursParams {
+  businessUnitId: string;
 }
 
 export interface ClearTruckMinimumParams {
@@ -28779,6 +28969,10 @@ export interface GetNetworkRollupInput {
   to: string;
 }
 
+export interface GetNumberHoursInput {
+  id: string;
+}
+
 export interface GetOnCallNowInput {
   at?: string;
   businessUnitId?: string | null;
@@ -28971,6 +29165,7 @@ export interface GetServiceReportInput {
 export interface GetServiceRouteDensityInput {
   id: string;
   addingStopOfMinutes?: number;
+  on?: string;
 }
 
 export type GetSetupInput = Record<string, never>;
@@ -29202,6 +29397,8 @@ export interface ListBookingRequestsInput {
 }
 
 export type ListBranchOptionsInput = Record<string, never>;
+
+export type ListBusinessHoursInput = Record<string, never>;
 
 export type ListBusinessUnitsInput = Record<string, never>;
 
@@ -30464,6 +30661,11 @@ export interface RemoveMyEmergencyContactParams {
   id: string;
 }
 
+export interface RemoveNumberHolidayParams {
+  id: string;
+  holidayId: string;
+}
+
 export interface RemoveOnboardingTemplateItemParams {
   id: string;
 }
@@ -30869,6 +31071,10 @@ export interface SetMessagingCampaignStatusParams {
 }
 
 export interface SetMyOnboardingLineParams {
+  id: string;
+}
+
+export interface SetNumberHoursParams {
   id: string;
 }
 
@@ -31396,6 +31602,7 @@ export interface OperationTypes {
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
+  addNumberHoliday: { input: AddNumberHolidayParams & AddNumberHolidayInput; output: AddNumberHolidayOutput };
   addOnboardingTemplateItem: { input: AddOnboardingTemplateItemInput; output: AddOnboardingTemplateItemOutput };
   addPortalFile: { input: AddPortalFileInput; output: AddPortalFileOutput };
   addProjectPhase: { input: AddProjectPhaseParams & AddProjectPhaseInput; output: AddProjectPhaseOutput };
@@ -31464,6 +31671,7 @@ export interface OperationTypes {
   checkTruckFills: { input: CheckTruckFillsInput; output: CheckTruckFillsOutput };
   claimAppCredential: { input: ClaimAppCredentialParams & ClaimAppCredentialInput; output: ClaimAppCredentialOutput };
   claimTask: { input: ClaimTaskParams & ClaimTaskInput; output: ClaimTaskOutput };
+  clearBranchHours: { input: ClearBranchHoursParams & ClearBranchHoursInput; output: ClearBranchHoursOutput };
   clearDiscountPolicy: { input: ClearDiscountPolicyInput; output: ClearDiscountPolicyOutput };
   clearReorderPolicy: { input: ClearReorderPolicyInput; output: ClearReorderPolicyOutput };
   clearTruckMinimum: { input: ClearTruckMinimumParams & ClearTruckMinimumInput; output: ClearTruckMinimumOutput };
@@ -31728,6 +31936,7 @@ export interface OperationTypes {
   getMyTimeclock: { input: GetMyTimeclockInput; output: GetMyTimeclockOutput };
   getNetworkMembership: { input: GetNetworkMembershipInput; output: GetNetworkMembershipOutput };
   getNetworkRollup: { input: GetNetworkRollupInput; output: GetNetworkRollupOutput };
+  getNumberHours: { input: GetNumberHoursInput; output: GetNumberHoursOutput };
   getOnCallNow: { input: GetOnCallNowInput; output: GetOnCallNowOutput };
   getPayExtras: { input: GetPayExtrasInput; output: GetPayExtrasOutput };
   getPaymentsStatus: { input: GetPaymentsStatusInput; output: GetPaymentsStatusOutput };
@@ -31848,6 +32057,7 @@ export interface OperationTypes {
   listBookableServices: { input: ListBookableServicesInput; output: ListBookableServicesOutput };
   listBookingRequests: { input: ListBookingRequestsInput; output: ListBookingRequestsOutput };
   listBranchOptions: { input: ListBranchOptionsInput; output: ListBranchOptionsOutput };
+  listBusinessHours: { input: ListBusinessHoursInput; output: ListBusinessHoursOutput };
   listBusinessUnits: { input: ListBusinessUnitsInput; output: ListBusinessUnitsOutput };
   listCalendarFeeds: { input: ListCalendarFeedsInput; output: ListCalendarFeedsOutput };
   listCallQueues: { input: ListCallQueuesInput; output: ListCallQueuesOutput };
@@ -32194,6 +32404,7 @@ export interface OperationTypes {
   removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
+  removeNumberHoliday: { input: RemoveNumberHolidayParams & RemoveNumberHolidayInput; output: RemoveNumberHolidayOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
   removePlanPortalLayout: { input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput; output: RemovePlanPortalLayoutOutput };
@@ -32339,6 +32550,7 @@ export interface OperationTypes {
   setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
   setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
+  setNumberHours: { input: SetNumberHoursParams & SetNumberHoursInput; output: SetNumberHoursOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
   setOverheadMix: { input: SetOverheadMixInput; output: SetOverheadMixOutput };
@@ -32534,6 +32746,7 @@ export const OPERATIONS = {
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  addNumberHoliday: { method: "POST", path: "/v1/phone-numbers/{id}/holidays", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addPortalFile: { method: "POST", path: "/v1/portal/files", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   addProjectPhase: { method: "POST", path: "/v1/projects/{projectId}/phases", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -32602,6 +32815,7 @@ export const OPERATIONS = {
   checkTruckFills: { method: "POST", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   claimAppCredential: { method: "POST", path: "/v1/public/app-requests/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   claimTask: { method: "POST", path: "/v1/tasks/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
+  clearBranchHours: { method: "DELETE", path: "/v1/booking/hours/{businessUnitId}", pathParams: ["businessUnitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   clearDiscountPolicy: { method: "POST", path: "/v1/estimate-discount-policy/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   clearReorderPolicy: { method: "POST", path: "/v1/reorder-policies/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   clearTruckMinimum: { method: "POST", path: "/v1/truck-minimums/{id}/clear", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -32866,6 +33080,7 @@ export const OPERATIONS = {
   getMyTimeclock: { method: "GET", path: "/v1/timeclock/me", pathParams: [], queryParams: ["weekOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
   getNetworkMembership: { method: "GET", path: "/v1/network", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNetworkRollup: { method: "GET", path: "/v1/network/rollup", pathParams: [], queryParams: ["aggregate","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getNumberHours: { method: "GET", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getOnCallNow: { method: "GET", path: "/v1/on-call", pathParams: [], queryParams: ["at","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getPayExtras: { method: "GET", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getPaymentsStatus: { method: "GET", path: "/v1/payments/connection", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -32915,7 +33130,7 @@ export const OPERATIONS = {
   getSandbox: { method: "GET", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSandboxCopyPlan: { method: "GET", path: "/v1/sandbox/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   getServiceReport: { method: "GET", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: ["customerFacing"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
-  getServiceRouteDensity: { method: "GET", path: "/v1/service-routes/{id}/density", pathParams: ["id"], queryParams: ["addingStopOfMinutes"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getServiceRouteDensity: { method: "GET", path: "/v1/service-routes/{id}/density", pathParams: ["id"], queryParams: ["addingStopOfMinutes","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getSetup: { method: "GET", path: "/v1/setup", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSkillStanding: { method: "POST", path: "/v1/people/skill-standing", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getSoftphone: { method: "GET", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
@@ -32986,6 +33201,7 @@ export const OPERATIONS = {
   listBookableServices: { method: "GET", path: "/v1/public/services", pathParams: [], queryParams: ["organizationSlug","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   listBookingRequests: { method: "GET", path: "/v1/bookings", pathParams: [], queryParams: ["cursor","limit","status","from","to"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["booking:read"] },
   listBranchOptions: { method: "GET", path: "/v1/branches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listBusinessHours: { method: "GET", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listBusinessUnits: { method: "GET", path: "/v1/business-units", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCalendarFeeds: { method: "GET", path: "/v1/calendar-feeds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listCallQueues: { method: "GET", path: "/v1/call-queues", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -33332,6 +33548,7 @@ export const OPERATIONS = {
   removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  removeNumberHoliday: { method: "DELETE", path: "/v1/phone-numbers/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   removePlanPortalLayout: { method: "POST", path: "/v1/agreement-plans/{id}/portal-layout/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -33477,6 +33694,7 @@ export const OPERATIONS = {
   setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  setNumberHours: { method: "PUT", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setOverheadMix: { method: "POST", path: "/v1/costing/overhead", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
@@ -33794,6 +34012,15 @@ export abstract class GeneratedOperations {
    */
   addMyEmergencyContact(input: AddMyEmergencyContactInput, options?: CallOptions): Promise<AddMyEmergencyContactOutput> {
     return this.call("addMyEmergencyContact", input, options);
+  }
+
+  /**
+   * Add a day off of the number's own.
+   *
+   * POST /v1/phone-numbers/{id}/holidays. Needs settings:write.
+   */
+  addNumberHoliday(input: AddNumberHolidayParams & AddNumberHolidayInput, options?: CallOptions): Promise<AddNumberHolidayOutput> {
+    return this.call("addNumberHoliday", input, options);
   }
 
   /**
@@ -34406,6 +34633,15 @@ export abstract class GeneratedOperations {
    */
   claimTask(input: ClaimTaskParams & ClaimTaskInput, options?: CallOptions): Promise<ClaimTaskOutput> {
     return this.call("claimTask", input, options);
+  }
+
+  /**
+   * Put a branch back on the company's week.
+   *
+   * DELETE /v1/booking/hours/{businessUnitId}. Needs booking:configure.
+   */
+  clearBranchHours(input: ClearBranchHoursParams & ClearBranchHoursInput, options?: CallOptions): Promise<ClearBranchHoursOutput> {
+    return this.call("clearBranchHours", input, options);
   }
 
   /**
@@ -36785,6 +37021,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The hours and days off a number's calls are routed by.
+   *
+   * GET /v1/phone-numbers/{id}/hours. Needs settings:read.
+   */
+  getNumberHours(input: GetNumberHoursInput, options?: CallOptions): Promise<GetNumberHoursOutput> {
+    return this.call("getNumberHours", input, options);
+  }
+
+  /**
    * Who is on call.
    *
    * GET /v1/on-call. Needs visit:read.
@@ -37862,6 +38107,15 @@ export abstract class GeneratedOperations {
    */
   listBranchOptions(input: ListBranchOptionsInput = {} as ListBranchOptionsInput, options?: CallOptions): Promise<ListBranchOptionsOutput> {
     return this.call("listBranchOptions", input, options);
+  }
+
+  /**
+   * The company's week, and the week each branch keeps.
+   *
+   * GET /v1/booking/hours. Needs settings:read.
+   */
+  listBusinessHours(input: ListBusinessHoursInput = {} as ListBusinessHoursInput, options?: CallOptions): Promise<ListBusinessHoursOutput> {
+    return this.call("listBusinessHours", input, options);
   }
 
   /**
@@ -40979,6 +41233,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a day off the number's own list.
+   *
+   * DELETE /v1/phone-numbers/{id}/holidays/{holidayId}. Needs settings:write.
+   */
+  removeNumberHoliday(input: RemoveNumberHolidayParams & RemoveNumberHolidayInput, options?: CallOptions): Promise<RemoveNumberHolidayOutput> {
+    return this.call("removeNumberHoliday", input, options);
+  }
+
+  /**
    * Take a line off a role's checklist.
    *
    * POST /v1/onboarding-checklist/{id}/remove. Needs user:write.
@@ -41978,7 +42241,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set which days the company is open.
+   * Set which days the company, or one branch, is open.
    *
    * PUT /v1/booking/hours. Needs booking:configure.
    */
@@ -42281,6 +42544,15 @@ export abstract class GeneratedOperations {
    */
   setMyOnboardingLine(input: SetMyOnboardingLineParams & SetMyOnboardingLineInput, options?: CallOptions): Promise<SetMyOnboardingLineOutput> {
     return this.call("setMyOnboardingLine", input, options);
+  }
+
+  /**
+   * Where a number's hours come from, and its own week.
+   *
+   * PUT /v1/phone-numbers/{id}/hours. Needs settings:write.
+   */
+  setNumberHours(input: SetNumberHoursParams & SetNumberHoursInput, options?: CallOptions): Promise<SetNumberHoursOutput> {
+    return this.call("setNumberHours", input, options);
   }
 
   /**

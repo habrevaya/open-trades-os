@@ -28,6 +28,8 @@ export interface NumberRow {
   recordCalls: boolean;
   routeByHours: boolean;
   afterHoursForwardsToE164: string | null;
+  /** The branch it answers for, whose hours route its calls. Null is the whole company's. */
+  businessUnitId: string | null;
 }
 
 /** The company's channels and their tracking campaigns, for "calls to it are credited to". */
@@ -74,10 +76,12 @@ function CreditChoices({ options }: { options: CreditOption[] }) {
  * up. The service refuses that state, so it cannot be reached from here.
  */
 export function Numbers({
-  numbers, credits,
+  numbers, credits, branches = [],
 }: {
   numbers: NumberRow[];
   credits: CreditOption[];
+  /** The live branches, for which one a number answers for. Empty for a company with none. */
+  branches?: { id: string; name: string }[];
 }) {
   const [addState, addForm, adding] = useKeptAction(addNumber, null);
   const [releaseState, releaseForm, releasing] = useKeptAction(releaseNumber, null);
@@ -183,7 +187,23 @@ export function Numbers({
                     <input name="afterHoursForwardsToE164" defaultValue={number.afterHoursForwardsToE164 ?? ""}
                            className={`mt-1 block ${FIELD}`} />
                   </label>
+                  {/*
+                    Only for a company with branches. A number that answers for
+                    one is routed by that branch's hours and days off.
+                  */}
+                  {branches.length > 0 && (
+                    <label className="text-xs text-ink-500">Answers for
+                      <select name="businessUnitId" defaultValue={number.businessUnitId ?? ""}
+                              aria-label={`Which branch ${number.e164} answers for`} className={`mt-1 block ${FIELD}`}>
+                        <option value="">The whole company</option>
+                        {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                      </select>
+                    </label>
+                  )}
                   <button type="submit" disabled={routing} className={BUTTON}>{routing ? "Saving" : "Save how it rings"}</button>
+                  <a href={`/settings/numbers/${number.id}`} className="text-sm underline underline-offset-4">
+                    Its hours and days off
+                  </a>
                 </form>
               )}
             </li>

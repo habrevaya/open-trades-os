@@ -24,6 +24,8 @@ const NumberRow = z.object({
   menuId: Uuid.nullable(),
   /** Answered here but brought rather than bought: releasing it never gives it away at the carrier. */
   adopted: z.boolean(),
+  /** The branch it answers for, whose week and holidays route its calls. Null is the whole company's. */
+  businessUnitId: Uuid.nullable(),
 });
 
 const E164 = z.string().regex(/^\+[1-9]\d{6,14}$/, "A number in full international form: +15125550123");
@@ -77,7 +79,7 @@ export const setNumberRouting = defineRoute({
   path: "/v1/marketing/tracking-numbers/{id}/routing",
   summary: "How calls to a number are answered",
   description:
-    "Where they ring, whether the person answering hears the channel and campaign first, whether the caller is asked to agree to recording, and what happens outside business hours.",
+    "Where they ring, whether the person answering hears the channel and campaign first, whether the caller is asked to agree to recording, and what happens outside business hours. A number in a branch is routed by that branch's week and holidays, the company's week where the branch keeps none.",
   module: "M19",
   permissions: ["settings:write"],
   idempotent: true,
@@ -90,6 +92,8 @@ export const setNumberRouting = defineRoute({
     afterHoursForwardsToE164: E164.nullable().optional(),
     /** A phone menu answers instead: the menu in business hours, and outside them where the menu says. Null goes back to ringing. */
     menuId: Uuid.nullable().optional(),
+    /** The branch it answers for: its calls are routed by that branch's week and holidays. Null is the whole company's. */
+    businessUnitId: Uuid.nullable().optional(),
   }),
   output: NumberRow,
 });

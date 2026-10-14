@@ -43,6 +43,12 @@ export interface DensityRow {
   minutesOverThreshold: number | null;
   runsIntoOvertime: boolean | null;
   explanation: string;
+  /** The date asked about; absent or null for the weekday's template. */
+  on?: string | null;
+  /** Why that date has no working day, when the route's branch is shut then. */
+  closedOn?: string | null;
+  /** Stops left out that date because their own cadence does not fall on it. */
+  notDueCount?: number;
 }
 
 /**
@@ -119,17 +125,22 @@ export function Routes({
  * zero would tell somebody a fifteen stop day fits.
  */
 export function Fit({ density }: { density: DensityRow }) {
-  const tone = density.runsIntoOvertime === true
-    ? "text-red-600"
-    : density.runsIntoOvertime === false ? "text-green-700" : "text-amber-700";
+  const tone = density.closedOn
+    ? "text-ink-700"
+    : density.runsIntoOvertime === true
+      ? "text-red-600"
+      : density.runsIntoOvertime === false ? "text-green-700" : "text-amber-700";
   return (
     <div className="mt-3 rounded-md border border-steel-200 bg-canvas p-4">
       <p className={`text-sm font-medium ${tone}`}>
-        {density.runsIntoOvertime === true
-          ? `Runs into overtime by ${density.minutesOverThreshold ?? 0} minutes`
-          : density.runsIntoOvertime === false
-            ? "Fits the working day"
-            : "Cannot tell from what has been declared"}
+        {density.on ? `${density.on}: ` : ""}
+        {density.closedOn
+          ? "Closed that day"
+          : density.runsIntoOvertime === true
+            ? `Runs into overtime by ${density.minutesOverThreshold ?? 0} minutes`
+            : density.runsIntoOvertime === false
+              ? "Fits the working day"
+              : "Cannot tell from what has been declared"}
       </p>
       <p className="mt-1 text-sm text-ink-700">{density.explanation}</p>
       <p className="mt-2 text-sm tabular-nums text-ink-700">
@@ -152,6 +163,11 @@ export function Fit({ density }: { density: DensityRow }) {
         .
       </p>
       <p className="mt-1 text-xs text-ink-500">{density.travelNote}</p>
+      {density.notDueCount ? (
+        <p className="mt-1 text-xs text-ink-500">
+          {density.notDueCount} {density.notDueCount === 1 ? "stop is" : "stops are"} not due that day, so left out.
+        </p>
+      ) : null}
       {density.overTarget === true ? (
         <p className="mt-1 text-sm text-amber-700">
           Over the target stop count the operator set for this route.

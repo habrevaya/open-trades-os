@@ -126,7 +126,8 @@ row on the settings screen):
   and the refusal is written on the call.
 - **By business hours.** Outside the hours the company keeps for online
   booking, calls go to the after hours number, or to voicemail when there is
-  none. `telephony.route` decides, and its sentence ("Open hours matched
+  none. A number put in a branch ("Answers for" on the number) goes by that
+  branch's week and holidays instead (M02). `telephony.route` decides, and its sentence ("Open hours matched
   because it is inside business hours") is kept on the call and shown on the
   call screen as "Where it went". A company with no hours declared is not
   closed all week: the clock is ignored until there are hours.

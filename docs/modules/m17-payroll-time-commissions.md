@@ -184,8 +184,9 @@ it by the hour too:
   them: assigning a crew, and a job with a visit that date, count a member as off when
   their leave meets those hours, and the refusal says "when that visit is". A question
   about a date alone, where the job has no visit that day, counts a member as off when
-  their leave covers every hour the company works that day (its weekly hours and holiday
-  list, or eight to five when it keeps none, forgiving a minute so a leave written to
+  their leave covers every hour the company works that day (the job's branch's weekly
+  hours, or the company's where the branch keeps none, and the holiday list, or eight
+  to five when no week is kept, forgiving a minute so a leave written to
   23:59 is still a whole day), and lists anybody with only part of the day off in
   `partDayOff` with their hours, as a note and never a reason to refuse the work. The
   rule is core's `time.leaveMeets`, `time.leaveCovers` and `holidays.workingSpanOn`,

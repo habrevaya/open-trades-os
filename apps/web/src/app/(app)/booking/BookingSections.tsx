@@ -1,6 +1,6 @@
 import { inTenant, type ServiceContext } from "@opentradesos/api/services";
 import { schema } from "@opentradesos/db";
-import { asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { Table, Th, Td } from "@/components/Table";
 import { OfferService, Windows, Hours } from "./Forms";
 
@@ -26,8 +26,12 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       .where(isNull(schema.jobType.deletedAt)),
     windows: await tx.select().from(schema.arrivalWindow)
       .orderBy(asc(schema.arrivalWindow.sortOrder)),
+    /** The company's own week; a branch's is on Online booking, Branch hours. */
     hours: await tx.select().from(schema.businessHours)
+      .where(and(isNull(schema.businessHours.businessUnitId), isNull(schema.businessHours.phoneNumberId)))
       .orderBy(asc(schema.businessHours.dayOfWeek)),
+    branches: await tx.select({ id: schema.businessUnit.id }).from(schema.businessUnit)
+      .where(eq(schema.businessUnit.active, true)),
   }));
 
   const offered = new Set(data.services.map((s) => s.jobTypeId));
@@ -89,6 +93,12 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       <Hours current={data.hours.map((h) => ({
         dayOfWeek: h.dayOfWeek, opensAt: h.opensAt, closesAt: h.closesAt, closed: h.closed,
       }))} />
+      {data.branches.length > 0 ? (
+        <p className="mt-3 max-w-prose text-sm text-ink-500">
+          These are the company&apos;s hours, and every branch keeps them unless it has its own.{" "}
+          <a href="/booking/branches" className="underline underline-offset-4">Set a branch&apos;s own hours</a>.
+        </p>
+      ) : null}
     </>
   );
 }

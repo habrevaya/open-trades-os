@@ -276,7 +276,7 @@ leaving them to close the whole company.
 On a date in the list, its hours replace the week's, and everything that reads the
 company's hours reads it:
 
-Which branch each reader asks about:
+Which branch each reader asks about, for its week (below) and its holidays alike:
 
 | Reader | Branch it reads |
 |---|---|
@@ -285,7 +285,8 @@ Which branch each reader asks about:
 | The crew check (a crew's people off for the working day) | The job's |
 | Task escalation counting working hours (M34) | A task about a job or one of its visits, that job's; any other task, the company's |
 | The multi day rebalance (M09) | Each visit's job's: a Houston visit is not moved onto Houston's day off, an Austin one still may be |
-| The phones, the phone and chat assistants, the reviews clock, recurring tasks set to skip holidays | The company's: none of them knows a branch |
+| The phones (a number set to route by hours, or answered by a phone menu) | The number's branch, set on the number (M18); a number in no branch, the company's. A number can instead follow the company's whatever its branch, or keep its own week and days off and none of the company's (M18) |
+| The phone and chat assistants, the reviews clock, recurring tasks set to skip holidays | The company's: none of them knows a branch |
 
 | Reader | On a closed date | On a short day |
 |---|---|---|
@@ -309,6 +310,31 @@ reads the list (`settings:read`), and `POST /v1/holidays`, `PATCH
 `booking:configure`, the permission the week's hours are set with: a holiday's
 `rule` (`month`, `weekday`, `week`), `observed` and `businessUnitId` are on the
 same calls.
+
+### A branch's own week
+
+A branch keeps the company's week until it is given one of its own: the second
+shop that opens Saturday mornings, or the one shut on Mondays. On
+`/booking/branches` (Online booking, Branch hours, linked from `/booking` and
+`/settings/branches`) each live branch is listed with the week it keeps and
+whether it is its own or the company's; "Give it its own hours" sets all seven
+days, and "Use the company's hours" puts it back. `GET /v1/booking/hours`
+(`settings:read`) reads the company's week and each branch's, `PUT
+/v1/booking/hours` with a `businessUnitId` sets a branch's (without one, the
+company's, as before), and `DELETE /v1/booking/hours/{businessUnitId}` puts a
+branch back on the company's, all with `booking:configure`.
+
+The week is whole: a branch with its own week keeps all seven of its days, so
+a branch shut on Monday is shut on Monday though the company opens, and its
+Saturday is open though the company's is not. Setting the company's week never
+touches a branch's own, nor the other way round. Every reader in the table
+above reads the branch's week for that branch's work, and the company's where
+the branch keeps none (core's `holidays.weekFor`, with unit tests); one that
+knows no branch reads the company's alone, never a branch's. Somebody who sees
+only their own branch's work sees the company's week and their own branch's,
+and sets only their own branch's: the company's week opens and closes every
+branch that keeps none, so it is set by somebody who sees the whole company,
+on `PUT /v1/booking/hours` and on `/booking` alike.
 
 ### After hours and holiday rates
 
@@ -428,15 +454,17 @@ not submit one to a carrier. Company licences are compliance documents rather
 than a setup step.
 
 A moving holiday is a day of the week in a month; a holiday fixed to another
-calendar (Easter, a lunar new year) is entered for each year. The week's hours a
-branch has (`business_hours` carries a business unit) are not read per branch:
-a branch keeps its own holidays, not its own week. The phones, the assistants,
-the reviews clock and recurring tasks know no branch, so they read the company's
-list alone. The route density figures (M09) are asked of a weekday's template,
-not a date, so no holiday list applies to them, the company's or a branch's.
-Task escalation counts clock hours unless a rule is set to count working hours
-(M34), in which case it reads this week and the holiday list of the task's job's
-branch.
+calendar (Easter, a lunar new year) is entered for each year. A branch's own
+week is the same hours every week of the year: a branch open longer in summer
+changes its week when summer comes. The assistants, the reviews clock and
+recurring tasks know no branch, so they read the company's week and list alone;
+the phones know a number's branch only when somebody has set it on the number.
+A route's density (M09) reads the holiday list only when it is asked for a
+date; the weekday's template reads the week alone. Making a day of a route on a
+date its branch is closed is not refused: the fit for that date says it is
+closed, and the office decides. Task escalation counts clock hours unless a rule
+is set to count working hours (M34), in which case it reads the week and the
+holiday list of the task's job's branch.
 
 The after hours rate is offered on an invoice or an estimate for a job, never on one
 with no job, and never on an invoice made from an option the customer signed for. Whether a visit was after hours is read from the window it was booked

@@ -58,10 +58,25 @@ export async function loadHolidays(
   const rows = await db.select().from(schema.companyHoliday)
     .where(and(
       eq(schema.companyHoliday.organizationId, organizationId),
+      /** A phone number's own days off are that number's alone (`loadNumberHolidays`). */
+      isNull(schema.companyHoliday.phoneNumberId),
       branchId
         ? or(isNull(schema.companyHoliday.businessUnitId), eq(schema.companyHoliday.businessUnitId, branchId))
         : isNull(schema.companyHoliday.businessUnitId),
     ));
+  return rows.map(asRule);
+}
+
+/**
+ * A phone number's own days off, for a number set to keep its own hours:
+ * its list alone, without the company's, because "its own hours and days
+ * off" is what whoever chose it said (M18).
+ */
+export async function loadNumberHolidays(
+  db: Database, organizationId: string, phoneNumberId: string,
+): Promise<rules.CompanyHoliday[]> {
+  const rows = await db.select().from(schema.companyHoliday)
+    .where(and(eq(schema.companyHoliday.organizationId, organizationId), eq(schema.companyHoliday.phoneNumberId, phoneNumberId)));
   return rows.map(asRule);
 }
 
@@ -94,7 +109,7 @@ export interface HolidayView {
   hours: string;
 }
 
-function view(row: Row, today: string, branchName: string | null): HolidayView {
+export function view(row: Row, today: string, branchName: string | null): HolidayView {
   const rule = asRule(row);
   return {
     id: row.id,
@@ -136,6 +151,8 @@ export async function list(ctx: ServiceContext): Promise<HolidayView[]> {
     const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     const own = ownBranchOnly(ctx);
     const rows = (await tx.select().from(schema.companyHoliday).orderBy(asc(schema.companyHoliday.date)))
+      /** A phone number's own days off are listed on the number, not here. */
+      .filter((row) => row.phoneNumberId === null)
       .filter((row) => own === false || row.businessUnitId === null || row.businessUnitId === own);
     const names = await branchNames(tx, rows.map((r) => r.businessUnitId));
     const views = rows.map((row) => view(row, today, row.businessUnitId ? names.get(row.businessUnitId) ?? null : null));
@@ -166,7 +183,7 @@ export interface HolidayInput {
  * Core's check, turned into a refusal in core's own words. A rule always
  * repeats, and its `date` is this year's, kept only so a list can sort it.
  */
-function checked(input: HolidayInput, today: string): rules.CompanyHoliday {
+export function checked(input: HolidayInput, today: string): rules.CompanyHoliday {
   const rule = input.rule ?? null;
   const ruleWrong = rule ? rules.checkRule(rule) : null;
   if (ruleWrong) throw new ConflictError(ruleWrong);
@@ -197,10 +214,14 @@ function checked(input: HolidayInput, today: string): rules.CompanyHoliday {
  * years, because a rule and a date can meet only some years (the fourth
  * Thursday of November is the 26th one year in seven).
  */
-async function refuseClash(tx: Database, holiday: rules.CompanyHoliday, exceptId: string | null, today: string): Promise<void> {
+export async function refuseClash(
+  tx: Database, holiday: rules.CompanyHoliday, exceptId: string | null, today: string, phoneNumberId: string | null = null,
+): Promise<void> {
+  /** One list is one owner's: the company's, a branch's own, or a phone number's own. */
   const others = (await tx.select().from(schema.companyHoliday)
     .where(eq(schema.companyHoliday.repeatsYearly, holiday.repeatsYearly)))
-    .filter((row) => row.id !== exceptId && (row.businessUnitId ?? null) === (holiday.branchId ?? null));
+    .filter((row) => row.id !== exceptId && (row.businessUnitId ?? null) === (holiday.branchId ?? null)
+      && (row.phoneNumberId ?? null) === phoneNumberId);
   if (!holiday.repeatsYearly) {
     const clash = others.find((row) => row.date === holiday.date);
     if (clash) throw new ConflictError(`"${clash.name}" is already on the list for ${clash.date}. Change that one instead.`);
@@ -235,7 +256,7 @@ async function mayKeep(tx: Database, ctx: ServiceContext, branchId: string | nul
   if (branchId) await liveBranch(tx, ctx, branchId);
 }
 
-const columns = (holiday: rules.CompanyHoliday) => ({
+export const columns = (holiday: rules.CompanyHoliday) => ({
   name: holiday.name,
   date: holiday.date,
   repeatsYearly: holiday.repeatsYearly,
@@ -280,7 +301,9 @@ export async function create(ctx: ServiceContext, input: HolidayInput): Promise<
 async function holidayWithin(tx: Database, ctx: ServiceContext, id: string): Promise<Row> {
   const [row] = await tx.select().from(schema.companyHoliday).where(eq(schema.companyHoliday.id, id)).limit(1);
   const own = ownBranchOnly(ctx);
-  if (!row || (own !== false && row.businessUnitId !== null && row.businessUnitId !== own)) throw new NotFoundError("Holiday");
+  /** A phone number's own day off is changed on the number (`number-hours.ts`), so here it reads as not there. */
+  if (!row || row.phoneNumberId !== null
+    || (own !== false && row.businessUnitId !== null && row.businessUnitId !== own)) throw new NotFoundError("Holiday");
   return row;
 }
 

@@ -58,6 +58,9 @@ export default async function SettingsPage() {
       .where(eq(schema.integrationConnection.capability, "messaging")),
     workflows: await tx.select().from(schema.workflow)
       .where(isNull(schema.workflow.deletedAt)),
+    /** The live branches a number can answer for, whose hours then route its calls. */
+    branches: await tx.select({ id: schema.businessUnit.id, name: schema.businessUnit.name })
+      .from(schema.businessUnit).where(eq(schema.businessUnit.active, true)),
     organization: (await tx.select({ timezone: schema.organization.timezone })
       .from(schema.organization)
       .where(eq(schema.organization.id, user.actor.organizationId)).limit(1))[0],
@@ -122,6 +125,7 @@ export default async function SettingsPage() {
             <Numbers
               numbers={numbers}
               credits={credits}
+              branches={data.branches}
             />
             {/*
               Only when a Twilio account is connected, which is where the

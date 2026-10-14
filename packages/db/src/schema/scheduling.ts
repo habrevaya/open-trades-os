@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date, time } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date, time, check } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, money, rate, geocodeColumns } from "./_shared";
 import { sql } from "drizzle-orm";
 import { organization, businessUnit, location, technician } from "./tenancy";
@@ -63,17 +63,34 @@ export const territory = pgTable("territory", {
   ...timestamps,
 }, (t) => ({ orgIdx: index("territory_org_idx").on(t.organizationId) }));
 
+/**
+ * A WEEK OF OPENING HOURS: seven rows for the company (no branch, no number),
+ * seven for a branch that keeps its own, and seven for a phone number set to
+ * keep its own. Core's `holidays.weekFor` and `weekForNumber` choose which a
+ * reader reads. A row is one owner's, never a branch's and a number's at once.
+ */
 export const businessHours = pgTable("business_hours", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
+  /**
+   * The phone number whose own week this is; goes with the number. The
+   * foreign key to `phone_number` (on delete cascade) is written in the
+   * migration that added the column rather than here, because importing
+   * `comms` into this file is an import cycle (comms, work, scheduling) that
+   * breaks the schema's loading.
+   */
+  phoneNumberId: uuid("phone_number_id"),
   /** 0 = Sunday, matching JS getDay(). */
   dayOfWeek: integer("day_of_week").notNull(),
   opensAt: time("opens_at"),
   closesAt: time("closes_at"),
   closed: boolean("closed").notNull().default(false),
   ...timestamps,
-}, (t) => ({ orgIdx: index("business_hours_org_idx").on(t.organizationId, t.dayOfWeek) }));
+}, (t) => ({
+  orgIdx: index("business_hours_org_idx").on(t.organizationId, t.dayOfWeek),
+  oneOwner: check("business_hours_one_owner", sql`${t.businessUnitId} is null or ${t.phoneNumberId} is null`),
+}));
 
 /**
  * THE COMPANY'S OWN HOLIDAYS: a date it is closed, or open with hours of its
@@ -113,11 +130,20 @@ export const companyHoliday = pgTable("company_holiday", {
   observed: holidayObserved("observed").notNull().default("as_is"),
   /** The branch whose own holiday this is. Null is the whole company's. */
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
+  /**
+   * The phone number whose own day off this is, read only for that number
+   * and only while it keeps its own hours; never the company's or a
+   * branch's. Goes with the number: the foreign key is the migration's, as
+   * on `business_hours` above.
+   */
+  phoneNumberId: uuid("phone_number_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   orgIdx: index("company_holiday_org_idx").on(t.organizationId, t.date),
   branchIdx: index("company_holiday_branch_idx").on(t.businessUnitId),
+  numberIdx: index("company_holiday_number_idx").on(t.phoneNumberId),
+  oneOwner: check("company_holiday_one_owner", sql`${t.businessUnitId} is null or ${t.phoneNumberId} is null`),
 }));
 
 // ---------------------------------------------------------------------------

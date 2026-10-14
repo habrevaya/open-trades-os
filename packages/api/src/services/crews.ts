@@ -12,7 +12,7 @@ import { jobVisibility } from "./scope";
 import { crewWithin, crews as crewsInView, dispatchPeople, peopleScopeOf, seesEverybody } from "./people-scope";
 import { shopOfCrew } from "./visit-shop";
 import { liveBranch } from "./branches";
-import { weekOf } from "./after-hours";
+import { loadWeek } from "./business-hours";
 import { loadHolidays } from "./holidays";
 
 /**
@@ -422,11 +422,11 @@ interface WhenAsked {
  */
 const DEFAULT_WEEK: holidayRules.WeekHours = Array.from({ length: 7 }, () => ({ openMinute: 8 * 60, closeMinute: 17 * 60 }));
 
-/** The working calendar for a job: the company's week, and its holidays with the job's branch's own. */
+/** The working calendar for a job: its branch's week (the company's where it keeps none), and its holidays with the branch's own. */
 async function calendarOf(
   tx: Database, organizationId: string, zone: string, branchId: string | null,
 ): Promise<holidayRules.WorkingCalendar> {
-  return { week: (await weekOf(tx)) ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
+  return { week: (await loadWeek(tx, organizationId, branchId)).week ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
 }
 
 /**

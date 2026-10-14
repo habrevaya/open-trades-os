@@ -20,6 +20,7 @@ import type {
 import { portalBase } from "../lib/portal-base";
 import { qualifyDays, workSkills } from "./qualification";
 import { loadHolidays } from "./holidays";
+import * as businessHours from "./business-hours";
 
 
 /**
@@ -198,11 +199,14 @@ export async function openSlots(db: Database, input: {
     ))
     .orderBy(schema.arrivalWindow.sortOrder);
 
-  const hours = await db.select().from(schema.businessHours)
-    .where(eq(schema.businessHours.organizationId, org.id));
-  const openDays = new Set(
-    hours.filter((h) => h.opensAt !== null && h.closesAt !== null).map((h) => h.dayOfWeek),
-  );
+  /**
+   * The week of the branch the booking's job will be in, or the company's
+   * when that branch keeps none: a branch that opens on Saturdays offers
+   * Saturday, and one closed on Mondays offers no Monday, whatever the
+   * company keeps. No week at all offers no day, as it always has.
+   */
+  const branchId = await bookingBranch(db, service);
+  const openDays = holidayRules.openWeekdays((await businessHours.loadWeek(db, org.id, branchId)).week) ?? new Set<number>();
   /**
    * The company's holiday list. On a date in it, its hours replace the
    * week's: a closed date offers nothing, and a short day offers only the
@@ -210,7 +214,7 @@ export async function openSlots(db: Database, input: {
    * offered an afternoon arrival. The branch the booking's job will be in
    * reads its own holidays beside the company's.
    */
-  const holidayList = await loadHolidays(db, org.id, await bookingBranch(db, service));
+  const holidayList = await loadHolidays(db, org.id, branchId);
 
   // The service's own ceiling wins over whatever the caller asked for, so a
   // client cannot widen the calendar past what the company opened.
@@ -1168,7 +1172,17 @@ export async function createRequest(
      * page offered it before the list changed, and a request for Christmas
      * Day is a customer waiting for somebody who is not coming.
      */
-    const holiday = holidayRules.holidayOn(await loadHolidays(tx, org.id, await bookingBranch(tx, service)), input.requestedDate);
+    const branchId = await bookingBranch(tx, service);
+    const holiday = holidayRules.holidayOn(await loadHolidays(tx, org.id, branchId), input.requestedDate);
+    /**
+     * And a weekday the branch's week (or the company's) keeps closed, for
+     * the same reason: the week changed after the page was drawn. Only when a
+     * week is declared at all; with none the page offers nothing to ask for.
+     */
+    const open = holidayRules.openWeekdays((await businessHours.loadWeek(tx, org.id, branchId)).week);
+    if (!holiday && open && !open.has(new Date(`${input.requestedDate}T00:00:00Z`).getUTCDay())) {
+      throw new ConflictError(`We are closed on ${input.requestedDate}. Please choose another time.`);
+    }
     if (holiday) {
       const [window] = await tx.select().from(schema.arrivalWindow)
         .where(and(eq(schema.arrivalWindow.id, input.arrivalWindowId), eq(schema.arrivalWindow.organizationId, org.id)))
@@ -1864,54 +1878,16 @@ export async function setWindows(
 }
 
 /**
- * Which days the company is open.
+ * Which days the company is open, or one branch is.
  *
- * All seven every time, because a partial week is ambiguous: a missing
- * Saturday row could mean closed or could mean nobody has said yet, and
- * `availability` treats an absent row as closed. Requiring the full set
- * makes the company's answer explicit for every day.
+ * The week itself is `services/business-hours.ts`'s, which keeps the
+ * company's and each branch's own; this is the booking API's door to it,
+ * kept so `PUT /v1/booking/hours` stays where every client already calls it.
  */
 export async function setHours(
   ctx: ServiceContext, input: z.infer<typeof setBusinessHours.input>,
 ) {
-  return guardedWrite(ctx, "booking:configure", async (tx) => {
-    const days = new Set(input.days.map((d) => d.dayOfWeek));
-    if (days.size !== 7) {
-      throw new ConflictError("Send all seven days. A day left out is a day nobody has answered for.");
-    }
-
-    for (const day of input.days) {
-      if (day.closed) continue;
-      if (!day.opensAt || !day.closesAt) {
-        throw new ConflictError(
-          `Day ${day.dayOfWeek} is open and has no hours. Say when, or mark it closed.`,
-        );
-      }
-      if (day.closesAt <= day.opensAt) {
-        throw new ConflictError(
-          `Day ${day.dayOfWeek} closes at ${day.closesAt} and opens at ${day.opensAt}.`,
-        );
-      }
-    }
-
-    await tx.delete(schema.businessHours)
-      .where(eq(schema.businessHours.organizationId, ctx.actor.organizationId));
-
-    await tx.insert(schema.businessHours).values(
-      input.days.map((day) => ({
-        organizationId: ctx.actor.organizationId,
-        dayOfWeek: day.dayOfWeek,
-        opensAt: day.closed ? null : day.opensAt,
-        closesAt: day.closed ? null : day.closesAt,
-        closed: day.closed,
-      })),
-    );
-
-    await audit(tx, ctx, "booking.hours.set", "organization",
-      ctx.actor.organizationId, null, { open: input.days.filter((d) => !d.closed).length });
-
-    return { days: input.days.length };
-  });
+  return businessHours.setWeek(ctx, input);
 }
 
 /**
