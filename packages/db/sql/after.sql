@@ -2041,7 +2041,10 @@ returns table (organization_id uuid)
       select distinct c.organization_id
         from public.service_contract c
        where c.active and c.deleted_at is null
-         and c.escalation_rate is not null and c.escalation_rate > 0
+         and ((c.escalation_rate is not null and c.escalation_rate > 0)
+           -- Or rises of its own that differ by year, card or trade.
+           or exists (select 1 from public.contract_escalation_rise r
+                       where r.contract_id = c.id and r.rate > 0))
          and c.starts_on is not null
          and (c.ends_on is null or c.ends_on >= current_date)
     ) x

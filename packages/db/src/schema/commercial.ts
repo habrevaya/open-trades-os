@@ -453,6 +453,12 @@ export const contractEscalationNotice = pgTable("contract_escalation_notice", {
   anniversary: date("anniversary").notNull(),
   /** The rate the drafts were risen by. A rate changed on the contract since prepares them again. */
   rate: rate("rate").notNull(),
+  /**
+   * Which rises the drafts were prepared from, as the preview's key: the
+   * contract's rate and every rise that applies that year. A rise changed
+   * since prepares them again. Null on a notice from before rises differed.
+   */
+  key: text("key"),
   /** The office task raised about it. A loose reference, as every task's subject is. */
   taskId: uuid("task_id"),
   preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
@@ -461,6 +467,37 @@ export const contractEscalationNotice = pgTable("contract_escalation_notice", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   onceIdx: uniqueIndex("contract_escalation_notice_once_idx").on(t.organizationId, t.contractId, t.anniversary),
+}));
+
+/**
+ * A CONTRACT'S RISES, WHEN THEY DIFFER BY YEAR, BY CARD OR BY TRADE.
+ *
+ * "Year two 3%, year three 4%, and the plumbing labour rate 5% every year."
+ * The contract's own `escalation_rate` is every year's rise for everything;
+ * each row here is more specific, and the most specific one that applies to
+ * a price is the one it rises by (`core/rates.riseFor`). Replaced as a set
+ * from the contract's page, so there is no unique index for a person to
+ * collide with: the service refuses two rows saying the same year, card and
+ * trade in words before anything is written.
+ *
+ * A row naming a card follows the card: when a rise is applied and the card
+ * is written again as next year's version, the row is moved to the new one.
+ */
+export const contractEscalationRise = pgTable("contract_escalation_rise", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  /** The year of the contract it opens (2 is the first anniversary), or null for every year. */
+  contractYear: integer("contract_year"),
+  /** The card it applies to, or null for every card of the contract. */
+  rateCardId: uuid("rate_card_id").references(() => rateCard.id, { onDelete: "cascade" }),
+  /** The trade whose hourly rates it applies to, or null for every price. */
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "cascade" }),
+  /** A fraction, 0.04 for four per cent. Nothing is allowed: a card fixed for the term. */
+  rate: rate("rate").notNull(),
+  ...timestamps,
+}, (t) => ({
+  contractIdx: index("contract_escalation_rise_contract_idx").on(t.contractId),
 }));
 
 export const labourBand = pgEnum("labour_band", ["standard", "after_hours", "weekend", "holiday"]);

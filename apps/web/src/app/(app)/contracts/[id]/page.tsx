@@ -8,11 +8,11 @@ import { Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
-import { LABOUR_ROWS, MARKUP_ROWS, clockOf, percentOf } from "@/lib/contract-forms";
+import { LABOUR_ROWS, MARKUP_ROWS, RISE_ROWS, clockOf, percentOf } from "@/lib/contract-forms";
 import { ContractTermFields } from "../ContractTerms";
 import {
   addSite, applyEscalation, changeContractBilling, createCard, issuePayerLink, setCardLines, setCardTerms, setContractBilling,
-  updateContractTerms,
+  setContractRises, updateContractTerms,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +69,13 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
     ? (await properties.list(ctx, { limit: 100, customerId: contract.customerId })).data
     : [];
   const rise = reads ? await contractEscalation.preview(ctx, { contractId: id }) : null;
+  const riseYearOptions = [{ value: "", label: "Every year" },
+    ...Array.from({ length: 9 }, (_, n) => ({ value: String(n + 2), label: `Year ${n + 2}` }))];
+  /** A card that has ended has been followed by its next version, which is the one a rise names. */
+  const riseCardOptions = [{ value: "", label: "Every card" }, ...contract.cards
+    .filter((c) => c.inForce || !c.effectiveTo || rise?.rises.some((r) => r.rateCardId === c.id))
+    .map((c) => ({ value: c.id, label: c.name }))];
+  const riseTradeOptions = [{ value: "", label: "Every price" }, ...types.map((t) => ({ value: t.id, label: `${t.name} hourly rates` }))];
   const fee = await contractBilling.view(ctx, { contractId: id });
   const raises = can(user.actor, "invoice:write");
   const open = can(user.actor, "invoice:read")
@@ -214,18 +221,21 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
         )}
       </section>
 
-      {rise && rise.rate && (
+      {rise && (rise.rate || rise.rises.length > 0 || writes) && (
         <section aria-label="Annual escalation" className="mt-10">
           <h2 className="text-base font-semibold">Annual escalation</h2>
           <p className="mt-1 max-w-2xl text-sm text-ink-700">
             {rise.anniversary
-              ? <>Rates rise by {percentOf(rise.rate)}% on each anniversary. Year {rise.contractYear} starts on {rise.anniversary}
+              ? <>{rise.rises.length > 0
+                  ? "Rates rise on each anniversary by the rises below, and by the contract's yearly rate where none of them applies."
+                  : <>Rates rise by {percentOf(rise.rate ?? "0")}% on each anniversary.</>}
+                {" "}Year {rise.contractYear} starts on {rise.anniversary}
                 {rise.daysAway !== null && rise.daysAway >= 0 ? `, in ${rise.daysAway} days` : `, ${Math.abs(rise.daysAway ?? 0)} days ago`}.
                 Applying it writes a new version of each card from that day; the current prices stay in force until the day before.</>
               : null}
             {rise.escalatedThrough ? ` Last risen on ${rise.escalatedThrough}.` : ""}
           </p>
-          {rise.problem && <p className="mt-2 text-sm text-ink-700">{rise.problem}</p>}
+          {rise.problem && (rise.rate || rise.rises.length > 0) && <p className="mt-2 text-sm text-ink-700">{rise.problem}</p>}
           {rise.drafts && rise.drafts.length > 0 && (
             <div className="mt-2 rounded border border-steel-200 bg-steel-100 p-3 text-sm text-ink-700" role="note" aria-label="Draft prices">
               <p>
@@ -237,12 +247,13 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
           )}
           {rise.cards.map((card) => (
             <Table key={card.rateCardId} label={`${card.name} from ${rise.anniversary}`}
-                   head={<><Th>{card.name}</Th><Th className="text-right">Now</Th><Th className="text-right">From {rise.anniversary}</Th></>}>
+                   head={<><Th>{card.name}</Th><Th className="text-right">Now</Th><Th className="text-right">From {rise.anniversary}</Th><Th>Rise</Th></>}>
               {card.lines.map((line) => (
                 <tr key={line.id}>
                   <Td>{line.description}</Td>
                   <Td className="text-right"><Money value={line.before} /></Td>
                   <Td className="text-right"><Money value={line.after} /></Td>
+                  <Td>{percentOf(line.rate)}%, {line.because}</Td>
                 </tr>
               ))}
               {card.labourRates.map((rate) => (
@@ -250,6 +261,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                   <Td>{rates.BAND_LABEL[rate.band as rates.LabourBand] ?? rate.band} labour{rate.jobTypeName ? `, ${rate.jobTypeName}` : ""}, per hour</Td>
                   <Td className="text-right"><Money value={rate.before} /></Td>
                   <Td className="text-right"><Money value={rate.after} /></Td>
+                  <Td>{percentOf(rate.rate)}%, {rate.because}</Td>
                 </tr>
               ))}
               {card.tripCharge && (
@@ -257,14 +269,39 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                   <Td>Trip charge</Td>
                   <Td className="text-right"><Money value={card.tripCharge.before} /></Td>
                   <Td className="text-right"><Money value={card.tripCharge.after} /></Td>
+                  <Td>{percentOf(card.tripCharge.rate)}%, {card.tripCharge.because}</Td>
                 </tr>
               )}
             </Table>
           ))}
-          {prices && rise.ready && rise.anniversary && (
+          {prices && rise.ready && rise.anniversary && rise.key && (
             <ActionForm action={applyEscalation} submit={`Apply year ${rise.contractYear} prices`}
-                        hidden={{ contractId: id, anniversary: rise.anniversary, rate: rise.rate }}
+                        hidden={{ contractId: id, anniversary: rise.anniversary, key: rise.key }}
                         className="mt-3 flex flex-wrap items-center gap-3" />
+          )}
+          {writes && (
+            <details className="mt-4" open={rise.rises.length > 0}>
+              <summary className="cursor-pointer text-sm font-medium">Rises that differ by year, card or trade</summary>
+              <p className="mt-2 max-w-2xl text-sm text-ink-700">
+                For a contract that says &ldquo;year two 3%, year three 4%&rdquo;, or rises one trade&rsquo;s hourly rates
+                differently, or keeps one card fixed. Each price rises by the closest match: the trade on that card, then the
+                trade, then the card, then the year. Anything none of these covers rises by the yearly rate in the terms above.
+                A trade&rsquo;s rise is for its hourly rates only. A rise of 0 keeps those prices as they are.
+              </p>
+              <ActionForm action={setContractRises} submit="Save the rises" hidden={{ contractId: id }} className="mt-3 space-y-2">
+                {Array.from({ length: Math.max(RISE_ROWS, rise.rises.length) }, (_, i) => {
+                  const row = rise.rises[i];
+                  return (
+                    <div key={i} className="grid gap-2 sm:grid-cols-4">
+                      <Select label="Year" name={`riseYear${i}`} options={riseYearOptions} defaultValue={row?.contractYear ? String(row.contractYear) : ""} />
+                      <Select label="Card" name={`riseCard${i}`} options={riseCardOptions} defaultValue={row?.rateCardId ?? ""} />
+                      <Select label="Prices" name={`riseTrade${i}`} options={riseTradeOptions} defaultValue={row?.jobTypeId ?? ""} />
+                      <TextField label="Rise, per cent" name={`riseRate${i}`} inputMode="decimal" defaultValue={row ? percentOf(row.rate) : ""} />
+                    </div>
+                  );
+                })}
+              </ActionForm>
+            </details>
           )}
         </section>
       )}

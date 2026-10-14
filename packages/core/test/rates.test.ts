@@ -284,3 +284,52 @@ describe("labour beyond a manufacturer's allowance", () => {
     expect(m.toString(theirs.unitPrice)).toBe("95.0000");
   });
 });
+
+describe("rises that differ by year, by card or by trade", () => {
+  const card = "card-a";
+  const plumbing = "trade-plumbing";
+  const rises: rates.Rise[] = [
+    { contractYear: 2, rateCardId: null, jobTypeId: null, rate: "0.03" },
+    { contractYear: 3, rateCardId: null, jobTypeId: null, rate: "0.04" },
+    { contractYear: null, rateCardId: null, jobTypeId: plumbing, rate: "0.05" },
+    { contractYear: 3, rateCardId: card, jobTypeId: null, rate: "0" },
+    { contractYear: 4, rateCardId: card, jobTypeId: plumbing, rate: "0.06" },
+  ];
+  const at = (year: number, opts: { rateCardId?: string; jobTypeId?: string | null; baseRate?: string | null } = {}) =>
+    rates.riseFor({
+      rises, baseRate: opts.baseRate ?? null, year, rateCardId: opts.rateCardId ?? "card-b", jobTypeId: opts.jobTypeId ?? null,
+    })?.rate ?? null;
+
+  it("takes the year's rise for everything that has nothing more specific", () => {
+    expect(at(2)).toBe("0.03");
+    expect(at(3)).toBe("0.04");
+  });
+
+  it("takes a trade's rise for that trade's hourly rates in every year, over the year's", () => {
+    expect(at(2, { jobTypeId: plumbing })).toBe("0.05");
+    expect(at(3, { jobTypeId: plumbing })).toBe("0.05");
+    expect(at(3, { jobTypeId: "trade-electrical" })).toBe("0.04");
+  });
+
+  it("takes a card's rise over the year's, and the trade on that card over both", () => {
+    expect(at(3, { rateCardId: card })).toBe("0");
+    expect(at(3, { rateCardId: card, jobTypeId: plumbing })).toBe("0.05");
+    expect(at(4, { rateCardId: card, jobTypeId: plumbing })).toBe("0.06");
+  });
+
+  it("falls back to the contract's own rate, and keeps a price nothing applies to", () => {
+    expect(at(5)).toBeNull();
+    expect(at(5, { baseRate: "0.025" })).toBe("0.025");
+    expect(rates.risesIn(rises, null, 5)).toBe(true);
+    expect(rates.risesIn([{ contractYear: 3, rateCardId: null, jobTypeId: null, rate: "0.04" }], null, 4)).toBe(false);
+    expect(rates.risesIn([], "0.03", 4)).toBe(true);
+  });
+
+  it("refuses a rise it cannot apply, in words", () => {
+    expect(rates.risesProblem(rises)).toBeNull();
+    expect(rates.risesProblem([{ contractYear: 1, rateCardId: null, jobTypeId: null, rate: "0.03" }])).toMatch(/opens year 2/);
+    expect(rates.risesProblem([{ contractYear: 2, rateCardId: null, jobTypeId: null, rate: "3" }])).toMatch(/more than double/);
+    expect(rates.risesProblem([{ contractYear: 2, rateCardId: null, jobTypeId: null, rate: "x" }])).toMatch(/not a rise/);
+    expect(rates.risesProblem([rises[0]!, { ...rises[0]!, rate: "0.02" }])).toMatch(/Row 2 says the same year/);
+  });
+});

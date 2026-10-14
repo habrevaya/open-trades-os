@@ -1,4 +1,5 @@
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, asc, eq, exists, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, rates, time, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
@@ -32,6 +33,17 @@ import {
  * `pricebook:write` to apply, because it writes prices, and
  * `pricebook:read` to look.
  *
+ * RISES THAT DIFFER. A contract may also say "year two 3%, year three 4%",
+ * or "the plumbing labour rate rises 5%", or "the emergency card is fixed".
+ * Those are rows of their own (`contract_escalation_rise`), set with the
+ * contract's terms under `contract:write`, and each price rises by the most
+ * specific one that applies (`core/rates.riseFor`); the contract's own rate
+ * is every year's rise for what nothing more specific covers. A year nothing
+ * rises in is passed over rather than applied as a rise of nothing. Because
+ * one rate no longer says what was shown, the preview carries a `key` over
+ * the rate and every rise that applies that year, and applying is refused
+ * unless it is told the key the person saw.
+ *
  * DUE, THIRTY DAYS AHEAD. The worker (`noticePass`) looks at every contract
  * with a rate each pass, and from thirty days before an anniversary (or any
  * time after, for one that was missed) it prepares next year's cards as
@@ -51,6 +63,26 @@ export const NOTICE_DAYS = 30;
 
 type CardRow = typeof schema.rateCard.$inferSelect;
 type ContractRow = typeof schema.serviceContract.$inferSelect;
+type RiseRow = typeof schema.contractEscalationRise.$inferSelect;
+
+/** One of the contract's rises, with what it names in words. */
+export interface RiseView {
+  id: string;
+  contractYear: number | null;
+  rateCardId: string | null;
+  rateCardName: string | null;
+  jobTypeId: string | null;
+  jobTypeName: string | null;
+  rate: string;
+}
+
+/** What one price rises by on the preview: the rate, and where it came from in words. */
+interface PriceRise {
+  /** The rate, or "0" for a price kept as it is. */
+  rate: string;
+  /** "Year 3", "Plumbing hourly rates", "Emergency card", "The contract's yearly rate", or "Nothing rises it". */
+  because: string;
+}
 
 export interface EscalationPreview {
   contractId: string;
@@ -72,10 +104,17 @@ export interface EscalationPreview {
     name: string;
     effectiveFrom: string | null;
     effectiveTo: string | null;
-    lines: Array<{ id: string; description: string; before: string; after: string }>;
-    labourRates: Array<{ id: string; band: string; jobTypeName: string | null; before: string; after: string }>;
-    tripCharge: { before: string; after: string } | null;
+    lines: Array<{ id: string; description: string; before: string; after: string } & PriceRise>;
+    labourRates: Array<{ id: string; band: string; jobTypeName: string | null; before: string; after: string } & PriceRise>;
+    tripCharge: ({ before: string; after: string } & PriceRise) | null;
   }>;
+  /** Every rise the contract carries beyond its own rate, whichever year it is for. */
+  rises: RiseView[];
+  /**
+   * What applying has to be told: the anniversary, the rate and every rise
+   * that applies that year, in one string. Null while there is nothing to apply.
+   */
+  key: string | null;
 }
 
 async function loadContract(tx: Database, id: string): Promise<ContractRow> {
@@ -99,23 +138,90 @@ async function cardsAt(tx: Database, contractId: string, anniversary: string): P
     .orderBy(asc(schema.rateCard.createdAt));
 }
 
+async function risesOf(tx: Database, contractId: string): Promise<RiseRow[]> {
+  return tx.select().from(schema.contractEscalationRise)
+    .where(eq(schema.contractEscalationRise.contractId, contractId))
+    .orderBy(asc(schema.contractEscalationRise.contractYear), asc(schema.contractEscalationRise.createdAt));
+}
+
+const asRise = (row: RiseRow): rates.Rise => ({
+  contractYear: row.contractYear, rateCardId: row.rateCardId, jobTypeId: row.jobTypeId, rate: row.rate,
+});
+
+/** The contract's own rate when it is one a price can rise by, otherwise null. */
+const baseOf = (contract: ContractRow): string | null =>
+  rates.escalationRateProblem(contract.escalationRate) ? null : contract.escalationRate;
+
+/** A rate as a per cent in words: "0.035000" is "3.5%". */
+function percent(rate: string): string {
+  return `${String(Number((Number(rate) * 100).toFixed(4)))}%`;
+}
+
+/** A rate written the same however many noughts it carries, for comparing and for the key. */
+function normRate(v: string): string {
+  const [whole = "0", frac = ""] = v.trim().split(".");
+  const tail = frac.replace(/0+$/, "");
+  return tail ? `${String(Number(whole))}.${tail}` : String(Number(whole));
+}
+
+/**
+ * The key over what an anniversary's rise is made of: the anniversary, the
+ * contract's rate and every rise that applies that year. A rise for another
+ * year changing does not change it, so a person is not sent back to look
+ * again at a preview that shows the same prices.
+ */
+function keyOf(anniversary: string, base: string | null, rises: readonly RiseRow[], year: number): string {
+  const applying = rises
+    .filter((r) => r.contractYear === null || r.contractYear === year)
+    .map((r) => `${r.contractYear ?? "*"}|${r.rateCardId ?? "*"}|${r.jobTypeId ?? "*"}|${normRate(r.rate)}`)
+    .sort();
+  const body = JSON.stringify([anniversary, base === null ? null : normRate(base), applying]);
+  return createHash("sha256").update(body).digest("hex").slice(0, 24);
+}
+
+/**
+ * The first anniversary from the next one on which anything rises. With a
+ * yearly rate, the next one. With only rises for some years, a year none of
+ * them names is passed over: a rise of nothing written as new cards is a
+ * price list nobody changed, and a task to apply it is noise.
+ */
+function anniversaryFrom(contract: ContractRow, rises: readonly RiseRow[]): string | null {
+  const base = baseOf(contract);
+  let after = contract.escalatedThrough;
+  for (let n = 0; n < 60; n += 1) {
+    const anniversary = rates.nextAnniversary(contract.startsOn!, after);
+    if (rates.risesIn(rises.map(asRise), base, rates.contractYear(contract.startsOn!, anniversary))) return anniversary;
+    after = anniversary;
+  }
+  return null;
+}
+
 async function previewIn(
   tx: Database, organizationId: string, contract: ContractRow, on?: string,
 ): Promise<EscalationPreview> {
+  const riseRows = await risesOf(tx, contract.id);
+  const named = await nameRises(tx, contract.id, riseRows);
   const empty = {
     contractId: contract.id, rate: contract.escalationRate, escalatedThrough: contract.escalatedThrough,
-    anniversary: null, contractYear: null, daysAway: null, ready: false, cards: [],
+    anniversary: null, contractYear: null, daysAway: null, ready: false, cards: [], rises: named, key: null,
   };
-  const rateProblem = rates.escalationRateProblem(contract.escalationRate);
+  /** With rises of its own, a contract needs no yearly rate; one it has must still be one a price can rise by. */
+  const rateProblem = riseRows.length === 0 || (contract.escalationRate !== null && contract.escalationRate !== undefined)
+    ? rates.escalationRateProblem(contract.escalationRate)
+    : null;
   if (rateProblem) return { ...empty, problem: rateProblem };
   if (!contract.startsOn) {
     return { ...empty, problem: "This contract has no start date, so it has no anniversary to rise on." };
   }
-  const anniversary = rates.nextAnniversary(contract.startsOn, contract.escalatedThrough);
+  const anniversary = anniversaryFrom(contract, riseRows);
+  if (!anniversary) {
+    return { ...empty, problem: "None of this contract's rises is for a year still to come, so nothing rises." };
+  }
   const today = on ?? time.dateIn(new Date(), await timezoneOf(tx, organizationId));
   const daysAway = Math.round((Date.parse(`${anniversary}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 864e5);
+  const year = rates.contractYear(contract.startsOn, anniversary);
   const base = {
-    ...empty, anniversary, contractYear: rates.contractYear(contract.startsOn, anniversary), daysAway,
+    ...empty, anniversary, contractYear: year, daysAway,
   };
 
   if (contract.endsOn && contract.endsOn < anniversary) {
@@ -140,7 +246,6 @@ async function previewIn(
   if (cards.length === 0) {
     return { ...base, problem: `No card of this contract is in force on ${time.addDays(anniversary, -1)}, so there are no prices to rise.` };
   }
-  const rate = contract.escalationRate!;
   const ids = cards.map((c) => c.id);
   const [lines, labour] = await Promise.all([
     tx.select().from(schema.rateCardLine).where(inArray(schema.rateCardLine.rateCardId, ids))
@@ -151,7 +256,11 @@ async function previewIn(
       .where(inArray(schema.rateCardLabourRate.rateCardId, ids))
       .orderBy(asc(schema.rateCardLabourRate.band)),
   ]);
-  const up = (price: string) => m.toString(rates.escalate(usd(price), rate));
+  const riseOf = pricer(contract, riseRows, named, year);
+  const priced = (price: string, card: CardRow, jobTypeId: string | null) => {
+    const found = riseOf(card.id, jobTypeId);
+    return { before: price, after: risen(price, found.rate), ...found };
+  };
 
   return {
     ...base,
@@ -159,20 +268,78 @@ async function previewIn(
     problem: daysAway <= PREPARE_DAYS
       ? null
       : `Year ${base.contractYear} prices can be prepared from ${time.addDays(anniversary, -PREPARE_DAYS)}, sixty days before the anniversary.`,
+    key: keyOf(anniversary, baseOf(contract), riseRows, year),
     cards: cards.map((card) => ({
       rateCardId: card.id,
       name: card.name,
       effectiveFrom: card.effectiveFrom,
       effectiveTo: card.effectiveTo,
       lines: lines.filter((l) => l.rateCardId === card.id)
-        .map((l) => ({ id: l.id, description: l.description, before: l.price, after: up(l.price) })),
+        .map((l) => ({ id: l.id, description: l.description, ...priced(l.price, card, null) })),
       labourRates: labour.filter((r) => r.rate.rateCardId === card.id).map((r) => ({
-        id: r.rate.id, band: r.rate.band, jobTypeName: r.jobTypeName,
-        before: r.rate.hourlyRate, after: up(r.rate.hourlyRate),
+        id: r.rate.id, band: r.rate.band, jobTypeName: r.jobTypeName, ...priced(r.rate.hourlyRate, card, r.rate.jobTypeId),
       })),
-      tripCharge: card.tripCharge ? { before: card.tripCharge, after: up(card.tripCharge) } : null,
+      tripCharge: card.tripCharge ? priced(card.tripCharge, card, null) : null,
     })),
   };
+}
+
+/** A price risen by a rate to the cent, or kept exactly as it is when nothing rises it. */
+function risen(price: string, rate: string): string {
+  return Number(rate) === 0 ? price : m.toString(rates.escalate(usd(price), rate));
+}
+
+/**
+ * What each price on a card rises by in a year, and why, in words: the most
+ * specific of the contract's rises, its own rate, or nothing.
+ */
+function pricer(contract: ContractRow, rises: readonly RiseRow[], named: readonly RiseView[], year: number) {
+  const base = baseOf(contract);
+  const list = rises.map(asRise);
+  return (rateCardId: string, jobTypeId: string | null): PriceRise => {
+    const found = rates.riseFor({ rises: list, baseRate: base, year, rateCardId, jobTypeId });
+    if (!found) return { rate: "0", because: "Nothing rises it" };
+    if (!found.rise) return { rate: found.rate, because: "The contract's yearly rate" };
+    return { rate: found.rate, because: riseWords(named[list.indexOf(found.rise)]) };
+  };
+}
+
+/** "Year 3, plumbing hourly rates on the Emergency card", in the words the page uses. */
+function riseWords(rise: RiseView | undefined): string {
+  if (!rise) return "A rise on the contract";
+  const what = [
+    rise.jobTypeName ? `${rise.jobTypeName} hourly rates` : null,
+    rise.rateCardName ? `${rise.jobTypeName ? "on " : ""}${rise.rateCardName}` : null,
+  ].filter(Boolean).join(" ");
+  const when = rise.contractYear === null ? "Every year" : `Year ${rise.contractYear}`;
+  return what ? `${when}, ${what}` : when;
+}
+
+/** The contract's rises with the card and trade each names, for the page and the API. */
+async function nameRises(tx: Database, contractId: string, rows: readonly RiseRow[]): Promise<RiseView[]> {
+  if (rows.length === 0) return [];
+  const cardIds = rows.map((r) => r.rateCardId).filter((id): id is string => id !== null);
+  const typeIds = rows.map((r) => r.jobTypeId).filter((id): id is string => id !== null);
+  const [cards, types] = await Promise.all([
+    cardIds.length > 0
+      ? tx.select({ id: schema.rateCard.id, name: schema.rateCard.name }).from(schema.rateCard)
+        .where(and(eq(schema.rateCard.contractId, contractId), inArray(schema.rateCard.id, cardIds)))
+      : Promise.resolve([]),
+    typeIds.length > 0
+      ? tx.select({ id: schema.jobType.id, name: schema.jobType.name }).from(schema.jobType).where(inArray(schema.jobType.id, typeIds))
+      : Promise.resolve([]),
+  ]);
+  const cardName = new Map(cards.map((c) => [c.id, c.name]));
+  const typeName = new Map(types.map((t) => [t.id, t.name]));
+  return rows.map((r) => ({
+    id: r.id,
+    contractYear: r.contractYear,
+    rateCardId: r.rateCardId,
+    rateCardName: r.rateCardId ? cardName.get(r.rateCardId) ?? null : null,
+    jobTypeId: r.jobTypeId,
+    jobTypeName: r.jobTypeId ? typeName.get(r.jobTypeId) ?? null : null,
+    rate: r.rate,
+  }));
 }
 
 /** What the contract's next anniversary would do to its cards, and the drafts prepared for it. Writes nothing. */
@@ -194,17 +361,14 @@ export function preview(ctx: ServiceContext, input: { contractId: string }): Pro
 export interface EscalationResult {
   contractId: string;
   anniversary: string;
-  rate: string;
+  /** The contract's own yearly rate, when it has one; the rises are on the preview and the audit line. */
+  rate: string | null;
   cards: Array<{ fromRateCardId: string; rateCardId: string; name: string; effectiveFrom: string }>;
 }
 
 /** Two rates as the same decimal, whatever trailing noughts each was written with. */
 function sameRate(a: string, b: string): boolean {
-  const norm = (v: string) => {
-    const [whole = "0", frac = ""] = v.trim().split(".");
-    return `${String(Number(whole))}.${frac.replace(/0+$/, "")}`;
-  };
-  return norm(a) === norm(b);
+  return normRate(a) === normRate(b);
 }
 
 /** "Meridian schedule" for year three, from "Meridian schedule (year 2)". */
@@ -216,11 +380,12 @@ function nameFor(name: string, year: number): string {
  * Apply the escalation a person saw in the preview: a new version of each
  * card in force, every price risen by the rate, from the anniversary.
  *
- * Told the anniversary and the rate, and refused if either is not what the
+ * Told the anniversary and the preview's key (or, on a contract whose rise is
+ * its one yearly rate, that rate), and refused if either is not what the
  * preview would now show. A retry after it went answers with what it made.
  */
 export function apply(
-  ctx: ServiceContext, input: { contractId: string; anniversary: string; rate: string },
+  ctx: ServiceContext, input: { contractId: string; anniversary: string; rate?: string | undefined; key?: string | undefined },
 ): Promise<EscalationResult> {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
     const [locked] = await tx.select().from(schema.serviceContract)
@@ -233,7 +398,7 @@ export function apply(
         .where(and(eq(schema.rateCard.contractId, locked.id), eq(schema.rateCard.effectiveFrom, input.anniversary)))
         .orderBy(asc(schema.rateCard.createdAt));
       return {
-        contractId: locked.id, anniversary: input.anniversary, rate: locked.escalationRate ?? input.rate,
+        contractId: locked.id, anniversary: input.anniversary, rate: locked.escalationRate ?? input.rate ?? null,
         cards: made.filter((c) => c.escalatedFromId).map((c) => ({
           fromRateCardId: c.escalatedFromId!, rateCardId: c.id, name: c.name, effectiveFrom: c.effectiveFrom!,
         })),
@@ -248,16 +413,27 @@ export function apply(
           : shown.problem ?? "There is no anniversary to rise on.",
       );
     }
-    if (!locked.escalationRate || !sameRate(locked.escalationRate, input.rate)) {
+    const riseRows = await risesOf(tx, locked.id);
+    const year = shown.contractYear!;
+    const differs = riseRows.some((r) => r.contractYear === null || r.contractYear === year);
+    if (input.key !== undefined) {
+      if (input.key !== shown.key) {
+        throw new ConflictError("The contract's rises have changed since the preview was shown. Look at the preview again.");
+      }
+    } else if (differs) {
       throw new ConflictError(
-        `The contract's rate is now ${locked.escalationRate ?? "nothing"}, not the ${input.rate} that was shown. Look at the preview again.`,
+        `Year ${year}'s rise differs by year, card or trade, so one rate does not say what was shown. Apply it from the preview, which names each rise.`,
+      );
+    } else if (input.rate === undefined || !locked.escalationRate || !sameRate(locked.escalationRate, input.rate)) {
+      throw new ConflictError(
+        `The contract's rate is now ${locked.escalationRate ?? "nothing"}, not the ${input.rate ?? "nothing"} that was shown. Look at the preview again.`,
       );
     }
     if (!shown.ready) throw new ConflictError(shown.problem ?? "It cannot be applied yet.");
 
     const anniversary = input.anniversary;
-    const year = shown.contractYear!;
-    const rate = locked.escalationRate;
+    const rate = baseOf(locked);
+    const riseOf = pricer(locked, riseRows, shown.rises, year);
     /**
      * The drafts the worker prepared for this anniversary go: the cards in
      * force are written afresh from the ones they rise from, which is what
@@ -267,10 +443,15 @@ export function apply(
     await removeDrafts(tx, locked.id, anniversary);
     const made: EscalationResult["cards"] = [];
     for (const card of await cardsAt(tx, locked.id, anniversary)) {
-      const next = await writeRisen(tx, ctx.actor.organizationId, card, { anniversary, year, rate, draft: false });
+      const next = await writeRisen(tx, ctx.actor.organizationId, card, {
+        anniversary, year, riseOf: (jobTypeId) => riseOf(card.id, jobTypeId).rate, draft: false,
+      });
       /** The old card ends the day before, so exactly one is in force on any day. */
       await tx.update(schema.rateCard).set({ effectiveTo: time.addDays(anniversary, -1), updatedAt: new Date() })
         .where(eq(schema.rateCard.id, card.id));
+      /** A rise naming the card follows it to next year's version, so it still applies the year after. */
+      await tx.update(schema.contractEscalationRise).set({ rateCardId: next.id, updatedAt: new Date() })
+        .where(and(eq(schema.contractEscalationRise.contractId, locked.id), eq(schema.contractEscalationRise.rateCardId, card.id)));
       made.push({ fromRateCardId: card.id, rateCardId: next.id, name: next.name, effectiveFrom: anniversary });
     }
 
@@ -279,21 +460,26 @@ export function apply(
     await closeNotice(tx, ctx, locked.id, anniversary);
     await audit(tx, ctx, "contract.escalated", "service_contract", locked.id,
       { escalatedThrough: locked.escalatedThrough },
-      { escalatedThrough: anniversary, rate, cards: made });
+      {
+        escalatedThrough: anniversary, rate, cards: made,
+        rises: shown.rises.filter((r) => r.contractYear === null || r.contractYear === year),
+      });
     return { contractId: locked.id, anniversary, rate, cards: made };
   });
 }
 
 /**
- * One card risen by the rate, from the anniversary: in force, or as a draft
- * that is never active. Its lines and labour rates risen with it; markups
- * are fractions of our cost and are kept.
+ * One card risen, from the anniversary: in force, or as a draft that is never
+ * active. Its lines and labour rates risen with it, each by what `riseOf`
+ * says for its trade (listed prices and the trip charge by the card's own);
+ * markups are fractions of our cost and are kept.
  */
 async function writeRisen(
   tx: Database, organizationId: string, card: CardRow,
-  input: { anniversary: string; year: number; rate: string; draft: boolean },
+  input: { anniversary: string; year: number; riseOf: (jobTypeId: string | null) => string; draft: boolean },
 ): Promise<CardRow> {
-  const up = (price: string) => m.toString(rates.escalate(usd(price), input.rate));
+  const cardRate = input.riseOf(null);
+  const up = (price: string) => risen(price, cardRate);
   const [next] = await tx.insert(schema.rateCard).values({
     organizationId,
     name: nameFor(card.name, input.year),
@@ -310,7 +496,8 @@ async function writeRisen(
     standardEndMinute: card.standardEndMinute,
     holidays: card.holidays,
     escalatedFromId: card.id,
-    escalationRate: input.rate,
+    /** The card's own rise, what its listed prices rose by; a trade's rise on its hourly rates is on the audit line. */
+    escalationRate: cardRate,
   }).returning();
 
   const lines = await tx.select().from(schema.rateCardLine).where(eq(schema.rateCardLine.rateCardId, card.id));
@@ -334,7 +521,7 @@ async function writeRisen(
       rateCardId: next!.id,
       jobTypeId: row.jobTypeId,
       band: row.band,
-      hourlyRate: up(row.hourlyRate),
+      hourlyRate: risen(row.hourlyRate, input.riseOf(row.jobTypeId)),
       minimumMinutes: row.minimumMinutes,
       incrementMinutes: row.incrementMinutes,
     })));
@@ -405,7 +592,11 @@ export async function noticesFor(
         eq(schema.serviceContract.organizationId, organizationId),
         eq(schema.serviceContract.active, true),
         isNull(schema.serviceContract.deletedAt),
-        isNotNull(schema.serviceContract.escalationRate),
+        or(
+          isNotNull(schema.serviceContract.escalationRate),
+          exists(tx.select({ one: sql`1` }).from(schema.contractEscalationRise)
+            .where(eq(schema.contractEscalationRise.contractId, schema.serviceContract.id))),
+        ),
         isNotNull(schema.serviceContract.startsOn),
       ));
       for (const contract of contracts) {
@@ -432,17 +623,24 @@ async function noticeOne(
   tx: Database, ctx: ServiceContext, contract: ContractRow, shown: EscalationPreview, zone: string,
 ): Promise<"raised" | "refreshed" | "unchanged"> {
   const anniversary = shown.anniversary!;
-  const rate = contract.escalationRate!;
+  /** The notice keeps the contract's own rate, or nothing when only its rises say what rises; the key says the rest. */
+  const rate = baseOf(contract) ?? "0";
+  const key = shown.key!;
   const year = shown.contractYear!;
+  const riseRows = await risesOf(tx, contract.id);
+  const riseOf = pricer(contract, riseRows, shown.rises, year);
+  const body = taskBody(shown, year, anniversary);
   const prepare = async () => {
     await removeDrafts(tx, contract.id, anniversary);
     for (const card of await cardsAt(tx, contract.id, anniversary)) {
-      await writeRisen(tx, ctx.actor.organizationId, card, { anniversary, year, rate, draft: true });
+      await writeRisen(tx, ctx.actor.organizationId, card, {
+        anniversary, year, riseOf: (jobTypeId) => riseOf(card.id, jobTypeId).rate, draft: true,
+      });
     }
   };
 
   const [claimed] = await tx.insert(schema.contractEscalationNotice).values({
-    organizationId: ctx.actor.organizationId, contractId: contract.id, anniversary, rate,
+    organizationId: ctx.actor.organizationId, contractId: contract.id, anniversary, rate, key,
   }).onConflictDoNothing().returning();
 
   if (!claimed) {
@@ -450,13 +648,16 @@ async function noticeOne(
       eq(schema.contractEscalationNotice.contractId, contract.id),
       eq(schema.contractEscalationNotice.anniversary, anniversary),
     )).limit(1);
-    if (!notice || notice.appliedAt || sameRate(notice.rate, rate)) return "unchanged";
-    /** The rate on the contract changed since: the drafts are of a rise nobody now means. */
+    if (!notice || notice.appliedAt) return "unchanged";
+    /** A notice from before rises differed knows only the rate it was prepared at. */
+    const same = notice.key !== null ? notice.key === key : sameRate(notice.rate, rate);
+    if (same) return "unchanged";
+    /** The rate or a rise on the contract changed since: the drafts are of a rise nobody now means. */
     await prepare();
-    await tx.update(schema.contractEscalationNotice).set({ rate, preparedAt: new Date() })
+    await tx.update(schema.contractEscalationNotice).set({ rate, key, preparedAt: new Date() })
       .where(eq(schema.contractEscalationNotice.id, notice.id));
     if (notice.taskId) {
-      await tx.update(schema.task).set({ body: taskBody(rate, year, anniversary), updatedAt: new Date() })
+      await tx.update(schema.task).set({ body, updatedAt: new Date() })
         .where(eq(schema.task.id, notice.taskId));
     }
     return "refreshed";
@@ -466,7 +667,7 @@ async function noticeOne(
   const [task] = await tx.insert(schema.task).values({
     organizationId: ctx.actor.organizationId,
     title: `Year ${year} prices for ${contract.name} are due on ${anniversary}`,
-    body: taskBody(rate, year, anniversary),
+    body,
     priority: "normal",
     queue: "office",
     entityType: "service_contract",
@@ -481,10 +682,21 @@ async function noticeOne(
   return "raised";
 }
 
-/** What the task says. The rate as a percentage, the day, and that nothing happens until somebody acts. */
-function taskBody(rate: string, year: number, anniversary: string): string {
-  const percent = String(Number((Number(rate) * 100).toFixed(4)));
-  return `The contract says rates rise by ${percent}% on ${anniversary}. Year ${year}'s cards are prepared as a draft `
+/**
+ * What the task says. The rise as a percentage, or each rise that applies
+ * that year when they differ, the day, and that nothing happens until
+ * somebody acts.
+ */
+function taskBody(shown: EscalationPreview, year: number, anniversary: string): string {
+  const applying = shown.rises.filter((r) => r.contractYear === null || r.contractYear === year);
+  const base = shown.rate && !rates.escalationRateProblem(shown.rate) ? shown.rate : null;
+  const says = applying.length === 0
+    ? `rates rise by ${percent(base ?? "0")} on ${anniversary}`
+    : `rates rise on ${anniversary}: ${[
+      ...applying.map((r) => `${riseWords(r).toLowerCase()} by ${percent(r.rate)}`),
+      ...(base ? [`everything else by ${percent(base)}`] : []),
+    ].join(", ")}`;
+  return `The contract says ${says}. Year ${year}'s cards are prepared as a draft `
     + `on the contract. Look them over and press Apply year ${year} prices. Nothing changes until somebody does.`;
 }
 
@@ -511,8 +723,80 @@ export async function noticePass(
   return results;
 }
 
+/* ------------------------------------------------------- the rises themselves */
+
+export interface RiseInput {
+  contractYear?: number | null | undefined;
+  rateCardId?: string | null | undefined;
+  jobTypeId?: string | null | undefined;
+  rate: string;
+}
+
+/** The contract's rises, with the card and trade each names. */
+export function listRises(ctx: ServiceContext, input: { contractId: string }): Promise<RiseView[]> {
+  return guardedRead(ctx, "contract:read", async (tx) => {
+    const contract = await loadContract(tx, input.contractId);
+    return nameRises(tx, contract.id, await risesOf(tx, contract.id));
+  });
+}
+
+/**
+ * Replace the contract's rises with these.
+ *
+ * `contract:write`, because how a contract's prices rise is one of its terms,
+ * like its yearly rate. A card named has to be one of this contract's own,
+ * and not a draft; a trade has to be one of the company's job types. Nothing
+ * rises because of this: it changes what the preview shows, and the worker
+ * prepares the draft again if it had already, as a changed rate does.
+ */
+export function setRises(ctx: ServiceContext, input: { contractId: string; rises: RiseInput[] }): Promise<RiseView[]> {
+  return guardedWrite(ctx, "contract:write", async (tx) => {
+    const contract = await loadContract(tx, input.contractId);
+    const rows: rates.Rise[] = input.rises.map((r) => ({
+      contractYear: r.contractYear ?? null,
+      rateCardId: r.rateCardId ?? null,
+      jobTypeId: r.jobTypeId ?? null,
+      rate: r.rate.trim(),
+    }));
+    const problem = rates.risesProblem(rows);
+    if (problem) throw new ConflictError(problem);
+    const cardIds = [...new Set(rows.map((r) => r.rateCardId).filter((id): id is string => id !== null))];
+    if (cardIds.length > 0) {
+      const found = await tx.select({ id: schema.rateCard.id }).from(schema.rateCard).where(and(
+        eq(schema.rateCard.contractId, contract.id), inArray(schema.rateCard.id, cardIds),
+        isNull(schema.rateCard.deletedAt), isNull(schema.rateCard.draftFor),
+      ));
+      if (found.length !== cardIds.length) throw new ConflictError("A rise names a card that is not one of this contract's.");
+    }
+    const typeIds = [...new Set(rows.map((r) => r.jobTypeId).filter((id): id is string => id !== null))];
+    if (typeIds.length > 0) {
+      const found = await tx.select({ id: schema.jobType.id }).from(schema.jobType).where(inArray(schema.jobType.id, typeIds));
+      if (found.length !== typeIds.length) throw new ConflictError("A rise names a kind of work this company does not have.");
+    }
+    const before = await risesOf(tx, contract.id);
+    await tx.delete(schema.contractEscalationRise).where(eq(schema.contractEscalationRise.contractId, contract.id));
+    if (rows.length > 0) {
+      await tx.insert(schema.contractEscalationRise).values(rows.map((r) => ({
+        organizationId: ctx.actor.organizationId,
+        contractId: contract.id,
+        contractYear: r.contractYear,
+        rateCardId: r.rateCardId,
+        jobTypeId: r.jobTypeId,
+        rate: r.rate,
+      })));
+    }
+    const after = await risesOf(tx, contract.id);
+    await audit(tx, ctx, "contract.rises_set", "service_contract", contract.id,
+      { rises: before.map(asRise) }, { rises: after.map(asRise) });
+    return nameRises(tx, contract.id, after);
+  });
+}
+
 export const handlers = {
   previewContractEscalation: (ctx: ServiceContext, input: { contractId: string }) => preview(ctx, input),
-  applyContractEscalation: (ctx: ServiceContext, input: { contractId: string; anniversary: string; rate: string }) =>
-    apply(ctx, input),
+  applyContractEscalation: (
+    ctx: ServiceContext, input: { contractId: string; anniversary: string; rate?: string | undefined; key?: string | undefined },
+  ) => apply(ctx, input),
+  listContractRises: (ctx: ServiceContext, input: { contractId: string }) => listRises(ctx, input),
+  setContractRises: (ctx: ServiceContext, input: { contractId: string; rises: RiseInput[] }) => setRises(ctx, input),
 } as const;

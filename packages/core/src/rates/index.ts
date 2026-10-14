@@ -603,6 +603,92 @@ export function escalationRateProblem(rate: string | null | undefined): string |
   return null;
 }
 
+/**
+ * A RISE THAT DIFFERS BY YEAR, BY CARD OR BY TRADE.
+ *
+ * "Year two 3%, year three 4%", "the plumbing labour rate rises 5%", "the
+ * emergency card is fixed for the term": a contract's rises are a list, and
+ * each price on a card rises by the most specific one that applies to it. A
+ * trade is the job type an hourly rate is booked under, so a trade's rise
+ * applies to that trade's hourly rates and to nothing else; a card's rise to
+ * everything on that card; a year's to everything in that year. Most
+ * specific first:
+ *
+ *   1. the trade on this card, this year, then any year
+ *   2. the trade, this year, then any year
+ *   3. this card, this year, then any year
+ *   4. this year
+ *   5. the contract's own yearly rate
+ *
+ * and a price nothing applies to is kept. A rise of nothing is allowed here,
+ * where the contract's own rate refuses it, because "the emergency card does
+ * not rise" is a real thing a client signs.
+ */
+export interface Rise {
+  /** The year of the contract it opens: 2 for the first anniversary. Null for every year. */
+  contractYear: number | null;
+  /** The card it applies to, or null for every card. */
+  rateCardId: string | null;
+  /** The trade (job type) whose hourly rates it applies to, or null for every price. */
+  jobTypeId: string | null;
+  /** A fraction: 0.04 for four per cent. */
+  rate: string;
+}
+
+export interface RiseFound {
+  rate: string;
+  /** The rise it came from, or null for the contract's own yearly rate. */
+  rise: Rise | null;
+}
+
+/**
+ * The rate one price rises by in a year, or null when nothing applies and it
+ * is kept. `jobTypeId` is the hourly rate's trade, or null for a listed price,
+ * a trip charge, or an hourly rate for every kind of work.
+ */
+export function riseFor(input: {
+  rises: readonly Rise[]; baseRate: string | null; year: number; rateCardId: string; jobTypeId: string | null;
+}): RiseFound | null {
+  const { rises, year, rateCardId, jobTypeId } = input;
+  const thisYear = (r: Rise) => r.contractYear === year;
+  const anyYear = (r: Rise) => r.contractYear === null;
+  const tiers: Array<(r: Rise) => boolean> = [
+    (r) => jobTypeId !== null && r.jobTypeId === jobTypeId && r.rateCardId === rateCardId,
+    (r) => jobTypeId !== null && r.jobTypeId === jobTypeId && r.rateCardId === null,
+    (r) => r.jobTypeId === null && r.rateCardId === rateCardId,
+    (r) => r.jobTypeId === null && r.rateCardId === null,
+  ];
+  for (const tier of tiers) {
+    const found = rises.find((r) => tier(r) && thisYear(r)) ?? rises.find((r) => tier(r) && anyYear(r));
+    if (found) return { rate: found.rate, rise: found };
+  }
+  if (input.baseRate !== null && Number(input.baseRate) > 0) return { rate: input.baseRate, rise: null };
+  return null;
+}
+
+/** Whether anything at all could rise in a year: the contract's own rate, or a rise for that year or every year above nothing. */
+export function risesIn(rises: readonly Rise[], baseRate: string | null, year: number): boolean {
+  if (baseRate !== null && Number(baseRate) > 0) return true;
+  return rises.some((r) => (r.contractYear === null || r.contractYear === year) && Number(r.rate) > 0);
+}
+
+/** Whether a list of rises can be saved, in words, or null. */
+export function risesProblem(rises: readonly Rise[]): string | null {
+  const seen = new Set<string>();
+  for (const [i, rise] of rises.entries()) {
+    const row = `Row ${i + 1}`;
+    if (!/^\d+(\.\d+)?$/.test(rise.rate.trim())) return `${row}: "${rise.rate}" is not a rise. Write 0.04 for four per cent.`;
+    if (Number(rise.rate) >= 1) return `${row}: a rise of ${rise.rate} would more than double every price. Write 0.04 for four per cent.`;
+    if (rise.contractYear !== null && (!Number.isInteger(rise.contractYear) || rise.contractYear < 2)) {
+      return `${row}: the first rise opens year 2, on the first anniversary. Pick year 2 or later, or every year.`;
+    }
+    const key = `${rise.contractYear ?? "*"}|${rise.rateCardId ?? "*"}|${rise.jobTypeId ?? "*"}`;
+    if (seen.has(key)) return `${row} says the same year, card and trade as a row above it. Keep one.`;
+    seen.add(key);
+  }
+  return null;
+}
+
 /* ------------------------------------------------ labour beyond an allowance */
 
 /**

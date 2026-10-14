@@ -673,13 +673,14 @@ export interface ApplyChangeOrderScheduleDaysOutput {
 
 export interface ApplyContractEscalationInput {
   anniversary: string;
-  rate: string;
+  rate?: string;
+  key?: string;
 }
 
 export interface ApplyContractEscalationOutput {
   contractId: string;
   anniversary: string;
-  rate: string;
+  rate: string | null;
   cards: Array<{
     fromRateCardId: string;
     rateCardId: string;
@@ -6007,6 +6008,7 @@ export interface EndContractBillingOutput {
     amount: string;
     frequency: "monthly" | "quarterly" | "yearly";
     billingDay: number;
+    timing: "advance" | "arrears";
     startsOn: string;
     prorate: boolean;
     taxable: boolean;
@@ -7049,6 +7051,7 @@ export interface GetContractBillingOutput {
     amount: string;
     frequency: "monthly" | "quarterly" | "yearly";
     billingDay: number;
+    timing: "advance" | "arrears";
     startsOn: string;
     prorate: boolean;
     taxable: boolean;
@@ -13395,6 +13398,16 @@ export interface ListContinuingEducationOutput {
   }>;
 }
 
+export type ListContractRisesOutput = Array<{
+  id: string;
+  contractYear: number | null;
+  rateCardId: string | null;
+  rateCardName: string | null;
+  jobTypeId: string | null;
+  jobTypeName: string | null;
+  rate: string;
+}>;
+
 export interface ListContractsOutput {
   contracts: Array<{
     id: string;
@@ -18003,6 +18016,7 @@ export interface PauseContractBillingOutput {
     amount: string;
     frequency: "monthly" | "quarterly" | "yearly";
     billingDay: number;
+    timing: "advance" | "arrears";
     startsOn: string;
     prorate: boolean;
     taxable: boolean;
@@ -18441,12 +18455,16 @@ export interface PreviewContractEscalationOutput {
     lines: Array<{
       before: string;
       after: string;
+      rate: string;
+      because: string;
       id: string;
       description: string;
     }>;
     labourRates: Array<{
       before: string;
       after: string;
+      rate: string;
+      because: string;
       id: string;
       band: string;
       jobTypeName: string | null;
@@ -18454,6 +18472,8 @@ export interface PreviewContractEscalationOutput {
     tripCharge: {
       before: string;
       after: string;
+      rate: string;
+      because: string;
     } | null;
   }>;
   drafts?: Array<{
@@ -18461,6 +18481,16 @@ export interface PreviewContractEscalationOutput {
     name: string;
     preparedAt: string;
   }>;
+  rises: Array<{
+    id: string;
+    contractYear: number | null;
+    rateCardId: string | null;
+    rateCardName: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    rate: string;
+  }>;
+  key: string | null;
 }
 
 export interface PreviewJobBillingOutput {
@@ -21203,6 +21233,7 @@ export interface ResumeContractBillingOutput {
     amount: string;
     frequency: "monthly" | "quarterly" | "yearly";
     billingDay: number;
+    timing: "advance" | "arrears";
     startsOn: string;
     prorate: boolean;
     taxable: boolean;
@@ -22717,6 +22748,7 @@ export interface SetContractBillingInput {
   amount: string;
   frequency: "monthly" | "quarterly" | "yearly";
   billingDay: number;
+  timing?: "advance" | "arrears";
   startsOn?: string;
   prorate?: boolean;
   taxable?: boolean;
@@ -22730,6 +22762,7 @@ export interface SetContractBillingOutput {
     amount: string;
     frequency: "monthly" | "quarterly" | "yearly";
     billingDay: number;
+    timing: "advance" | "arrears";
     startsOn: string;
     prorate: boolean;
     taxable: boolean;
@@ -22765,6 +22798,25 @@ export interface SetContractBillingOutput {
   }>;
   standing: string | null;
 }
+
+export interface SetContractRisesInput {
+  rises: Array<{
+    contractYear?: number | null;
+    rateCardId?: string | null;
+    jobTypeId?: string | null;
+    rate: string;
+  }>;
+}
+
+export type SetContractRisesOutput = Array<{
+  id: string;
+  contractYear: number | null;
+  rateCardId: string | null;
+  rateCardName: string | null;
+  jobTypeId: string | null;
+  jobTypeName: string | null;
+  rate: string;
+}>;
 
 export interface SetCostingRateInput {
   component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
@@ -29484,6 +29536,10 @@ export interface ListContinuingEducationInput {
   technicianId: string;
 }
 
+export interface ListContractRisesInput {
+  contractId: string;
+}
+
 export interface ListContractsInput {
   customerId?: string;
 }
@@ -30988,6 +31044,10 @@ export interface SetContractBillingParams {
   contractId: string;
 }
 
+export interface SetContractRisesParams {
+  contractId: string;
+}
+
 export interface SetCrewMembersParams {
   id: string;
 }
@@ -32081,6 +32141,7 @@ export interface OperationTypes {
   listConflicts: { input: ListConflictsInput; output: ListConflictsOutput };
   listConnectors: { input: ListConnectorsInput; output: ListConnectorsOutput };
   listContinuingEducation: { input: ListContinuingEducationInput; output: ListContinuingEducationOutput };
+  listContractRises: { input: ListContractRisesInput; output: ListContractRisesOutput };
   listContracts: { input: ListContractsInput; output: ListContractsOutput };
   listConversations: { input: ListConversationsInput; output: ListConversationsOutput };
   listConversionAdjustments: { input: ListConversionAdjustmentsInput; output: ListConversionAdjustmentsOutput };
@@ -32522,6 +32583,7 @@ export interface OperationTypes {
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
   setContractBilling: { input: SetContractBillingParams & SetContractBillingInput; output: SetContractBillingOutput };
+  setContractRises: { input: SetContractRisesParams & SetContractRisesInput; output: SetContractRisesOutput };
   setCostingRate: { input: SetCostingRateInput; output: SetCostingRateOutput };
   setCrewMembers: { input: SetCrewMembersParams & SetCrewMembersInput; output: SetCrewMembersOutput };
   setCustomerAdData: { input: SetCustomerAdDataParams & SetCustomerAdDataInput; output: SetCustomerAdDataOutput };
@@ -33225,6 +33287,7 @@ export const OPERATIONS = {
   listConflicts: { method: "GET", path: "/v1/field/conflicts", pathParams: [], queryParams: ["cursor","limit","includeResolved"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["visit:read"] },
   listConnectors: { method: "GET", path: "/v1/connectors", pathParams: [], queryParams: ["capability"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listContinuingEducation: { method: "GET", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listContractRises: { method: "GET", path: "/v1/contracts/{contractId}/escalation/rises", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listContracts: { method: "GET", path: "/v1/contracts", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listConversations: { method: "GET", path: "/v1/conversations", pathParams: [], queryParams: ["limit","cursor","status","customerId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["message:read"] },
   listConversionAdjustments: { method: "GET", path: "/v1/marketing/conversion-adjustments", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -33666,6 +33729,7 @@ export const OPERATIONS = {
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
   setContractBilling: { method: "PUT", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  setContractRises: { method: "PUT", path: "/v1/contracts/{contractId}/escalation/rises", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   setCostingRate: { method: "POST", path: "/v1/costing/rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setCrewMembers: { method: "PUT", path: "/v1/crews/{id}/members", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   setCustomerAdData: { method: "PUT", path: "/v1/customers/{id}/ad-data", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
@@ -38310,6 +38374,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The contract's rises that differ by year, by card or by trade.
+   *
+   * GET /v1/contracts/{contractId}/escalation/rises. Needs contract:read.
+   */
+  listContractRises(input: ListContractRisesInput, options?: CallOptions): Promise<ListContractRisesOutput> {
+    return this.call("listContractRises", input, options);
+  }
+
+  /**
    * Commercial contracts.
    *
    * GET /v1/contracts. Needs contract:read.
@@ -42276,6 +42349,15 @@ export abstract class GeneratedOperations {
    */
   setContractBilling(input: SetContractBillingParams & SetContractBillingInput, options?: CallOptions): Promise<SetContractBillingOutput> {
     return this.call("setContractBilling", input, options);
+  }
+
+  /**
+   * Say how the contract's rises differ by year, by card or by trade.
+   *
+   * PUT /v1/contracts/{contractId}/escalation/rises. Needs contract:write.
+   */
+  setContractRises(input: SetContractRisesParams & SetContractRisesInput, options?: CallOptions): Promise<SetContractRisesOutput> {
+    return this.call("setContractRises", input, options);
   }
 
   /**

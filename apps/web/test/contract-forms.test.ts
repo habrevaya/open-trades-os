@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cardLinesFromText, cardTermsFromForm, fractionOf, minutesOf, slaTermsFromForm } from "@/lib/contract-forms";
+import { cardLinesFromText, cardTermsFromForm, fractionOf, minutesOf, slaTermsFromForm, risesFromForm } from "@/lib/contract-forms";
 
 /**
  * A rate card is typed by somebody reading a client's schedule: per cents as
@@ -56,5 +56,21 @@ describe("a pasted price list with commas in it", () => {
       .toMatchObject({ externalCode: "MOT-COND", description: "Condenser fan motor, supplied and fitted", price: "420.00", allowedMinutes: null });
     expect(cardLinesFromText("AH, After hours call, nights, 210.00, 60", new Map())[0])
       .toMatchObject({ description: "After hours call, nights", price: "210.00", allowedMinutes: 60 });
+  });
+});
+
+describe("the rises that differ by year, card or trade", () => {
+  it("reads a per cent as a fraction, a blank as every one, and skips a row with no rise", () => {
+    const form: Record<string, string> = {
+      riseYear0: "3", riseCard0: "", riseTrade0: "", riseRate0: "4",
+      riseYear1: "", riseCard1: "", riseTrade1: "trade-1", riseRate1: "5.5%",
+      riseYear2: "", riseCard2: "card-1", riseTrade2: "", riseRate2: "0",
+      riseYear3: "4", riseCard3: "card-1", riseTrade3: "", riseRate3: "",
+    };
+    expect(risesFromForm((name) => form[name] ?? null)).toEqual([
+      { contractYear: 3, rateCardId: null, jobTypeId: null, rate: "0.0400" },
+      { contractYear: null, rateCardId: null, jobTypeId: "trade-1", rate: "0.0550" },
+      { contractYear: null, rateCardId: "card-1", jobTypeId: null, rate: "0.0000" },
+    ]);
   });
 });
