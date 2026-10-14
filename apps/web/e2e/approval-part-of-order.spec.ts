@@ -27,7 +27,7 @@ test("Purchasing: a step that counts only the refrigerant on an order, and the l
   const gas = `R-410A cylinder ${run}`;
   const motorCode = `MTR${run.slice(-6).toUpperCase()}`;
   const motor = `Fan motor ${run}`;
-  const vendor = `Johnstone ${run}`;
+  const vendor = `Gas Supply ${run}`;
 
   await owner.goto("/pricebook/categories");
   const add = owner.getByRole("region", { name: "Add a category" });
