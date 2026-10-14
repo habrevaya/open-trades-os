@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, max, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { geo, recurrence as rc, time } from "@opentradesos/core";
+import { geo, holidays as holidayRules, recurrence as rc, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
@@ -9,6 +9,8 @@ import { nextNumber } from "./jobs";
 import { crews as crewsInView, dispatchPeople, routes as routesInView, routeWithin } from "./people-scope";
 import { shopOfCrew, shopOfPeople } from "./visit-shop";
 import { connectedRouter, providerLabel, travelMatrix } from "./travel-times";
+import { loadWeek } from "./business-hours";
+import { loadHolidays } from "./holidays";
 
 /**
  * ROUTES: THE THIRD CAPACITY MODEL
@@ -617,7 +619,8 @@ export async function materialise(
 
 /* ---------------------------------------------------------------- density */
 
-export type DayBasis = "overtime_policy" | "business_hours" | "unknown";
+/** `closed` when the date asked about is one the route's branch (or the company) is shut. */
+export type DayBasis = "overtime_policy" | "business_hours" | "closed" | "unknown";
 
 /** Where the drive time in a density figure came from. */
 export type TravelSource = "declared" | "road" | "none";
@@ -648,6 +651,16 @@ export interface Density {
   /** The minute at which this day starts costing overtime, and where that came from. */
   overtimeAfterMinutes: number | null;
   dayBasis: DayBasis;
+  /** The date asked about, or null for the weekday's template. */
+  on: string | null;
+  /** The holiday on that date, by name, when the list says something about it. */
+  holiday: string | null;
+  /** Why nothing fits that date, in a sentence, when the route's branch is shut then. Null otherwise. */
+  closedOn: string | null;
+  /** How many minutes the route's branch is open that date or weekday, or null when nothing says. */
+  openMinutes: number | null;
+  /** Stops left out because their own cadence does not fall on the date asked about. Zero for the template. */
+  notDueCount: number;
   minutesOverThreshold: number | null;
   /**
    * TRUE, FALSE OR NULL, and null is a real answer rather than a missing one.
@@ -695,19 +708,41 @@ export interface Density {
  * `addingStopOfMinutes` answers the question as it is actually asked: not
  * "how long is my route" but "what happens if I put this customer on it".
  *
+ * ASKED FOR A DATE (`on`), it is that day rather than the weekday's
+ * template: the stops whose own cadence falls on it (the rule `materialise`
+ * keeps), and the hours the route's branch keeps that date, so a holiday or
+ * a weekday the branch keeps closed changes the answer. A closed date has no
+ * working day to fit into, and says so rather than measuring against the
+ * overtime threshold of a day nobody is working. A short day with no
+ * overtime policy is measured against its own hours; with a policy, the
+ * policy still says when overtime starts, and the short day is said beside
+ * it. A date on another weekday than the route's is refused, as making it
+ * would be. The route's branch is whoever runs it: the crew's, or the
+ * technician's (M02's weeks and holidays).
+ *
  * The road network is asked outside any transaction, as every drive time
  * is, so a routing server taking its time holds no connection.
  */
 export async function density(
   ctx: ServiceContext,
-  input: { id: string; addingStopOfMinutes?: number | undefined },
+  input: { id: string; addingStopOfMinutes?: number | undefined; on?: string | undefined },
 ): Promise<Density> {
+  const on = input.on ?? null;
   const loaded = await guardedRead(ctx, "job:read", async (tx) => {
     const route = await routeWithin(tx, ctx, input.id);
-    const active = (await listStops(tx, route.id)).filter((s) => s.active);
-    const day = await workingDay(tx, ctx.actor.organizationId, route.dayOfWeek);
+    if (on !== null && route.dayOfWeek !== null && route.dayOfWeek !== weekdayOf(on)) {
+      throw new ConflictError(
+        `${route.name} runs on ${DAY_NAMES[route.dayOfWeek] ?? "an unset weekday"} and ${on} is a ${DAY_NAMES[weekdayOf(on)]}.`,
+      );
+    }
+    const listed = (await listStops(tx, route.id)).filter((s) => s.active);
+    /** On a date, the stops whose own cadence falls on it, by the rule `materialise` keeps. */
+    const due = on === null ? listed : listed.filter((s) =>
+      !(s.intervalDays && s.lastServicedOn && on < rc.addDays(s.lastServicedOn, s.intervalDays)));
+    const branchId = await branchOfRoute(tx, route);
+    const day = await workingDay(tx, ctx.actor.organizationId, route.dayOfWeek, branchId, on);
     const start = await servicerStart(tx, ctx.actor.organizationId, route);
-    return { route, active, day, start };
+    return { route, active: due, notDueCount: listed.length - due.length, day, start };
   });
   const { route, active } = loaded;
 
@@ -743,7 +778,7 @@ export async function density(
   }
   const totalMinutes = serviceMinutes + (travelMinutes ?? 0);
 
-  const { minutes: overtimeAfterMinutes, basis: dayBasis } = loaded.day;
+  const { minutes: overtimeAfterMinutes, basis: dayBasis, closedOn, holiday, openMinutes } = loaded.day;
 
   const minutesOverThreshold = overtimeAfterMinutes === null
     ? null
@@ -777,11 +812,16 @@ export async function density(
     travelNote,
     overtimeAfterMinutes,
     dayBasis,
+    on,
+    holiday,
+    closedOn,
+    openMinutes,
+    notDueCount: loaded.notDueCount,
     minutesOverThreshold,
     runsIntoOvertime,
     explanation: explain({
       stopCount, totalMinutes, travelComplete, travelSource,
-      overtimeAfterMinutes, dayBasis, runsIntoOvertime, extra,
+      overtimeAfterMinutes, dayBasis, runsIntoOvertime, extra, on, holiday, closedOn, openMinutes,
     }),
   };
 }
@@ -861,10 +901,29 @@ function explain(d: {
   stopCount: number; totalMinutes: number; travelComplete: boolean; travelSource: TravelSource;
   overtimeAfterMinutes: number | null; dayBasis: DayBasis;
   runsIntoOvertime: boolean | null; extra: number;
+  on: string | null; holiday: string | null; closedOn: string | null; openMinutes: number | null;
 }): string {
-  const head = d.extra > 0
-    ? `With the extra stop, ${d.stopCount} stops come to ${d.totalMinutes} minutes`
+  const when = d.on ? `On ${d.on}${d.holiday ? ` (${d.holiday})` : ""}, ` : "";
+  const counted = d.extra > 0
+    ? `with the extra stop, ${d.stopCount} stops come to ${d.totalMinutes} minutes`
     : `${d.stopCount} stops come to ${d.totalMinutes} minutes`;
+  const head = when ? `${when}${counted}` : `${counted.charAt(0).toUpperCase()}${counted.slice(1)}`;
+  if (d.closedOn) return `${d.closedOn} ${head.charAt(0).toUpperCase()}${head.slice(1)}, with no working day to fit into.`;
+  /**
+   * A short day said beside an overtime policy: the policy still says when
+   * overtime starts, and the day's own hours are what the office keeps.
+   */
+  const short = d.on && d.holiday && d.openMinutes !== null && d.dayBasis === "overtime_policy"
+    ? ` You keep ${d.openMinutes} minutes of hours that day${d.totalMinutes > d.openMinutes ? `, which this day runs ${d.totalMinutes - d.openMinutes} minutes past` : ""}.`
+    : "";
+  return explainAgainst(d, head) + short;
+}
+
+function explainAgainst(d: {
+  stopCount: number; totalMinutes: number; travelComplete: boolean; travelSource: TravelSource;
+  overtimeAfterMinutes: number | null; dayBasis: DayBasis;
+  runsIntoOvertime: boolean | null; extra: number; on: string | null;
+}, head: string): string {
   const floor = d.travelComplete
     ? ""
     : d.travelSource === "none"
@@ -873,11 +932,11 @@ function explain(d: {
 
   if (d.overtimeAfterMinutes === null) {
     return `${head}${floor}. Whether that runs into overtime cannot be said: this company has `
-      + "set neither a daily overtime threshold nor business hours for that weekday.";
+      + `set neither a daily overtime threshold nor business hours for ${d.on ? "that day" : "that weekday"}.`;
   }
   const source = d.dayBasis === "overtime_policy"
     ? "the overtime policy's daily threshold"
-    : "the declared business hours for that weekday";
+    : d.on ? "the hours you keep that day" : "the declared business hours for that weekday";
   if (d.runsIntoOvertime === true) {
     const over = d.totalMinutes - d.overtimeAfterMinutes;
     return `${head}${floor}, which is ${over} minutes past ${d.overtimeAfterMinutes}, `
@@ -906,8 +965,33 @@ function explain(d: {
  * figure with "nobody has said when overtime starts" attached.
  */
 async function workingDay(
-  tx: Database, organizationId: string, dayOfWeek: number | null,
-): Promise<{ minutes: number | null; basis: DayBasis }> {
+  tx: Database, organizationId: string, dayOfWeek: number | null, branchId: string | null, on: string | null,
+): Promise<{
+  minutes: number | null; basis: DayBasis; closedOn: string | null; holiday: string | null; openMinutes: number | null;
+}> {
+  /**
+   * The hours the route's branch keeps on the date, or on the weekday: its
+   * own week where it keeps one, the company's otherwise, and on a date its
+   * holiday list over both (M02).
+   */
+  const { week } = await loadWeek(tx, organizationId, branchId);
+  const kept = on !== null
+    ? holidayRules.hoursOnDate(on, week, await loadHolidays(tx, organizationId, branchId))
+    : dayOfWeek === null || week === null
+      ? { holiday: null, hours: null, known: false }
+      : { holiday: null, hours: week[dayOfWeek] ?? null, known: true };
+  const openMinutes = kept.hours ? kept.hours.closeMinute - kept.hours.openMinute : null;
+  const holiday = kept.holiday?.name ?? null;
+
+  if (on !== null && kept.known && kept.hours === null) {
+    return {
+      minutes: null, basis: "closed", holiday, openMinutes: null,
+      closedOn: kept.holiday
+        ? `You are closed on ${on} for ${kept.holiday.name}.`
+        : `You are closed on ${DAY_NAMES[weekdayOf(on)]}s, so ${on} is not a working day.`,
+    };
+  }
+
   const [policy] = await tx.select({
     dailyThresholdMinutes: schema.overtimePolicy.dailyThresholdMinutes,
   }).from(schema.overtimePolicy)
@@ -918,41 +1002,32 @@ async function workingDay(
     )).limit(1);
 
   if (policy?.dailyThresholdMinutes) {
-    return { minutes: policy.dailyThresholdMinutes, basis: "overtime_policy" };
+    return { minutes: policy.dailyThresholdMinutes, basis: "overtime_policy", closedOn: null, holiday, openMinutes };
   }
-
-  if (dayOfWeek === null) return { minutes: null, basis: "unknown" };
-
-  const [hours] = await tx.select({
-    opensAt: schema.businessHours.opensAt,
-    closesAt: schema.businessHours.closesAt,
-    closed: schema.businessHours.closed,
-  }).from(schema.businessHours)
-    .where(and(
-      eq(schema.businessHours.organizationId, organizationId),
-      eq(schema.businessHours.dayOfWeek, dayOfWeek),
-    )).limit(1);
-
-  if (!hours || hours.closed || !hours.opensAt || !hours.closesAt) {
-    return { minutes: null, basis: "unknown" };
+  if (openMinutes === null || openMinutes <= 0) {
+    return { minutes: null, basis: "unknown", closedOn: null, holiday, openMinutes: null };
   }
-
-  const opens = minutesOfClock(hours.opensAt);
-  const closes = minutesOfClock(hours.closesAt);
-  if (opens === null || closes === null || closes <= opens) {
-    return { minutes: null, basis: "unknown" };
-  }
-  return { minutes: closes - opens, basis: "business_hours" };
+  return { minutes: openMinutes, basis: "business_hours", closedOn: null, holiday, openMinutes };
 }
 
-/** "08:30:00" to 510. Null on anything that is not a clock time. */
-function minutesOfClock(value: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})/.exec(value);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (hours > 23 || minutes > 59) return null;
-  return hours * 60 + minutes;
+/**
+ * The branch whose hours a route keeps: its crew's, or the technician's
+ * (their membership's), the same answer `people-scope.ts` gives for who runs
+ * it. Null for neither, which reads the company's.
+ */
+async function branchOfRoute(tx: Database, route: typeof schema.route.$inferSelect): Promise<string | null> {
+  if (route.crewId) {
+    const [crew] = await tx.select({ branchId: schema.crew.businessUnitId }).from(schema.crew)
+      .where(eq(schema.crew.id, route.crewId)).limit(1);
+    return crew?.branchId ?? null;
+  }
+  if (route.technicianId) {
+    const [person] = await tx.select({ branchId: schema.membership.businessUnitId }).from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(eq(schema.technician.id, route.technicianId)).limit(1);
+    return person?.branchId ?? null;
+  }
+  return null;
 }
 
 /* ----------------------------------------------------------------- loading */
@@ -1063,6 +1138,6 @@ export const handlers = {
     Promise<MaterialiseResult> => materialise(ctx, input),
 
   getServiceRouteDensity: (ctx: ServiceContext, input: {
-    id: string; addingStopOfMinutes?: number | undefined;
+    id: string; addingStopOfMinutes?: number | undefined; on?: string | undefined;
   }): Promise<Density> => density(ctx, input),
 } as const;

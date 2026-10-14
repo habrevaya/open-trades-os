@@ -11281,7 +11281,12 @@ export interface GetServiceRouteDensityOutput {
   travelComplete: boolean;
   travelNote: string;
   overtimeAfterMinutes: number | null;
-  dayBasis: "overtime_policy" | "business_hours" | "unknown";
+  dayBasis: "overtime_policy" | "business_hours" | "closed" | "unknown";
+  on: string | null;
+  holiday: string | null;
+  closedOn: string | null;
+  openMinutes: number | null;
+  notDueCount: number;
   minutesOverThreshold: number | null;
   runsIntoOvertime: boolean | null;
   explanation: string;
@@ -28791,6 +28796,7 @@ export interface GetServiceReportInput {
 export interface GetServiceRouteDensityInput {
   id: string;
   addingStopOfMinutes?: number;
+  on?: string;
 }
 
 export type GetSetupInput = Record<string, never>;
@@ -32713,7 +32719,7 @@ export const OPERATIONS = {
   getSandbox: { method: "GET", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSandboxCopyPlan: { method: "GET", path: "/v1/sandbox/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   getServiceReport: { method: "GET", path: "/v1/service-reports/{id}", pathParams: ["id"], queryParams: ["customerFacing"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
-  getServiceRouteDensity: { method: "GET", path: "/v1/service-routes/{id}/density", pathParams: ["id"], queryParams: ["addingStopOfMinutes"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getServiceRouteDensity: { method: "GET", path: "/v1/service-routes/{id}/density", pathParams: ["id"], queryParams: ["addingStopOfMinutes","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getSetup: { method: "GET", path: "/v1/setup", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSkillStanding: { method: "POST", path: "/v1/people/skill-standing", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getSoftphone: { method: "GET", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },

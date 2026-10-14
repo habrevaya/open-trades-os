@@ -458,11 +458,13 @@ calendar (Easter, a lunar new year) is entered for each year. A branch's own
 week is the same hours every week of the year: a branch open longer in summer
 changes its week when summer comes. The assistants, the reviews clock and
 recurring tasks know no branch, so they read the company's week and list alone;
-the phones know a number's branch only when somebody has set it on the number. The route density figures (M09) are asked of a weekday's template,
-not a date, so no holiday list applies to them, the company's or a branch's.
-Task escalation counts clock hours unless a rule is set to count working hours
-(M34), in which case it reads this week and the holiday list of the task's job's
-branch.
+the phones know a number's branch only when somebody has set it on the number.
+A route's density (M09) reads the holiday list only when it is asked for a
+date; the weekday's template reads the week alone. Making a day of a route on a
+date its branch is closed is not refused: the fit for that date says it is
+closed, and the office decides. Task escalation counts clock hours unless a rule
+is set to count working hours (M34), in which case it reads the week and the
+holiday list of the task's job's branch.
 
 The after hours rate is offered on an invoice or an estimate for a job, never on one
 with no job, and never on an invoice made from an option the customer signed for. Whether a visit was after hours is read from the window it was booked

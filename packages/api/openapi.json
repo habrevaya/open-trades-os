@@ -119547,7 +119547,7 @@
       "get": {
         "operationId": "getServiceRouteDensity",
         "summary": "Will this day fit",
-        "description": "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.\n\nRequires a session holding: job:read.",
+        "description": "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours (the week of the route's branch, whoever runs it, or the company's), and with neither the answer is null rather than a guess. Asked for a date (`on`), it is that day: only the stops whose own cadence falls on it (`notDueCount` says how many were left out), and the hours kept that date, so a holiday or a weekday the branch keeps closed changes it. A closed date answers `dayBasis: closed` with `closedOn` saying why and no overtime verdict; a short day is measured against its own hours when there is no overtime policy, and said beside the policy when there is one. A date on another weekday than the route's is refused.\n\nRequires a session holding: job:read.",
         "tags": [
           "M09"
         ],
@@ -119569,6 +119569,15 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 1440
+            }
+          },
+          {
+            "name": "on",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
             }
           }
         ],
@@ -197309,8 +197318,36 @@
             "enum": [
               "overtime_policy",
               "business_hours",
+              "closed",
               "unknown"
             ]
+          },
+          "on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "holiday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "openMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "notDueCount": {
+            "type": "integer"
           },
           "minutesOverThreshold": {
             "type": [
@@ -197344,6 +197381,11 @@
           "travelNote",
           "overtimeAfterMinutes",
           "dayBasis",
+          "on",
+          "holiday",
+          "closedOn",
+          "openMinutes",
+          "notDueCount",
           "minutesOverThreshold",
           "runsIntoOvertime",
           "explanation"

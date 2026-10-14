@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { serviceRoutes as routes, crews, people, properties, inTenant } from "@opentradesos/api/services";
+import { serviceRoutes as routes, crews, people, properties, inTenant, ConflictError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
@@ -56,6 +56,9 @@ export default async function RoutesPage(
     return Array.isArray(value) ? value[0] : value;
   };
   const opened = one("route");
+  /** A date to ask the fit for, rather than the weekday's template. */
+  const asked = one("on");
+  const on = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : undefined;
 
   const all = await routes.list(ctx);
   const writes = can(user.actor, "job:write");
@@ -66,10 +69,22 @@ export default async function RoutesPage(
    * per route to draw.
    */
   const route = opened ? all.find((row) => row.id === opened) ?? null : null;
+  /** A date on another weekday than the route's is refused in words, and the template is shown with the refusal. */
+  const refused: { message: string | null } = { message: null };
+  const fitFor = async (id: string) => {
+    if (!on) return routes.density(ctx, { id });
+    try {
+      return await routes.density(ctx, { id, on });
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error;
+      refused.message = error.message;
+      return routes.density(ctx, { id });
+    }
+  };
   const [stops, density] = route
     ? await Promise.all([
         routes.stops(ctx, { id: route.id }),
-        routes.density(ctx, { id: route.id }),
+        fitFor(route.id),
       ])
     : [null, null];
 
@@ -159,6 +174,23 @@ export default async function RoutesPage(
       {route && stops && density ? (
         <section className="mt-10">
           <h2 className="text-base font-semibold">{route.name}</h2>
+          {/*
+            A date rather than the weekday: a holiday, or a day the branch keeps
+            closed, changes the answer, and so do stops not due that day.
+          */}
+          <form method="get" action="/schedule/routes" className="mt-2 flex flex-wrap items-end gap-2">
+            <input type="hidden" name="route" value={route.id} />
+            <label className="text-xs text-ink-500">Check a date
+              <input name="on" type="date" defaultValue={on ?? ""} className={`mt-1 block ${input}`} />
+            </label>
+            <button type="submit" className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
+              Check this date
+            </button>
+            {on ? (
+              <a href={`/schedule/routes?route=${route.id}`} className="text-sm underline underline-offset-4">Back to the usual week</a>
+            ) : null}
+          </form>
+          {refused.message ? <p role="alert" className="mt-2 text-sm text-red-600">{refused.message}</p> : null}
           <Fit density={density} />
           <Stops
             stops={stops}

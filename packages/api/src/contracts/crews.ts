@@ -443,13 +443,15 @@ export const getServiceRouteDensity = defineRoute({
   path: "/v1/service-routes/{id}/density",
   summary: "Will this day fit",
   description:
-    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.",
+    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours (the week of the route's branch, whoever runs it, or the company's), and with neither the answer is null rather than a guess. Asked for a date (`on`), it is that day: only the stops whose own cadence falls on it (`notDueCount` says how many were left out), and the hours kept that date, so a holiday or a weekday the branch keeps closed changes it. A closed date answers `dayBasis: closed` with `closedOn` saying why and no overtime verdict; a short day is measured against its own hours when there is no overtime policy, and said beside the policy when there is one. A date on another weekday than the route's is refused.",
   module: "M09",
   permissions: ["job:read"],
   input: z.object({
     id: Uuid,
     /** Asks the question as it is really asked: what if I add this customer. */
     addingStopOfMinutes: z.number().int().min(0).max(1440).optional(),
+    /** A date to ask about rather than the weekday's template, `YYYY-MM-DD`. */
+    on: z.string().date().optional(),
   }),
   output: z.object({
     routeId: Uuid,
@@ -471,7 +473,17 @@ export const getServiceRouteDensity = defineRoute({
     /** Where the drive came from and what it leaves out, in a sentence. */
     travelNote: z.string(),
     overtimeAfterMinutes: z.number().int().nullable(),
-    dayBasis: z.enum(["overtime_policy", "business_hours", "unknown"]),
+    dayBasis: z.enum(["overtime_policy", "business_hours", "closed", "unknown"]),
+    /** The date asked about, or null for the template. */
+    on: z.string().nullable(),
+    /** The holiday on that date, by name. */
+    holiday: z.string().nullable(),
+    /** Why the date has no working day, when the route's branch is shut then. */
+    closedOn: z.string().nullable(),
+    /** Minutes the route's branch is open that date or weekday, or null when nothing says. */
+    openMinutes: z.number().int().nullable(),
+    /** Stops left out because their own cadence does not fall on the date. */
+    notDueCount: z.number().int(),
     minutesOverThreshold: z.number().int().nullable(),
     /** Null is a real answer: it means nobody has declared enough to say. */
     runsIntoOvertime: z.boolean().nullable(),

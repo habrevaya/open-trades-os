@@ -181,6 +181,16 @@ describe("service routes", () => {
     expect(unknown).not.toContain("Fits the working day");
   });
 
+  it("says a date the branch is shut has no working day, and how many stops are not due that day", () => {
+    const html = renderToStaticMarkup(<Fit density={density({
+      on: "2027-01-05", closedOn: "You are closed on 2027-01-05 for Founders Day.",
+      runsIntoOvertime: null, overtimeAfterMinutes: null, notDueCount: 2,
+    })} />);
+    expect(html).toContain("2027-01-05: Closed that day");
+    expect(html).not.toContain("Cannot tell from what has been declared");
+    expect(html).toContain("2 stops are not due that day, so left out.");
+  });
+
   it("calls an undeclared drive a floor rather than treating it as zero", () => {
     /** Treating the drive as zero tells somebody a fifteen stop day fits. */
     const html = renderToStaticMarkup(<Fit density={density({

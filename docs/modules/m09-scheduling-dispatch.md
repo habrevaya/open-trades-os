@@ -303,6 +303,21 @@ answer, a stop not on the map, or the extra stop being asked about (which
 has no address yet) leaves the total a floor, said so, and never filled in
 with a straight line guess.
 
+**A route's density can be asked for a date.** "Check a date" beside the fit
+on `/schedule/routes` (`on` on `GET /v1/service-routes/{id}/density`) asks
+about one day rather than the weekday's template. It counts only the stops
+whose own cadence falls on that date, the rule making a day uses, and says
+how many it left out; and it reads the hours kept that date by the branch of
+whoever runs the route (the crew's, or the technician's), the company's week
+where that branch keeps none, with its holiday list over it (M02). A date
+that branch is shut, a holiday or a weekday its week keeps closed, has no
+working day to fit into: the answer says why (`dayBasis: closed`,
+`closedOn`) and gives no overtime verdict. A short day with no overtime
+policy is measured against its own hours; with a policy, the policy still
+says when overtime starts and the short day's hours are said beside it. A
+date on another weekday than the route's is refused in words, as making a
+day of it is. The weekday's template reads the same branch's week.
+
 **A driver's day with containers on it is ordered by what is on the
 truck.** "Optimise route" on a roll off driver's column knows that a drop
 needs an empty container on the truck, a collection needs room on it, and a
@@ -425,7 +440,7 @@ the day fits. `POST /v1/service-routes` creates one,
 `POST /v1/service-routes/{id}/order` reorders,
 `GET /v1/service-routes/{id}/density` answers whether it fits (by the
 route's declared drive time, or by road when a routing service is connected,
-and says which), and
+and says which; for the weekday, or for a date with `on`), and
 `POST /v1/service-routes/{id}/materialise` turns the template into real visits
 for a date.
 
@@ -541,7 +556,12 @@ manager.
 ## What is not built
 
 No live traffic: drive times by road are the roads as the provider knows them,
-and a routing answer is kept for the provider's whole cache period. A route
+and a routing answer is kept for the provider's whole cache period. A route's
+fit for a date counts the route's stops as the template has them that date: it
+does not read the visits already made from it (a stop moved, added or removed
+on the board that day is not in the figure), nor the servicer's own leave or
+hours that day. Making a day of a route on a date its branch is closed is not
+refused; its fit for that date says the day is closed. A route
 template's density by road counts the drive out from where the day starts
 and back, while a declared drive time counts only the hops between stops;
 the note beside each figure says which. Rebalancing several days moves a
