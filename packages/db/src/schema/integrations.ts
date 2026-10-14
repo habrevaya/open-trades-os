@@ -347,6 +347,50 @@ export const accountingEntityLink = pgTable("accounting_entity_link", {
 }));
 
 /**
+ * What a sync pass did with one document: `sent` (it went, and is in the
+ * books now), `found` (it was already there, from a pass that lost the
+ * answer, and is linked now) or `refused` (by the books, or here before
+ * sending because an account is not mapped or the period is closed).
+ */
+export const syncRunOutcome = pgEnum("sync_run_outcome", ["sent", "found", "refused"]);
+
+/**
+ * WHAT ONE SYNC PASS SENT AND REFUSED.
+ *
+ * `sync_run` counts reads and writes, which tells an operator that a pass
+ * happened and nothing about what it did: "the books are missing invoice
+ * 1042" was a question only a database client could answer. So each pass
+ * writes a row here for each document it sent, found already there, or
+ * refused, with the reason, in the same transaction that records the outcome
+ * on the document's link.
+ *
+ * A document the pass passed over because it was already in the books is
+ * not written: that is every document on every pass after the first, and a
+ * list of them would bury the few a person needs to see. One that has
+ * stopped being offered is not written either, because the pass did nothing
+ * with it; it is on the problems list.
+ *
+ * The kind, our id and the key are copied rather than read through the
+ * link, so the history still says what was sent after the link changes.
+ */
+export const syncRunDocument = pgTable("sync_run_document", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  runId: uuid("run_id").notNull().references(() => syncRun.id, { onDelete: "cascade" }),
+  linkId: uuid("link_id").references(() => accountingEntityLink.id, { onDelete: "set null" }),
+  kind: accountingEntityKind("kind").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  outcome: syncRunOutcome("outcome").notNull(),
+  /** Why it was refused, in the words the books or this product gave. Null when it went. */
+  message: text("message"),
+  ...timestamps,
+}, (t) => ({
+  runIdx: index("sync_run_document_run_idx").on(t.runId, t.createdAt),
+  orgIdx: index("sync_run_document_org_idx").on(t.organizationId),
+}));
+
+/**
  * OUR ACCOUNT CODE, AND WHAT IT IS CALLED OVER THERE.
  *
  * `packages/core/src/ledger` has said since it was written that account codes
@@ -472,7 +516,14 @@ export const accountingPeriod = pgTable("accounting_period", {
   reopenedReason: text("reopened_reason"),
   ...timestamps,
 }, (t) => ({
-  periodIdx: uniqueIndex("accounting_period_end_idx").on(t.organizationId, t.periodEnd),
+  /**
+   * One CLOSE in force per end date. Partial, so a period that was closed and
+   * reopened can be closed again: the reopened row stays as the record of
+   * what happened, and the new close is a row of its own. A plain index made
+   * a month reopened by mistake impossible to close again.
+   */
+  periodIdx: uniqueIndex("accounting_period_end_idx").on(t.organizationId, t.periodEnd)
+    .where(sql`${t.reopenedAt} is null`),
 }));
 
 /**

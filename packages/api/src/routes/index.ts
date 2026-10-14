@@ -447,6 +447,7 @@ export const handlers = {
   setAccountMapping: accounting.handlers.setAccountMapping,
   runAccountingSync: accounting.handlers.runAccountingSync,
   listAccountingRuns: accounting.handlers.listAccountingRuns,
+  getAccountingRun: accounting.handlers.getAccountingRun,
   listAccountingProblems: accounting.handlers.listAccountingProblems,
   retryAccountingDocument: accounting.handlers.retryAccountingDocument,
   listAccountingPeriods: accounting.handlers.listAccountingPeriods,

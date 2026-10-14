@@ -325,6 +325,12 @@ export const NAV: NavGroup[] = [
           { href: "/books/budget", label: "Budget" },
           /** Tax collected by rate, read from the ledger, for filing. Needs `report.financial:read`. */
           { href: "/books/sales-tax", label: "Sales tax collected" },
+          /**
+           * Closing a month once it is filed, and reopening one with a reason.
+           * Inherits `ledger:read` to be SHOWN; the page reads with
+           * `accounting:sync` and closes with `accounting:close`.
+           */
+          { href: "/books/periods", label: "Closing the books" },
         ],
       },
       {

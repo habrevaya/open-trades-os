@@ -1643,7 +1643,7 @@ run("closing a period", () => {
      */
     await mapEverything();
     await anInvoice();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = companyToday();
     await accounting.closePeriod(owner(), { periodEnd: today, note: "Filed." });
 
     const provider = fakeProvider();
@@ -1654,7 +1654,7 @@ run("closing a period", () => {
   it("lets it through again once the period is reopened", async () => {
     await mapEverything();
     await anInvoice();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = companyToday();
     await accounting.closePeriod(owner(), { periodEnd: today });
     await accounting.sync(owner(), { provider: fakeProvider() });
 
@@ -1672,7 +1672,7 @@ run("closing a period", () => {
      */
     await mapEverything();
     await anInvoice();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = companyToday();
     await accounting.closePeriod(owner(), { periodEnd: today });
     for (let pass = 0; pass < 6; pass += 1) await accounting.sync(owner(), { provider: fakeProvider() });
 

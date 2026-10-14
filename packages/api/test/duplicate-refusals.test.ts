@@ -377,7 +377,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   accounting_branch_mapping_branch_idx: "One class or tracking option per branch, upserted.",
   accounting_entity_link_entity_idx: "One link per local record, upserted by the sync.",
   accounting_entity_link_external_idx: "One link per remote record, upserted by the sync.",
-  accounting_period_end_idx: "One period per end date, and the close path checks the range first.",
+  accounting_period_end_idx:
+    "One close in force per end date (a reopened one does not count), and the close path checks the range first.",
   reorder_policy_item_location_idx: "One policy per item and location, upserted.",
   recording_policy_jurisdiction_idx: "One policy per jurisdiction, upserted.",
   device_installation_idx: "One row per installation of the app, upserted on registration.",

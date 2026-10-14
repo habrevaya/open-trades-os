@@ -249,6 +249,10 @@ export const listAccountingRuns = defineRoute({
       finishedAt: z.string().datetime().nullable(),
       blockedReason: z.string().nullable(),
       error: z.string().nullable(),
+      /** Documents this pass sent, found already in the books, and refused. See `GET /v1/accounting/runs/{id}`. */
+      sent: z.number().int(),
+      found: z.number().int(),
+      refused: z.number().int(),
     })),
   }),
 });
@@ -262,6 +266,36 @@ const AccountingDocumentKind = z.enum([
   "customer", "invoice", "payment", "credit_memo", "refund",
   "credit_note", "credit_note_application", "credit_note_void", "credit_note_refund", "journal",
 ]);
+
+export const getAccountingRun = defineRoute({
+  method: "get",
+  path: "/v1/accounting/runs/{id}",
+  summary: "What one sync pass sent and refused",
+  description:
+    "Every document the pass sent, found already in the books (from an earlier pass that lost the answer), or refused, with the reason for each refusal, refusals first. A document already in the books and passed over is not listed: that is every document on every pass after the first. Up to 500; `more` says the pass did more than that.",
+  module: "M14",
+  permissions: ["accounting:sync"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    startedAt: z.string().datetime(),
+    finishedAt: z.string().datetime().nullable(),
+    recordsRead: z.number().int(),
+    recordsWritten: z.number().int(),
+    blockedReason: z.string().nullable(),
+    error: z.string().nullable(),
+    documents: z.array(z.object({
+      id: Uuid,
+      kind: AccountingDocumentKind,
+      entityId: Uuid,
+      idempotencyKey: z.string(),
+      outcome: z.enum(["sent", "found", "refused"]),
+      message: z.string().nullable(),
+      at: z.string().datetime(),
+    })),
+    more: z.boolean(),
+  }),
+});
 
 export const listAccountingProblems = defineRoute({
   method: "get",
@@ -332,7 +366,7 @@ export const closeAccountingPeriod = defineRoute({
   path: "/v1/accounting/periods/close",
   summary: "Declare a period filed",
   description:
-    "A different permission from running the sync, because they are different powers. After a close, the sync will not push anything dated inside the period, so a late invoice cannot change a number that has already gone to a tax authority. The worker holds accounting:sync and deliberately does not hold this.",
+    "A different permission from running the sync, because they are different powers. Refused for a day on or before the period already closed, and for a day that has not come yet in the company's calendar. A period that was reopened can be closed again. After a close, the sync will not push anything dated inside the period, so a late invoice cannot change a number that has already gone to a tax authority. The worker holds accounting:sync and deliberately does not hold this.",
   module: "M14",
   permissions: ["accounting:close"],
   idempotent: true,
@@ -371,6 +405,6 @@ export const reopenAccountingPeriod = defineRoute({
 export const accountingRoutes = {
   getAccountingStatus, listAccountingAccounts, listAccountMappings, setAccountMapping,
   listAccountingBranchOptions, listAccountingBranchMappings, setAccountingBranchMapping, removeAccountingBranchMapping,
-  runAccountingSync, listAccountingRuns, listAccountingProblems, retryAccountingDocument,
+  runAccountingSync, listAccountingRuns, getAccountingRun, listAccountingProblems, retryAccountingDocument,
   listAccountingPeriods, closeAccountingPeriod, reopenAccountingPeriod,
 } as const;

@@ -265,7 +265,9 @@ const ORDER = [
   "truck_kind",
   /** A lead's messages and the inbox's emails point at the offer; the offer at its connector. */
   "lead_offer_message", "lead_email", "lead_inbox",
-  "lead_offer", "lead_source_connector", "sync_run",
+  "lead_offer", "lead_source_connector",
+  /** What each accounting sync pass sent and refused, before the pass it belongs to. */
+  "sync_run_document", "sync_run",
   /** What Search Console and Analytics reported, per connection. */
   "search_query_day", "analytics_session_day",
   /**

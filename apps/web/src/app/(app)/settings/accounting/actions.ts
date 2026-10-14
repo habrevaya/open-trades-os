@@ -6,7 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { accounting, accountingBranches } from "@opentradesos/api/services";
 import { setAccountMapping, setAccountingBranchMapping } from "@opentradesos/api/contracts";
-import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
+import { attempt, field, parsed, refused, refusalOf, type FormState } from "@/lib/actions";
 
 /**
  * SETTINGS → ACCOUNTING, THE WRITES
@@ -128,4 +128,29 @@ export async function retryProblem(_previous: FormState, form: FormData): Promis
   if (state?.error) return state;
   revalidatePath(PATH);
   redirect("/settings/accounting?saved=retried#problems");
+}
+
+/**
+ * Run one sync pass now, the same call as `POST /v1/accounting/sync`, and go
+ * to what it sent and refused. The claims make a second press harmless: a
+ * document already in the books is passed over, never sent again.
+ *
+ * A pass that fails part way records that on its run and comes back, so
+ * the history says so. What cannot even start (the books' credential gone
+ * from the secret store, say) is said here rather than thrown, as a read of
+ * the books on the page is.
+ */
+export async function syncNow(_previous: FormState, form: FormData): Promise<FormState> {
+  const context = await ctx();
+  let runId: string | null = null;
+  try {
+    const outcome = await accounting.handlers.runAccountingSync(context, {});
+    runId = outcome.runId;
+  } catch (error) {
+    const refusal = refusalOf(error);
+    if (refusal !== null) return refused(form, refusal);
+    return refused(form, `The sync could not start: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  revalidatePath(PATH);
+  redirect(`/settings/accounting?saved=synced&run=${runId}#runs`);
 }

@@ -384,3 +384,147 @@ export function ProblemsList({
     </section>
   );
 }
+
+/* ------------------------------------------------------------ the syncs */
+
+export interface SyncRun {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  blockedReason: string | null;
+  error: string | null;
+  sent: number;
+  found: number;
+  refused: number;
+}
+
+export interface SyncRunDetail {
+  id: string;
+  startedAt: string;
+  documents: {
+    id: string;
+    kind: string;
+    entityId: string;
+    idempotencyKey: string;
+    outcome: "sent" | "found" | "refused";
+    message: string | null;
+  }[];
+  /** The pass did more than the list holds. */
+  more: boolean;
+}
+
+/** How a pass ended, in words. Running out of reads is not a failure: the sending half still ran. */
+export function runState(run: Pick<SyncRun, "finishedAt" | "blockedReason" | "error">, books: string):
+  { tone: "neutral" | "success" | "warning" | "danger"; said: string } {
+  if (run.finishedAt === null) return { tone: "neutral", said: "Still running" };
+  if (run.error) return { tone: "danger", said: "Stopped with an error" };
+  if (run.blockedReason) return { tone: "warning", said: `Sent, but ${books} stopped answering reads for now` };
+  return { tone: "success", said: "Finished" };
+}
+
+/** "Sent 3, 1 already there, refused 2", or that it had nothing to do. */
+export function runSummary(run: Pick<SyncRun, "sent" | "found" | "refused">): string {
+  const parts = [
+    run.sent > 0 ? `Sent ${run.sent}` : null,
+    run.found > 0 ? `${run.found} already there` : null,
+    run.refused > 0 ? `refused ${run.refused}` : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return "Nothing new to send";
+  const said = parts.join(", ");
+  return said.charAt(0).toUpperCase() + said.slice(1);
+}
+
+const OUTCOME: Record<SyncRunDetail["documents"][number]["outcome"], { tone: "success" | "info" | "danger"; said: string }> = {
+  sent: { tone: "success", said: "Sent" },
+  found: { tone: "info", said: "Already there, now linked" },
+  refused: { tone: "danger", said: "Refused" },
+};
+
+export function SyncRuns({
+  books, timezone, runs, opened, sync,
+}: {
+  books: string;
+  timezone: string;
+  runs: SyncRun[];
+  /** The pass somebody asked to see, or a sentence saying why it cannot be shown. */
+  opened: SyncRunDetail | { missing: string } | null;
+  sync: Action;
+}) {
+  return (
+    <section id="runs" aria-label="Syncs" className="mt-10">
+      <h2 className="text-base font-semibold">Syncs with {books}</h2>
+      <p className="mt-1 max-w-2xl text-sm text-ink-700">
+        The sync runs by itself after something changes here. Run it now to send what is waiting straight away,
+        for example after you map an account. Running it twice cannot put anything in {books} twice.
+      </p>
+      <ActionForm action={sync} submit="Sync now" className="mt-3 flex items-center gap-2" />
+
+      {runs.length === 0 ? (
+        <Empty title="No syncs yet">The first sync runs after something changes here, or when you press Sync now.</Empty>
+      ) : (
+        <Table label="Syncs" head={<><Th>Started</Th><Th>What it did</Th><Th>How it ended</Th><Th>{""}</Th></>}>
+          {runs.map((run) => {
+            const ended = runState(run, books);
+            const touched = run.sent + run.found + run.refused;
+            return (
+              <tr key={run.id}>
+                <Td className="whitespace-nowrap">{formatIn(run.startedAt, timezone)}</Td>
+                <Td>{runSummary(run)}</Td>
+                <Td>
+                  <Chip tone={ended.tone}>{ended.said}</Chip>
+                  {run.error ? <span className="mt-1 block text-sm text-ink-700">{run.error}</span> : null}
+                </Td>
+                <Td>
+                  {touched > 0 ? (
+                    <a href={`/settings/accounting?run=${run.id}#runs`} className="underline underline-offset-4">
+                      See the documents<span className="sr-only"> from the sync that started {formatIn(run.startedAt, timezone)}</span>
+                    </a>
+                  ) : null}
+                </Td>
+              </tr>
+            );
+          })}
+        </Table>
+      )}
+
+      {opened === null ? null : "missing" in opened ? (
+        <p role="alert" className="mt-3 rounded bg-red-tint px-3 py-2 text-sm text-red-600">{opened.missing}</p>
+      ) : (
+        <div aria-label="Documents in this sync" role="region" className="mt-6">
+          <h3 className="text-sm font-semibold">Documents in the sync that started {formatIn(opened.startedAt, timezone)}</h3>
+          {opened.documents.length === 0 ? (
+            <p className="mt-1 text-sm text-ink-700">This sync had nothing new to send.</p>
+          ) : (
+            <Table label="Documents in this sync" head={<><Th>Document</Th><Th>What happened</Th></>}>
+              {opened.documents.map((d) => {
+                const record = problemRecord(d);
+                const outcome = OUTCOME[d.outcome];
+                return (
+                  <tr key={d.id}>
+                    <Td>
+                      {record.href
+                        ? <a href={record.href} className="underline underline-offset-4">{record.what}</a>
+                        : record.what}
+                    </Td>
+                    <Td>
+                      <Chip tone={outcome.tone}>{outcome.said}</Chip>
+                      {d.message ? <span className="mt-1 block text-sm text-ink-700">{d.message}</span> : null}
+                    </Td>
+                  </tr>
+                );
+              })}
+            </Table>
+          )}
+          {opened.more ? (
+            <p className="mt-2 text-xs text-ink-500">
+              This sync did more than fits here. Refused documents are listed first.
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs text-ink-500">
+            A refused document that is still waiting is in the list below, where you can send it again.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
