@@ -22,7 +22,7 @@ import * as plugins from "./plugins";
 import { announce, NEW_VISIT, sideOf } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
-import { gate as qualificationGate, workSkills } from "./qualification";
+import { gate as qualificationGate, workDay, workSkills } from "./qualification";
 import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
@@ -361,8 +361,8 @@ async function assertQualified(
   technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
   /** What this one job asks for beyond its type, checked with the type's. */
   jobSkills: readonly string[] = [],
-  /** What this one job dropped from its type's skills: not checked, with the reason on the job. */
-  dropped: readonly { skill: string }[] = [],
+  /** What this one job dropped from its type's skills: not checked while the drop stands, with the reason on the job. */
+  dropped: readonly { skill: string; through?: string | null | undefined }[] = [],
 ): Promise<void> {
   if ((!jobTypeId && jobSkills.length === 0) || technicianIds.length === 0) return;
   const [type] = jobTypeId
@@ -370,7 +370,9 @@ async function assertQualified(
       .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1)
     : [];
   await qualificationGate(ctx, tx, {
-    technicianIds, skills: workSkills(type?.skills, jobSkills, dropped), windowStart, windowEnd,
+    technicianIds, windowStart, windowEnd,
+    /** On the day of the visit, so a drop that has ended by then is not honoured for it. */
+    skills: workSkills(type?.skills, jobSkills, dropped, await workDay(tx, ctx.actor.organizationId, windowStart)),
   });
 }
 

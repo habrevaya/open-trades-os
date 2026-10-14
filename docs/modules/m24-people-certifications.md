@@ -277,6 +277,23 @@ the people to ring (`POST /v1/me/emergency-contacts`,
 `POST /v1/me/emergency-contacts/{id}/remove`). Their pay is on `/me/pay` and
 their time off on `/me/time-off` (M17).
 
+A fifth thing is their own phone number and home address: `POST /v1/me/contact` sends the
+whole of it each time (an empty box clears that part) and `/me` has it under "Your phone and
+address". The phone is kept as a dialable number (`(512) 555-0143` becomes `+15125550143`). An address
+is the street, the town, the state as two letters and the ZIP code, or none of it: a street with no
+ZIP is refused rather than kept, because a form mailed to it is lost. United States addresses
+only. Each save is a new version in `person_contact`, written only when it differs from the latest,
+and never updated, so what a person once gave is not rewritten; it is audited as
+`person.contact_changed` with the old and new values. It is keyed on the membership, not the
+platform user, so a person who works for two companies gives each its own and neither reads the
+other's. The office reads the current phone and address and every change, each with what it was,
+what it is and when, on `/people/{membershipId}` under "Phone and address" (`ownContact` on
+`GET /v1/people/{membershipId}`, `user:read`, scoped like the rest of that page: a branch manager
+reads their own branch's people), and the person reads the same list on `/me` and in `GET /v1/me`. It
+is home contact detail, so it sits behind the same `user:read` as the emergency contacts and the
+employment record. **The office cannot write it**, on purpose: it is theirs and the list of changes
+is what they said; somebody who cannot use `/me` is asked for it.
+
 None of these takes a person: each is the signed in person's own membership,
 from the session, so a line, a contact or a document of anybody else's is not
 found. Reading anybody else's record is still `user:read`. All of it is
@@ -330,8 +347,8 @@ concepts above).
 lift ticket for a rooftop unit, a confined space entry for a crawlspace. They
 are checked wherever the type's are, for a technician sent alone and for a
 crew, at booking and in the suggestions. The job's page takes them. The other direction, a job
-dropping one of its type's skills with a reason, is `POST /v1/jobs/{id}/dropped-skills` and is
-described in M10.
+dropping one of its type's skills with a reason, and a last day if it is only for now, is
+`POST /v1/jobs/{id}/dropped-skills` and is described in M10.
 
 ## Permissions
 
@@ -388,6 +405,7 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/staff-documents/{id}/retire` | `user:write` |
 | `POST /v1/staff-documents/{id}/requests` | `user:write` |
 | `GET /v1/me` | `profile:own` |
+| `POST /v1/me/contact` | `profile:own` |
 | `POST /v1/me/emergency-contacts` | `profile:own` |
 | `POST /v1/me/emergency-contacts/{id}/remove` | `profile:own` |
 | `POST /v1/me/onboarding-lines/{id}` | `profile:own` |
@@ -417,8 +435,12 @@ This is a qualification register and the office's record of each person, not
 an HR system. Certificates and scans attach through the ordinary attachment
 path; the documents people sign are text written here, not uploaded files, and
 a printed copy is a record made from them on the day, not a stored file. A person keeps their own
-emergency contacts and nothing else of their record: a new address or phone
-number goes to the office. A person can tick any line of their own onboarding,
+emergency contacts, phone number and home address and nothing else of their record: the
+office cannot enter or correct a phone or address for them (it reads them), the address is
+United States only and has no second address or mailing address apart from the home one, a
+changed phone is not texted or checked, and there is no notice to the office when one changes (it
+is on the person's page and in the audit log, not pushed). The phone kept here is not the number
+a sign in code for the phone app is sent to (`/settings/phones`, M11), and changing one does not change the other. A person can tick any line of their own onboarding,
 and the office sees that they ticked it rather than the office. A skill's
 record can have an expiry of its own, and its renewals list and its notice follow its
 own number of days: there is no per type notice period for a skill, because a skill has

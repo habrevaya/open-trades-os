@@ -2,13 +2,14 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customFields, peopleRecords, people as peopleService, staffDocuments, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, people as peopleCore } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
 import { Chip } from "@opentradesos/ui";
 import { Crumb, Fact, Facts } from "@/components/Detail";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
+import { OwnContactChanges } from "@/components/OwnContactChanges";
 import {
   addContactAction, askToSignAction, endSkillAction, logCeAction, recordSkillAction, removeContactAction, setSkillExpiryAction,
   setEmploymentAction, setOnboardingLineAction, startOnboardingAction,
@@ -152,6 +153,21 @@ export default async function PersonPage({ params }: { params: Promise<{ members
             <Select label="Document" name="id" className="w-72" options={askable.map((d) => ({ value: d.id, label: d.title }))} />
           </ActionForm>
         ) : null}
+      </section>
+
+      <section className="mt-8" aria-labelledby="reach">
+        <h2 id="reach" className="text-base font-semibold">Phone and address</h2>
+        {person.ownContact.contact === null ? (
+          <p className="mt-1 text-sm text-ink-700">They have not given a phone number or address. They keep their own on My record.</p>
+        ) : (
+          <Facts>
+            <Fact label="Phone">{person.ownContact.contact.phone ? peopleCore.ownPhoneWords(person.ownContact.contact.phone) : "None"}</Fact>
+            <Fact label="Address">{peopleCore.ownAddressLine(person.ownContact.contact) ?? "None"}</Fact>
+            <Fact label="Last changed">{formatIn(person.ownContact.contact.savedAt, user.organizationTimezone)}</Fact>
+          </Facts>
+        )}
+        <p className="mt-1 text-xs text-ink-500">The person keeps these themselves. The office reads them and cannot change them here.</p>
+        <OwnContactChanges record={person.ownContact} timezone={user.organizationTimezone} />
       </section>
 
       <section className="mt-8" aria-labelledby="contacts">

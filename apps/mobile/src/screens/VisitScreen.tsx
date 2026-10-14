@@ -7,6 +7,7 @@ import { Button, Notice, Section } from "../components/ui";
 import { ChecklistSection, InspectionsSection, PartsSection, PaymentSection, ReadingsSection, UnitSection } from "./VisitWork";
 import { AskSection, CashTipSection, InvoiceSection, SellSection } from "./VisitSell";
 import { CustomerFilesSection } from "./CustomerFiles";
+import { CustomerNotesSection } from "./CustomerNotes";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -99,6 +100,8 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
             <Button label={step.label} onPress={move} />
           </View>
         ) : null}
+
+        <CustomerNotesSection visit={visit} zone={zone} />
 
         {visit.customerComplaint || visit.description ? (
           <Section title="The job">

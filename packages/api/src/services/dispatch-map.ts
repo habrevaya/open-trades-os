@@ -498,7 +498,7 @@ export async function loadDay(tx: Database, organizationId: string, date: string
       routeId: r.visit.routeId,
       arrivedAt: r.visit.arrivedAt,
       jobTypeId: r.jobTypeId,
-      requiredSkills: workSkills(r.requiredSkills, r.jobSkills, r.droppedSkills),
+      requiredSkills: workSkills(r.requiredSkills, r.jobSkills, r.droppedSkills, date),
       place: placeOf(r.property),
       technicianIds: assigned.get(r.visit.id) ?? [],
       isLate: Boolean(r.visit.windowEnd && r.visit.windowEnd < now && !done.has(r.visit.status)),

@@ -1,4 +1,5 @@
-import { pgTable, pgEnum, uuid, text, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, index, uniqueIndex, timestamp, date, numeric, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { pk, money } from "./_shared";
 import { organization, technician, user } from "./tenancy";
 import { job } from "./work";
@@ -38,6 +39,13 @@ export const expense = pgTable("expense", {
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
   amount: money("amount").notNull(),
   currency: text("currency").notNull().default("USD"),
+  /**
+   * For a claim entered as miles driven: the miles, to a tenth, and the rate for one mile it was worked out at,
+   * kept here so a rate changed later never reprices it. `amount` is those two multiplied, to the cent. Both
+   * null for one entered as an amount paid. Worked out at the rate in force on `spent_on`, the day of the drive.
+   */
+  miles: numeric("miles", { precision: 8, scale: 1 }),
+  mileageRate: numeric("mileage_rate", { precision: 7, scale: 3 }),
   /** The day it was paid, in the company's calendar. */
   spentOn: date("spent_on").notNull(),
   /** What it was for, in the person's words. */
@@ -63,6 +71,8 @@ export const expense = pgTable("expense", {
   personIdx: index("expense_person_idx").on(t.organizationId, t.technicianId, t.spentOn),
   statusIdx: index("expense_status_idx").on(t.organizationId, t.status, t.createdAt),
   jobIdx: index("expense_job_idx").on(t.organizationId, t.jobId),
+  /** Miles and the rate they were worked out at are one fact: a claim has both or neither. */
+  milesWithRate: check("expense_miles_with_rate", sql`(${t.miles} is null) = (${t.mileageRate} is null)`),
 }));
 
 /**

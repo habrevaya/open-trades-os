@@ -6,7 +6,7 @@ import {
 } from "./context";
 import * as scoped from "./people-scope";
 import * as once from "./once";
-import { liveDrops, workSkills } from "./qualification";
+import { workDay, workSkills } from "./qualification";
 import { bytesOf } from "./files";
 import * as staffDocuments from "./staff-documents";
 
@@ -264,6 +264,53 @@ export function setOnboardingLine(ctx: ServiceContext, input: {
       { doneAt: line.doneAt }, { label: line.label, note: input.note ?? line.note });
     return onboardingWithin(tx, line.membershipId);
   });
+}
+
+/* ------------------------------------------------- a person's own address and phone */
+
+export interface OwnContactView extends peopleCore.OwnContact {
+  /** When this version was saved. */
+  savedAt: string;
+}
+
+export interface OwnContactChangeView {
+  /** When it was saved. */
+  at: string;
+  /** Who saved it. Today always the person themselves; null if their account has since gone. */
+  by: string | null;
+  changes: peopleCore.OwnContactChange[];
+}
+
+export interface OwnContactRecord {
+  /** The current version, or null when the person has never given one. */
+  contact: OwnContactView | null;
+  /** What each save changed, newest first, at most fifty. */
+  changes: OwnContactChangeView[];
+}
+
+const asContact = (r: typeof schema.personContact.$inferSelect): peopleCore.OwnContact => ({
+  phone: r.phone, addressLine1: r.addressLine1, addressLine2: r.addressLine2, city: r.city, state: r.state, postalCode: r.postalCode,
+});
+
+/**
+ * A person's address and phone as they keep them, with what each save changed.
+ * Versions are never updated, so the office reads a change by comparing a version
+ * with the one before it. A save that changed nothing is never written, so every
+ * version here changed something.
+ */
+export async function ownContactWithin(tx: Database, membershipId: string): Promise<OwnContactRecord> {
+  const rows = await tx.select().from(schema.personContact)
+    .where(eq(schema.personContact.membershipId, membershipId))
+    .orderBy(asc(schema.personContact.createdAt), asc(schema.personContact.id));
+  if (rows.length === 0) return { contact: null, changes: [] };
+  const names = await peopleNames(tx);
+  const changes = rows.map((row, i) => ({
+    at: row.createdAt.toISOString(),
+    by: row.changedByUserId ? names.get(row.changedByUserId) ?? null : null,
+    changes: peopleCore.ownContactChanges(i === 0 ? null : asContact(rows[i - 1]!), asContact(row)),
+  })).reverse().slice(0, 50);
+  const last = rows[rows.length - 1]!;
+  return { contact: { ...asContact(last), savedAt: last.createdAt.toISOString() }, changes };
 }
 
 /* ------------------------------------------------------ emergency contacts */
@@ -928,6 +975,8 @@ export interface PersonView {
   reportsTo: { membershipId: string; name: string | null; email: string; active: boolean } | null;
   /** What they were asked to sign, and whether they have. */
   documents: { requestId: string; documentId: string; title: string; askedAt: string; signedAt: string | null; signedVia: string | null }[];
+  /** The address and phone they keep themselves, with what each change was and when. Read with the rest of their record. */
+  ownContact: OwnContactRecord;
 }
 
 export function person(ctx: ServiceContext, input: { membershipId: string }) {
@@ -967,6 +1016,7 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
         ? { membershipId: manager.id, name: managerName?.name ?? null, email: managerName?.email ?? "", active: manager.active }
         : null,
       documents: (await staffDocuments.ownWithin(tx, member.id)).map(({ body: _body, signerName: _signer, ...rest }) => rest),
+      ownContact: await ownContactWithin(tx, member.id),
     };
   });
 }
@@ -1020,9 +1070,12 @@ export interface JobSkillsView {
   skills: string[];
   /** Everything its type asks for, dropped or not. */
   typeSkills: string[];
-  /** The type's skills this job dropped, each with why, who and when. Only ones its type still asks for. */
-  dropped: { skill: string; reason: string; droppedAt: string; droppedBy: string | null }[];
-  /** What is actually checked for whoever is sent: the type's less the dropped, and the job's own. */
+  /**
+   * The type's skills this job dropped, each with why, who and when, and the last day it holds. Only ones its
+   * type still asks for. An ended drop stays listed (`ended`), because why it was dropped is a record.
+   */
+  dropped: { skill: string; reason: string; droppedAt: string; droppedBy: string | null; through: string | null; ended: boolean }[];
+  /** What is actually checked for whoever is sent today: the type's less the drops still standing, and the job's own. */
   checked: string[];
 }
 
@@ -1043,18 +1096,24 @@ async function loadJobSkillRow(tx: Database, ctx: ServiceContext, id: string): P
   return { ...job, typeSkills: q.normaliseSkills(type?.skills ?? []) };
 }
 
-async function jobSkillsView(tx: Database, row: JobSkillRow & { typeSkills: string[] }): Promise<JobSkillsView> {
+async function jobSkillsView(
+  tx: Database, organizationId: string, row: JobSkillRow & { typeSkills: string[] },
+): Promise<JobSkillsView> {
   const names = await peopleNames(tx);
-  const live = liveDrops(row.typeSkills, row.droppedSkills);
+  /** Read as of today: what is checked "now" is what the office means by it. Each visit is judged on its own day. */
+  const today = await workDay(tx, organizationId, null);
+  /** Every drop of a skill the type still asks for, ended ones too: they are the record of why. */
+  const listed = row.droppedSkills.filter((d) => row.typeSkills.includes(d.skill.trim()));
   return {
     id: row.id,
     skills: q.normaliseSkills(row.requiredSkills ?? []),
     typeSkills: row.typeSkills,
-    dropped: live.map((d) => ({
+    dropped: listed.map((d) => ({
       skill: d.skill, reason: d.reason, droppedAt: d.droppedAt,
       droppedBy: d.droppedByUserId ? names.get(d.droppedByUserId) ?? null : null,
+      through: d.through ?? null, ended: q.dropEnded(d, today),
     })),
-    checked: workSkills(row.typeSkills, row.requiredSkills, row.droppedSkills),
+    checked: workSkills(row.typeSkills, row.requiredSkills, row.droppedSkills, today),
   };
 }
 
@@ -1071,13 +1130,13 @@ export function setJobSkills(ctx: ServiceContext, input: { id: string; skills: s
     const extra = q.normaliseSkills(input.skills).filter((s) => !job.typeSkills.includes(s));
     await tx.update(schema.job).set({ requiredSkills: extra, updatedAt: new Date() }).where(eq(schema.job.id, job.id));
     await audit(tx, ctx, "job.skills_set", "job", job.id, { requiredSkills: job.requiredSkills }, { requiredSkills: extra });
-    return jobSkillsView(tx, { ...job, requiredSkills: extra });
+    return jobSkillsView(tx, ctx.actor.organizationId, { ...job, requiredSkills: extra });
   });
 }
 
 export function jobSkills(ctx: ServiceContext, input: { id: string }) {
   return guardedRead(ctx, "job:read", async (tx): Promise<JobSkillsView> =>
-    jobSkillsView(tx, await loadJobSkillRow(tx, ctx, input.id)));
+    jobSkillsView(tx, ctx.actor.organizationId, await loadJobSkillRow(tx, ctx, input.id)));
 }
 
 /**
@@ -1095,10 +1154,17 @@ export function jobSkills(ctx: ServiceContext, input: { id: string }) {
  *
  * Only a skill the job's type asks for can be dropped: the job's own extra
  * skills are removed from the list they were added to, not "dropped".
+ *
+ * A drop can END: `through` is the last day it holds, a company date. After it
+ * the type's skill is asked of this job again, judged on the day of each visit
+ * (`workSkills`), so a visit booked for the day after is checked for the skill
+ * even if it was assigned while the drop stood. The drop stays on the job as
+ * the record of why. Without `through` it has no end.
  */
-export function dropSkill(ctx: ServiceContext, input: { id: string; skill: string; reason: string }) {
+export function dropSkill(ctx: ServiceContext, input: { id: string; skill: string; reason: string; through?: string | undefined }) {
   return guardedWrite(ctx, "job:write", async (tx): Promise<JobSkillsView> => {
     assertCan(ctx.actor, "visit:assign_unqualified");
+    const orgId = ctx.actor.organizationId;
     const job = await loadJobSkillRow(tx, ctx, input.id);
     const skill = input.skill.trim();
     const reason = input.reason.trim();
@@ -1109,16 +1175,33 @@ export function dropSkill(ctx: ServiceContext, input: { id: string; skill: strin
       );
     }
     if (reason.length < 5) throw new ConflictError("Say why this job does not need it, in a sentence somebody reading the job later would accept.");
-    /** Dropping it twice is the first drop: the reason on the job stays the one first given. */
-    if (job.droppedSkills.some((d) => d.skill === skill)) return jobSkillsView(tx, job);
+    const today = await workDay(tx, orgId, null);
+    /**
+     * An end date that has already passed would be a drop that never held, so it is refused rather than
+     * saved as a record of nothing. Today is allowed: it holds through today.
+     */
+    if (input.through !== undefined && input.through < today) {
+      throw new ConflictError("The last day has already passed. Choose today or a later day, or leave the end off.");
+    }
+    /**
+     * Dropping it twice is the first drop: the reason on the job stays the one first given, and so does its end.
+     * Moving an end later loosens the check, so it is done by putting the skill back and dropping it again,
+     * which asks for a reason again. A drop that has already ended is a record, and a new drop replaces it.
+     */
+    const earlier = job.droppedSkills.find((d) => d.skill === skill);
+    if (earlier && q.dropHolds(earlier, today)) return jobSkillsView(tx, orgId, job);
     const dropped = [
-      ...job.droppedSkills,
-      { skill, reason, droppedAt: new Date().toISOString(), droppedByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId },
+      ...job.droppedSkills.filter((d) => d.skill !== skill),
+      {
+        skill, reason, droppedAt: new Date().toISOString(), droppedByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId,
+        ...(input.through !== undefined ? { through: input.through } : {}),
+      },
     ];
     await tx.update(schema.job).set({ droppedSkills: dropped, updatedAt: new Date() }).where(eq(schema.job.id, job.id));
     await audit(tx, ctx, "job.skill_dropped", "job", job.id,
-      { droppedSkills: job.droppedSkills }, { droppedSkills: dropped, skill, reason });
-    return jobSkillsView(tx, { ...job, droppedSkills: dropped });
+      { droppedSkills: job.droppedSkills },
+      { droppedSkills: dropped, skill, reason, ...(input.through !== undefined ? { through: input.through } : {}) });
+    return jobSkillsView(tx, orgId, { ...job, droppedSkills: dropped });
   });
 }
 
@@ -1128,11 +1211,11 @@ export function restoreSkill(ctx: ServiceContext, input: { id: string; skill: st
     const job = await loadJobSkillRow(tx, ctx, input.id);
     const skill = input.skill.trim();
     const kept = job.droppedSkills.filter((d) => d.skill !== skill);
-    if (kept.length === job.droppedSkills.length) return jobSkillsView(tx, job);
+    if (kept.length === job.droppedSkills.length) return jobSkillsView(tx, ctx.actor.organizationId, job);
     await tx.update(schema.job).set({ droppedSkills: kept, updatedAt: new Date() }).where(eq(schema.job.id, job.id));
     await audit(tx, ctx, "job.skill_restored", "job", job.id,
       { droppedSkills: job.droppedSkills }, { droppedSkills: kept, skill });
-    return jobSkillsView(tx, { ...job, droppedSkills: kept });
+    return jobSkillsView(tx, ctx.actor.organizationId, { ...job, droppedSkills: kept });
   });
 }
 
@@ -1191,7 +1274,7 @@ export const handlers = {
   getJobSkills: (ctx: ServiceContext, input: { id: string }): Promise<JobSkillsView> => jobSkills(ctx, input),
   setJobSkills: (ctx: ServiceContext, input: { id: string; skills: string[] }): Promise<JobSkillsView> =>
     setJobSkills(ctx, input),
-  dropJobSkill: (ctx: ServiceContext, input: { id: string; skill: string; reason: string }): Promise<JobSkillsView> =>
+  dropJobSkill: (ctx: ServiceContext, input: { id: string; skill: string; reason: string; through?: string | undefined }): Promise<JobSkillsView> =>
     dropSkill(ctx, input),
   restoreJobSkill: (ctx: ServiceContext, input: { id: string; skill: string }): Promise<JobSkillsView> =>
     restoreSkill(ctx, input),

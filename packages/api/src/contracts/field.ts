@@ -546,6 +546,12 @@ export const getFieldSnapshot = defineRoute({
       assistant: z.boolean(),
       /** Whether this person may record what they paid for the company. */
       expenses: z.boolean(),
+      /**
+       * What the company pays for one mile today ("0.725"), or null when it has set none, so the phone offers
+       * a claim in miles only when there is a rate. As of this fetch: the server works a claim out at the rate
+       * on the day of the drive, whatever the phone showed.
+       */
+      mileageRate: z.string().nullable(),
     }),
     /**
      * This person's own expenses from the last sixty days and what the office
@@ -555,6 +561,9 @@ export const getFieldSnapshot = defineRoute({
     expenses: z.array(z.object({
       id: Uuid,
       amount: MoneyString,
+      /** For a claim made in miles: the miles and the rate for one mile it was worked out at. Null otherwise. */
+      miles: z.string().nullable(),
+      mileageRate: z.string().nullable(),
       spentOn: z.string(),
       description: z.string(),
       jobNumber: z.number().int().nullable(),
@@ -723,8 +732,11 @@ export const assignVisit = defineRoute({
     overridden: z.boolean(),
     /** Required skills nothing could check for the people sent, said rather than hidden. */
     unknownSkills: z.array(z.string()),
-    /** Skills of the job's type this job dropped, with the reason on the job: not checked for the people sent. */
-    droppedSkills: z.array(z.object({ skill: z.string(), reason: z.string() })),
+    /**
+     * Skills of the job's type this job dropped, with the reason on the job: not checked for the people sent.
+     * `through` is the last day the drop holds, present only on a drop that has an end, so the board can say it.
+     */
+    droppedSkills: z.array(z.object({ skill: z.string(), reason: z.string(), through: z.string().date().optional() })),
   }),
 });
 

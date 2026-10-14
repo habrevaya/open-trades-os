@@ -38,6 +38,10 @@ export const ExpenseView = z.object({
   jobId: Uuid.nullable(),
   jobNumber: z.number().int().nullable(),
   amount: MoneyString,
+  /** For a claim entered as miles: the miles driven, to a tenth. Null for one entered as an amount paid. */
+  miles: z.string().nullable(),
+  /** For a claim entered as miles: the dollars for one mile it was worked out at, kept on the claim. Null otherwise. */
+  mileageRate: z.string().nullable(),
   spentOn: IsoDate,
   description: z.string(),
   status: z.enum(["pending", "approved", "refused"]),
@@ -68,7 +72,7 @@ export const recordExpense = defineRoute({
   path: "/v1/me/expenses",
   summary: "Record what you paid for the company",
   description:
-    "The amount in dollars and cents, the day, what it was for, the job if there was one and a photograph of the receipt. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
+    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the company's mileage rate in force on `spentOn` (`POST /v1/payroll/mileage-rates`), to the cent, and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
   module: "M17",
   permissions: ["expense:own"],
   idempotent: true,
@@ -77,10 +81,15 @@ export const recordExpense = defineRoute({
     jobId: Uuid.nullable().optional(),
     /** The job by its number, for a caller that does not have its id. Ignored when `jobId` is given. */
     jobNumber: z.number().int().positive().optional(),
-    amount: z.string().max(20),
+    /** What was paid. Exactly one of `amount` and `miles`. */
+    amount: z.string().max(20).optional(),
+    /** The miles driven, to a tenth, like "18.4". Exactly one of `amount` and `miles`. */
+    miles: z.string().max(10).optional(),
     spentOn: IsoDate,
     description: z.string().min(1).max(300),
     receipt: Receipt.optional(),
+  }).refine((v) => (v.amount === undefined) !== (v.miles === undefined), {
+    message: "Give either the amount paid or the miles driven, not both and not neither.",
   }),
   output: ExpenseView,
 });
@@ -110,6 +119,8 @@ export const listMyExpenses = defineRoute({
     technician: z.boolean(),
     expenses: z.array(ExpenseView),
     perDiems: z.array(PerDiemView),
+    /** What the company pays for one mile today ("0.725"), or null when none is set, which is when miles cannot be claimed. */
+    mileageRate: z.string().nullable(),
   }),
 });
 
@@ -227,6 +238,10 @@ export const PayExtras = z.object({
   /** How a tip is shared between the people on the job it was left for, from the next tip on. */
   tipSplit: TipSplitRule,
   rules: z.array(z.object({ rule: TipSplitRule, label: z.string() })),
+  /** What the company pays for one mile, one line per starting day, oldest first. Empty pays none. */
+  mileageRates: z.array(z.object({ from: IsoDate, perMile: z.string() })),
+  /** The rate in force today in the company's zone, or null when none has started. */
+  mileageRateToday: z.string().nullable(),
 });
 
 export const getPayExtras = defineRoute({
@@ -252,6 +267,32 @@ export const setPayExtras = defineRoute({
     perDiemRate: z.string().max(20).nullable().optional(),
     tipSplit: TipSplitRule.optional(),
   }),
+  output: PayExtras,
+});
+
+export const addMileageRate = defineRoute({
+  method: "post",
+  path: "/v1/payroll/mileage-rates",
+  summary: "Set what the company pays for one mile, from a day",
+  description:
+    "`perMile` is dollars for one mile, up to three decimals (0.725), at most 3.000; `from` is the first day it applies. A claim entered as miles is worked out at the latest rate that starts on or before the day of the drive, and keeps it, so adding a rate never reprices a claim already made. A day that already has a rate is refused: take it off first. A rate may start in the past, for a claim not yet made. A statement about what people are owed, so `payroll:configure`. The rate is the company's choice; whether it is within what the tax authority allows without tax is the company's to check. Mileage is paid through payroll as a reimbursement and is not posted to the ledger.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ from: IsoDate, perMile: z.string().max(20) }),
+  output: PayExtras,
+});
+
+export const removeMileageRate = defineRoute({
+  method: "post",
+  path: "/v1/payroll/mileage-rates/{from}/removal",
+  summary: "Take a mileage rate off",
+  description:
+    "Takes off the rate that starts on `from`. Claims already made keep the rate they were worked out at; claims made from then on for those days use the rate before it, or are refused when there is none. Taking off a day that has no rate changes nothing. `payroll:configure`.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ from: IsoDate }),
   output: PayExtras,
 });
 
@@ -338,5 +379,6 @@ export const listMyCashTips = defineRoute({
 export const expenseRoutes = {
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
+  addMileageRate, removeMileageRate,
   recordCashTipFor, correctCashTip, listCashTips, listMyCashTips,
 } as const;

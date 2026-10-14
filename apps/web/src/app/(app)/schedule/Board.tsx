@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { assignVisit, reorderDay, proposeRoute, suggestAssignments, lockVisit, livePositions, sendToCrew } from "./actions";
 import type { dispatch } from "@opentradesos/api/services";
 import type { TileSource } from "@/lib/map-tiles";
+import { formatDay } from "@/lib/dates";
 import { DispatchMap, type MapData } from "./DispatchMap";
 import { RoutePreview, Suggestions, type Proposal, type Suggested } from "./Proposals";
 
@@ -119,7 +120,11 @@ export function Board({
     }
     /** The job said it does not need these, and why: said where the person was sent, not only on the job. */
     for (const dropped of result.droppedSkills) {
-      notes.push(`This job does not need ${dropped.skill}: ${dropped.reason}.`);
+      notes.push(
+        `This job does not need ${dropped.skill}`
+        + (dropped.through ? ` through ${formatDay(dropped.through, timezone)}, and is asked for it again after that` : "")
+        + `: ${dropped.reason}.`,
+      );
     }
     if (notes.length > 0) setNotice(`Assigned. ${notes.join(" ")}`);
     return true;

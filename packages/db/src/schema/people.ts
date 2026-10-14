@@ -206,6 +206,38 @@ export const emergencyContact = pgTable("emergency_contact", {
   personIdx: index("emergency_contact_person_idx").on(t.organizationId, t.membershipId),
 }));
 
+/* ------------------------------------------------- a person's own address and phone */
+
+/**
+ * WHERE THE COMPANY CAN REACH A PERSON, kept by them.
+ *
+ * APPEND ONLY: each save is a new row holding the whole address and phone as
+ * they were after it, and the current one is the latest. Nothing is updated, so
+ * the office reads what changed and when by comparing a row with the one before
+ * it, and a person cannot rewrite what they once gave. Keyed on the membership,
+ * not the platform user, because one person can work for two companies and an
+ * address given to one is not the other's to read.
+ *
+ * `changed_by_user_id` is the person themselves today: the office reads these
+ * and does not write them.
+ */
+export const personContact = pgTable("person_contact", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  membershipId: uuid("membership_id").notNull().references(() => membership.id, { onDelete: "cascade" }),
+  /** E.164. */
+  phone: text("phone"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  changedByUserId: uuid("changed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  personIdx: index("person_contact_person_idx").on(t.organizationId, t.membershipId, t.createdAt),
+}));
+
 /* -------------------------------------------------------- employment record */
 
 export const employmentType = pgEnum("employment_type", [

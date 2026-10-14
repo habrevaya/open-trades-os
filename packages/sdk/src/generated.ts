@@ -242,6 +242,25 @@ export interface AddIncidentPhotoOutput {
   id: string;
 }
 
+export interface AddMileageRateInput {
+  from: string;
+  perMile: string;
+}
+
+export interface AddMileageRateOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
+}
+
 export interface AddMyEmergencyContactInput {
   name: string;
   relationship?: string | null;
@@ -1470,6 +1489,7 @@ export interface AssignVisitOutput {
   droppedSkills: Array<{
     skill: string;
     reason: string;
+    through?: string;
   }>;
 }
 
@@ -4910,6 +4930,8 @@ export interface DecideExpenseOutput {
   jobId: string | null;
   jobNumber: number | null;
   amount: string;
+  miles: string | null;
+  mileageRate: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -5894,6 +5916,7 @@ export interface DrillReportOutput {
 export interface DropJobSkillInput {
   skill: string;
   reason: string;
+  through?: string;
 }
 
 export interface DropJobSkillOutput {
@@ -5905,6 +5928,8 @@ export interface DropJobSkillOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -8361,10 +8386,13 @@ export interface GetFieldSnapshotOutput {
     financing: boolean;
     assistant: boolean;
     expenses: boolean;
+    mileageRate: string | null;
   };
   expenses: Array<{
     id: string;
     amount: string;
+    miles: string | null;
+    mileageRate: string | null;
     spentOn: string;
     description: string;
     jobNumber: number | null;
@@ -8831,6 +8859,8 @@ export interface GetJobExpensesOutput {
     jobId: string | null;
     jobNumber: number | null;
     amount: string;
+    miles: string | null;
+    mileageRate: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -9058,6 +9088,8 @@ export interface GetJobSkillsOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -9751,6 +9783,26 @@ export interface GetMyRecordOutput {
     note: string | null;
     priority: number;
   }>;
+  ownContact: {
+    contact: {
+      phone: string | null;
+      addressLine1: string | null;
+      addressLine2: string | null;
+      city: string | null;
+      state: string | null;
+      postalCode: string | null;
+      savedAt: string;
+    } | null;
+    changes: Array<{
+      at: string;
+      by: string | null;
+      changes: Array<{
+        field: "phone" | "address";
+        before: string;
+        after: string;
+      }>;
+    }>;
+  };
   onboarding: {
     lines: Array<{
       id: string;
@@ -9974,6 +10026,11 @@ export interface GetPayExtrasOutput {
     rule: "even" | "hours" | "lead";
     label: string;
   }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
 }
 
 export interface GetPaymentsStatusOutput {
@@ -10155,6 +10212,26 @@ export interface GetPersonRecordOutput {
     email: string;
     active: boolean;
   } | null;
+  ownContact: {
+    contact: {
+      phone: string | null;
+      addressLine1: string | null;
+      addressLine2: string | null;
+      city: string | null;
+      state: string | null;
+      postalCode: string | null;
+      savedAt: string;
+    } | null;
+    changes: Array<{
+      at: string;
+      by: string | null;
+      changes: Array<{
+        field: "phone" | "address";
+        before: string;
+        after: string;
+      }>;
+    }>;
+  };
   documents: Array<{
     requestId: string;
     documentId: string;
@@ -14220,6 +14297,8 @@ export interface ListExpensesOutput {
     jobId: string | null;
     jobNumber: number | null;
     amount: string;
+    miles: string | null;
+    mileageRate: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -15051,6 +15130,8 @@ export interface ListMyExpensesOutput {
     jobId: string | null;
     jobNumber: number | null;
     amount: string;
+    miles: string | null;
+    mileageRate: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -15080,6 +15161,7 @@ export interface ListMyExpensesOutput {
       closed: boolean;
     } | null;
   }>;
+  mileageRate: string | null;
 }
 
 export interface ListMyNoticesOutput {
@@ -19468,7 +19550,8 @@ export interface RecordExpenseInput {
   id?: string;
   jobId?: string | null;
   jobNumber?: number;
-  amount: string;
+  amount?: string;
+  miles?: string;
   spentOn: string;
   description: string;
   receipt?: {
@@ -19485,6 +19568,8 @@ export interface RecordExpenseOutput {
   jobId: string | null;
   jobNumber: number | null;
   amount: string;
+  miles: string | null;
+  mileageRate: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -20499,6 +20584,22 @@ export interface RemoveKnowledgeNoteOutput {
   removed: boolean;
 }
 
+export type RemoveMileageRateInput = Record<string, unknown>;
+
+export interface RemoveMileageRateOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
+}
+
 export type RemoveMyEmergencyContactInput = Record<string, unknown>;
 
 export interface RemoveMyEmergencyContactOutput {
@@ -21165,6 +21266,8 @@ export interface RestoreJobSkillOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -23068,6 +23171,8 @@ export interface SetJobSkillsOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -23191,6 +23296,36 @@ export interface SetMessagingCampaignStatusOutput {
   statusReason: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
+}
+
+export interface SetMyContactInput {
+  phone?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+}
+
+export interface SetMyContactOutput {
+  contact: {
+    phone: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    savedAt: string;
+  } | null;
+  changes: Array<{
+    at: string;
+    by: string | null;
+    changes: Array<{
+      field: "phone" | "address";
+      before: string;
+      after: string;
+    }>;
+  }>;
 }
 
 export interface SetMyNoticeSettingsInput {
@@ -23425,6 +23560,11 @@ export interface SetPayExtrasOutput {
     rule: "even" | "hours" | "lead";
     label: string;
   }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
 }
 
 export interface SetPlanPortalLayoutInput {
@@ -30659,6 +30799,10 @@ export interface RemoveKnowledgeNoteParams {
   id: string;
 }
 
+export interface RemoveMileageRateParams {
+  from: string;
+}
+
 export interface RemoveMyEmergencyContactParams {
   id: string;
 }
@@ -31603,6 +31747,7 @@ export interface OperationTypes {
   addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
+  addMileageRate: { input: AddMileageRateInput; output: AddMileageRateOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
   addNumberHoliday: { input: AddNumberHolidayParams & AddNumberHolidayInput; output: AddNumberHolidayOutput };
   addOnboardingTemplateItem: { input: AddOnboardingTemplateItemInput; output: AddOnboardingTemplateItemOutput };
@@ -32405,6 +32550,7 @@ export interface OperationTypes {
   removeEstimateOptionPhoto: { input: RemoveEstimateOptionPhotoParams & RemoveEstimateOptionPhotoInput; output: RemoveEstimateOptionPhotoOutput };
   removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
+  removeMileageRate: { input: RemoveMileageRateParams & RemoveMileageRateInput; output: RemoveMileageRateOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeNumberHoliday: { input: RemoveNumberHolidayParams & RemoveNumberHolidayInput; output: RemoveNumberHolidayOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
@@ -32549,6 +32695,7 @@ export interface OperationTypes {
   setMembershipActive: { input: SetMembershipActiveParams & SetMembershipActiveInput; output: SetMembershipActiveOutput };
   setMessagingBrandStatus: { input: SetMessagingBrandStatusParams & SetMessagingBrandStatusInput; output: SetMessagingBrandStatusOutput };
   setMessagingCampaignStatus: { input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput; output: SetMessagingCampaignStatusOutput };
+  setMyContact: { input: SetMyContactInput; output: SetMyContactOutput };
   setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
   setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
@@ -32747,6 +32894,7 @@ export const OPERATIONS = {
   addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
+  addMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   addNumberHoliday: { method: "POST", path: "/v1/phone-numbers/{id}/holidays", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -33549,6 +33697,7 @@ export const OPERATIONS = {
   removeEstimateOptionPhoto: { method: "DELETE", path: "/v1/estimate-option-photos/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
+  removeMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates/{from}/removal", pathParams: ["from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeNumberHoliday: { method: "DELETE", path: "/v1/phone-numbers/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -33693,6 +33842,7 @@ export const OPERATIONS = {
   setMembershipActive: { method: "POST", path: "/v1/memberships/{membershipId}/active", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setMessagingBrandStatus: { method: "POST", path: "/v1/messaging/brands/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMessagingCampaignStatus: { method: "POST", path: "/v1/messaging/campaigns/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setMyContact: { method: "POST", path: "/v1/me/contact", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -34005,6 +34155,15 @@ export abstract class GeneratedOperations {
    */
   addIncidentPhoto(input: AddIncidentPhotoParams & AddIncidentPhotoInput, options?: CallOptions): Promise<AddIncidentPhotoOutput> {
     return this.call("addIncidentPhoto", input, options);
+  }
+
+  /**
+   * Set what the company pays for one mile, from a day.
+   *
+   * POST /v1/payroll/mileage-rates. Needs payroll:configure.
+   */
+  addMileageRate(input: AddMileageRateInput, options?: CallOptions): Promise<AddMileageRateOutput> {
+    return this.call("addMileageRate", input, options);
   }
 
   /**
@@ -41226,6 +41385,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a mileage rate off.
+   *
+   * POST /v1/payroll/mileage-rates/{from}/removal. Needs payroll:configure.
+   */
+  removeMileageRate(input: RemoveMileageRateParams & RemoveMileageRateInput, options?: CallOptions): Promise<RemoveMileageRateOutput> {
+    return this.call("removeMileageRate", input, options);
+  }
+
+  /**
    * Take one of your emergency contacts off.
    *
    * POST /v1/me/emergency-contacts/{id}/remove. Needs profile:own.
@@ -42519,6 +42687,15 @@ export abstract class GeneratedOperations {
    */
   setMessagingCampaignStatus(input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput, options?: CallOptions): Promise<SetMessagingCampaignStatusOutput> {
     return this.call("setMessagingCampaignStatus", input, options);
+  }
+
+  /**
+   * Keep your own address and phone number.
+   *
+   * POST /v1/me/contact. Needs profile:own.
+   */
+  setMyContact(input: SetMyContactInput = {} as SetMyContactInput, options?: CallOptions): Promise<SetMyContactOutput> {
+    return this.call("setMyContact", input, options);
   }
 
   /**

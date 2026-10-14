@@ -62274,7 +62274,7 @@
       "post": {
         "operationId": "dropJobSkill",
         "summary": "Drop one of the job type's skills for this one job, with a reason",
-        "description": "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. Dropping a skill already dropped changes nothing.\n\nRequires a session holding: job:write, visit:assign_unqualified.",
+        "description": "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. `through` is the last day the drop holds, a company date that is today or later: from the next day the type's skill is asked of this job again, judged on the day of each visit, so a visit booked after it is checked for the skill. Without `through` the drop has no end. Dropping a skill whose drop still stands changes nothing, `through` included: to change an end, put the skill back and drop it again. Dropping a skill whose earlier drop has ended starts a new drop.\n\nRequires a session holding: job:write, visit:assign_unqualified.",
         "tags": [
           "M10"
         ],
@@ -74982,6 +74982,135 @@
         ]
       }
     },
+    "/v1/me/contact": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMyContact",
+        "summary": "Keep your own address and phone number",
+        "description": "Sends the whole of it: an empty box clears that part. The phone is kept as a dialable number; an address is the street, the town, the state (two letters) and the ZIP code, or none of it. United States addresses only. Saved as a new version only when it differs from the latest, so sending the same again changes nothing and is not audited. The office reads it, and what each save changed and when, on your page in the roster (`GET /v1/people/{membershipId}`, `user:read`); it never writes it. Always your own: there is no person to name.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMyContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Keep your own address and phone number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMyContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
     "/v1/me/continuing-education": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -75755,7 +75884,7 @@
       "post": {
         "operationId": "recordExpense",
         "summary": "Record what you paid for the company",
-        "description": "The amount in dollars and cents, the day, what it was for, the job if there was one and a photograph of the receipt. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.\n\nRequires a session holding: expense:own.",
+        "description": "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the company's mileage rate in force on `spentOn` (`POST /v1/payroll/mileage-rates`), to the cent, and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.\n\nRequires a session holding: expense:own.",
         "tags": [
           "M17"
         ],
@@ -83149,6 +83278,273 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:read"
+        ]
+      }
+    },
+    "/v1/payroll/mileage-rates": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addMileageRate",
+        "summary": "Set what the company pays for one mile, from a day",
+        "description": "`perMile` is dollars for one mile, up to three decimals (0.725), at most 3.000; `from` is the first day it applies. A claim entered as miles is worked out at the latest rate that starts on or before the day of the drive, and keeps it, so adding a rate never reprices a claim already made. A day that already has a rate is refused: take it off first. A rate may start in the past, for a claim not yet made. A statement about what people are owed, so `payroll:configure`. The rate is the company's choice; whether it is within what the tax authority allows without tax is the company's to check. Mileage is paid through payroll as a reimbursement and is not posted to the ledger.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMileageRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set what the company pays for one mile, from a day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddMileageRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/mileage-rates/{from}/removal": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removeMileageRate",
+        "summary": "Take a mileage rate off",
+        "description": "Takes off the rate that starts on `from`. Claims already made keep the rate they were worked out at; claims made from then on for those days use the rate before it, or are refused when there is none. Taking off a day that has no rate changes nothing. `payroll:configure`.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveMileageRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a mileage rate off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveMileageRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
         ]
       }
     },
@@ -141651,6 +142047,98 @@
           "id"
         ]
       },
+      "AddMileageRateInput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "perMile": {
+            "type": "string",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "from",
+          "perMile"
+        ]
+      },
+      "AddMileageRateOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "perDiemRate",
+          "tipSplit",
+          "rules",
+          "mileageRates",
+          "mileageRateToday"
+        ]
+      },
       "AddMyEmergencyContactInput": {
         "type": "object",
         "properties": {
@@ -147837,6 +148325,10 @@
                 },
                 "reason": {
                   "type": "string"
+                },
+                "through": {
+                  "type": "string",
+                  "format": "date"
                 }
               },
               "required": [
@@ -165656,6 +166148,18 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "miles": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mileageRate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "spentOn": {
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -165728,6 +166232,8 @@
           "jobId",
           "jobNumber",
           "amount",
+          "miles",
+          "mileageRate",
           "spentOn",
           "description",
           "status",
@@ -170429,6 +170935,10 @@
             "type": "string",
             "minLength": 5,
             "maxLength": 500
+          },
+          "through": {
+            "type": "string",
+            "format": "date"
           }
         },
         "required": [
@@ -170475,13 +170985,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -183096,6 +183618,12 @@
               },
               "expenses": {
                 "type": "boolean"
+              },
+              "mileageRate": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -183107,7 +183635,8 @@
               "tipping",
               "financing",
               "assistant",
-              "expenses"
+              "expenses",
+              "mileageRate"
             ]
           },
           "expenses": {
@@ -183122,6 +183651,18 @@
                 "amount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "miles": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "spentOn": {
                   "type": "string"
@@ -183156,6 +183697,8 @@
               "required": [
                 "id",
                 "amount",
+                "miles",
+                "mileageRate",
                 "spentOn",
                 "description",
                 "jobNumber",
@@ -186062,6 +186605,18 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "miles": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "spentOn": {
                   "type": "string",
                   "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -186134,6 +186689,8 @@
                 "jobId",
                 "jobNumber",
                 "amount",
+                "miles",
+                "mileageRate",
                 "spentOn",
                 "description",
                 "status",
@@ -186877,13 +187434,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -190468,6 +191037,121 @@
               ]
             }
           },
+          "ownContact": {
+            "type": "object",
+            "properties": {
+              "contact": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "addressLine1": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "addressLine2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "city": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "postalCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "savedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "phone",
+                  "addressLine1",
+                  "addressLine2",
+                  "city",
+                  "state",
+                  "postalCode",
+                  "savedAt"
+                ]
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "changes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "enum": [
+                              "phone",
+                              "address"
+                            ]
+                          },
+                          "before": {
+                            "type": "string"
+                          },
+                          "after": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "before",
+                          "after"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "by",
+                    "changes"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "contact",
+              "changes"
+            ]
+          },
           "onboarding": {
             "type": "object",
             "properties": {
@@ -191018,6 +191702,7 @@
           "technicianId",
           "employment",
           "emergencyContacts",
+          "ownContact",
           "onboarding",
           "documents",
           "certifications",
@@ -191716,12 +192401,39 @@
                 "label"
               ]
             }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "perDiemRate",
           "tipSplit",
-          "rules"
+          "rules",
+          "mileageRates",
+          "mileageRateToday"
         ]
       },
       "GetPaymentsStatusOutput": {
@@ -192658,6 +193370,121 @@
               "active"
             ]
           },
+          "ownContact": {
+            "type": "object",
+            "properties": {
+              "contact": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "addressLine1": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "addressLine2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "city": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "postalCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "savedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "phone",
+                  "addressLine1",
+                  "addressLine2",
+                  "city",
+                  "state",
+                  "postalCode",
+                  "savedAt"
+                ]
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "changes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "enum": [
+                              "phone",
+                              "address"
+                            ]
+                          },
+                          "before": {
+                            "type": "string"
+                          },
+                          "after": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "before",
+                          "after"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "by",
+                    "changes"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "contact",
+              "changes"
+            ]
+          },
           "documents": {
             "type": "array",
             "items": {
@@ -192720,6 +193547,7 @@
           "employment",
           "skills",
           "reportsTo",
+          "ownContact",
           "documents"
         ]
       },
@@ -214104,6 +214932,18 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "miles": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "spentOn": {
                   "type": "string",
                   "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -214176,6 +215016,8 @@
                 "jobId",
                 "jobNumber",
                 "amount",
+                "miles",
+                "mileageRate",
                 "spentOn",
                 "description",
                 "status",
@@ -218566,6 +219408,18 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "miles": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "spentOn": {
                   "type": "string",
                   "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -218638,6 +219492,8 @@
                 "jobId",
                 "jobNumber",
                 "amount",
+                "miles",
+                "mileageRate",
                 "spentOn",
                 "description",
                 "status",
@@ -218723,12 +219579,19 @@
                 "paidIn"
               ]
             }
+          },
+          "mileageRate": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "technician",
           "expenses",
-          "perDiems"
+          "perDiems",
+          "mileageRate"
         ]
       },
       "ListMyNoticesOutput": {
@@ -241082,6 +241945,10 @@
             "type": "string",
             "maxLength": 20
           },
+          "miles": {
+            "type": "string",
+            "maxLength": 10
+          },
           "spentOn": {
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -241116,7 +241983,6 @@
           }
         },
         "required": [
-          "amount",
           "spentOn",
           "description"
         ]
@@ -241151,6 +242017,18 @@
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "miles": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mileageRate": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "spentOn": {
             "type": "string",
@@ -241224,6 +242102,8 @@
           "jobId",
           "jobNumber",
           "amount",
+          "miles",
+          "mileageRate",
           "spentOn",
           "description",
           "status",
@@ -246175,6 +247055,85 @@
           "removed"
         ]
       },
+      "RemoveMileageRateInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveMileageRateOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "perDiemRate",
+          "tipSplit",
+          "rules",
+          "mileageRates",
+          "mileageRateToday"
+        ]
+      },
       "RemoveMyEmergencyContactInput": {
         "type": "object",
         "properties": {}
@@ -249127,13 +250086,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -258304,13 +259275,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -258865,6 +259848,168 @@
           "statusReason",
           "submittedAt",
           "approvedAt"
+        ]
+      },
+      "SetMyContactInput": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          }
+        }
+      },
+      "SetMyContactOutput": {
+        "type": "object",
+        "properties": {
+          "contact": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "addressLine1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "addressLine2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "savedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "phone",
+              "addressLine1",
+              "addressLine2",
+              "city",
+              "state",
+              "postalCode",
+              "savedAt"
+            ]
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "changes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string",
+                        "enum": [
+                          "phone",
+                          "address"
+                        ]
+                      },
+                      "before": {
+                        "type": "string"
+                      },
+                      "after": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "before",
+                      "after"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "at",
+                "by",
+                "changes"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contact",
+          "changes"
         ]
       },
       "SetMyNoticeSettingsInput": {
@@ -260039,12 +261184,39 @@
                 "label"
               ]
             }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "perDiemRate",
           "tipSplit",
-          "rules"
+          "rules",
+          "mileageRates",
+          "mileageRateToday"
         ]
       },
       "SetPlanPortalLayoutInput": {

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { schema, type Database } from "@opentradesos/db";
-import { can, customerPortal as cp, field, money as m, tax, time } from "@opentradesos/core";
+import { can, customerPortal as cp, field, money as m, payExtras as px, tax, time } from "@opentradesos/core";
 import type { z } from "zod";
 import { audit, guardedRead, timezoneOf, type ServiceContext } from "./context";
 import * as estimates from "./estimates";
@@ -10,6 +10,7 @@ import * as tasks from "./tasks";
 import * as taskChecklist from "./task-checklist";
 import * as tips from "./tips";
 import * as expenses from "./expenses";
+import { settingsWithin as payExtrasWithin } from "./pay-extras";
 import * as staffNotices from "./staff-notices";
 import * as financing from "./financing";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
@@ -645,13 +646,15 @@ export async function recordExpense(tx: Database, ctx: ServiceContext, op: field
   if (!technicianId) return "This phone is not registered to a technician, so there is nobody to pay it back to.";
   const id = uuid(op.subjectId);
   if (!id) return "That expense has no id.";
-  const amount = typeof op.payload["amount"] === "string" ? op.payload["amount"] : "";
+  /** Miles are sent as miles and worked out here at the company's rate on the day, never as an amount the phone made up. */
+  const miles = typeof op.payload["miles"] === "string" ? op.payload["miles"] : undefined;
+  const amount = typeof op.payload["amount"] === "string" ? op.payload["amount"] : miles === undefined ? "" : undefined;
   const spentOn = typeof op.payload["spentOn"] === "string" ? op.payload["spentOn"] : "";
   const description = typeof op.payload["description"] === "string" ? op.payload["description"] : "";
   const jobId = uuid(op.payload["jobId"]);
   return savepoint(tx, async (sp) => {
     await expenses.recordWithin(sp, ctx, technicianId, {
-      id, jobId, amount, spentOn, description, recordedAt: op.occurredAt,
+      id, jobId, amount, miles, spentOn, description, recordedAt: op.occurredAt,
     });
     return null;
   });
@@ -686,6 +689,8 @@ export async function expensesFor(tx: Database, technicianId: string) {
   return rows.map(({ expense, jobNumber, receipts }) => ({
     id: expense.id,
     amount: expense.amount,
+    miles: expense.miles,
+    mileageRate: expense.mileageRate,
     spentOn: expense.spentOn,
     description: expense.description,
     jobNumber: jobNumber ?? null,
@@ -1004,6 +1009,11 @@ export async function abilitiesFor(tx: Database, ctx: ServiceContext) {
     financing: lender !== null,
     assistant: assistant.enabled,
     expenses: can(ctx.actor, "expense:own"),
+    /** The rate in force today in the company's zone, so the phone offers miles only when there is one. */
+    mileageRate: px.mileageRateOn(
+      (await payExtrasWithin(tx, ctx.actor.organizationId)).mileageRates,
+      time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)),
+    )?.perMile ?? null,
   };
 }
 

@@ -5,7 +5,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { peopleRecords } from "@opentradesos/api/services";
 import { dropJobSkill, restoreJobSkill, setJobSkills } from "@opentradesos/api/contracts";
-import { attempt, parsed, type FormState } from "@/lib/actions";
+import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 /** The skills this job needs beyond its type, typed as a comma separated list. */
 export async function setJobSkillsAction(_previous: FormState, form: FormData): Promise<FormState> {
@@ -24,7 +24,11 @@ export async function dropJobSkillAction(_previous: FormState, form: FormData): 
   const state = await attempt(form, async () => {
     await peopleRecords.dropSkill(
       { actor: (await requireSetupUser()).actor, db: getDb() },
-      parsed(dropJobSkill.input, { id, skill: String(form.get("skill") ?? ""), reason: String(form.get("reason") ?? "") }),
+      parsed(dropJobSkill.input, {
+        id, skill: String(form.get("skill") ?? ""), reason: String(form.get("reason") ?? ""),
+        /** Left empty, the drop has no end. */
+        ...(field(form, "through") ? { through: field(form, "through") } : {}),
+      }),
     );
   });
   if (state?.done) revalidatePath(`/jobs/${id}`);

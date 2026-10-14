@@ -257,7 +257,7 @@ export default async function JobPage({ params, searchParams }: {
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
-      <RequiredSkills jobId={id} actor={user.actor} writes={writes} />
+      <RequiredSkills jobId={id} actor={user.actor} writes={writes} timezone={user.organizationTimezone} />
 
       <Origin jobId={id} job={job} sources={sources} attribution={attribution} writes={writes}
               timezone={user.organizationTimezone} />

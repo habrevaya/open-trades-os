@@ -263,6 +263,44 @@ export default async function PayRulesPage() {
         ) : null}
       </section>
 
+      <section className="mt-10" aria-labelledby="mileage-heading">
+        <h2 id="mileage-heading" className="text-base font-semibold">Mileage</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          What the company pays for one mile in a person&apos;s own vehicle. A claim in miles is worked out at the
+          rate that started on or before the day they drove, to the cent, and keeps that rate: adding or taking
+          off a line below never changes a claim already made. It is paid back with their pay like any other
+          expense, with no tax taken from it, which is only right while the rate is within what the tax
+          authority allows. That check is yours. It is not posted to the books.
+        </p>
+        <Facts>
+          <Fact label="A mile is worth today">
+            {extras.mileageRateToday ? `$${extras.mileageRateToday}` : "No rate has started, so nobody can claim miles"}
+          </Fact>
+        </Facts>
+        {extras.mileageRates.length > 0 ? (
+          <Table label="Mileage rates" head={<><Th>From</Th><Th className="text-right">A mile</Th><Th>{""}</Th></>}>
+            {[...extras.mileageRates].reverse().map((rate) => (
+              <tr key={rate.from}>
+                <Td className="whitespace-nowrap">{formatDay(rate.from, zone)}</Td>
+                <Td className="text-right tabular-nums">${rate.perMile}</Td>
+                <Td>
+                  {configures ? (
+                    <ActionForm action={act} submit={`Take off the rate from ${formatDay(rate.from, zone)}`} tone="danger"
+                                hidden={{ op: "mileageRemove", from: rate.from }} />
+                  ) : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        ) : null}
+        {configures ? (
+          <ActionForm action={act} submit="Add the rate" hidden={{ op: "mileageAdd" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+            <TextField label="Starting on" name="from" type="date" required defaultValue={today} />
+            <TextField label="Dollars for one mile" name="perMile" inputMode="decimal" required placeholder="0.725" />
+          </ActionForm>
+        ) : null}
+      </section>
+
       <section className="mt-10" aria-labelledby="people-heading">
         <h2 id="people-heading" className="text-base font-semibold">Who is paid at what</h2>
         {people.length === 0 ? (

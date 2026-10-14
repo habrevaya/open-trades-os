@@ -198,6 +198,17 @@ visit (a permit, a warranty registration, M29) come with the day too, of the
 kinds the technician may read, with every field that holds a value, under
 "Records on this job" on the phone and on `/my-day`. They are read only there.
 
+THE OFFICE'S NOTES (M03) are on the visit, under "Notes from the office", on the
+phone as on `/my-day`: the notes the office marked for the field, read from
+`customerNotes` on each visit of `GET /v1/field/snapshot`, pinned first and then
+newest first, at most twenty, each with who wrote it and the day in the company's
+zone. They ride in the day, so they read with no signal, and a note marked afterwards
+arrives on the next sync. They are read only on the phone: a note is written, pinned
+and fixed in the office, and a customer's other notes never reach the phone. The
+phone sorts them again itself (`customerNotesToShow` in `packages/field-client`), so
+a day saved by an older build cannot put a pinned note under an old remark, and the
+section is absent when the office marked none or the server is too old to send them.
+
 WHAT THE CUSTOMER SENT (M05) is on the visit too, under "From the customer": the
 photographs and PDFs the customer sent from their own account to this visit or its
 job, the broken unit before anybody arrives, newest first (`customerFiles` on each
@@ -344,6 +355,15 @@ on `/timesheets/expenses` and the answer, with the reason for a refusal in the
 office's own words, comes back in the day's `expenses` (the last sixty days) and
 moves the revision, so the next poll fetches it. Always the phone's own person
 (`expense:own`); an approved one is paid back through payroll (M17).
+
+A claim can be in miles instead of an amount (M17): "Or the miles you drove", offered
+only when the company has a mileage rate in force today (`abilities.mileageRate` in the
+day; with none the box is hidden). The phone sends `miles` on `expense.record` and no
+amount, never both, and checks them to a tenth with no signal; the server works the
+amount out at the rate in force on the day driven and sends it back in the day's
+`expenses` with `miles` and `mileageRate`. Until then the phone shows "18.4 miles", not
+a figure of its own, because it may not know the rate. The rate on the phone is as of
+its last fetch, and the server's rate on the day wins.
 
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes

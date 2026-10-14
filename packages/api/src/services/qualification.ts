@@ -155,15 +155,22 @@ export async function qualifyDays(
 
 /**
  * The skills a visit's work needs: its job type's less any this one job
- * dropped (`job.dropped_skills`), and whatever it asks for beyond them
- * (`job.required_skills`). Empty when neither says anything.
+ * dropped (`job.dropped_skills`) and that still stand on the day of the visit,
+ * and whatever it asks for beyond them (`job.required_skills`). Empty when
+ * neither says anything.
  */
 export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
   skills: string[]; windowStart: Date | null; windowEnd: Date | null;
-  /** What the job dropped from its type's skills, with why, so the answer can say it was not checked. */
-  dropped: { skill: string; reason: string }[];
+  /**
+   * What the job dropped from its type's skills and that stands on the day of the visit, with why and until
+   * when, so the answer can say it was not checked.
+   */
+  dropped: { skill: string; reason: string; through?: string }[];
+  /** Drops of this job that ended before the day of the visit, so the skill is asked again: said beside a refusal. */
+  ended: { skill: string; through: string }[];
 }> {
   const [row] = await tx.select({
+    organizationId: schema.visit.organizationId,
     skills: schema.jobType.requiredSkills,
     jobSkills: schema.job.requiredSkills,
     droppedSkills: schema.job.droppedSkills,
@@ -173,12 +180,29 @@ export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
     .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
     .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
     .where(eq(schema.visit.id, visitId)).limit(1);
+  /** The day of the work, as the gate reads it: the visit's day, or today for one with no window. */
+  const on = row ? await workDay(tx, row.organizationId, row.windowStart) : "";
   return {
-    skills: workSkills(row?.skills, row?.jobSkills, row?.droppedSkills),
+    skills: workSkills(row?.skills, row?.jobSkills, row?.droppedSkills, on),
     windowStart: row?.windowStart ?? null,
     windowEnd: row?.windowEnd ?? null,
-    dropped: liveDrops(row?.skills, row?.droppedSkills).map((d) => ({ skill: d.skill, reason: d.reason })),
+    dropped: liveDrops(row?.skills, row?.droppedSkills, on)
+      /** `through` only on a drop that has an end, so a drop without one reads as it always did. */
+      .map((d) => ({ skill: d.skill, reason: d.reason, ...(d.through ? { through: d.through } : {}) })),
+    ended: (row?.droppedSkills ?? [])
+      .filter((d): d is typeof d & { through: string } => Boolean(d.through) && q.dropEnded(d, on)
+        && q.normaliseSkills(row?.skills ?? []).includes(d.skill.trim()))
+      .map((d) => ({ skill: d.skill, through: d.through })),
   };
+}
+
+/**
+ * THE DAY A PIECE OF WORK IS ON, in the company's zone: the day its window
+ * starts, or today when it has none. The same day `gate` judges people on, so
+ * the skills asked for and the people checked against them are for one day.
+ */
+export async function workDay(tx: Database, organizationId: string, windowStart: Date | null): Promise<string> {
+  return time.dateIn(windowStart ?? new Date(), await timezoneOf(tx, organizationId));
 }
 
 /**
@@ -195,21 +219,66 @@ export function workSkills(
    * reads a job's skills cannot forget the drops and check a skill the office
    * said this job does not need.
    */
-  dropped: readonly { skill: string }[] | null | undefined,
+  dropped: readonly q.SkillDrop[] | null | undefined,
+  /**
+   * The day of the work, a company date. Required for the same reason: a drop
+   * can end, and a caller that forgot the day would either keep a drop alive
+   * for ever or never honour it.
+   */
+  on: string,
 ): string[] {
-  const gone = new Set(q.normaliseSkills((dropped ?? []).map((d) => d.skill)));
+  const gone = new Set(q.normaliseSkills((dropped ?? []).filter((d) => q.dropHolds(d, on)).map((d) => d.skill)));
   return q.normaliseSkills([
     ...q.normaliseSkills(typeSkills ?? []).filter((s) => !gone.has(s)),
     ...(jobSkills ?? []),
   ]);
 }
 
-/** The drops that still apply: only for a skill the job's type still asks for. */
-export function liveDrops<T extends { skill: string }>(
-  typeSkills: readonly string[] | null | undefined, dropped: readonly T[] | null | undefined,
+/** The drops that stand on a day: only for a skill the job's type still asks for, and not yet ended. */
+export function liveDrops<T extends q.SkillDrop>(
+  typeSkills: readonly string[] | null | undefined, dropped: readonly T[] | null | undefined, on: string,
 ): T[] {
   const type = new Set(q.normaliseSkills(typeSkills ?? []));
-  return (dropped ?? []).filter((d) => type.has(d.skill.trim()));
+  return (dropped ?? []).filter((d) => type.has(d.skill.trim()) && q.dropHolds(d, on));
+}
+
+/**
+ * QUALIFIED ON EACH DAY OF A RANGE, FOR ONE JOB'S OWN SKILLS.
+ *
+ * `qualifyDays` takes a fixed list of skills, and a job's list changes on the
+ * day after a drop ends. So the range is cut at each of those days, each piece
+ * is asked with the skills that hold in it, and a day reads the piece it is in.
+ * With no drop that ends inside the range it is one `qualifyDays` call, as it
+ * was.
+ */
+export async function qualifyDaysForWork(
+  tx: Database, organizationId: string,
+  input: {
+    technicianIds: readonly string[];
+    typeSkills: readonly string[] | null | undefined;
+    jobSkills: readonly string[] | null | undefined;
+    dropped: readonly q.SkillDrop[] | null | undefined;
+    from: string; until: string;
+  },
+): Promise<(date: string) => Map<string, q.QualificationVerdict>> {
+  const starts = [input.from, ...q.dropChangeDays(input.dropped ?? [], input.from, input.until)];
+  const pieces: { from: string; answer: (date: string) => Map<string, q.QualificationVerdict> }[] = [];
+  for (const [i, from] of starts.entries()) {
+    const next = starts[i + 1];
+    pieces.push({
+      from,
+      answer: await qualifyDays(tx, organizationId, {
+        technicianIds: input.technicianIds,
+        skills: workSkills(input.typeSkills, input.jobSkills, input.dropped, from),
+        from, until: next ? time.addDays(next, -1) : input.until,
+      }),
+    });
+  }
+  return (date) => {
+    let chosen = pieces[0]!;
+    for (const piece of pieces) if (piece.from <= date) chosen = piece;
+    return chosen.answer(date);
+  };
 }
 
 /**
@@ -264,6 +333,11 @@ export async function gate(
     windowStart: Date | null;
     windowEnd: Date | null;
     override?: { reason: string } | undefined;
+    /**
+     * Said at the end of a refusal that is about one of these skills: a drop on this job that ended, so the
+     * skill is asked again.
+     */
+    notes?: readonly { skill: string; text: string }[] | undefined;
   },
 ): Promise<QualificationOutcome> {
   const none = { overridden: false, refusals: [], unknown: [] };
@@ -284,7 +358,10 @@ export async function gate(
   if (!input.override) {
     throw new QualificationRefusedError(
       refusals.map((r) => r.refusal).join(" ")
-      + " Choose somebody who is, or have somebody allowed to send unqualified people do it with a reason.",
+      + " Choose somebody who is, or have somebody allowed to send unqualified people do it with a reason."
+      + (input.notes ?? [])
+        .filter((n) => refusals.some((r) => r.refusal.includes(n.skill)))
+        .map((n) => ` ${n.text}`).join(""),
       refusals,
     );
   }

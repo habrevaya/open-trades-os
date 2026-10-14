@@ -86,6 +86,20 @@ export interface FieldVisit {
    * Absent from older servers.
    */
   customerFiles?: FieldCustomerFile[] | undefined;
+  /**
+   * The office's notes on this customer that were marked for the field (M03), pinned first and then newest
+   * first, at most twenty. Read only on the phone. Absent from older servers.
+   */
+  customerNotes?: FieldCustomerNote[] | undefined;
+}
+
+export interface FieldCustomerNote {
+  id: string;
+  body: string;
+  notedAt: string;
+  pinned: boolean;
+  /** Who wrote it, or null for one carried over or brought in from a file. */
+  by: string | null;
 }
 
 export interface FieldCustomerFile {
@@ -237,12 +251,20 @@ export interface FieldAbilities {
   assistant: boolean;
   /** Whether this person may record what they paid for the company. Absent from older servers, which is read as no. */
   expenses?: boolean | undefined;
+  /**
+   * What the company pays for one mile today ("0.725"), or null when it has set none, which hides the claim in
+   * miles. As of the last fetch. Absent from older servers, which is read as none.
+   */
+  mileageRate?: string | null | undefined;
 }
 
 /** One of this person's own expenses and what the office said, as the server last said. */
 export interface FieldExpense {
   id: string;
   amount: string;
+  /** For a claim made in miles: the miles driven and the rate for one mile it was worked out at. Null otherwise. */
+  miles?: string | null | undefined;
+  mileageRate?: string | null | undefined;
   spentOn: string;
   description: string;
   jobNumber: number | null;

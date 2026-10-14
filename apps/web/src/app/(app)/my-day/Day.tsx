@@ -511,11 +511,12 @@ export function Day({
           <ExpensesPanel
             expenses={projected.expenses}
             today={today}
+            mileageRate={can.mileageRate ?? null}
             jobs={[...new Map(ordered.map((v) => [v.jobId, v])).values()]
               .map((v) => ({ jobId: v.jobId, jobNumber: v.jobNumber, customerName: v.customer.name }))}
             onSave={async (input) => {
               const checked = checkExpenseDraft(
-                { amount: input.amount, spentOn: input.spentOn, description: input.description, jobId: input.jobId }, today,
+                { amount: input.amount, miles: input.miles, spentOn: input.spentOn, description: input.description, jobId: input.jobId }, today,
               );
               if (!checked.ok) return checked.reason;
               let receipt: KeptReceipt | undefined;

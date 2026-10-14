@@ -1212,7 +1212,9 @@ async function assemble(
           expenseId: row.expense.id,
           personId: technicianId,
           amount: usd(row.expense.amount),
-          label: `Reimbursement: ${row.expense.description.slice(0, 80)}${row.jobNumber ? `, job ${row.jobNumber}` : ""}`,
+          /** A claim in miles says so, with the rate it was worked out at, so the bureau's copy shows where the figure came from. */
+          label: `Reimbursement: ${row.expense.description.slice(0, 80)}${
+            row.expense.miles ? ` (${row.expense.miles} miles at $${row.expense.mileageRate} a mile)` : ""}${row.jobNumber ? `, job ${row.jobNumber}` : ""}`,
           occurredAt: row.expense.decidedAt ?? row.expense.createdAt,
         })),
       perDiems: perDiemRows

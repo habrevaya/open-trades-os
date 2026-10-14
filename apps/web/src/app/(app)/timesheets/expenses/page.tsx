@@ -87,7 +87,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
               <Td>
                 {e.description}
                 <span className="block text-xs text-ink-500">
-                  {formatDay(e.spentOn, zone)}
+                  {e.miles ? `${e.miles} miles at $${e.mileageRate} a mile. ` : ""}{formatDay(e.spentOn, zone)}
                   {e.jobId
                     ? <>{", "}<Link href={`/jobs/${e.jobId}`} className="text-blue-600 underline underline-offset-4">job {e.jobNumber}</Link></>
                     : ", not for a job"}

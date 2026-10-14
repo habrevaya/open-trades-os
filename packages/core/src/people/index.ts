@@ -1,3 +1,5 @@
+import { phoneAddress } from "../comms/index.js";
+
 /**
  * M24. THE PERSON: ONBOARDING AND CONTINUING EDUCATION
  *
@@ -231,4 +233,125 @@ export function inviteStanding(input: {
         ? `The email did not go${input.emailNote ? ` (${input.emailNote})` : ""}, so send them the link yourself`
         : `Not emailed${input.emailNote ? ` (${input.emailNote})` : ""}, so send them the link yourself`;
   return { expired: false, sentence: `${how}. The link works until ${input.expiresOn}.` };
+}
+
+
+/* ------------------------------------------------- a person's own address and phone */
+
+/**
+ * WHERE THE COMPANY CAN REACH A PERSON, AS THEY KEEP IT THEMSELVES.
+ *
+ * A home address and a phone number go stale the day somebody moves or changes
+ * carrier, and the office is the last to hear. The person keeps their own; the
+ * office reads it and sees each change with the day it was made.
+ *
+ * The phone is kept in E.164 like every other number here, so it dials and texts
+ * the same everywhere. An address is all of street, town, state and ZIP or none of
+ * it: a street with no ZIP is an address nobody can mail a tax form to, and the
+ * person would not notice until one went missing. United States addresses only.
+ */
+export interface OwnContact {
+  phone: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+}
+
+export const NO_OWN_CONTACT: OwnContact = {
+  phone: null, addressLine1: null, addressLine2: null, city: null, state: null, postalCode: null,
+};
+
+export type OwnContactCheck = { ok: true; contact: OwnContact } | { ok: false; reason: string };
+
+const tidy = (value: string | null | undefined): string | null => {
+  const text = (value ?? "").trim().replace(/\s+/g, " ");
+  return text === "" ? null : text;
+};
+
+export function checkOwnContact(input: {
+  phone?: string | null | undefined;
+  addressLine1?: string | null | undefined;
+  addressLine2?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  postalCode?: string | null | undefined;
+}): OwnContactCheck {
+  const typedPhone = tidy(input.phone);
+  let phone: string | null = null;
+  if (typedPhone) {
+    const e164 = phoneAddress(typedPhone);
+    if (!/^\+[1-9]\d{7,14}$/.test(e164)) {
+      return { ok: false, reason: `${typedPhone} is not a phone number. Type it as you would dial it, for example (512) 555-0143.` };
+    }
+    phone = e164;
+  }
+  const address = {
+    addressLine1: tidy(input.addressLine1),
+    addressLine2: tidy(input.addressLine2),
+    city: tidy(input.city),
+    state: tidy(input.state),
+    postalCode: tidy(input.postalCode),
+  };
+  for (const [key, value] of Object.entries(address)) {
+    if (value && value.length > 120) return { ok: false, reason: `Keep each line of the address to a hundred and twenty characters (${key}).` };
+  }
+  const started = Object.values(address).some((value) => value !== null);
+  if (started) {
+    if (!address.addressLine1 || !address.city || !address.state || !address.postalCode) {
+      return {
+        ok: false,
+        reason: "An address needs the street, the town, the state and the ZIP code. Leave every address box empty to keep no address.",
+      };
+    }
+    if (!/^[A-Za-z]{2}$/.test(address.state)) {
+      return { ok: false, reason: "Give the state as two letters, like TX." };
+    }
+    address.state = address.state.toUpperCase();
+    if (!/^\d{5}(-\d{4})?$/.test(address.postalCode)) {
+      return { ok: false, reason: "The ZIP code is five digits, like 78701, or nine with a dash." };
+    }
+  }
+  return { ok: true, contact: { phone, ...address } };
+}
+
+/** The address on one line, or null when there is none. */
+export function ownAddressLine(contact: OwnContact): string | null {
+  if (!contact.addressLine1) return null;
+  const town = [contact.city, [contact.state, contact.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [contact.addressLine1, contact.addressLine2, town].filter(Boolean).join(", ");
+}
+
+/** A phone number as a person reads it: `(512) 555-0143` for a North American number, as stored otherwise. */
+export function ownPhoneWords(phone: string | null): string {
+  if (!phone) return "none";
+  const us = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(phone);
+  return us ? `(${us[1]}) ${us[2]}-${us[3]}` : phone;
+}
+
+export interface OwnContactChange {
+  field: "phone" | "address";
+  /** "none" when there was nothing. */
+  before: string;
+  after: string;
+}
+
+/**
+ * What differs between two versions, in words the office reads: the phone and the
+ * address, each only if it changed. The first version a person ever saves is
+ * compared with nothing, so it reads "none" to what they typed.
+ */
+export function ownContactChanges(before: OwnContact | null, after: OwnContact): OwnContactChange[] {
+  const was = before ?? NO_OWN_CONTACT;
+  const changes: OwnContactChange[] = [];
+  if (was.phone !== after.phone) {
+    changes.push({ field: "phone", before: ownPhoneWords(was.phone), after: ownPhoneWords(after.phone) });
+  }
+  const wasAddress = ownAddressLine(was);
+  const nowAddress = ownAddressLine(after);
+  if (wasAddress !== nowAddress) {
+    changes.push({ field: "address", before: wasAddress ?? "none", after: nowAddress ?? "none" });
+  }
+  return changes;
 }

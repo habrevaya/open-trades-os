@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  checkExpenseDraft, formatAmount, recordExpense, todayIn, type DayExpense, type KeptReceipt,
+  checkExpenseDraft, expenseFigure, recordExpense, todayIn, type DayExpense, type KeptReceipt,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { Button, Card, Field, Notice } from "../components/ui";
@@ -28,7 +28,10 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
   const expenses = field.view?.day.expenses ?? [];
   const jobs = [...new Map((field.view?.day.visits ?? []).map((v) => [v.jobId, v])).values()];
 
+  /** What the company pays for one mile today, or null when it has set none, which hides the claim in miles. */
+  const mileageRate = field.view?.abilities?.mileageRate ?? null;
   const [amount, setAmount] = useState("");
+  const [miles, setMiles] = useState("");
   const [what, setWhat] = useState("");
   const [day, setDay] = useState(today);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -48,7 +51,7 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
 
   const save = async () => {
     setSaved(false);
-    const checked = checkExpenseDraft({ amount, spentOn: day, description: what, jobId }, today);
+    const checked = checkExpenseDraft({ amount, miles, spentOn: day, description: what, jobId }, today);
     if (!checked.ok) { setProblem(checked.reason); return; }
     setProblem(null);
     const job = jobs.find((v) => v.jobId === jobId);
@@ -58,7 +61,7 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
       jobNumber: job?.jobNumber ?? null,
       ...(receipt ? { receipt } : {}),
     }));
-    setAmount(""); setWhat(""); setReceipt(null); setJobId(null); setDay(today);
+    setAmount(""); setMiles(""); setWhat(""); setReceipt(null); setJobId(null); setDay(today);
     setSaved(true);
   };
 
@@ -73,6 +76,15 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
 
         <Card>
           <Field label="What you paid" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="42.50" />
+          {mileageRate !== null ? (
+            <>
+              <Field label="Or the miles you drove" value={miles} onChangeText={setMiles} keyboardType="decimal-pad" placeholder="18.4" />
+              <Text style={type.soft}>
+                Your own vehicle. Fill in the miles or what you paid, not both. Miles are paid at ${mileageRate} a mile,
+                the rate for the day you drove, and the office sees the amount.
+              </Text>
+            </>
+          ) : null}
           <Field label="What it was for" value={what} onChangeText={setWhat} placeholder="Capacitor from the supply house" />
 
           <Text style={type.label}>Day</Text>
@@ -118,7 +130,7 @@ function ExpenseCard({ expense }: { expense: DayExpense }) {
     : "Waiting for the office";
   return (
     <Card>
-      <Text style={type.heading}>{formatAmount(expense.amount)}, {expense.description}</Text>
+      <Text style={type.heading}>{expenseFigure(expense)}, {expense.description}</Text>
       <Text style={type.soft}>
         {[dayHeading(expense.spentOn), expense.jobNumber ? `Job ${expense.jobNumber}` : "Not for a job",
           expense.receipts > 0 ? "Receipt kept" : "No receipt"].join(", ")}

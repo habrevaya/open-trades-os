@@ -370,7 +370,7 @@ const ORDER = [
    * invite; the email is gone with the other messages above.
    */
   "staff_document_request", "staff_document", "membership_invite",
-  "emergency_contact", "employment_record",
+  "emergency_contact", "person_contact", "employment_record",
   "certification_type",
   "custom_field_definition", "custom_object_type", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",

@@ -1,4 +1,4 @@
-import { type Money, allocate, compare, isPositive, isZero, money, round, split, zero } from "../money/index.js";
+import { type Money, allocate, compare, isPositive, isZero, money, multiply, round, split, zero } from "../money/index.js";
 import { addDays } from "../time/index.js";
 
 /**
@@ -34,10 +34,28 @@ export const TIP_SPLIT_LABEL: Record<TipSplitRule, string> = {
   lead: "All to the lead on the job",
 };
 
+/**
+ * What the company pays for one mile driven in a vehicle of the person's own, from a day. A list of these,
+ * oldest first, is the company's history of the rate: the one in force on a day is the latest that starts on
+ * or before it.
+ */
+export interface MileageRate {
+  /** The first day the rate applies, a company date. */
+  from: string;
+  /** Dollars for one mile, up to three decimals ("0.725"), because the tax authority's own rate has half cents. */
+  perMile: string;
+}
+
 export interface PayExtras {
   /** The company's allowance for one day away, as dollars and cents. Null until somebody sets it. */
   perDiemRate: string | null;
   tipSplit: TipSplitRule;
+}
+
+/** Everything the company chose beside hours: the above and what one mile is paid. */
+export interface PaySettings extends PayExtras {
+  /** Oldest first, one per starting day. Empty until somebody sets one, which means no mileage is paid. */
+  mileageRates: MileageRate[];
 }
 
 /**
@@ -51,6 +69,27 @@ export function readPayExtras(raw: unknown): PayExtras {
     : null;
   const rule = TIP_SPLIT_RULES.find((r) => r === blob["tipSplit"]) ?? "even";
   return { perDiemRate: rate, tipSplit: rule };
+}
+
+/** The whole blob: `readPayExtras` and the mileage rates, each read as defaults when they are nonsense. */
+export function readPaySettings(raw: unknown): PaySettings {
+  const blob = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return { ...readPayExtras(raw), mileageRates: readMileageRates(blob["mileageRates"]) };
+}
+
+/**
+ * The rates in the settings blob. A line that is not a rate is dropped rather than read as a guess, two lines
+ * for one day keep the first, and the answer is oldest first so a reader can take the last one that has begun.
+ */
+export function readMileageRates(raw: unknown): MileageRate[] {
+  const found = new Map<string, MileageRate>();
+  for (const line of Array.isArray(raw) ? raw : []) {
+    const entry = line && typeof line === "object" ? line as Record<string, unknown> : {};
+    if (typeof entry["from"] !== "string" || typeof entry["perMile"] !== "string") continue;
+    const checked = checkMileageRate({ from: entry["from"], perMile: entry["perMile"] });
+    if (checked.ok && !found.has(checked.rate.from)) found.set(checked.rate.from, checked.rate);
+  }
+  return [...found.values()].sort((a, b) => a.from.localeCompare(b.from));
 }
 
 /** The most a day away can be. A figure past this is a typing slip, and a slip here is paid daily. */
@@ -69,6 +108,94 @@ export function checkPerDiemRate(value: string): RateCheck {
     return { ok: false, reason: `A day away of more than ${MAX_PER_DIEM} is most likely a slip of the keys. Check the amount.` };
   }
   return { ok: true, rate: `${rate.amount / 10000n}.${String((rate.amount % 10000n) / 100n).padStart(2, "0")}` };
+}
+
+/* ------------------------------------------------------------ mileage */
+
+/** The most one mile can be paid. Past this is a typing slip (72 for 0.72), and a slip here is paid on every claim. */
+export const MAX_MILEAGE_RATE = "3.000";
+
+/** The most one claim may be, so a typed odometer reading is a slip and not a thousand dollars. */
+export const MAX_MILES = "2000.0";
+
+/** The earliest day a rate may start from. Earlier is a typing slip in the year. */
+export const EARLIEST_MILEAGE_DAY = "2000-01-01";
+
+const isDay = (day: string) => /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(Date.parse(`${day}T00:00:00Z`))
+  && new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
+
+export type MileageRateCheck = { ok: true; rate: MileageRate } | { ok: false; reason: string };
+
+/** A rate somebody typed: what one mile is paid, from the day it starts. */
+export function checkMileageRate(input: { from: string; perMile: string }): MileageRateCheck {
+  const typed = input.perMile.trim().replace(/^\$/, "");
+  if (!/^\d+(\.\d{1,3})?$/.test(typed)) {
+    return { ok: false, reason: "Say what one mile is paid in dollars, like 0.70 or 0.725." };
+  }
+  const rate = money(typed);
+  if (!isPositive(rate)) return { ok: false, reason: "A mile has to be paid more than nothing. Take the rate off to pay none." };
+  if (compare(rate, money(MAX_MILEAGE_RATE)) > 0) {
+    return { ok: false, reason: `A mile of more than ${MAX_MILEAGE_RATE} is most likely a slip of the keys, like 72 for 0.72. Check the amount.` };
+  }
+  if (!isDay(input.from)) return { ok: false, reason: "Say the first day the rate applies." };
+  if (input.from < EARLIEST_MILEAGE_DAY) return { ok: false, reason: "That day is too long ago to be right. Check the year." };
+  /** Three decimals always, so "0.7" and "0.700" are one rate and a line reads the same wherever it is shown. */
+  const [whole, fraction = ""] = typed.split(".");
+  return { ok: true, rate: { from: input.from, perMile: `${whole}.${fraction.padEnd(3, "0")}` } };
+}
+
+/**
+ * The company's rates with a new one in them, or why not. A rate for a day that already has one is refused,
+ * not replaced: claims already worked out keep the rate they were worked out at, so quietly changing a line
+ * would leave the list saying something the money does not. Take the wrong one off and add the right one.
+ */
+export function addMileageRate(
+  rates: readonly MileageRate[], input: { from: string; perMile: string },
+): { ok: true; rates: MileageRate[] } | { ok: false; reason: string } {
+  const checked = checkMileageRate(input);
+  if (!checked.ok) return checked;
+  if (rates.some((r) => r.from === checked.rate.from)) {
+    return { ok: false, reason: `There is already a rate from ${checked.rate.from}. Take it off first if it is wrong.` };
+  }
+  return { ok: true, rates: [...rates, checked.rate].sort((a, b) => a.from.localeCompare(b.from)) };
+}
+
+/** The rates without the one that starts on a day, or why not. */
+export function removeMileageRate(
+  rates: readonly MileageRate[], from: string,
+): { ok: true; rates: MileageRate[] } | { ok: false; reason: string } {
+  if (!rates.some((r) => r.from === from)) return { ok: false, reason: `There is no rate from ${from}.` };
+  return { ok: true, rates: rates.filter((r) => r.from !== from) };
+}
+
+/** The rate in force on a day: the latest one that starts on or before it. Null when none has started. */
+export function mileageRateOn(rates: readonly MileageRate[], day: string): MileageRate | null {
+  let found: MileageRate | null = null;
+  for (const rate of rates) if (rate.from <= day && (found === null || rate.from > found.from)) found = rate;
+  return found;
+}
+
+export type MilesCheck = { ok: true; miles: string } | { ok: false; reason: string };
+
+/** The miles somebody typed, to a tenth, written the way they are kept ("12.0"). */
+export function checkMiles(value: string): MilesCheck {
+  const typed = value.trim();
+  if (!/^\d+(\.\d)?$/.test(typed)) return { ok: false, reason: "Say the miles driven, to a tenth, like 18 or 18.4." };
+  const miles = money(typed);
+  if (!isPositive(miles)) return { ok: false, reason: "The miles have to be more than nothing." };
+  if (compare(miles, money(MAX_MILES)) > 0) {
+    return { ok: false, reason: `That is more than ${MAX_MILES} miles for one claim. Check the number, or ask the office.` };
+  }
+  const [whole, fraction = ""] = typed.split(".");
+  return { ok: true, miles: `${whole}.${fraction.padEnd(1, "0")}` };
+}
+
+/**
+ * What the miles are worth at the rate, to the cent, the half cent rounded up: 12.5 miles at 0.725 is
+ * 9.0625, paid as 9.06. Kept on the claim with the rate, so a rate changed later never reprices it.
+ */
+export function mileageAmount(miles: string, perMile: string): Money {
+  return round(multiply(money(perMile), miles), 2);
 }
 
 /* ------------------------------------------------------------ an expense */

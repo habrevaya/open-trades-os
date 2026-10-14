@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { checkExpenseDraft, formatAmount, type DayExpense } from "@opentradesos/field-client";
+import { checkExpenseDraft, expenseFigure, type DayExpense } from "@opentradesos/field-client";
 
 /**
  * MONEY I SPENT FOR THE COMPANY, ON THE PAGE
@@ -19,17 +19,20 @@ const field = "h-12 w-full rounded border border-steel-300 bg-canvas px-3 text-b
 
 export interface ExpenseJob { jobId: string; jobNumber: number; customerName: string }
 
-export function ExpensesPanel({ expenses, jobs, today, onSave }: {
+export function ExpensesPanel({ expenses, jobs, today, mileageRate, onSave }: {
   expenses: DayExpense[];
   jobs: ExpenseJob[];
   /** The company's date today, which is the day a receipt defaults to. */
   today: string;
+  /** What the company pays for one mile today, or null when it has set none, which hides the claim in miles. */
+  mileageRate: string | null;
   onSave: (input: {
-    amount: string; spentOn: string; description: string; jobId: string | null; jobNumber: number | null; receipt: File | null;
+    amount: string; miles: string; spentOn: string; description: string; jobId: string | null; jobNumber: number | null; receipt: File | null;
   }) => Promise<string | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
+  const [miles, setMiles] = useState("");
   const [what, setWhat] = useState("");
   const [day, setDay] = useState(today);
   const [jobId, setJobId] = useState("");
@@ -42,18 +45,18 @@ export function ExpensesPanel({ expenses, jobs, today, onSave }: {
 
   async function save() {
     setSaved(false);
-    const checked = checkExpenseDraft({ amount, spentOn: day, description: what, jobId: jobId || null }, today);
+    const checked = checkExpenseDraft({ amount, miles, spentOn: day, description: what, jobId: jobId || null }, today);
     if (!checked.ok) { setProblem(checked.reason); return; }
     setProblem(null);
     setBusy(true);
     try {
       const job = jobs.find((j) => j.jobId === jobId);
       const failed = await onSave({
-        amount: checked.amount, spentOn: checked.spentOn, description: checked.description,
+        amount: checked.amount ?? "", miles: checked.miles ?? "", spentOn: checked.spentOn, description: checked.description,
         jobId: checked.jobId, jobNumber: job?.jobNumber ?? null, receipt,
       });
       if (failed) { setProblem(failed); return; }
-      setAmount(""); setWhat(""); setReceipt(null); setJobId(""); setDay(today); setSaved(true);
+      setAmount(""); setMiles(""); setWhat(""); setReceipt(null); setJobId(""); setDay(today); setSaved(true);
     } finally {
       setBusy(false);
     }
@@ -82,6 +85,16 @@ export function ExpensesPanel({ expenses, jobs, today, onSave }: {
             <span className="text-sm font-medium">What you paid</span>
             <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="42.50" className={field} />
           </label>
+          {mileageRate !== null && (
+            <label className="block">
+              <span className="text-sm font-medium">Or the miles you drove</span>
+              <input value={miles} onChange={(e) => setMiles(e.target.value)} inputMode="decimal" placeholder="18.4" className={field} />
+              <span className="mt-1 block text-sm text-ink-500">
+                Your own vehicle. Fill in the miles or what you paid, not both. Miles are paid at ${mileageRate} a mile,
+                the rate for the day you drove, and the office sees the amount.
+              </span>
+            </label>
+          )}
           <label className="block">
             <span className="text-sm font-medium">What it was for</span>
             <input value={what} onChange={(e) => setWhat(e.target.value)} maxLength={300} placeholder="Capacitor from the supply house" className={field} />
@@ -113,7 +126,7 @@ export function ExpensesPanel({ expenses, jobs, today, onSave }: {
         <ul className="divide-y divide-steel-200 text-sm">
           {expenses.map((e) => (
             <li key={e.id} className="py-2">
-              <p className="font-medium">{formatAmount(e.amount)}, {e.description}</p>
+              <p className="font-medium">{expenseFigure(e)}, {e.description}</p>
               <p className="text-ink-500">
                 {[e.spentOn, e.jobNumber ? `Job ${e.jobNumber}` : "Not for a job", e.receipts > 0 ? "Receipt kept" : "No receipt"].join(", ")}
               </p>

@@ -26,6 +26,8 @@
  * moment one technician is recorded with it, the others are refused for it,
  * because from then on its absence on a profile means something.
  */
+import { nextDay } from "../time/index.js";
+
 
 /** M24's answer for one skill across the people asked about. */
 export type CertifiedState = "covered" | "lapsed" | "absent" | "uncertified";
@@ -119,4 +121,48 @@ export function judge(name: string, evidence: readonly SkillEvidence[]): Qualifi
 /** Trimmed, de-duplicated, empty strings dropped. A skill of "" matches nothing. */
 export function normaliseSkills(skills: readonly string[]): string[] {
   return [...new Set(skills.map((s) => s.trim()).filter((s) => s !== ""))];
+}
+
+/**
+ * A SKILL A JOB DROPPED, AND WHEN THE DROP ENDS.
+ *
+ * `through` is the last day the drop holds, a company date ("2026-10-20"),
+ * so a drop "through Oct 20" still holds on the 20th and the type's skill is
+ * asked again from the 21st. A drop with no `through` has no end, which is
+ * how every drop was made before ends existed. The day it is judged on is the
+ * day of the WORK (the visit's day), never the day somebody is looking: a
+ * visit booked for the 25th cannot slip through a drop that ends on the 20th
+ * just because it was assigned on the 18th.
+ */
+export interface SkillDrop {
+  skill: string;
+  through?: string | null | undefined;
+}
+
+/** Whether a drop still stands on a day: no end, or the day is not after it. */
+export function dropHolds(drop: Pick<SkillDrop, "through">, on: string): boolean {
+  return !drop.through || on <= drop.through;
+}
+
+/** Whether a drop has ended as of a day, which is said on the job as "asked again". */
+export function dropEnded(drop: Pick<SkillDrop, "through">, on: string): boolean {
+  return !dropHolds(drop, on);
+}
+
+/**
+ * The days inside a range on which the skills asked for change because a drop
+ * has just ended: the day after each `through` that falls from `from` up to
+ * but not including `until`, ascending and without repeats. A calendar that
+ * spans one has to ask twice.
+ */
+export function dropChangeDays(
+  drops: readonly Pick<SkillDrop, "through">[], from: string, until: string,
+): string[] {
+  const days = new Set<string>();
+  for (const drop of drops) {
+    if (!drop.through) continue;
+    const after = nextDay(drop.through);
+    if (after > from && after <= until) days.add(after);
+  }
+  return [...days].sort();
 }

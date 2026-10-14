@@ -7,8 +7,8 @@ import {
 import * as once from "./once";
 import { held, type HeldCertification } from "./people";
 import {
-  ceWithin, contactsWithin, employmentWithin, onboardingWithin, ownSkills,
-  type CeView, type EmergencyContactView, type EmploymentView, type OnboardingView, type SkillRecordView,
+  ceWithin, contactsWithin, employmentWithin, onboardingWithin, ownContactWithin, ownSkills,
+  type OwnContactRecord, type CeView, type EmergencyContactView, type EmploymentView, type OnboardingView, type SkillRecordView,
 } from "./people-records";
 import { attach, decode, put } from "./files";
 import { ownWithin, signWithin, signedPdfWithin, type OwnDocument, type SignInput } from "./staff-documents";
@@ -86,6 +86,8 @@ export async function selfWithin(tx: Database, ctx: ServiceContext): Promise<Sel
 export interface MyRecord extends Self {
   employment: EmploymentView | null;
   emergencyContacts: EmergencyContactView[];
+  /** The address and phone they keep themselves, and what each save changed. */
+  ownContact: OwnContactRecord;
   onboarding: OnboardingView;
   documents: OwnDocument[];
   /** Theirs only, lapsed and revoked included: a renewal list that drops what has run out is empty when it matters. */
@@ -105,6 +107,7 @@ export function record(ctx: ServiceContext): Promise<MyRecord> {
       ...self,
       employment: await employmentWithin(tx, self.membershipId),
       emergencyContacts: await contactsWithin(tx, self.membershipId),
+      ownContact: await ownContactWithin(tx, self.membershipId),
       onboarding: await onboardingWithin(tx, self.membershipId),
       documents: await ownWithin(tx, self.membershipId),
       certifications: self.technicianId
@@ -227,6 +230,50 @@ export function withdrawOwnContinuingEducation(ctx: ServiceContext, input: { id:
       .where(eq(schema.continuingEducation.id, row.id));
     await audit(tx, ctx, "continuing_education.withdrawn", "technician", row.technicianId, row, { by: "themselves" });
     return ceWithin(tx, row.technicianId);
+  });
+}
+
+/* ------------------------------------------------- their own address and phone */
+
+export interface OwnContactInput {
+  phone?: string | null | undefined;
+  addressLine1?: string | null | undefined;
+  addressLine2?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  postalCode?: string | null | undefined;
+}
+
+/**
+ * Keep their own address and phone. The whole of it is sent each time (an empty
+ * box clears that part), checked by core, and saved as a new version only when
+ * something differs from the latest, so sending the same thing again, or a
+ * retry, writes nothing. Always the signed in person's own: there is no person
+ * to name. The office does not write these; it reads them, and what each save
+ * changed, on the person's page and in the audit log.
+ */
+export function setOwnContact(ctx: ServiceContext, input: OwnContactInput): Promise<OwnContactRecord> {
+  return guardedWrite(ctx, "profile:own", async (tx) => {
+    const self = await selfWithin(tx, ctx);
+    const checked = peopleCore.checkOwnContact(input);
+    if (!checked.ok) throw new ConflictError(checked.reason);
+    const before = await ownContactWithin(tx, self.membershipId);
+    const was: peopleCore.OwnContact | null = before.contact
+      ? { phone: before.contact.phone, addressLine1: before.contact.addressLine1, addressLine2: before.contact.addressLine2,
+        city: before.contact.city, state: before.contact.state, postalCode: before.contact.postalCode }
+      : null;
+    /** Compared whole, so a second address line changing on its own is a change too. */
+    const same = JSON.stringify(was ?? peopleCore.NO_OWN_CONTACT) === JSON.stringify(checked.contact);
+    if (same) return before;
+    await tx.insert(schema.personContact).values({
+      organizationId: ctx.actor.organizationId,
+      membershipId: self.membershipId,
+      changedByUserId: ctx.actor.userId,
+      ...checked.contact,
+    });
+    await audit(tx, ctx, "person.contact_changed", "membership", self.membershipId,
+      was ?? peopleCore.NO_OWN_CONTACT, { ...checked.contact, by: "themselves" });
+    return ownContactWithin(tx, self.membershipId);
   });
 }
 
@@ -365,6 +412,7 @@ export const handlers = {
     ({ contacts: await addContact(ctx, input) }),
   removeMyEmergencyContact: async (ctx: ServiceContext, input: { id: string }) =>
     ({ contacts: await removeContact(ctx, input) }),
+  setMyContact: (ctx: ServiceContext, input: OwnContactInput) => setOwnContact(ctx, input),
   setMyOnboardingLine: (ctx: ServiceContext, input: { id: string; done: boolean; note?: string | null | undefined }) =>
     setOnboardingLine(ctx, input),
   logMyContinuingEducation: (ctx: ServiceContext, input: OwnCeInput) => logOwnContinuingEducation(ctx, input),

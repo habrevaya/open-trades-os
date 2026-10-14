@@ -8,9 +8,10 @@ import { Fact, Facts } from "@/components/Detail";
 import { Empty, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import {
-  addContact, logCeHours, removeContact, saveNoticeSwitches, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
+  addContact, saveOwnContact, logCeHours, removeContact, saveNoticeSwitches, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
 } from "./actions";
 import { SignDocument } from "./SignDocument";
+import { OwnContactChanges } from "@/components/OwnContactChanges";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +131,24 @@ export default async function MyRecordPage() {
             </ul>
           </>
         )}
+      </section>
+
+      <section className="mt-8" aria-labelledby="reach">
+        <h2 id="reach" className="text-base font-semibold">Your phone and address</h2>
+        <p className="mt-1 text-sm text-ink-700">
+          Keep these right yourself, so the office can reach you and mail you what you need. When you change
+          them, the office sees what changed and when. Leave a box empty to take it off.
+        </p>
+        <ActionForm action={saveOwnContact} submit="Save" className="mt-3 grid gap-3 sm:grid-cols-2">
+          <TextField label="Your phone number" name="phone" type="tel" maxLength={40}
+                     defaultValue={record.ownContact.contact?.phone ?? ""} placeholder="(512) 555-0143" className="block sm:col-span-2" />
+          <TextField label="Street" name="addressLine1" maxLength={120} defaultValue={record.ownContact.contact?.addressLine1 ?? ""} />
+          <TextField label="Apartment or unit (if any)" name="addressLine2" maxLength={120} defaultValue={record.ownContact.contact?.addressLine2 ?? ""} />
+          <TextField label="Town" name="city" maxLength={100} defaultValue={record.ownContact.contact?.city ?? ""} />
+          <TextField label="State (two letters)" name="state" maxLength={2} defaultValue={record.ownContact.contact?.state ?? ""} placeholder="TX" />
+          <TextField label="ZIP code" name="postalCode" maxLength={10} inputMode="numeric" defaultValue={record.ownContact.contact?.postalCode ?? ""} />
+        </ActionForm>
+        <OwnContactChanges record={record.ownContact} timezone={zone} />
       </section>
 
       <section className="mt-8" aria-labelledby="contacts">

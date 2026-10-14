@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { MoneyString, Uuid } from "./common";
 import { RegisterLine } from "./payroll";
-import { CeSchema } from "./people-records";
+import { CeSchema, OwnContactRecord } from "./people-records";
 import { Base64Bytes } from "./files";
 
 /**
@@ -90,6 +90,8 @@ export const getMyRecord = defineRoute({
       employmentType: z.string(), payType: z.string(), payrollReference: z.string().nullable(),
     }).nullable(),
     emergencyContacts: z.array(Contact),
+    /** The address and phone you keep yourself, and what each save changed. */
+    ownContact: OwnContactRecord,
     onboarding: Onboarding,
     documents: z.array(OwnDocument),
     certifications: z.array(Certification),
@@ -107,6 +109,26 @@ export const getMyRecord = defineRoute({
     /** The certifications you can log continuing education hours toward. */
     continuingEducationKinds: z.array(z.object({ id: Uuid, name: z.string(), hoursRequired: z.string().nullable() })),
   }),
+});
+
+export const setMyContact = defineRoute({
+  method: "post",
+  path: "/v1/me/contact",
+  summary: "Keep your own address and phone number",
+  description:
+    "Sends the whole of it: an empty box clears that part. The phone is kept as a dialable number; an address is the street, the town, the state (two letters) and the ZIP code, or none of it. United States addresses only. Saved as a new version only when it differs from the latest, so sending the same again changes nothing and is not audited. The office reads it, and what each save changed and when, on your page in the roster (`GET /v1/people/{membershipId}`, `user:read`); it never writes it. Always your own: there is no person to name.",
+  module: "M24",
+  permissions: ["profile:own"],
+  idempotent: true,
+  input: z.object({
+    phone: z.string().max(40).nullable().optional(),
+    addressLine1: z.string().max(200).nullable().optional(),
+    addressLine2: z.string().max(200).nullable().optional(),
+    city: z.string().max(100).nullable().optional(),
+    state: z.string().max(50).nullable().optional(),
+    postalCode: z.string().max(20).nullable().optional(),
+  }),
+  output: OwnContactRecord,
 });
 
 export const addMyEmergencyContact = defineRoute({
@@ -312,7 +334,7 @@ export const askToSignStaffDocument = defineRoute({
 });
 
 export const selfServiceRoutes = {
-  getMyRecord, addMyEmergencyContact, removeMyEmergencyContact, setMyOnboardingLine, signMyDocument,
+  getMyRecord, setMyContact, addMyEmergencyContact, removeMyEmergencyContact, setMyOnboardingLine, signMyDocument,
   logMyContinuingEducation, withdrawMyContinuingEducation,
   getMyPayStatements,
   listStaffDocuments, getStaffDocument, createStaffDocument, retireStaffDocument, askToSignStaffDocument,

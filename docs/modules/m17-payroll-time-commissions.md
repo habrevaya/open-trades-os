@@ -302,6 +302,33 @@ leaves the expense approved and unpaid, and the office's screen says so beside i
 The close's fingerprint covers approved expenses and days away, so an edit after the
 close is refused at the export like any other.
 
+**Miles.** A claim can be entered as miles driven in the person's own vehicle instead of an
+amount: `miles` (to a tenth, at most 2000.0 for one claim) in place of `amount` on
+`POST /v1/me/expenses`, never both. The company sets what one mile is paid on
+`/payroll/pay-rules` under "Mileage": `POST /v1/payroll/mileage-rates` adds a line (`from`, the first
+day it applies, and `perMile`, dollars to three decimals because the tax authority's own rate
+has half cents, at most 3.000) and `POST /v1/payroll/mileage-rates/{from}/removal` takes one off
+(`payroll:configure`, which the office manager does not hold; the owner and the accountant do).
+`GET /v1/payroll/pay-extras` returns the lines, oldest first, and the rate in force today. A claim
+is worked out by the server, never by the caller, at the rate in force on the day of the drive
+(`spentOn`, not the day it was typed): the latest line that starts on or before it. Miles times
+the rate is rounded to the cent, the half cent up (12.5 miles at 0.725 is 9.0625, paid as 9.06). The
+miles, the rate and the amount are kept on the claim (`expense.miles`, `expense.mileage_rate`), so
+adding or taking off a line never reprices a claim already made, and the same claim sent again
+keeps the first rate. With no rate in force on that day the claim is refused in words and says
+so; there is no guessing at the nearest rate. A line for a day that already has one is refused
+rather than replaced, because claims worked out at it keep it: take it off and add the right one.
+It is approved, exported and counted in the job's cost exactly like any other expense; the same
+`reimbursement` pay category carries it, the register and statement line says "(12.5 miles at
+$0.725 a mile)" so the bureau's copy shows where the figure came from, and the office sees the
+miles and the rate beside the amount on `/timesheets/expenses`. It is not posted to the ledger,
+for the reason a receipt is not. The person enters miles on `/me/expenses`, on `/my-day` and on the
+phone app, each only when a rate is in force today (the phone is told it with the day,
+`abilities.mileageRate`, and hides the box otherwise); the phone sends miles as `miles` on
+`expense.record` and shows "18.4 miles" until the server has worked the amount out, so it never
+shows a figure it made up. The phone's rate is as of its last fetch: the server works the claim
+out at the rate on the day whatever the phone showed.
+
 A per diem is the company's rate for one day away. `POST /v1/payroll/pay-extras`
 (`payroll:configure`) sets it, on `/payroll/pay-rules` under "A day away", and
 `GET /v1/payroll/pay-extras` reads it (`timesheet:read`). No rate means no per diem is
@@ -313,11 +340,16 @@ period is refused, and `POST /v1/per-diem/{id}/removal` takes a wrong one back o
 its period is open. `GET /v1/per-diem` lists them. A per diem is exported as `per_diem`,
 the same way, and the office does it on `/timesheets/expenses`.
 
-**Two judgements the product owner has not made, and the conservative reading taken.**
+**Three judgements the product owner has not made, and the conservative reading taken.**
 A per diem is paid with no tax taken from it, which is only right while it is within
 what the tax authority allows for the place and the day (an accountable plan), and
 that check is the company's: the screen says so beside the rate. And a receipt is not
-required to record an expense; the office sees "No receipt" and decides.
+required to record an expense; the office sees "No receipt" and decides. And a mileage rate is
+the company's to set and its to keep within the tax authority's own rate, which this product
+does not know or check: nothing is preloaded, so no mileage is paid until the owner or the
+accountant adds a line, and a mile is paid with no tax taken, which is only right within that
+rate (the screen says so beside it). The rate is read on the day driven, never the day typed or
+approved, so a claim made late for last year uses last year's rate.
 
 **On the job.** Approved reimbursements and per diem days for a job are in its cost:
 `expenseCost` on `GET /v1/jobs/{jobId}/expenses` (`job.cost:read`) and on the job's
@@ -518,9 +550,15 @@ the technician, and by the office when they did not or got it wrong, on
 rule for the whole company: there is no rule per job or per technician, and "hours" is
 the hours clocked against the job, not against one visit of it. Reimbursements and per diem
 are recorded, decided and exported, but not posted to the ledger, only for people on
-the board, and a decision on a reimbursement cannot be taken back; there is no mileage
-rate, no per diem that varies by place or by meal, and nothing checks a per diem
-against the tax authority's allowance. Certified payroll reporting is not built. A commission
+the board, and a decision on a reimbursement cannot be taken back. A mileage rate is one
+company wide figure from a day: there is no rate per person, per vehicle or per kind of work, no
+odometer or trip log behind the miles (they are what the person types, and the office
+decides), no distance worked out from the addresses, and nothing checks the rate or the miles against the
+tax authority's rate. A claim in miles is not repriced when its rate is wrong: it is refused by the
+office and entered again. There is no per diem that varies by place or by meal, and nothing checks
+a per diem against the tax authority's allowance: the company has one rate for a day away, and a
+list of places with an amount each was left out because a day away is recorded by the office for a
+whole span of days and a span that crosses places has no single answer. Certified payroll reporting is not built. A commission
 several people share is settled from the split screen one invoice at a time:
 there is no settling a page of them at once, no standing rule per job type or
 per person (a salesperson's fixed share, say), and nothing settles a commission
