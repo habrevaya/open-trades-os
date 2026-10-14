@@ -185,6 +185,11 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     source_key: "The id a row's record was given as its provenance: the file's own id, code or "
       + "number, or a hash of the row. The same value is on the record itself.",
   },
+  sync_run_document: {
+    idempotency_key: "The number a document was sent to the books under (an invoice's number, OTJ and a "
+      + "journal's), copied from its accounting link so a sync's history says what went. A key in the "
+      + "sense of a lookup, not a credential.",
+  },
   staff_notice: {
     source_key: "What raised a notice to somebody, such as task_escalation and the escalation's id, "
       + "which stops the same thing telling them twice. A key in the sense of a lookup, not a credential.",

@@ -128,10 +128,15 @@ export const customer = pgTable("customer", {
    * contact on this customer, checked when it is set and again when the run
    * sends, because the run sends with nobody watching and a copy to somebody
    * who is not the customer's is somebody else's account in a stranger's
-   * inbox. Set null when the contact is removed for good.
+   * inbox.
+   *
+   * NOT A FOREIGN KEY, deliberately. `contact` already points at `customer`,
+   * and a key back would make the two a ring that a restore has to break
+   * somewhere (`portability.loadOrder`). The id is checked whenever it is read
+   * instead: a contact removed or moved since is not this customer's, and no
+   * copy goes.
    */
-  statementCopyContactId: uuid("statement_copy_contact_id")
-    .references((): AnyPgColumn => contact.id, { onDelete: "set null" }),
+  statementCopyContactId: uuid("statement_copy_contact_id"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

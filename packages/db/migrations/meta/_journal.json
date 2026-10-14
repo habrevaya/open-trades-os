@@ -897,6 +897,13 @@
       "when": 1791973508478,
       "tag": "0127_loud_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1791977894962,
+      "tag": "0128_fresh_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }
