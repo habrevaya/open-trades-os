@@ -214,6 +214,19 @@ numbers it sends from, and its call recording policy. All of these need
 phone, email and postal address are changed on `/settings` and
 `/setup/company` (one form, drawn on both) or with `PATCH /v1/company`.
 
+The logo is a PNG, JPEG, GIF, WebP or ICO of up to 512 KB, decided from its
+bytes; the server refuses an SVG outright, because one served from the
+application's own address could run script. The estimate and invoice PDFs print
+only a PNG or a JPEG, so a WebP or an SVG chosen on `/settings` is turned into a
+PNG by the browser before it is sent: the browser draws it as a picture (for an
+SVG, the mode in which nothing in it runs and nothing it names is fetched), at
+most 1200 pixels on its longest side and smaller until it fits, and sends the
+PNG. The server only ever receives the PNG. An SVG that does not say how big it
+is, or a browser that will not read the drawing back, is refused on the screen
+with a plain "export it as a PNG". When the logo kept now cannot be printed (a
+WebP from before, a GIF or an ICO), the screen says the PDFs leave it off and
+that uploading it again here fixes it.
+
 The phone, email and address are printed under the company's name on the
 proposal, the statement, the invoice, proposal and statement PDFs, and the
 header of every page a customer opens from a link. Each is optional and

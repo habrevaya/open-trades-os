@@ -85,6 +85,7 @@ export default async function SignedInAccountPage({
         estimatePdfHref={(estimateId) => `${base}/account/estimates/${estimateId}/pdf`}
         fileHref={(fileId) => `${base}/account/files/${fileId}`}
         bookHref={`${base}/account/book`}
+        sendFileHref={`${base}/account/your-files`}
         referral={referral ? <ReferralBlock referral={referral} /> : null}
         top={(
           <>

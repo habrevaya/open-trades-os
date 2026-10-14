@@ -1,7 +1,12 @@
 "use client";
 
+import { useState, type ChangeEvent } from "react";
 import { useKeptAction } from "@/lib/use-kept-action";
+import { printableLogo } from "@/lib/printable-logo";
 import { setBrandColor, setBrandAsset, clearBrandAsset } from "./actions";
+
+/** The logo's limit, as core's `branding.MAX_BYTES` has it. */
+const LOGO_BYTES = 512 * 1024;
 
 /**
  * MAKING IT LOOK LIKE THEIR COMPANY
@@ -14,13 +19,15 @@ import { setBrandColor, setBrandAsset, clearBrandAsset } from "./actions";
  * colour gets used as a fill with words on it and as the words themselves,
  * and the second is where a real company's colour fails.
  */
-export function Branding({ color, on, text, hasLogo, hasFavicon, version }: {
+export function Branding({ color, on, text, hasLogo, hasFavicon, version, logoPrints = true }: {
   color: string | null;
   on: string | null;
   text: string | null;
   hasLogo: boolean;
   hasFavicon: boolean;
   version: number;
+  /** Whether the estimate and invoice PDFs can print the logo kept now. */
+  logoPrints?: boolean;
 }) {
   return (
     <section className="mt-10">
@@ -35,7 +42,10 @@ export function Branding({ color, on, text, hasLogo, hasFavicon, version }: {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <AssetForm
           kind="logo" label="Logo" present={hasLogo} version={version}
-          hint="PNG, JPEG, GIF, WebP or ICO, up to 512 KB. Shown in the corner of every screen and on what your customers open."
+          hint="PNG, JPEG, GIF, WebP, ICO or SVG, up to 512 KB. Shown in the corner of every screen and on what your customers open. A WebP or an SVG is turned into a PNG before it is sent, so it prints on your estimates and invoices."
+          {...(hasLogo && !logoPrints ? {
+            warning: "Your estimate and invoice PDFs leave this logo off: a PDF cannot carry its kind of picture. Upload it again here and it is turned into a PNG that prints.",
+          } : {})}
         />
         <AssetForm
           kind="favicon" label="Favicon" present={hasFavicon} version={version}
@@ -48,8 +58,10 @@ export function Branding({ color, on, text, hasLogo, hasFavicon, version }: {
           Said plainly, because somebody will try and the refusal on its own
           would look arbitrary. It is a real decision, not a limitation.
         */}
-        SVG is deliberately not accepted. An SVG can carry script, and these
-        are served from the same address as the application.
+        An SVG is never stored. It can carry script, and these are served from
+        the same address as the application, so your browser draws it as a
+        plain picture, where nothing in it can run or fetch anything, and sends
+        that picture as a PNG.
       </p>
     </section>
   );
@@ -109,15 +121,43 @@ function ColorForm({ color, on, text }: {
   );
 }
 
-function AssetForm({ kind, label, hint, present, version }: {
+function AssetForm({ kind, label, hint, present, version, warning }: {
   kind: "logo" | "favicon";
   label: string;
   hint: string;
   present: boolean;
   version: number;
+  warning?: string;
 }) {
   const [state, submitForm, pending] = useKeptAction(setBrandAsset, null);
   const [, clearForm, clearing] = useKeptAction(clearBrandAsset, null);
+  const [note, setNote] = useState<{ text: string; problem: boolean } | null>(null);
+  const [converting, setConverting] = useState(false);
+
+  /**
+   * A logo that is a WebP or an SVG is swapped, in the box, for the PNG of
+   * it before anything is sent (`printableLogo`). A favicon is left alone:
+   * it never goes on a PDF, and an SVG one is refused by the server.
+   */
+  async function onChoose(event: ChangeEvent<HTMLInputElement>) {
+    setNote(null);
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (kind !== "logo" || !file) return;
+    setConverting(true);
+    const made = await printableLogo(file, LOGO_BYTES);
+    setConverting(false);
+    if (made.kind === "unchanged") return;
+    if (made.kind === "refused" || typeof DataTransfer === "undefined") {
+      input.value = "";
+      setNote({ text: made.kind === "refused" ? made.problem : "This browser cannot change the file. Upload a PNG.", problem: true });
+      return;
+    }
+    const swap = new DataTransfer();
+    swap.items.add(made.file);
+    input.files = swap.files;
+    setNote({ text: `Your ${made.from} will be sent as a PNG, so it prints on PDFs.`, problem: false });
+  }
 
   return (
     <div className="rounded-lg border border-steel-200 bg-canvas p-4">
@@ -147,10 +187,14 @@ function AssetForm({ kind, label, hint, present, version }: {
             core, and this attribute is trivially bypassed by anybody who
             wants to, which is exactly why nothing depends on it.
           */
-          accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon"
+          accept={kind === "logo"
+            ? "image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/svg+xml,.svg"
+            : "image/png,image/jpeg,image/gif,image/webp,image/x-icon"}
+          aria-label={`${label} file`}
+          onChange={onChoose}
           className="max-w-full text-sm file:mr-2 file:rounded file:border file:border-steel-300 file:bg-canvas file:px-2 file:py-1 file:text-sm"
         />
-        <button type="submit" disabled={pending}
+        <button type="submit" disabled={pending || converting}
                 className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100 disabled:opacity-60">
           {pending ? "Saving" : present ? "Replace" : "Upload"}
         </button>
@@ -166,6 +210,12 @@ function AssetForm({ kind, label, hint, present, version }: {
         </form>
       )}
 
+      {note ? (
+        <p role={note.problem ? "alert" : "status"} className={`mt-2 text-sm ${note.problem ? "text-red-600" : "text-ink-700"}`}>
+          {note.text}
+        </p>
+      ) : null}
+      {warning ? <p className="mt-2 text-sm text-amber-700">{warning}</p> : null}
       {state && "error" in state && state.error ? (
         <p role="alert" className="mt-2 text-sm text-red-600">{state.error}</p>
       ) : null}

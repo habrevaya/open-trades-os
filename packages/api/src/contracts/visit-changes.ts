@@ -17,9 +17,10 @@ const Token = z.string().min(20).max(200);
 
 /**
  * `proposed` is the office offering a different time and waiting for the
- * customer; `accepted` and `turned_down` are the customer's answer to it.
+ * customer; `accepted` and `turned_down` are the customer's answer to it, and
+ * `withdrawn` is the office taking it back before they answered.
  */
-const Status = z.enum(["pending", "approved", "declined", "superseded", "proposed", "accepted", "turned_down"]);
+const Status = z.enum(["pending", "approved", "declined", "superseded", "proposed", "accepted", "turned_down", "withdrawn"]);
 
 const Slot = z.object({
   date: z.string().date(),
@@ -209,7 +210,7 @@ export const listVisitChangeTimes = defineRoute({
   path: "/v1/visit-change-requests/{id}/times",
   summary: "The times the office could offer instead",
   description:
-    "The windows online booking would offer for the visit's work, with this request's own hold and the visit left out of the count. Empty for a cancellation, an answered request, or work not booked online.",
+    "The windows online booking would offer for the visit's work, with this request's own hold and the visit left out of the count. Empty for a cancellation, a request answered for good, or work not booked online; a request waiting, one whose offer was turned down and one whose offer was taken back can be offered a time.",
   module: "M05",
   permissions: ["visit:read"],
   input: z.object({ id: Uuid, from: z.string().date().optional(), days: z.number().int().min(1).max(60).optional() }),
@@ -221,7 +222,7 @@ export const proposeVisitChangeTime = defineRoute({
   path: "/v1/visit-change-requests/{id}/propose",
   summary: "Offer the customer a different time",
   description:
-    "Nothing moves. The customer is sent the time with a link to say yes or no, by text where they can be texted and by email otherwise, and the time is held against its window while they decide. `response` is sent to them as written. Only for a request to move a visit, and only a time online booking would offer.",
+    "Nothing moves. The customer is sent the time with a link to say yes or no, by text where they can be texted and by email otherwise, and the time is held against its window while they decide. `response` is sent to them as written. Only for a request to move a visit, and only a time online booking would offer. A request whose offer the customer turned down, or the office took back, can be offered another time, unless the customer has asked something new about the visit since.",
   module: "M05",
   permissions: ["visit:reschedule"],
   idempotent: true,
@@ -234,8 +235,21 @@ export const proposeVisitChangeTime = defineRoute({
   output: RequestView,
 });
 
+export const withdrawVisitChangeOffer = defineRoute({
+  method: "post",
+  path: "/v1/visit-change-requests/{id}/withdraw",
+  summary: "Take back a time offered to the customer, before they answer",
+  description:
+    "Only an offer still waiting for the customer. The visit stays where it was, the time stops being held against its window, the customer is told (by text where they can be texted and by email otherwise) and their link says the time was taken back. `response` is sent to them as written. The office can then offer another time from the same request. Taking back one already taken back changes nothing; one the customer has answered is refused.",
+  module: "M05",
+  permissions: ["visit:reschedule"],
+  idempotent: true,
+  input: z.object({ id: Uuid, response: z.string().max(1000).optional() }),
+  output: RequestView,
+});
+
 export const visitChangeRoutes = {
   getPortalVisitChange, requestPortalVisitChange, answerPortalVisitChangeProposal,
   listVisitChangeRequests, approveVisitChangeRequest, declineVisitChangeRequest,
-  listVisitChangeTimes, proposeVisitChangeTime,
+  listVisitChangeTimes, proposeVisitChangeTime, withdrawVisitChangeOffer,
 } as const;

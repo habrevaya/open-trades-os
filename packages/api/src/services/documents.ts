@@ -50,13 +50,28 @@ const CODECS: pdf.ImageCodecs = {
 
 /**
  * The company's logo as a page draws it, or null for none or one a PDF cannot
- * carry (an SVG, a WebP): the documents then print the name alone, as before
- * there was a logo, rather than refusing to print.
+ * carry (a WebP kept from before the settings screen turned them into PNGs, a
+ * GIF, an ICO; an SVG is never kept): the documents then print the name alone,
+ * as before there was a logo, rather than refusing to print.
  */
 export async function logoOf(tx: Database): Promise<pdf.PdfImage | null> {
   const [found] = await tx.select({ bytes: schema.brandAsset.bytes })
     .from(schema.brandAsset).where(eq(schema.brandAsset.kind, "logo")).limit(1);
   return found ? pdf.readImage(new Uint8Array(found.bytes), CODECS) : null;
+}
+
+/**
+ * Whether the estimate and invoice PDFs can print the logo kept now, for the
+ * settings screen to say so when they cannot (a WebP uploaded through the
+ * API, or before the screen turned one into a PNG). True with no logo:
+ * there is nothing being left off.
+ */
+export async function logoPrints(ctx: ServiceContext): Promise<boolean> {
+  return guardedRead(ctx, "settings:read", async (tx) => {
+    const [found] = await tx.select({ id: schema.brandAsset.id })
+      .from(schema.brandAsset).where(eq(schema.brandAsset.kind, "logo")).limit(1);
+    return !found || (await logoOf(tx)) !== null;
+  });
 }
 
 /**

@@ -440,6 +440,47 @@ a photograph asked for as a file, a file removed since and a made up id are all
 the same 404. The block only carries files when the layout has it, and a
 company that hides it sends none.
 
+### Send the company a photo or a PDF
+
+A signed in customer has **Send us a photo or a PDF about a job** under
+**Your work**, which opens `/portal/{slug}/account/your-files`: a picture of
+the broken unit before the visit, the warranty card. They choose the job, or
+one of its visits still to come, and the file. `GET /v1/portal/files` is what
+the page reads and `POST /v1/portal/files` sends one, from a sign in only:
+an account link can be forwarded, and whoever it reaches should not be able
+to put files on somebody else's job.
+
+The job and the visit are checked against the customer the sign in names,
+so another customer's job, another company's job and a made up id are the
+same not found. A cancelled job, or a visit that was called off, is refused
+in words. The file is held to the rules a reply by email is held to
+(`files.checkCustomerUpload` in core): a program is refused by its name, its
+claimed type or its bytes, so a program renamed `.jpg` is refused; it must be
+a photo (JPEG, PNG, HEIC, WebP) or a PDF by its bytes; up to 5 MB a file, up
+to 10 files and 25 MB on one job (the job and its visits together); and 20
+an hour for one customer, counted before the file is looked at, so a refused
+try counts too. A photo over 5 MB is made smaller in the browser before it is
+sent. It is kept through `files.put` like every other file, as an attachment
+of its own kind (`customer_file`) carrying the customer and, when a contact
+signed in as them, the contact; the audit log has `attachment.customer_added`
+under the sign in. The same bytes sent twice to the same place are one file.
+
+The office sees it on the job's page under **Files**, **From the customer**,
+with whether anybody has opened it yet. The technician sees it on the visit
+on their day (`/my-day`, **From the customer**), and it comes to the phone
+with the visit (`customerFiles` on each visit of `GET /v1/field/snapshot`)
+for anybody who may read documents. A customer's file is never shown back on
+the job link or in the account's photographs or documents, and it cannot be
+marked for the customer: they already have it.
+
+The customer can take a file back (**Take it back**,
+`POST /v1/portal/files/{id}/remove`) until somebody at the company has opened
+it. Opening it from the job's page records who opened it and when
+(`attachment.seen_at`, and `POST /v1/attachments/{id}/seen` with
+`document:read` for anybody using the API); from then it stays with the job,
+and the page says so. A file the office added is never theirs to remove, and
+is the same not found as a file that does not exist.
+
 ### Readings in a narrow band
 
 A reading is drawn from zero unless the trade says otherwise. A trade pack can
@@ -603,6 +644,32 @@ because the company made the offer; it is refused only when the visit has
 started or the time has passed. On the job's page and in the queue, the
 request shows "Offer this time instead" beside the two answers.
 
+### Take an offer back, or offer another
+
+While the customer has not answered, the job's page shows the time offered
+with **Take this time back** and a box for what to tell them
+(`POST /v1/visit-change-requests/{id}/withdraw`, `visit:reschedule`). The
+visit stays where it was, as it did all along; the time stops being held
+against its window; the customer is told, by text where they can be texted
+and by email otherwise, with the office's words; and the request is
+`withdrawn`. Their link then says the company took the time back and the
+visit stays where it was, and a yes sent to it is refused in words. Taking
+back one already taken back changes nothing. An offer the customer already
+took is refused, because the visit has moved: moving it again is done on the
+board, which tells them. One they turned down has nothing to take back.
+
+After the customer turns an offer down, or the office takes one back, the
+job's page shows the request again with **Offer this time**, from the same
+windows (`GET /v1/visit-change-requests/{id}/times` lists them for such a
+request too, and `POST /v1/visit-change-requests/{id}/propose` sends it). It
+is the same request offering again: the customer is sent the new time with
+the link, the high task to talk to them is closed with what was offered,
+their earlier answer is cleared from the request and kept in the audit log
+(`visit_change.proposed_again`, with the request as it was), and they answer
+it as they answered the first. An old request is not offered on once the
+customer has asked something new about the visit: the new request is the one
+to answer.
+
 ### Take a booking from the website
 
 `GET /v1/public/services` and `GET /v1/public/availability` are read by a
@@ -668,6 +735,7 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/visit-change-requests/{id}/decline` | `visit:reschedule` |
 | `GET /v1/visit-change-requests/{id}/times` | `visit:read` |
 | `POST /v1/visit-change-requests/{id}/propose` | `visit:reschedule` |
+| `POST /v1/visit-change-requests/{id}/withdraw` | `visit:reschedule` |
 | `POST /v1/portal/visit-change/answer` | nothing: the link or a sign in is the authority |
 | `POST /v1/public/portal/{organizationSlug}/codes` | nothing: counted per address and network address |
 | `POST /v1/public/portal/{organizationSlug}/sign-in` | nothing: the code is the authority |
@@ -691,6 +759,10 @@ in from, and which codes failed, are the office's business.
 | `PUT /v1/agreement-plans/{id}/portal-layout` | `settings:write` |
 | `POST /v1/agreement-plans/{id}/portal-layout/remove` | `settings:write` |
 | `POST /v1/attachments/{id}/customer-sharing` | `servicereport:publish` (a photograph, or a file for the documents block) |
+| `GET /v1/portal/files` | nothing: a sign in only |
+| `POST /v1/portal/files` | nothing: a sign in only, counted per customer |
+| `POST /v1/portal/files/{id}/remove` | nothing: a sign in only |
+| `POST /v1/attachments/{id}/seen` | `document:read` |
 | `GET /v1/portal-sign-ins` | `portal:read` |
 | `GET /v1/customers/{id}/portal-sessions` | `portal:read` |
 | `POST /v1/customers/{id}/portal-sessions/end` | `portal:revoke` |
@@ -756,17 +828,19 @@ for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
 members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer on several plans sees only the oldest one's, a block's
 settings (which readings a trend shows) are not changed on the screen, and
-there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot add, change or remove one. The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
+there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises no task and sends nobody a notice: the office sees it when it opens the job and the technician on the visit. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, and the native phone app does not show customer files yet (they arrive with the visit, and only the web day draws them). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the
 online booking service for the job's type, so a company that takes no online
 bookings for that work cannot offer moves for it. The office can offer a
-different time only for a request to move, only from the windows online
-booking offers, and cannot withdraw an offer once sent: a change to the
-visit (the office moving or cancelling it) overtakes it. A customer who
-turns an offer down is not offered another on the page; the office's task
-is to talk to them. Capacity lays a route's stops end to end from the start
+different time only for a request to move and only from the windows online
+booking offers. Taking an offer back and offering again are done from the
+job's page, not from the office queue, whose task after a no points at the
+visit; a customer who turns an offer down is not offered another by the
+product on its own, the office chooses it. Only one offer waits at a time,
+and an offer the customer took cannot be taken back, only the visit moved
+again on the board. Capacity lays a route's stops end to end from the start
 of the day, so a route that starts later is counted as starting then; a
 crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,

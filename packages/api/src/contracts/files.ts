@@ -39,6 +39,10 @@ export const Attachment = z.object({
   createdAt: z.string().datetime(),
   /** When somebody chose to show it on the customer's job link. Null is private. */
   sharedWithCustomerAt: z.string().datetime().nullable().optional(),
+  /** The customer added it from their own sign in (kind `customer_file`). */
+  addedByCustomer: z.boolean().optional(),
+  /** When somebody in the company first opened a file the customer added. Until then the customer may take it back. */
+  seenAt: z.string().datetime().nullable().optional(),
 });
 
 /**
@@ -61,6 +65,19 @@ export const shareAttachmentWithCustomer = defineRoute({
   idempotent: true,
   input: z.object({ id: Uuid, shared: z.boolean() }),
   output: z.object({ id: Uuid, sharedWithCustomerAt: z.string().datetime().nullable() }),
+});
+
+export const markAttachmentSeen = defineRoute({
+  method: "post",
+  path: "/v1/attachments/{id}/seen",
+  summary: "Say somebody in the company has opened a file the customer added",
+  description:
+    "Until a file the customer added from their sign in is marked seen, the customer may take it back; from then it stays with the job. Opening it from the job's page marks it. Only the first time counts and names who opened it; a file the company added is left as it is.",
+  module: "M05",
+  permissions: ["document:read"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, seenAt: z.string().datetime().nullable() }),
 });
 
 export const listAttachments = defineRoute({
@@ -222,5 +239,5 @@ export const getUploadStatus = defineRoute({
 
 export const fileRoutes = {
   listAttachments, uploadAttachment, listPendingUploads, storeUpload, failUpload, getUploadStatus,
-  shareAttachmentWithCustomer,
+  shareAttachmentWithCustomer, markAttachmentSeen,
 } as const;

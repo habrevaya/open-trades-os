@@ -379,6 +379,8 @@ export const visitChangeStatus = pgEnum("visit_change_status", [
   "accepted",
   /** The customer said no to the office's time. The visit stayed where it was. */
   "turned_down",
+  /** The office took back a time it offered before the customer answered. The visit stayed where it was. */
+  "withdrawn",
 ]);
 
 export const visitChangeRequest = pgTable("visit_change_request", {

@@ -380,8 +380,29 @@ export const attachment = pgTable("attachment", {
    */
   sharedWithCustomerAt: timestamp("shared_with_customer_at", { withTimezone: true }),
   sharedByUserId: uuid("shared_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * The customer who added this from their own sign in (kind
+   * `customer_file`), and the contact who did it when a contact signed in as
+   * them. Null for everything the company's own people added. Plain ids
+   * rather than foreign keys, like the audit log's portal actor: this table
+   * sits below the customer tables, and who a file came from is a fact about
+   * the past that removing the customer does not undo.
+   */
+  uploadedByCustomerId: uuid("uploaded_by_customer_id"),
+  uploadedByContactId: uuid("uploaded_by_contact_id"),
+  /**
+   * When somebody in the company first opened a file the customer added, and
+   * who. Until then the customer may remove it; from then it is the company's
+   * record of what they were sent.
+   */
+  seenAt: timestamp("seen_at", { withTimezone: true }),
+  seenByUserId: uuid("seen_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
-}, (t) => ({ entityIdx: index("attachment_entity_idx").on(t.organizationId, t.entityType, t.entityId) }));
+}, (t) => ({
+  entityIdx: index("attachment_entity_idx").on(t.organizationId, t.entityType, t.entityId),
+  /** A customer's own files, for their list and the count on one job. */
+  customerIdx: index("attachment_customer_idx").on(t.organizationId, t.uploadedByCustomerId, t.createdAt),
+}));
 
 /**
  * A SAVED REPORT

@@ -10,7 +10,9 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { formatDay, formatIn } from "@/lib/dates";
 import { Deliveries, EstimateActions, Options, type EstimateView } from "./Panels";
-import { actOnEstimate } from "../actions";
+import { actOnEstimate, extendEstimate } from "../actions";
+import { ActionForm, TextField } from "@/components/ActionForm";
+import { todayIn } from "@/lib/dates";
 import { FinancingPanel } from "@/components/FinancingPanel";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +86,25 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           still record it below.
         </p>
       ) : null}
+
+      {/*
+        Giving the customer longer: the date moves later, with a reason, and
+        nothing priced changes. Only while they have it and have not answered.
+      */}
+      {can(user.actor, "estimate:write") && estimate.expiresOn
+        && ["sent", "viewed", "expired"].includes(estimate.status) ? (
+          <details className="mt-4 max-w-prose rounded border border-steel-200 bg-canvas p-3">
+            <summary className="cursor-pointer text-sm font-medium">Give them longer to answer</summary>
+            <ActionForm action={extendEstimate} submit="Move the date" hidden={{ estimateId: id }} className="mt-3 space-y-3">
+              <p className="text-sm text-ink-700">
+                Only the good until date changes. The prices, the options and the terms stay as they were sent. The link
+                they were sent works until the new date, and the follow up does not chase them again unless you send it again.
+              </p>
+              <TextField label="New good until date" name="expiresOn" type="date" required min={todayIn(user.organizationTimezone)} />
+              <TextField label="Why" name="reason" required maxLength={500} placeholder="They asked us to hold the price until their insurer replies." />
+            </ActionForm>
+          </details>
+        ) : null}
 
       <Options estimate={estimate} plans={plans} />
 

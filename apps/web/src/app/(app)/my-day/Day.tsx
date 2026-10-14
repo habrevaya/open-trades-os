@@ -810,6 +810,26 @@ function VisitCard({
             </section>
           )}
 
+          {/*
+            What the customer sent from their account, to this visit or the
+            job: the broken unit before anybody arrives. Opens online only;
+            the office sees the same files on the job.
+          */}
+          {(visit.customerFiles ?? []).length > 0 && (
+            <section aria-label="From the customer" className="text-sm">
+              <p className="text-xs uppercase tracking-[0.08em] text-ink-500">From the customer</p>
+              <ul className="mt-1 space-y-1">
+                {(visit.customerFiles ?? []).map((file) => (
+                  <li key={file.id}>
+                    <a href={`/files/${file.storageKey}`} className="text-blue-600 underline underline-offset-4">
+                      {file.fileName ?? (file.contentType?.startsWith("image/") ? "A photo" : "A file")}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <div className="flex flex-wrap gap-2">
             {visit.customer.phone && (
               <a href={`tel:${visit.customer.phone}`}

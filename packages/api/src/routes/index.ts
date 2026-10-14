@@ -4,7 +4,7 @@ import type { RouteDefinition, AuthOf } from "../lib/define";
 import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
-  customers, jobs, billing, estimates, deposits, portal, booking,
+  customers, jobs, billing, estimates, estimateExpiry, deposits, portal, booking,
   fieldOps, fieldDevices, fieldPayments, knowledge, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting, accountingBranches,
@@ -21,7 +21,7 @@ import {
   laborSettings,
   voice, websiteTracking, referrals,
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
-  portalAccess, portalBlocks, portalBooking, cardOnFile, portalLayout,
+  portalAccess, portalBlocks, portalBooking, portalFiles, cardOnFile, portalLayout,
   setup, team, branches, tradePacks,
   phoneMenus, transcription, callQueues, softphone, voiceAgent,
   ads, marketplaceLeads, leadEmails, directMail,
@@ -143,6 +143,7 @@ export const handlers = {
   sendEstimate: estimates.send,
   approveEstimate: estimates.approve,
   declineEstimate: estimates.decline,
+  extendEstimateExpiry: estimateExpiry.handlers.extendEstimateExpiry,
   convertEstimate: estimates.convert,
   listUnsoldEstimates: estimates.unsoldHandler,
   listEstimateDeliveries: async (ctx, input) => ({ deliveries: await estimates.deliveries(ctx, input) }),
@@ -751,6 +752,7 @@ export const handlers = {
   answerPortalVisitChangeProposal: visitChanges.handlers.answerPortalVisitChangeProposal,
   listVisitChangeTimes: visitChanges.handlers.listVisitChangeTimes,
   proposeVisitChangeTime: visitChanges.handlers.proposeVisitChangeTime,
+  withdrawVisitChangeOffer: visitChanges.handlers.withdrawVisitChangeOffer,
   installWorkflowTemplate: workflows.handlers.installWorkflowTemplate,
 
   listTasks: tasks.handlers.listTasks,
@@ -1049,6 +1051,7 @@ export const handlers = {
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
   shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
+  markAttachmentSeen: files.handlers.markAttachmentSeen,
   // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)
   listPortalSignIns: portalAccess.handlers.listPortalSignIns,
   listCustomerPortalSessions: portalAccess.handlers.listCustomerPortalSessions,
@@ -1064,6 +1067,9 @@ export const handlers = {
   getPortalBookingOptions: portalBooking.handlers.getPortalBookingOptions,
   getPortalBookingAvailability: portalBooking.handlers.getPortalBookingAvailability,
   requestPortalBooking: portalBooking.handlers.requestPortalBooking,
+  listPortalFiles: portalFiles.handlers.listPortalFiles,
+  addPortalFile: portalFiles.handlers.addPortalFile,
+  removePortalFile: portalFiles.handlers.removePortalFile,
   payTips: payroll.handlers.payTips,
   getMyPayStatements: payroll.handlers.getMyPayStatements,
 

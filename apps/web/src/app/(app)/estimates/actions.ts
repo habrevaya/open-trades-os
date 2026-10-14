@@ -4,11 +4,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { ConflictError, customFields, deposits, estimates } from "@opentradesos/api/services";
+import { ConflictError, customFields, deposits, estimateExpiry, estimates } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { customFieldsFrom } from "@/lib/custom-field-form";
 import {
-  createEstimate, sendEstimate, requestDeposit, convertEstimate, approveEstimate, declineEstimate,
+  createEstimate, sendEstimate, requestDeposit, convertEstimate, approveEstimate, declineEstimate, extendEstimateExpiry,
 } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { optionsFromForm, rateFromPercent } from "@/lib/estimate-form";
@@ -124,6 +124,28 @@ export async function actOnEstimate(_previous: FormState, form: FormData): Promi
     }
   });
   if (jobId) redirect(`/jobs/${jobId}`);
+  revalidatePath(`/estimates/${id}`);
+  return result;
+}
+
+/**
+ * GIVING THE CUSTOMER LONGER: `POST /v1/estimates/{id}/expiry`. Only the date
+ * moves, later, with the reason kept; the service says whether the link they
+ * were sent works until then or needs sending again.
+ */
+export async function extendEstimate(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "estimateId") ?? "";
+  const result = await attempt(form, async () => {
+    const input = parsed(extendEstimateExpiry.input, {
+      id, expiresOn: field(form, "expiresOn"), reason: field(form, "reason"),
+    });
+    const given = await estimateExpiry.extend(await ctx(), input);
+    return {
+      message: given.linkExpiresAt
+        ? "Done. The link they were sent works until then."
+        : "Done. They have no working link, so send the estimate again for one.",
+    };
+  });
   revalidatePath(`/estimates/${id}`);
   return result;
 }

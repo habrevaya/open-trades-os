@@ -160,6 +160,18 @@ describe("permissions", () => {
       "POST /v1/portal/cards/{cardId}/agreement/withdraw",
       "POST /v1/portal/cards/{cardId}/autopay",
       /**
+       * A signed in customer sending a photo or a PDF about one of their own
+       * jobs or visits, the list of what they sent, and taking one back. Sign
+       * in only, never an account link. The job, the visit and the file are
+       * checked against the customer the sign in names; the bytes are held to
+       * the email reply rules (never a program, a photo or a PDF by its
+       * bytes, caps on size and count) and counted per customer per hour; a
+       * file is taken back only until the company has opened it.
+       */
+      "GET /v1/portal/files",
+      "POST /v1/portal/files",
+      "POST /v1/portal/files/{id}/remove",
+      /**
        * The same sign in with a code instead of a password. Asking for a code
        * answers one sentence whether or not the address belongs to anybody,
        * so it is not a way to learn who works where; it is limited per

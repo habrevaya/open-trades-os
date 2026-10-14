@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as branding from "../src/services/branding";
+import * as documents from "../src/services/documents";
 import * as portal from "../src/services/portal";
 import { ConflictError, NotFoundError } from "../src/services/context";
 import type { ServiceContext } from "../src/services/context";
@@ -388,5 +389,22 @@ run("the company's own time zone", () => {
       where organization_id = ${ORG} and action = 'organization.timezone_set'`;
     expect((entry!.before as { timezone: string }).timezone).toBe("America/Chicago");
     expect((entry!.after as { timezone: string }).timezone).toBe("Pacific/Honolulu");
+  });
+});
+
+run("whether the PDFs can print the logo", () => {
+  /** A 64 pixel ring on transparency, the seed's logo: a PNG the PDF writer reads. */
+  const ring = () => new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABOklEQVR4nO2UwRECMQwDrxFaon66CQ3wSGxZkoMfenLeXW7uWWs9/zw5gHpyAPXkAOpRj73en7WzawLsCiuD2EqzYrQRrwrRUh4ZoaU4MkR7+WyEK+QzEa6Rj0a4Sj4S4Tr50wh0eadbtACRjxPrbilEVJzJYC9fzQI/ihavZmolX8E2AVBHWPJovpbySM4JkH2wSh7FOgG6vv4o3tb/PoJ5AkyACTABJsAEmACxhzlEyPLCizoH+PX7CVDxWjnKT4CTAB0ioPhgB5gRkGwTgHXIUb4kQFWIKhbZYQf5rQBZgEwIxl0KyAkU89Z2ADQYY7te1FfSTf44QIcIpz6Sj5OLfDiAY4SoRziAU4SMQyqAOgSCHRJAEQHFDQvACoHmhQeoiFHJWBogGoTJRA3gODmAenIA9eQA6n0BieNe/gGRVqEAAAAASUVORK5CYII=", "base64"));
+  /** RIFF....WEBP and filler: kept as a WebP, which no PDF here can carry. */
+  const webp = () => new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x20, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, ...Array(24).fill(1)]);
+
+  it("says yes with no logo, yes for a PNG it can read, and no for a WebP, so the screen can say so", async () => {
+    expect(await documents.logoPrints(owner())).toBe(true);
+    await branding.setAsset(owner(), { kind: "logo", bytes: ring() });
+    expect(await documents.logoPrints(owner())).toBe(true);
+    await branding.setAsset(owner(), { kind: "logo", bytes: webp() });
+    expect(await documents.logoPrints(owner())).toBe(false);
+    // Another company's answer is about its own logo.
+    expect(await documents.logoPrints(neighbour())).toBe(true);
   });
 });
