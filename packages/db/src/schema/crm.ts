@@ -122,6 +122,16 @@ export const customer = pgTable("customer", {
    * into a phone by a neighbour as often as it is clicked.
    */
   referralCode: text("referral_code"),
+  /**
+   * One of this customer's own people who is copied on the monthly statement:
+   * the owner at a property manager whose clerk gets the bills, say. Only a
+   * contact on this customer, checked when it is set and again when the run
+   * sends, because the run sends with nobody watching and a copy to somebody
+   * who is not the customer's is somebody else's account in a stranger's
+   * inbox. Set null when the contact is removed for good.
+   */
+  statementCopyContactId: uuid("statement_copy_contact_id")
+    .references((): AnyPgColumn => contact.id, { onDelete: "set null" }),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

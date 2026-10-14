@@ -188,6 +188,17 @@ export const statementDelivery = pgTable("statement_delivery", {
    * gate refused, emailed instead. Null when it went the way it was meant to.
    */
   note: text("note"),
+  /**
+   * THE COPY. One more of the payer's own people, emailed the same statement
+   * and link as a message of their own: chosen by the office on a statement
+   * sent by hand, or named on the customer for the monthly run. Never an
+   * address somebody typed. The destination is the contact's address when the
+   * copy was tried; the error says why it did not go, when it did not.
+   */
+  copyContactId: uuid("copy_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  copyDestination: text("copy_destination"),
+  copyMessageId: uuid("copy_message_id").references(() => message.id, { onDelete: "set null" }),
+  copyError: text("copy_error"),
   sentByUserId: uuid("sent_by_user_id").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

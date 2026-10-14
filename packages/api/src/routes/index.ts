@@ -693,6 +693,8 @@ export const handlers = {
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
   textCustomerStatement: statementDelivery.handlers.textCustomerStatement,
   listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
+  getStatementCopy: statementDelivery.handlers.getStatementCopy,
+  setStatementCopy: statementDelivery.handlers.setStatementCopy,
   sendReportScheduleNow: deliverySchedules.handlers.sendReportScheduleNow,
   getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
   setStatementSchedule: deliverySchedules.handlers.setStatementSchedule,
