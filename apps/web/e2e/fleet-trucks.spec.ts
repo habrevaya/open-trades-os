@@ -170,3 +170,35 @@ test("Containers: the facility's fee is offered when a hire passes it on, added 
   // And the first can of the chain is on the same invoice, so it offers nothing more.
   await expect(first).toContainText("Invoiced");
 });
+
+test("Trucks: a kind says how many of each size it carries, and refuses words it cannot read", async ({ owner }) => {
+  const kind = `Small hook ${run}`;
+  await owner.goto("/fleet/containers/trucks");
+  const addKind = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add kind" }) });
+
+  // Words that are not "how many of which size" are refused, with how to write it.
+  await addKind.getByLabel("Name").fill(kind);
+  await addKind.getByLabel("How many of each size").fill("lots of small ones");
+  await addKind.getByRole("button", { name: "Add kind" }).click();
+  await expect(addKind.getByRole("alert")).toContainText("2 of 10, 1 of 30");
+
+  // Two 10 yard or one 30 yard.
+  await addKind.getByLabel("Name").fill(kind);
+  await addKind.getByLabel("How many of each size").fill("2 of 10, 1 of 30");
+  await addKind.getByRole("button", { name: "Add kind" }).click();
+  const listed = owner.getByRole("listitem").filter({ hasText: kind }).filter({ has: owner.getByRole("button", { name: "Remove" }) });
+  await expect(listed).toContainText("Carries two 10 yard or one 30 yard, lifts 10, 30 yard");
+
+  // Changed to two 30 yard, then back to one figure for every size.
+  const change = listed.locator("form").filter({ has: owner.getByRole("button", { name: "Save" }) });
+  await change.getByLabel("How many of each size").fill("2 of 30");
+  await change.getByRole("button", { name: "Save" }).click();
+  await expect(listed).toContainText("Carries two 30 yard, lifts");
+  await change.getByLabel("How many of each size").fill("");
+  await change.getByLabel("Containers carried").fill("2");
+  await change.getByRole("button", { name: "Save" }).click();
+  await expect(listed).toContainText("Carries 2 containers, lifts");
+
+  await listed.getByRole("button", { name: "Remove" }).click();
+  await expect(owner.getByRole("listitem").filter({ hasText: kind }).filter({ has: owner.getByRole("button", { name: "Remove" }) })).toHaveCount(0);
+});

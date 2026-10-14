@@ -4524,6 +4524,10 @@ export interface CreateTruckKindInput {
   name: string;
   containersCarried: number;
   containerSizes?: number[];
+  capacityBySize?: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes: number;
   notes?: string | null;
 }
@@ -4533,6 +4537,10 @@ export interface CreateTruckKindOutput {
   name: string;
   containersCarried: number;
   containerSizes: number[];
+  capacityBySize: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes: number;
   notes: string | null;
   trucks: Array<{
@@ -10845,6 +10853,10 @@ export interface GetRouteProposalOutput {
     truckLabel: string | null;
     kindName: string | null;
     sizes: number[];
+    capacityBySize: Array<{
+      size: number;
+      carried: number;
+    }>;
     notCarried: string[];
     facility: {
       id: string;
@@ -16304,6 +16316,10 @@ export interface ListTruckKindsOutput {
     name: string;
     containersCarried: number;
     containerSizes: number[];
+    capacityBySize: Array<{
+      size: number;
+      carried: number;
+    }>;
     yardMinutes: number;
     notes: string | null;
     trucks: Array<{
@@ -25891,6 +25907,10 @@ export interface UpdateTruckKindInput {
   name?: string;
   containersCarried?: number;
   containerSizes?: number[];
+  capacityBySize?: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes?: number;
   notes?: string | null;
 }
@@ -25900,6 +25920,10 @@ export interface UpdateTruckKindOutput {
   name: string;
   containersCarried: number;
   containerSizes: number[];
+  capacityBySize: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes: number;
   notes: string | null;
   trucks: Array<{

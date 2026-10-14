@@ -1,0 +1,1 @@
+ALTER TABLE "truck_kind" ADD COLUMN "capacity_by_size" jsonb DEFAULT '[]'::jsonb NOT NULL;

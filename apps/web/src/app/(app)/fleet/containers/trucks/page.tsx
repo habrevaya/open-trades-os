@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  *
  * A hook lift that carries two small cans and a roll off truck that carries one
  * big one are not the same truck. A kind says how many containers a truck
- * carries, which sizes it lifts and how long the yard takes it, and a vehicle
+ * carries (of each size, when that differs: two 10 yard or one 30 yard),
+ * which sizes it lifts and how long the yard takes it, and a vehicle
  * given one is what a driver's day is planned on when that vehicle is checked
  * out to them. A truck with no kind is planned on the company's figures.
  */
@@ -37,6 +38,12 @@ export default async function TrucksPage() {
   ]);
   const kindOf = new Map(kinds.flatMap((k) => k.trucks.map((t) => [t.id, k] as const)));
   const sizesText = (sizes: number[]) => (sizes.length === 0 ? "any size" : `${sizes.join(", ")} yard`);
+  const count = ["none", "one", "two", "three", "four"];
+  /** "two 10 yard or one 30 yard", or the one figure. */
+  const carries = (kind: (typeof kinds)[number]) => kind.capacityBySize.length > 0
+    ? kind.capacityBySize.map((p) => `${count[p.carried] ?? p.carried} ${p.size} yard`).join(" or ")
+    : kind.containersCarried === 1 ? "one container" : `${kind.containersCarried} containers`;
+  const perSizeText = (kind: (typeof kinds)[number]) => kind.capacityBySize.map((p) => `${p.carried} of ${p.size}`).join(", ");
   const options = [
     { value: "", label: "None, the company's figures" },
     ...kinds.map((k) => ({ value: k.id, label: k.name })),
@@ -61,7 +68,7 @@ export default async function TrucksPage() {
             <li key={kind.id} className="rounded border border-steel-300 p-3">
               <p className="font-medium">{kind.name}</p>
               <p className="text-sm text-ink-700">
-                Carries {kind.containersCarried === 1 ? "one container" : `${kind.containersCarried} containers`}, lifts {sizesText(kind.containerSizes)},{" "}
+                Carries {carries(kind)}, lifts {sizesText(kind.containerSizes)},{" "}
                 {kind.yardMinutes} minutes at the yard.{" "}
                 {kind.trucks.length === 0 ? "No truck has this kind." : `Trucks: ${kind.trucks.map((t) => t.label).join(", ")}.`}
               </p>
@@ -73,6 +80,8 @@ export default async function TrucksPage() {
                                defaultValue={kind.containersCarried} className="w-40" />
                     <TextField label="Sizes lifted, in yards" name="containerSizes" placeholder="10, 20, 30"
                                defaultValue={kind.containerSizes.join(", ")} className="w-48" />
+                    <TextField label="How many of each size" name="capacityBySize" placeholder="2 of 10, 1 of 30"
+                               defaultValue={perSizeText(kind)} className="w-56" />
                     <TextField label="Minutes at the yard" name="yardMinutes" type="number" min={0} max={120}
                                defaultValue={kind.yardMinutes} className="w-40" />
                   </ActionForm>
@@ -92,7 +101,13 @@ export default async function TrucksPage() {
             <TextField label="Containers carried" name="containersCarried" type="number" min={1} max={4} defaultValue={1} />
             <TextField label="Sizes lifted, in yards" name="containerSizes" placeholder="Empty means any" />
             <TextField label="Minutes at the yard" name="yardMinutes" type="number" min={0} max={120} defaultValue={company.yardMinutes} />
+            <TextField label="How many of each size" name="capacityBySize" placeholder="2 of 10, 1 of 30" className="sm:col-span-2" />
           </ActionForm>
+          <p className="mt-2 max-w-prose text-xs text-ink-500">
+            Leave how many of each size empty when the truck carries the same number of any size. Filled in, each can takes
+            its share of the truck: with 2 of 10 and 1 of 30, two 10 yard cans fit, and a 10 beside a 30 does not. A can of
+            a size not listed, or of no known size, counts against the containers carried.
+          </p>
         </section>
       ) : null}
 

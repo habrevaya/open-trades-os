@@ -165,7 +165,7 @@ export const getRouteProposal = defineRoute({
   path: "/v1/dispatch/optimise",
   summary: "Propose a better order for one technician's day",
   description:
-    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
+    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ date: z.string().date(), technicianId: Uuid, facilityId: Uuid.optional() }),
@@ -214,6 +214,8 @@ export const getRouteProposal = defineRoute({
       kindName: z.string().nullable(),
       /** Cubic yards the truck lifts. Empty means any size. */
       sizes: z.array(z.number().int()),
+      /** How many of each size it carries at once, when its kind says; empty when one figure counts every size. */
+      capacityBySize: z.array(z.object({ size: z.number().int(), carried: z.number().int() })),
       /** Stops about a container this truck does not lift, ordered as plain driving: they need another truck. */
       notCarried: z.array(Uuid),
       /**

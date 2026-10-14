@@ -40742,7 +40742,7 @@
       "get": {
         "operationId": "getRouteProposal",
         "summary": "Propose a better order for one technician's day",
-        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries, which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -128294,7 +128294,7 @@
       "post": {
         "operationId": "createTruckKind",
         "summary": "Add a kind of truck",
-        "description": "A name, how many containers it carries at once (one to four), the sizes in cubic yards it can lift (none listed means any) and the minutes the yard takes it. Two kinds with one name are refused.\n\nRequires a session holding: asset:write.",
+        "description": "A name, how many containers it carries at once (one to four), the sizes in cubic yards it can lift (none listed means any), how many of each size it carries when that differs by size (`capacityBySize`: two 10 yard or one 30 yard, so a 10 beside a 30 does not fit) and the minutes the yard takes it. Two kinds with one name are refused.\n\nRequires a session holding: asset:write.",
         "tags": [
           "M22"
         ],
@@ -159027,6 +159027,29 @@
             },
             "maxItems": 12
           },
+          "capacityBySize": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "carried": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                }
+              },
+              "required": [
+                "size",
+                "carried"
+              ]
+            },
+            "maxItems": 12
+          },
           "yardMinutes": {
             "type": "integer",
             "minimum": 0,
@@ -159067,6 +159090,28 @@
               "type": "integer"
             }
           },
+          "capacityBySize": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "carried": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                }
+              },
+              "required": [
+                "size",
+                "carried"
+              ]
+            }
+          },
           "yardMinutes": {
             "type": "integer",
             "minimum": 0,
@@ -159103,6 +159148,7 @@
           "name",
           "containersCarried",
           "containerSizes",
+          "capacityBySize",
           "yardMinutes",
           "notes",
           "trucks"
@@ -191801,6 +191847,24 @@
                   "type": "integer"
                 }
               },
+              "capacityBySize": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "size": {
+                      "type": "integer"
+                    },
+                    "carried": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "size",
+                    "carried"
+                  ]
+                }
+              },
               "notCarried": {
                 "type": "array",
                 "items": {
@@ -191966,6 +192030,7 @@
               "truckLabel",
               "kindName",
               "sizes",
+              "capacityBySize",
               "notCarried",
               "facility",
               "facilityRuns",
@@ -220500,6 +220565,28 @@
                     "type": "integer"
                   }
                 },
+                "capacityBySize": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "carried": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 4
+                      }
+                    },
+                    "required": [
+                      "size",
+                      "carried"
+                    ]
+                  }
+                },
                 "yardMinutes": {
                   "type": "integer",
                   "minimum": 0,
@@ -220536,6 +220623,7 @@
                 "name",
                 "containersCarried",
                 "containerSizes",
+                "capacityBySize",
                 "yardMinutes",
                 "notes",
                 "trucks"
@@ -267773,6 +267861,29 @@
             },
             "maxItems": 12
           },
+          "capacityBySize": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "carried": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                }
+              },
+              "required": [
+                "size",
+                "carried"
+              ]
+            },
+            "maxItems": 12
+          },
           "yardMinutes": {
             "type": "integer",
             "minimum": 0,
@@ -267806,6 +267917,28 @@
             "type": "array",
             "items": {
               "type": "integer"
+            }
+          },
+          "capacityBySize": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "carried": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                }
+              },
+              "required": [
+                "size",
+                "carried"
+              ]
             }
           },
           "yardMinutes": {
@@ -267844,6 +267977,7 @@
           "name",
           "containersCarried",
           "containerSizes",
+          "capacityBySize",
           "yardMinutes",
           "notes",
           "trucks"

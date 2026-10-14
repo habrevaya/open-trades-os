@@ -27,6 +27,12 @@ import * as once from "./once";
  * (`rentalDispatch`) stay as the default for a driver with no truck of a
  * kind, and the proposal says which figures it used.
  *
+ * A KIND CAN SAY HOW MANY OF EACH SIZE IT CARRIES ("two 10 yard or one 30
+ * yard"), and then each can takes its share of the deck (`routing.deckFits`).
+ * A kind with only the one figure counts every can the same, as before. A
+ * size given its own figure is a size the kind lifts, so it is added to the
+ * sizes it lifts when it is saved.
+ *
  * WHEN A TECHNICIAN HOLDS TWO TRUCKS WITH A KIND, the one they were handed
  * most recently is theirs: the other is most likely a spare or one on its
  * way back, and a plan has to pick one.
@@ -37,6 +43,8 @@ export interface TruckKindView {
   name: string;
   containersCarried: number;
   containerSizes: number[];
+  /** How many of each size it carries at once; empty when the one figure counts every size. */
+  capacityBySize: { size: number; carried: number }[];
   yardMinutes: number;
   notes: string | null;
   /** Trucks on the register that have this kind and have not been retired. */
@@ -47,6 +55,7 @@ export interface TruckKindInput {
   name: string;
   containersCarried: number;
   containerSizes?: number[] | undefined;
+  capacityBySize?: { size: number; carried: number }[] | undefined;
   yardMinutes: number;
   notes?: string | null | undefined;
 }
@@ -56,6 +65,7 @@ export interface TruckKindPatch {
   name?: string | undefined;
   containersCarried?: number | undefined;
   containerSizes?: number[] | undefined;
+  capacityBySize?: { size: number; carried: number }[] | undefined;
   yardMinutes?: number | undefined;
   notes?: string | null | undefined;
 }
@@ -65,6 +75,7 @@ type KindRow = typeof schema.truckKind.$inferSelect;
 const viewOf = (row: KindRow, trucks: { id: string; label: string }[]): TruckKindView => ({
   id: row.id, name: row.name, containersCarried: row.containersCarried,
   containerSizes: [...row.containerSizes].sort((a, b) => a - b),
+  capacityBySize: [...row.capacityBySize].sort((a, b) => a.size - b.size),
   yardMinutes: row.yardMinutes, notes: row.notes, trucks,
 });
 
@@ -82,8 +93,26 @@ function checked(input: TruckKindInput) {
   if (sizes.some((s) => !Number.isInteger(s) || s < 1 || s > 100)) {
     throw new ConflictError("Container sizes are whole cubic yards, like 10, 20 or 30.");
   }
-  if (sizes.length > 12) throw new ConflictError("A truck lifts at most twelve sizes of container.");
-  return { name, containersCarried: input.containersCarried, containerSizes: sizes.sort((a, b) => a - b), yardMinutes: input.yardMinutes, notes: input.notes?.trim() || null };
+  const bySize = input.capacityBySize ?? [];
+  for (const entry of bySize) {
+    if (!Number.isInteger(entry.size) || entry.size < 1 || entry.size > 100) {
+      throw new ConflictError("Container sizes are whole cubic yards, like 10, 20 or 30.");
+    }
+    if (!Number.isInteger(entry.carried) || entry.carried < 1 || entry.carried > 4) {
+      throw new ConflictError(`A truck carries between one and four ${entry.size} yard containers at once.`);
+    }
+  }
+  if (new Set(bySize.map((b) => b.size)).size !== bySize.length) {
+    throw new ConflictError("Say how many of each size once.");
+  }
+  /** A size given its own figure is one it lifts. */
+  const lifted = [...new Set([...sizes, ...bySize.map((b) => b.size)])];
+  if (lifted.length > 12) throw new ConflictError("A truck lifts at most twelve sizes of container.");
+  return {
+    name, containersCarried: input.containersCarried, containerSizes: lifted.sort((a, b) => a - b),
+    capacityBySize: [...bySize].sort((a, b) => a.size - b.size),
+    yardMinutes: input.yardMinutes, notes: input.notes?.trim() || null,
+  };
 }
 
 const sameName = (name: string) =>
@@ -120,7 +149,9 @@ export function createKind(ctx: ServiceContext, input: TruckKindInput) {
     if (seen) return seen;
     const figures = checked(input);
     const [row] = await refusingDuplicate("truck_kind_name_idx", sameName(figures.name), () =>
-      tx.insert(schema.truckKind).values({ organizationId: ctx.actor.organizationId, ...figures }).returning());
+      tx.insert(schema.truckKind).values({
+        organizationId: ctx.actor.organizationId, ...figures, capacityBySize: figures.capacityBySize,
+      }).returning());
     await audit(tx, ctx, "truck_kind.created", "truck_kind", row!.id, null, row!);
     const view = viewOf(row!, []);
     await once.remember(tx, ctx, "truck_kind", row!.id, view);
@@ -150,6 +181,7 @@ export function updateKind(ctx: ServiceContext, input: TruckKindPatch) {
       name: input.name ?? before.name,
       containersCarried: input.containersCarried ?? before.containersCarried,
       containerSizes: input.containerSizes ?? before.containerSizes,
+      capacityBySize: input.capacityBySize ?? before.capacityBySize,
       yardMinutes: input.yardMinutes ?? before.yardMinutes,
       notes: input.notes === undefined ? before.notes : input.notes,
     });
@@ -239,6 +271,7 @@ export async function truckOf(
     assetId: schema.companyAsset.id, label: schema.companyAsset.label,
     kind: schema.truckKind.name, containers: schema.truckKind.containersCarried,
     sizes: schema.truckKind.containerSizes, yardMinutes: schema.truckKind.yardMinutes,
+    perSize: schema.truckKind.capacityBySize,
   }).from(schema.assetCustody)
     .innerJoin(schema.companyAsset, eq(schema.companyAsset.id, schema.assetCustody.assetId))
     .innerJoin(schema.truckKind, eq(schema.truckKind.id, schema.companyAsset.truckKindId))
@@ -255,7 +288,9 @@ export async function truckOf(
     .limit(1);
   if (!held) return { figures: routing.truckFigures(company, null), truck: null };
   return {
-    figures: routing.truckFigures(company, { containers: held.containers, yardMinutes: held.yardMinutes, sizes: held.sizes }),
+    figures: routing.truckFigures(company, {
+      containers: held.containers, yardMinutes: held.yardMinutes, sizes: held.sizes, perSize: held.perSize,
+    }),
     truck: { assetId: held.assetId, label: held.label, kindName: held.kind },
   };
 }

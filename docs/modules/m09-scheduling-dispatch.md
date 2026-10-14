@@ -306,7 +306,7 @@ truck.** "Optimise route" on a roll off driver's column knows that a drop
 needs an empty container on the truck, a collection needs room on it, and a
 swap needs an empty and leaves with a full one, and counts the runs to the
 yard between (where the driver's day starts) as drive and time like any
-other. How many containers a truck carries, which sizes it lifts and how long
+other. How many containers a truck carries (of each size, when its kind says, with the load checked by size), which sizes it lifts and how long
 the yard takes are those of the driver's own truck, the vehicle with a kind
 checked out to them that day, or the company's figures on `/fleet/containers`
 when they have none (M22). A full container is tipped at the company's default

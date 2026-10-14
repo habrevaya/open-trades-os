@@ -766,7 +766,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     ? await guardedRead(ctx, "visit:read", (tx) => truckOf(tx, ctx.actor.organizationId, technician.id, day.date, company))
     : { figures: routing.truckFigures(company, null), truck: null };
   const truck = driven.figures;
-  const sizeOfStop = containers ? await containerSizes(ctx, placed.map((v) => v.id)) : new Map<string, number | null>();
+  /** Every stop's can, the ones done today too, so the truck's load after them is known by size. */
+  const sizeOfStop = containers ? await containerSizes(ctx, stops.map((v) => v.id)) : new Map<string, number | null>();
   /**
    * THE DISPOSAL FACILITY the day tips at: the one asked for, or the company's
    * default. A full can is tipped there and not at the yard, so the route goes
@@ -802,10 +803,13 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     capacity: truck.containers,
     yardMinutes: truck.yardMinutes,
     sizes: truck.sizes,
+    perSize: truck.perSize,
     facility: facility && facilityPlace ? {
       key: FACILITY, minutes: facility.tipMinutes, hours: facilityHours(day, facility.hours),
     } : null,
-    load: locked.length > 0 ? loadAfter(locked.map((v) => v.truckWork), truck.containers) : null,
+    load: locked.length > 0
+      ? loadAfter(locked.map((v) => ({ work: v.truckWork, size: sizeOfStop.get(v.id) ?? null })), { capacity: truck.containers, perSize: truck.perSize })
+      : null,
   } : null;
   const truckResult = truckPlan ? routing.optimiseTruck(truckPlan, placed.map((v) => v.id), { pinned }) : null;
   const result: routing.Proposal = truckResult ?? routing.optimise(plan, placed.map((v) => v.id), { pinned });
@@ -855,7 +859,7 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     truck: containers ? {
       byTruck,
       note: byTruck
-        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${truck.containers === 1 ? "one container" : `${truck.containers} containers`} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facility && facility ? `load empties, and full ones tipped at ${facility.name}` : "tip and load"}.${
+        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${carryWords(truck)} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facility && facility ? `load empties, and full ones tipped at ${facility.name}` : "tip and load"}.${
           truckResult && truckResult.notCarried.length > 0
             ? ` ${truckResult.notCarried.length === 1 ? "One stop is" : `${truckResult.notCarried.length} stops are`} for a container this truck does not lift, so ${truckResult.notCarried.length === 1 ? "it needs" : "they need"} another truck.`
             : ""}`
@@ -866,6 +870,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
       truckLabel: driven.truck?.label ?? null,
       kindName: driven.truck?.kindName ?? null,
       sizes: [...truck.sizes],
+      /** How many of each size at once, when the kind says; empty when one figure counts every size. */
+      capacityBySize: [...(truck.perSize ?? [])],
       notCarried: truckResult?.notCarried ?? [],
       /**
        * The facility the day tips at, with its address and hours, and whether the
@@ -949,18 +955,27 @@ async function containerSizes(ctx: ServiceContext, visitIds: string[]): Promise<
 
 /**
  * What is on the truck after the stops already done today, walked from an
- * empty truck at the yard: each drop took an empty, each collection a full
- * can, and a stop the truck could not have served means it went back to
- * the yard first. A guess at the morning is the best there is: the phone
- * does not record what was loaded.
+ * empty truck at the yard: each drop took an empty of its size, each
+ * collection a full can, and a stop the truck could not have served means it
+ * went back to the yard first. A guess at the morning is the best there is:
+ * the phone does not record what was loaded.
  */
-function loadAfter(works: routing.TruckWork[], capacity: number): routing.TruckLoad {
-  let load: routing.TruckLoad = { empties: routing.loadFor(works, capacity), fulls: 0 };
-  for (const [i, work] of works.entries()) {
-    if (!routing.canServe(work, load, capacity)) load = { empties: routing.loadFor(works.slice(i), capacity), fulls: 0 };
-    load = routing.afterStop(work, load);
+function loadAfter(steps: { work: routing.TruckWork; size: number | null }[], truck: routing.Deckload): routing.Deck {
+  let load: routing.Deck = { empties: routing.loadDeckFor(steps, truck), fulls: [] };
+  for (const [i, step] of steps.entries()) {
+    if (!routing.canServeDeck(step.work, step.size, load, truck)) load = { empties: routing.loadDeckFor(steps.slice(i), truck), fulls: [] };
+    load = routing.afterStopDeck(step.work, step.size, load);
   }
   return load;
+}
+
+/** What a truck carries at once, in words: "one container", "two 10 yard or one 30 yard". */
+export function carryWords(truck: { containers: number; perSize?: readonly { size: number; carried: number }[] | undefined }): string {
+  const count = ["none", "one", "two", "three", "four"];
+  if (truck.perSize && truck.perSize.length > 0) {
+    return truck.perSize.map((p) => `${count[p.carried] ?? p.carried} ${p.size} yard`).join(" or ");
+  }
+  return truck.containers === 1 ? "one container" : `${truck.containers} containers`;
 }
 
 /* ------------------------------------------------------------- suggestions */

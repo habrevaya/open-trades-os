@@ -841,6 +841,13 @@
       "when": 1791941089290,
       "tag": "0119_great_spencer_smythe",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1791943918455,
+      "tag": "0120_harsh_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

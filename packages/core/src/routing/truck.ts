@@ -44,6 +44,17 @@
  * not served by it, and is left out of the truck's arithmetic and named on
  * the proposal rather than driven as if the truck could lift it.
  *
+ * A KIND CAN CARRY A DIFFERENT NUMBER OF EACH SIZE. "Two 10 yard or one 30
+ * yard" is the deck of a hook lift, and a load is checked by size: each can
+ * takes its share of the deck (a 10 yard half of it, a 30 yard all of it),
+ * and a load fits while the shares add up to the whole deck or less, so a
+ * 10 yard and a 30 yard together do not. A can of a size not given its own
+ * figure, or of no known size, takes the kind's one figure's share. A drop
+ * needs an empty of its own size on board (an empty of no known size will
+ * do), so a 30 yard tipped at the facility is not dropped as a 10 yard. A
+ * kind with one figure and cans of no known size is exactly the counting
+ * above.
+ *
  * The search is `optimise`'s own (nearest neighbour in time, then 2-opt and
  * or-opt, windows first and driving second, deterministic), walking each
  * candidate order through this arithmetic instead of the plain one. Still a
@@ -89,6 +100,112 @@ export interface TruckLoad {
   fulls: number;
 }
 
+/** A container's size in cubic yards, or null when it is not known. */
+export type CanSize = number | null;
+
+/** What is on the truck, can by can, with each one's size. */
+export interface Deck {
+  empties: CanSize[];
+  fulls: CanSize[];
+}
+
+/** How many containers of one size a kind carries at once: "two 10 yard". */
+export interface SizeCapacity {
+  size: number;
+  carried: number;
+}
+
+/** What the deck arithmetic needs of a truck: its one figure, and its figure per size. */
+export interface Deckload {
+  capacity: number;
+  perSize?: readonly SizeCapacity[] | undefined;
+}
+
+/** The deck in shares: twelve is every whole number of cans from one to four. */
+const DECK = 12;
+const clampCarried = (n: number) => Math.min(4, Math.max(1, Math.floor(n)));
+
+/** The share of the deck one can of a size takes on this truck. */
+export function shareOf(size: CanSize, truck: Deckload): number {
+  const own = size === null ? undefined : truck.perSize?.find((p) => p.size === size);
+  return DECK / clampCarried(own?.carried ?? truck.capacity);
+}
+
+/** Whether these cans fit on the truck together. */
+export function deckFits(cans: readonly CanSize[], truck: Deckload): boolean {
+  return cans.reduce<number>((n, s) => n + shareOf(s, truck), 0) <= DECK;
+}
+
+/** Which empty on board a stop about a can of this size uses: its own size, else one of no known size; any, for a stop of no known size. */
+function emptyFor(empties: readonly CanSize[], size: CanSize): number {
+  if (size === null) {
+    const unknown = empties.indexOf(null);
+    return unknown >= 0 ? unknown : empties.length > 0 ? 0 : -1;
+  }
+  const exact = empties.indexOf(size);
+  return exact >= 0 ? exact : empties.indexOf(null);
+}
+
+/** Whether the truck as it is can serve a stop, by the size of its can. */
+export function canServeDeck(work: TruckWork, size: CanSize, deck: Deck, truck: Deckload): boolean {
+  switch (work) {
+    case "drop":
+    case "swap":
+      return emptyFor(deck.empties, size) >= 0;
+    case "pickup":
+    case "dump_return":
+      return deckFits([...deck.empties, ...deck.fulls, size], truck);
+    default:
+      return true;
+  }
+}
+
+/** The truck after a stop it could serve. A swap leaves with a full can of the size it dropped. */
+export function afterStopDeck(work: TruckWork, size: CanSize, deck: Deck): Deck {
+  const take = () => {
+    const index = emptyFor(deck.empties, size);
+    const empties = [...deck.empties];
+    const [taken] = empties.splice(index, 1);
+    return { empties, taken: taken ?? null };
+  };
+  switch (work) {
+    case "drop": return { empties: take().empties, fulls: deck.fulls };
+    case "swap": {
+      const { empties, taken } = take();
+      return { empties, fulls: [...deck.fulls, size ?? taken] };
+    }
+    case "pickup": return { empties: deck.empties, fulls: [...deck.fulls, size] };
+    default: return deck;
+  }
+}
+
+/**
+ * Which empties to leave the yard with, can by can: the ones for the drops
+ * that come next, as many as serves the most of the stops that follow
+ * before the truck has to come back, and the fewest that does so. With one
+ * figure and no sizes this is `loadFor`.
+ */
+export function loadDeckFor(steps: readonly { work: TruckWork; size: CanSize }[], truck: Deckload): CanSize[] {
+  const drops = steps.filter((s) => s.work === "drop" || s.work === "swap").map((s) => s.size);
+  let best = { empties: [] as CanSize[], served: -1 };
+  for (let k = 0; k <= drops.length; k++) {
+    const empties = drops.slice(0, k);
+    if (!deckFits(empties, truck)) break;
+    let deck: Deck = { empties, fulls: [] };
+    let served = 0;
+    for (const step of steps) {
+      if (!canServeDeck(step.work, step.size, deck, truck)) break;
+      deck = afterStopDeck(step.work, step.size, deck);
+      served += 1;
+    }
+    if (served > best.served) best = { empties, served };
+  }
+  return best.empties;
+}
+
+/** The counts a proposal shows of a deck. */
+export const countsOf = (deck: Deck): TruckLoad => ({ empties: deck.empties.length, fulls: deck.fulls.length });
+
 export interface TruckPlan extends DayPlan {
   stops: readonly TruckStop[];
   /** The key of the yard: where empties are loaded and full cans tipped. */
@@ -102,13 +219,20 @@ export interface TruckPlan extends DayPlan {
    * it is not limited to any, which is also what a truck with no kind is.
    */
   sizes?: readonly number[] | undefined;
+  /**
+   * How many of each size it carries at once, when its kind says ("two 10
+   * yard or one 30 yard"). A size not here, or a can of no known size, is
+   * counted against `capacity`.
+   */
+  perSize?: readonly SizeCapacity[] | undefined;
   /** Where a full can is tipped, when the plan knows a facility. Without one the yard tips. */
   facility?: TruckFacility | null | undefined;
   /**
    * What is on the truck as the plan starts. Null when the day starts at
-   * the yard, where it is loaded for the stops that follow.
+   * the yard, where it is loaded for the stops that follow. A `Deck` says
+   * each can's size; counts alone are cans of no known size.
    */
-  load: TruckLoad | null;
+  load: TruckLoad | Deck | null;
 }
 
 export interface YardRun {
@@ -132,6 +256,8 @@ export interface TruckFigures {
   yardMinutes: number;
   /** Cubic yards. Empty means any size. */
   sizes: readonly number[];
+  /** How many of each size at once, when the kind says; absent when it has one figure. */
+  perSize?: readonly SizeCapacity[] | undefined;
   /** The truck's own kind, or the company's figures for a truck with none. */
   source: "truck" | "company";
 }
@@ -144,13 +270,22 @@ export interface TruckFigures {
  */
 export function truckFigures(
   company: { containersPerTruck: number; yardMinutes: number },
-  own: { containers: number; yardMinutes: number; sizes: readonly number[] } | null,
+  own: {
+    containers: number; yardMinutes: number; sizes: readonly number[];
+    perSize?: readonly SizeCapacity[] | undefined;
+  } | null,
 ): TruckFigures {
   const clamp = (n: number, low: number, high: number) => Math.min(high, Math.max(low, Math.floor(n)));
   if (own) {
+    /** A size given its own figure is a size the truck lifts, so it is among `sizes` too. */
+    const perSize = (own.perSize ?? []).filter((p) => Number.isFinite(p.size) && p.size > 0)
+      .map((p) => ({ size: p.size, carried: clamp(p.carried, 1, 4) }))
+      .filter((p, i, all) => all.findIndex((q) => q.size === p.size) === i)
+      .sort((a, b) => a.size - b.size);
     return {
       containers: clamp(own.containers, 1, 4), yardMinutes: clamp(own.yardMinutes, 0, 120),
-      sizes: [...new Set(own.sizes.filter((s) => Number.isFinite(s) && s > 0))].sort((a, b) => a - b),
+      sizes: [...new Set([...own.sizes, ...perSize.map((p) => p.size)].filter((s) => Number.isFinite(s) && s > 0))].sort((a, b) => a - b),
+      ...(perSize.length > 0 ? { perSize } : {}),
       source: "truck",
     };
   }
@@ -212,6 +347,8 @@ export interface TruckEvaluation extends Evaluation {
   facilityRuns: FacilityRun[];
   /** What the truck leaves with in the morning. */
   startLoad: TruckLoad;
+  /** The same, can by can with each one's size. */
+  startDeck: Deck;
 }
 
 /** Whether the truck as it is can serve a stop. */
@@ -260,19 +397,28 @@ export function loadFor(works: readonly TruckWork[], capacity: number): number {
 }
 
 /** Walk a day in a given order with the truck, and say what it costs. */
+/** A plan's starting load as a deck: counts alone are cans of no known size. */
+function deckOf(load: TruckLoad | Deck): Deck {
+  return Array.isArray(load.empties)
+    ? { empties: [...(load as Deck).empties], fulls: [...(load as Deck).fulls] }
+    : { empties: Array<CanSize>((load as TruckLoad).empties).fill(null), fulls: Array<CanSize>((load as TruckLoad).fulls).fill(null) };
+}
+
+const truckOf = (plan: TruckPlan): Deckload => ({ capacity: Math.max(1, Math.floor(plan.capacity)), perSize: plan.perSize });
+
 export function evaluateTruck(given: TruckPlan, order: readonly string[]): TruckEvaluation {
   const plan = servable(given).plan;
   const facility = plan.facility ?? null;
-  const capacity = Math.max(1, Math.floor(plan.capacity));
+  const truck = truckOf(plan);
   const byId = new Map(plan.stops.map((s) => [s.id, s]));
-  const works = order.map((id) => {
+  const steps = order.map((id) => {
     const stop = byId.get(id);
     if (!stop) throw new RangeError(`${id} is not a stop in this plan.`);
-    return stop.work;
+    return { work: stop.work, size: stop.size ?? null };
   });
 
-  const startLoad: TruckLoad = plan.load ?? { empties: loadFor(works, capacity), fulls: 0 };
-  let load = startLoad;
+  const startDeck: Deck = plan.load ? deckOf(plan.load) : { empties: loadDeckFor(steps, truck), fulls: [] };
+  let load = startDeck;
   let at = plan.start;
   let previous: string | null = null;
   let clock = plan.departAt;
@@ -282,15 +428,15 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
   const yardRuns: YardRun[] = [];
   const facilityRuns: FacilityRun[] = [];
 
-  const toYard = (beforeId: string | null, upcoming: readonly TruckWork[]) => {
+  const toYard = (beforeId: string | null, upcoming: readonly { work: TruckWork; size: CanSize }[]) => {
     const leg = plan.travel(at, plan.yard);
     drive += leg;
     clock += leg;
     const arriveAt = clock;
-    const empties = upcoming.length > 0 ? loadFor(upcoming, capacity) : 0;
-    yardRuns.push({ afterId: previous, beforeId, tipped: load.fulls, loaded: empties - load.empties, arriveAt });
+    const empties = upcoming.length > 0 ? loadDeckFor(upcoming, truck) : [];
+    yardRuns.push({ afterId: previous, beforeId, tipped: load.fulls.length, loaded: empties.length - load.empties.length, arriveAt });
     clock += plan.yardMinutes;
-    load = { empties, fulls: 0 };
+    load = { empties, fulls: [] };
     at = plan.yard;
   };
 
@@ -314,18 +460,19 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
       else if (arriveAt > f.hours.closesAt) closedBy = arriveAt - f.hours.closesAt;
     }
     wait += waited;
-    facilityRuns.push({ afterId: previous, beforeId, tipped: load.fulls, arriveAt, waitMinutes: waited, closedBy });
+    facilityRuns.push({ afterId: previous, beforeId, tipped: load.fulls.length, arriveAt, waitMinutes: waited, closedBy });
     clock += f.minutes;
-    /** What was full is empty now, and still on the truck. */
-    load = { empties: load.empties + load.fulls, fulls: 0 };
+    /** What was full is empty now, and still on the truck, each can its own size. */
+    load = { empties: [...load.empties, ...load.fulls], fulls: [] };
     at = f.key;
   };
 
   for (const [index, id] of order.entries()) {
     const stop = byId.get(id)!;
-    if (!canServe(stop.work, load, capacity)) {
-      if (facility && load.fulls > 0) toFacility(id);
-      if (!canServe(stop.work, load, capacity)) toYard(id, works.slice(index));
+    const size = stop.size ?? null;
+    if (!canServeDeck(stop.work, size, load, truck)) {
+      if (facility && load.fulls.length > 0) toFacility(id);
+      if (!canServeDeck(stop.work, size, load, truck)) toYard(id, steps.slice(index));
     }
     const leg = plan.travel(at, id);
     drive += leg;
@@ -338,7 +485,7 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     clock = leaveAt;
     at = id;
     previous = id;
-    load = afterStop(stop.work, load);
+    load = afterStopDeck(stop.work, size, load);
   }
 
   /**
@@ -346,13 +493,13 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
    * when the plan has one, otherwise at the yard when the day ends there, by
    * way of it when it does not.
    */
-  const tipAtEnd = order.length > 0 && load.fulls > 0;
+  const tipAtEnd = order.length > 0 && load.fulls.length > 0;
   if (tipAtEnd && facility) toFacility(null);
   else if (tipAtEnd && plan.end !== plan.yard) toYard(null, []);
   const home = order.length === 0 ? 0 : plan.travel(at, plan.end);
   drive += home;
   if (tipAtEnd && !facility && plan.end === plan.yard) {
-    yardRuns.push({ afterId: previous, beforeId: null, tipped: load.fulls, loaded: 0, arriveAt: clock + home });
+    yardRuns.push({ afterId: previous, beforeId: null, tipped: load.fulls.length, loaded: 0, arriveAt: clock + home });
     clock += plan.yardMinutes;
   }
 
@@ -367,7 +514,8 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     lateMinutes: late.reduce((n, l) => n + l.lateBy, 0),
     yardRuns,
     facilityRuns,
-    startLoad,
+    startLoad: countsOf(startDeck),
+    startDeck,
   };
 }
 
@@ -393,12 +541,13 @@ export function betterTruck(a: TruckEvaluation, b: TruckEvaluation): boolean {
 export function constructTruck(given: TruckPlan): string[] {
   const plan = servable(given).plan;
   const facility = plan.facility ?? null;
-  const capacity = Math.max(1, Math.floor(plan.capacity));
+  const truck = truckOf(plan);
   const remaining = [...plan.stops].sort((a, b) => a.id.localeCompare(b.id));
   const order: string[] = [];
   let at = plan.start;
   let clock = plan.departAt;
-  let load: TruckLoad = plan.load ?? { empties: loadFor(remaining.map((s) => s.work), capacity), fulls: 0 };
+  const stepOf = (s: TruckStop) => ({ work: s.work, size: s.size ?? null });
+  let load: Deck = plan.load ? deckOf(plan.load) : { empties: loadDeckFor(remaining.map(stepOf), truck), fulls: [] };
 
   /**
    * Where the truck is, when and with what, once it has done what the stop
@@ -406,23 +555,23 @@ export function constructTruck(given: TruckPlan): string[] {
    * yard when it still cannot serve it. The same arithmetic `evaluateTruck`
    * walks, so the order built is the order that is then measured.
    */
-  const approach = (work: TruckWork, upcoming: readonly TruckWork[]) => {
+  const approach = (step: { work: TruckWork; size: CanSize }, upcoming: readonly { work: TruckWork; size: CanSize }[]) => {
     let place = at;
     let time = clock;
     let ld = load;
     let viaYard = false;
-    if (!canServe(work, ld, capacity)) {
-      if (facility && ld.fulls > 0) {
+    if (!canServeDeck(step.work, step.size, ld, truck)) {
+      if (facility && ld.fulls.length > 0) {
         time += plan.travel(place, facility.key);
         if (facility.hours !== null && facility.hours !== "closed" && time < facility.hours.opensAt) time = facility.hours.opensAt;
         time += facility.minutes;
         place = facility.key;
-        ld = { empties: ld.empties + ld.fulls, fulls: 0 };
+        ld = { empties: [...ld.empties, ...ld.fulls], fulls: [] };
       }
-      if (!canServe(work, ld, capacity)) {
+      if (!canServeDeck(step.work, step.size, ld, truck)) {
         time += plan.travel(place, plan.yard) + plan.yardMinutes;
         place = plan.yard;
-        ld = { empties: loadFor(upcoming, capacity), fulls: 0 };
+        ld = { empties: loadDeckFor(upcoming, truck), fulls: [] };
         viaYard = true;
       }
     }
@@ -433,7 +582,7 @@ export function constructTruck(given: TruckPlan): string[] {
     let best: { index: number; begin: number; leg: number; closes: number } | null = null;
     let urgent: { index: number; closes: number } | null = null;
     for (const [index, stop] of remaining.entries()) {
-      const there = approach(stop.work, [stop.work]);
+      const there = approach(stepOf(stop), [stepOf(stop)]);
       const leg = there.time - clock + plan.travel(there.place, stop.id);
       const arrive = clock + leg;
       const closes = stop.windowEnd ?? Number.POSITIVE_INFINITY;
@@ -449,7 +598,7 @@ export function constructTruck(given: TruckPlan): string[] {
     }
     const pick = (best ?? urgent)!;
     const [stop] = remaining.splice(pick.index, 1);
-    const there = approach(stop!.work, [stop!.work, ...remaining.map((s) => s.work)]);
+    const there = approach(stepOf(stop!), [stepOf(stop!), ...remaining.map(stepOf)]);
     clock = there.time;
     at = there.place;
     load = there.load;
@@ -457,7 +606,7 @@ export function constructTruck(given: TruckPlan): string[] {
     const arrive = clock + leg;
     clock = Math.max(arrive, stop!.windowStart ?? arrive) + stop!.serviceMinutes;
     at = stop!.id;
-    load = afterStop(stop!.work, load);
+    load = afterStopDeck(stop!.work, stop!.size ?? null, load);
     order.push(stop!.id);
   }
   return order;
