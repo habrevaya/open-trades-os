@@ -1,0 +1,1 @@
+ALTER TABLE "visit" ADD COLUMN "from_history" boolean DEFAULT false NOT NULL;

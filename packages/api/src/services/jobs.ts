@@ -1042,6 +1042,15 @@ export async function addVisit(
       throw new ConflictError(`Job ${job.number} was cancelled. Book a new job rather than a visit on this one.`);
     }
     await assertUnclaimed(tx, "visit", input.externalRef);
+    const history = input.completedAt !== undefined
+      ? await admitHistoryVisit(tx, ctx, job, input)
+      : null;
+    if (input.technicianNotes !== undefined && history === null) {
+      throw new UnprocessableError("Notes go with a visit recorded as done", [{
+        path: "technicianNotes",
+        message: "technicianNotes is what the technician wrote on a visit already done: send it with completedAt, or write it from the visit.",
+      }]);
+    }
     /**
      * The company's required fields are asked for when a person or an
      * integration books the visit (the route, the "Add a visit" form). A
@@ -1070,7 +1079,12 @@ export async function addVisit(
     }
 
     await assertDispatchable(tx, ctx, input.technicianIds, input.crewId ?? null);
-    if (input.windowStart && input.windowEnd && input.status !== "cancelled") {
+    /**
+     * A visit recorded as done is history, not a booking: whoever went then
+     * went, so it is not refused for time off somebody recorded since, or for
+     * a certificate that has lapsed or was never written down here.
+     */
+    if (input.windowStart && input.windowEnd && input.status !== "cancelled" && history === null) {
       await assertAvailable(
         tx, ctx.actor.organizationId, input.technicianIds,
         new Date(input.windowStart), new Date(input.windowEnd),
@@ -1080,7 +1094,7 @@ export async function addVisit(
         new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills, job.droppedSkills,
       );
     }
-    const held = input.windowStart && input.status !== "cancelled" && input.externalRef === undefined
+    const held = input.windowStart && input.status !== "cancelled" && input.externalRef === undefined && history === null
       ? await checkMemberHold(tx, ctx, {
         jobId: job.id, customerId: job.customerId, propertyId: job.propertyId, jobTypeId: job.jobTypeId,
         windowStart: new Date(input.windowStart), durationMinutes: input.estimatedDurationMinutes,
@@ -1103,8 +1117,9 @@ export async function addVisit(
        * sent somebody to a customer who had said no. A visit with no window
        * cannot be dispatched, so it is unassigned whoever is named on it.
        */
-      status: input.status === "cancelled" ? "cancelled"
+      status: history ? "completed" : input.status === "cancelled" ? "cancelled"
         : input.technicianIds.length > 0 && input.windowStart ? "scheduled" : "unassigned",
+      ...(history ? { completedAt: history.completedAt, fromHistory: true, technicianNotes: input.technicianNotes ?? null } : {}),
       windowStart: input.windowStart ? new Date(input.windowStart) : null,
       windowEnd: input.windowEnd ? new Date(input.windowEnd) : null,
       estimatedDurationMinutes: input.estimatedDurationMinutes,
@@ -1130,8 +1145,8 @@ export async function addVisit(
       });
     }
 
-    /** On their day from now, unless it is history brought in from another system. */
-    if (input.externalRef === undefined) await announce(tx, ctx, visit!.id, NEW_VISIT);
+    /** On their day from now, unless it is history brought in from another system or recorded as done. */
+    if (input.externalRef === undefined && history === null) await announce(tx, ctx, visit!.id, NEW_VISIT);
 
     /**
      * A LEAD WITH A VISIT ON THE BOARD IS BOOKED.
@@ -1142,7 +1157,7 @@ export async function addVisit(
      * only for a visit with a time: a visit with no window is not booked
      * yet, and a job further along keeps its own status.
      */
-    if ((job.status === "lead" || job.status === "estimating") && input.windowStart && input.status !== "cancelled") {
+    if ((job.status === "lead" || job.status === "estimating") && input.windowStart && input.status !== "cancelled" && history === null) {
       await tx.update(schema.job).set({ status: "scheduled", updatedAt: new Date() })
         .where(eq(schema.job.id, input.id));
     }
@@ -1156,9 +1171,69 @@ export async function addVisit(
       });
     }
 
-    await audit(tx, ctx, "visit.scheduled", "visit", visit!.id, null, visit!);
+    await audit(tx, ctx, history ? "visit.recorded" : "visit.scheduled", "visit", visit!.id, null, visit!);
     return { ...withProvenance(visit!), technicianIds: input.technicianIds, locationName: await shopName(tx, visit!.locationId) };
   });
+}
+
+/** A job that is over: a visit recorded as done goes on one of these and no other. */
+const FINISHED_JOB = ["completed", "invoiced", "paid"] as const;
+
+/**
+ * A VISIT RECORDED AS DONE, ON A JOB THAT IS OVER (M30).
+ *
+ * History brought in from the company's old system: who went, when, and what
+ * they wrote. It is recorded, never acted on, so it raises no event (nothing
+ * texts the customer or starts an automation), tells nobody it is on their
+ * day, leaves the job's status as it is, and is marked `fromHistory`, which
+ * keeps it out of every commission split and tip share: the work was paid for
+ * in the old system, if it was paid for at all.
+ *
+ * `data:import` always, whatever the date, because saying a visit happened
+ * is bringing in history; and the day it was done goes through the history
+ * rules as well, so it is never in the future and never later than now.
+ */
+async function admitHistoryVisit(
+  tx: Database, ctx: ServiceContext, job: typeof schema.job.$inferSelect, input: z.infer<typeof scheduleVisit.input>,
+): Promise<{ completedAt: Date }> {
+  assertCan(ctx.actor, "data:import");
+  const completedAt = new Date(input.completedAt!);
+  if (input.status === "cancelled") {
+    throw new UnprocessableError("A visit is done or called off, not both", [{
+      path: "completedAt", message: "Send completedAt for a visit that happened, or status cancelled for one that did not.",
+    }]);
+  }
+  if (!input.windowStart || !input.windowEnd) {
+    throw new UnprocessableError("A visit recorded as done needs its time", [{
+      path: "windowStart", message: "Send windowStart and windowEnd: the time the visit was at.",
+    }]);
+  }
+  if (input.technicianIds.length === 0) {
+    throw new UnprocessableError("A visit recorded as done needs who did it", [{
+      path: "technicianIds", message: "Name the technician who went.",
+    }]);
+  }
+  if (completedAt.getTime() < Date.parse(input.windowStart)) {
+    throw new UnprocessableError("Done before it started", [{
+      path: "completedAt", message: "completedAt is before windowStart.",
+    }]);
+  }
+  await admitInstant(tx, ctx, completedAt, "completedAt");
+  if (!(FINISHED_JOB as readonly string[]).includes(job.status)) {
+    throw new ConflictError(
+      `Job ${job.number} is not finished, and a visit recorded as done goes on a job that is. `
+      + "Bring the job in as finished, or book the visit and complete it from the board.",
+    );
+  }
+  const people = await tx.select({ id: schema.technician.id }).from(schema.technician)
+    .where(and(
+      eq(schema.technician.organizationId, ctx.actor.organizationId),
+      inArray(schema.technician.id, [...input.technicianIds]),
+    ));
+  if (people.length !== new Set(input.technicianIds).size) {
+    throw new ConflictError("One of those technicians is not one of this company's.");
+  }
+  return { completedAt };
 }
 
 /**

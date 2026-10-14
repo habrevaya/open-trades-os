@@ -148887,6 +148887,9 @@
             ],
             "format": "date-time"
           },
+          "fromHistory": {
+            "type": "boolean"
+          },
           "technicianNotes": {
             "type": [
               "string",
@@ -156788,6 +156791,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "fromHistory": {
+                  "type": "boolean"
                 },
                 "technicianNotes": {
                   "type": [
@@ -182062,7 +182068,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -183815,6 +183823,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "fromHistory": {
+                  "type": "boolean"
                 },
                 "technicianNotes": {
                   "type": [
@@ -212514,7 +212525,9 @@
                     "jobs",
                     "invoices",
                     "payments",
-                    "estimates"
+                    "estimates",
+                    "notes",
+                    "visits"
                   ]
                 },
                 "name": {
@@ -212574,7 +212587,9 @@
                     "jobs",
                     "invoices",
                     "payments",
-                    "estimates"
+                    "estimates",
+                    "notes",
+                    "visits"
                   ]
                 },
                 "fileName": {
@@ -229353,7 +229368,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -251047,6 +251064,14 @@
           "bookAnyway": {
             "type": "boolean"
           },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "technicianNotes": {
+            "type": "string",
+            "maxLength": 5000
+          },
           "externalRef": {
             "type": "object",
             "properties": {
@@ -251169,6 +251194,9 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "fromHistory": {
+            "type": "boolean"
           },
           "technicianNotes": {
             "type": [
@@ -261421,7 +261449,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -261460,7 +261490,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -269913,6 +269945,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "fromHistory": {
+                  "type": "boolean"
                 },
                 "technicianNotes": {
                   "type": [

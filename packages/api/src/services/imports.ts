@@ -16,12 +16,15 @@ import * as pricebook from "./pricebook";
 import * as jobs from "./jobs";
 import * as billing from "./billing";
 import * as estimates from "./estimates";
+import * as customerNotes from "./customer-notes";
 import { CustomerCreate } from "../contracts/customers";
 import { JobCreate } from "../contracts/jobs";
 import { registerEquipment } from "../contracts/equipment";
 import { createPriceBookItem } from "../contracts/pricebook";
 import { createInvoice, recordPayment } from "../contracts/billing";
 import { createEstimate } from "../contracts/estimates";
+import { addCustomerNote } from "../contracts/customer-notes";
+import { scheduleVisit } from "../contracts/jobs";
 
 /**
  * BRINGING IN A SPREADSHEET (M30)
@@ -71,12 +74,14 @@ const NEEDS: Record<Kind, Permission[]> = {
   invoices: ["customer:read", "invoice:write", "payment:collect"],
   payments: ["customer:read", "invoice:read", "payment:collect"],
   estimates: ["customer:read", "estimate:write"],
+  notes: ["customer:read", "customer:write"],
+  visits: ["job:read", "visit:write"],
 };
 
 /** The table a kind's provenance lives on, by its name in SQL. */
 const TABLE: Record<Kind, string> = {
   customers: "customer", equipment: "equipment", pricebook: "price_book_item", jobs: "job", invoices: "invoice",
-  payments: "payment", estimates: "estimate",
+  payments: "payment", estimates: "estimate", notes: "customer_note", visits: "visit",
 };
 
 const LIST_LIMIT = 500;
@@ -627,6 +632,29 @@ async function jobFor(tx: Database, source: string, ref: string): Promise<string
   throw new ConflictError(`There is no job ${ref}. Bring in the jobs file first, or clear the job column.`);
 }
 
+/**
+ * The technician a visit names, by the email they sign in with, among the
+ * people on the board: an active technician of this company. Never by name,
+ * for the reason a customer is never found by name, and never somebody who
+ * is not on the board, because a visit put on nobody, or on somebody who has
+ * since left and whom nobody can see, is worse than a row refused.
+ */
+async function technicianFor(tx: Database, email: string): Promise<{ id: string; name: string }> {
+  const found = await tx.execute<{ id: string; name: string }>(sql`
+    select t.id, t.display_name as name from public.technician t
+    join app.organization_people() p on p.membership_id = t.membership_id
+    where lower(p.email) = lower(${email}) and t.active`);
+  const rows = [...found];
+  if (rows.length === 0) {
+    throw new ConflictError(
+      `Nobody on the board signs in with ${email}. Add them as a technician under Team first, `
+      + "or put the email they sign in with.",
+    );
+  }
+  if (rows.length > 1) throw new ConflictError(`More than one technician signs in with ${email}.`);
+  return rows[0]!;
+}
+
 /** A number another system printed, kept when it is one this product can keep. */
 const keptNumber = (value: string | undefined): number | undefined =>
   value !== undefined && /^\d{1,10}$/.test(value) && Number(value) >= 1 && Number(value) <= 2_000_000_000
@@ -852,6 +880,54 @@ async function loadOne(
       return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${how}` };
     }
 
+    case "notes": {
+      /**
+       * A NOTE ON THE DAY THE FILE SAYS, through `POST /v1/customers/{id}/notes`:
+       * marked as brought in, with nobody here as its writer, never changed
+       * afterwards, and shown to the technician only when the file says so.
+       */
+      const customer = await customerFor(db, run.source, v);
+      const note = await customerNotes.add(as, addCustomerNote.input.parse({
+        id: customer.id,
+        body: v["body"],
+        notedAt: instantOf(v["notedOn"]!, clock.today, clock.timeZone),
+        ...(v["forField"] !== undefined ? { forField: v["forField"] === "true" } : {}),
+        externalRef,
+      }));
+      return { outcome: "loaded", recordId: note.id, recordLabel: `Note on ${customer.name}` };
+    }
+
+    case "visits": {
+      /**
+       * A VISIT ON A JOB THAT IS OVER, AS IT HAPPENED, through
+       * `POST /v1/jobs/{id}/visits` with `completedAt`: on the day and at the
+       * time in the file on the company's clock, done, by the technician whose
+       * email it names. History, so it raises no event, tells nobody, is not
+       * refused for time off recorded later, and is kept out of every
+       * commission split and tip share. With no time it finished, it is an
+       * hour long, which is the length a visit is booked for when nobody says.
+       */
+      const jobId = await jobFor(db, run.source, v["jobRef"]!);
+      const technician = await technicianFor(db, v["technicianEmail"]!);
+      const start = time.instantOfLocal(v["visitedOn"]!, rules.minutesOf(v["startTime"]!), clock.timeZone);
+      const end = v["endTime"] !== undefined
+        ? time.instantOfLocal(v["visitedOn"]!, rules.minutesOf(v["endTime"]), clock.timeZone)
+        : new Date(start.getTime() + 60 * 60_000);
+      const minutes = Math.min(1440, Math.max(5, Math.round((end.getTime() - start.getTime()) / 60_000)));
+      const visit = await jobs.addVisit(as, scheduleVisit.input.parse({
+        id: jobId,
+        windowStart: start.toISOString(),
+        windowEnd: end.toISOString(),
+        estimatedDurationMinutes: minutes,
+        technicianIds: [technician.id],
+        completedAt: end.toISOString(),
+        ...(v["notes"] ? { technicianNotes: v["notes"] } : {}),
+        externalRef,
+      }), { requireFields: true });
+      const [job] = await db.select({ number: schema.job.number }).from(schema.job).where(eq(schema.job.id, jobId)).limit(1);
+      return { outcome: "loaded", recordId: visit.id, recordLabel: `Visit on job ${job?.number ?? ""} by ${technician.name}` };
+    }
+
     case "payments": {
       /**
        * ONE PAYMENT, ON EVERY INVOICE ITS ROWS NAME. Each invoice is found
@@ -937,6 +1013,18 @@ async function labelOf(tx: Database, kind: Kind, id: string): Promise<string> {
     case "estimates": {
       const [row] = await tx.select({ number: schema.estimate.number }).from(schema.estimate).where(eq(schema.estimate.id, id)).limit(1);
       return `Estimate ${row?.number ?? ""}`.trim();
+    }
+    case "notes": {
+      const [row] = await tx.select({ name: schema.customer.name }).from(schema.customerNote)
+        .innerJoin(schema.customer, eq(schema.customer.id, schema.customerNote.customerId))
+        .where(eq(schema.customerNote.id, id)).limit(1);
+      return row ? `Note on ${row.name}` : "A note";
+    }
+    case "visits": {
+      const [row] = await tx.select({ number: schema.job.number, sequence: schema.visit.sequence }).from(schema.visit)
+        .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+        .where(eq(schema.visit.id, id)).limit(1);
+      return row ? `Visit ${row.sequence} on job ${row.number}` : "A visit";
     }
     case "payments": {
       const [row] = await tx.select({ amount: schema.payment.amount, name: schema.customer.name }).from(schema.payment)

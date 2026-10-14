@@ -2011,6 +2011,7 @@ export interface CompleteVisitOutput {
   dispatchedAt: string | null;
   arrivedAt: string | null;
   completedAt: string | null;
+  fromHistory?: boolean;
   technicianNotes: string | null;
   customerNotes: string | null;
   customerNotesSharedAt: string | null;
@@ -3518,6 +3519,7 @@ export interface CreateJobOutput {
     dispatchedAt: string | null;
     arrivedAt: string | null;
     completedAt: string | null;
+    fromHistory?: boolean;
     technicianNotes: string | null;
     customerNotes: string | null;
     customerNotesSharedAt: string | null;
@@ -8441,7 +8443,7 @@ export interface GetHostedFormOutput {
 
 export interface GetImportOutput {
   id: string;
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
   source: string;
   holdAutomations: boolean;
@@ -8827,6 +8829,7 @@ export interface GetJobOutput {
     dispatchedAt: string | null;
     arrivedAt: string | null;
     completedAt: string | null;
+    fromHistory?: boolean;
     technicianNotes: string | null;
     customerNotes: string | null;
     customerNotesSharedAt: string | null;
@@ -14186,7 +14189,7 @@ export interface ListHolidaysOutput {
 export interface ListImportMappingsOutput {
   mappings: Array<{
     id: string;
-    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
+    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
     name: string;
     source: string;
     dayFirst: boolean;
@@ -14198,7 +14201,7 @@ export interface ListImportMappingsOutput {
 export interface ListImportsOutput {
   imports: Array<{
     id: string;
-    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
+    kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
     fileName: string;
     source: string;
     holdAutomations: boolean;
@@ -17408,7 +17411,7 @@ export interface MapImportInput {
 
 export interface MapImportOutput {
   id: string;
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
   source: string;
   holdAutomations: boolean;
@@ -21888,6 +21891,8 @@ export interface ScheduleVisitInput {
   crewId?: string;
   status?: "cancelled";
   bookAnyway?: boolean;
+  completedAt?: string;
+  technicianNotes?: string;
   externalRef?: {
     source: string;
     id: string;
@@ -21911,6 +21916,7 @@ export interface ScheduleVisitOutput {
   dispatchedAt: string | null;
   arrivedAt: string | null;
   completedAt: string | null;
+  fromHistory?: boolean;
   technicianNotes: string | null;
   customerNotes: string | null;
   customerNotesSharedAt: string | null;
@@ -24119,7 +24125,7 @@ export interface StartConversationOutput {
 }
 
 export interface StartImportInput {
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
   csv: string;
   holdAutomations?: boolean;
@@ -24127,7 +24133,7 @@ export interface StartImportInput {
 
 export interface StartImportOutput {
   id: string;
-  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates";
+  kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
   source: string;
   holdAutomations: boolean;
@@ -25737,6 +25743,7 @@ export interface UpdateJobOutput {
     dispatchedAt: string | null;
     arrivedAt: string | null;
     completedAt: string | null;
+    fromHistory?: boolean;
     technicianNotes: string | null;
     customerNotes: string | null;
     customerNotesSharedAt: string | null;

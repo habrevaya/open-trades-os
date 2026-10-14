@@ -130,6 +130,19 @@ for one that never had a time. Complete a job with
 `PATCH /v1/jobs/{id}` `{ status: "completed", completedAt }`, or complete its
 visits with `completedOfflineAt`.
 
+A visit on a job that is already over is recorded as it happened: the same
+`POST /v1/jobs/{id}/visits` with its window, the technician who went in
+`technicianIds`, `completedAt` and what they wrote in `technicianNotes`. It
+needs `data:import` whatever its date, and the day goes through the history
+rules, so it is never ahead of now. It goes only on a job that is completed,
+invoiced or paid, and is refused on one still open. It is marked
+`fromHistory`, and history is recorded, not acted on: it raises no event, tells
+nobody it is on their day, leaves the job's status alone, is not checked
+against time off or certificates (whoever went then went), and is left out of
+every commission split and tip share, because the work was paid for in the
+old system if it was paid for at all. No time goes on anybody's timesheet: pay
+here comes from the clock, never from visits.
+
 A job that ended before the move and needs no visits can be created as it
 ended: `POST /v1/jobs` with `completedAt` or `cancelledAt` (one of them, and
 no `visit`). The day is admitted by the history rules, and a job ended more
@@ -213,11 +226,11 @@ are not taken when it is created; they are set afterwards with
 
 `Settings > Bring in a spreadsheet` (`/settings/imports`) is for an owner who
 has files exported from wherever the company was before and nobody to drive
-the toolkit. It takes six kinds of file: customers with their addresses and
+the toolkit. It takes nine kinds of file: customers with their addresses and
 a person to contact, equipment, price book items, past jobs, past invoices
 with their lines and what was paid on them, past payments, each split across
-the invoices it paid, and past estimates with how they ended and the day they
-were sent. CSV only: no workbook reader is part of
+the invoices it paid, past estimates with how they ended and the day they
+were sent, customer notes, and past visits on past jobs. CSV only: no workbook reader is part of
 this product, and a workbook uploaded by mistake is refused with how to save
 it as CSV. A file can be 5 MB and ten thousand rows; a larger one is refused
 in words, to be split.
@@ -263,6 +276,30 @@ stops between batches and pressing the button again carries on.
 | Past invoices | `POST /v1/invoices` with `issuedOn`, a line per row (its quantity at its price each, or one at its amount before tax) with the tax as charged on it and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
 | Past payments | `POST /v1/payments` dated the day it was paid, with an allocation per row to the invoice that row names, and whatever a row names no invoice for held for the customer |
 | Past estimates | `POST /v1/estimates` with `issuedOn`, one option of one line at the amount before tax, taxed at the rate its tax was charged at or not at all, its `outcome` (approved on its one option, declined with the reason, expired) and `sentOn`; the total is checked against the file's to the cent afterwards |
+| Customer notes | `POST /v1/customers/{id}/notes` with `notedAt` at midday of the day in the file on the company's clock (now, for a note written today), `forField` when the file says the technician should see it, and `externalRef` |
+| Past visits | `POST /v1/jobs/{id}/visits` with the window at the day and times in the file on the company's clock, the one technician it names, `completedAt` at the time it finished and `technicianNotes`; an hour long when the file has no time it finished |
+
+**A note comes in on its day.** Whose it is the way a job finds its customer
+(by the customer's id from a customers file under the same "came from" name,
+or an email exactly one customer has), the day it was written is needed (a
+note with no day would sit at the top of the customer's notes as if it were
+written today), and it lands among the customer's notes marked as brought in
+from that source, with nobody here as its writer and never changed afterwards.
+"For the technician" (yes or no) shows it on the customer's visits.
+
+**A past visit goes on a past job, done, by somebody on the board.** It finds
+its job by the job's id from a jobs file or the number it kept, and the job
+has to be finished; one still open is refused, to bring in as finished or to
+book from the board. It names its technician by the email they sign in with,
+and only an active technician of the company matches: an email nobody on the
+board signs in with is refused, rather than putting the visit on nobody or on
+a guess, so add the person under Team first. The day and the time it started
+are needed and the time it finished is not; times are read on the company's
+clock, "14:30" or "2:30 PM", a time with no AM or PM is a 24 hour clock, and a
+visit that ends before it starts, or runs past midnight, is refused. It is
+recorded the way the API records history: done, starting nothing and telling
+nobody, not refused for time off the technician recorded since, and never
+counted toward their pay or a commission.
 
 **An estimate comes in as it ended.** Approved, declined or expired, each with
 the day it was decided, or open. An open one comes in as a draft, to send from
@@ -616,14 +653,12 @@ dependency. An invoice's lines carry a quantity, a price each, a description
 and the tax charged on them, not a price book item, a discount or a cost; a
 refund or a credit does not come in through it. An estimate comes in as one
 option of one line at its amount, not the options and lines of the original.
-Customer notes do not come in, because this product has no customer note to
-load into: the customer's `notes` column is read by no route or screen, and
-giving customers dated notes is M03's to build first. Past visits on past jobs
-do not come in through the screen: adding a visit to a past job is the toolkit's
-(`POST /v1/jobs/{id}/visits` with `externalRef`), and a file of them would also
-have to find each technician by an address, put each visit at a time on a day
-the technician may by now have marked as time off, and complete it without
-counting it toward that person's pay, none of which the screen decides yet.
+A note comes in dated by its day, not its time, and a past visit carries one
+technician, not a crew: a visit two people went on is two files' worth of
+work, or the second is added from the visit afterwards. A past visit's parts,
+photographs, signature and readings do not come in, only who went, when and
+what they wrote. A technician who has left is not on the board and cannot be
+matched, so their visits are refused until they are added back.
 Photographs come in only through the toolkit. A file is matched to customers by
 id or email and never by name, and a payment to its invoices by id or number.
 Rows are grouped into one invoice or one payment only by an id column. A file

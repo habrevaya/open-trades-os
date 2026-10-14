@@ -791,7 +791,8 @@ async function peopleOnJob(tx: Database, jobId: string | null): Promise<{ techni
     .from(schema.visitAssignment)
     .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
     .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
-    .where(eq(schema.visit.jobId, jobId))
+    /** Not a visit recorded from history: what it earned was settled in the old system. */
+    .where(and(eq(schema.visit.jobId, jobId), eq(schema.visit.fromHistory, false)))
     .orderBy(asc(schema.technician.displayName), asc(schema.visitAssignment.technicianId));
 }
 
@@ -974,7 +975,7 @@ export async function shared(ctx: ServiceContext): Promise<{
         and i.created_at >= (select min(cp.created_at) from public.commission_plan cp where cp.organization_id = ${org})
         and (
           select count(distinct va.technician_id) from public.visit_assignment va
-          join public.visit v on v.id = va.visit_id where v.job_id = j.id
+          join public.visit v on v.id = va.visit_id where v.job_id = j.id and not v.from_history
         ) >= 2
       order by i.created_at desc
       limit 50
@@ -1166,7 +1167,7 @@ async function resolveShares(
     const assigned = await tx.selectDistinct({ technicianId: schema.visitAssignment.technicianId })
       .from(schema.visitAssignment)
       .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
-      .where(eq(schema.visit.jobId, jobId))
+      .where(and(eq(schema.visit.jobId, jobId), eq(schema.visit.fromHistory, false)))
       .orderBy(asc(schema.visitAssignment.technicianId));
     if (assigned.length === 0) {
       throw new ConflictError(

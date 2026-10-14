@@ -54,6 +54,8 @@ export async function techniciansFor(tx: Database, invoiceId: string): Promise<{
     .where(and(
       eq(schema.visit.jobId, invoice.jobId),
       ne(schema.visit.status, "cancelled"),
+      /** A visit recorded from history earns no share of a tip given here. */
+      eq(schema.visit.fromHistory, false),
     ))
     .orderBy(asc(schema.technician.id));
   return { jobId: invoice.jobId, technicians: rows };
@@ -118,6 +120,7 @@ async function tipPeople(
     .where(and(
       eq(schema.visit.jobId, jobId),
       ne(schema.visit.status, "cancelled"),
+      eq(schema.visit.fromHistory, false),
       eq(schema.visitAssignment.isLead, true),
       inArray(schema.visitAssignment.technicianId, people),
     ));

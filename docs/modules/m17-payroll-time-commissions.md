@@ -338,6 +338,14 @@ employer keeping part of one is what US federal law forbids. A tip arriving
 inside a period after it closed moves the period's fingerprint, so the export
 refuses until it is reopened and closed again.
 
+**A visit recorded from history earns nothing here.** A past visit brought in
+from the company's old system (M30, `fromHistory` on the visit) is left out of
+the people a tip is shared between and the people a commission is split
+between or proposed for, and puts no time on anybody's timesheet: whatever
+that work earned was settled in the old system, if it was settled at all. A
+job whose only visits are from history has nobody to infer a split from, so a
+commission on it names who it is for.
+
 A tip taken with cash or a check on site (M11) is the same: held, split and
 paid through payroll. A cash tip a customer hands the technician for
 themselves, which they keep, is different: it never reaches the company and
