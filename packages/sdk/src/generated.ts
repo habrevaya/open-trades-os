@@ -921,6 +921,7 @@ export interface ApplyVendorCatalogueInput {
   ending?: string | null;
   updateItemCost?: boolean;
   categoryId?: string | null;
+  createVendors?: boolean;
   skipLines?: number[];
 }
 
@@ -930,12 +931,16 @@ export interface ApplyVendorCatalogueOutput {
     message: string;
   }>;
   rows: Array<{
-    action: "create" | "link" | "update" | "unchanged" | "skip";
+    action: "create" | "link" | "update" | "pack" | "unchanged" | "skip";
     line: number;
     sku: string;
-    vendorId?: string;
+    vendorId?: string | null;
     vendorName?: string;
-    itemId?: string;
+    newVendor?: boolean;
+    slot?: "first" | "second";
+    pairsWith?: number | null;
+    packBefore?: string | null;
+    itemId?: string | null;
     itemCode?: string;
     itemName?: string;
     code?: string;
@@ -963,10 +968,15 @@ export interface ApplyVendorCatalogueOutput {
     unchanged: number;
     skip: number;
   };
+  newVendors: Array<{
+    name: string;
+    line: number;
+  }>;
   created: number;
   linked: number;
   updated: number;
   itemCostsRevised: number;
+  vendorsAdded: number;
 }
 
 export interface ApproveAppRequestInput {
@@ -4007,6 +4017,7 @@ export interface CreatePurchaseOrderInput {
     locationId?: string;
     quantity: string;
     unitPrice?: string;
+    packQuantity?: string;
   }>;
 }
 
@@ -5742,6 +5753,7 @@ export interface EditPurchaseOrderInput {
     locationId?: string;
     quantity: string;
     unitPrice?: string;
+    packQuantity?: string;
   }>;
 }
 
@@ -6451,6 +6463,15 @@ export interface GetBudgetReportOutput {
     year: {
       budget: string;
     };
+    forecast: {
+      closedActual: string;
+      toCome: string;
+      forecast: string;
+      variance: string;
+      percent: number | null;
+      favourable: boolean | null;
+      unbudgetedMonths: number;
+    };
   }>;
   net: {
     budget: string;
@@ -6463,6 +6484,23 @@ export interface GetBudgetReportOutput {
     entriesWithoutBranch: number;
     withoutBranchDebits: string;
   } | null;
+  jobType: {
+    id: string;
+    name: string;
+    entriesWithoutJob: number;
+    withoutJobDebits: string;
+  } | null;
+  forecast: {
+    chosen: "budget" | "run_rate";
+    method: "budget" | "run_rate";
+    closed: number;
+    fellBack: boolean;
+    assumption: string;
+    net: {
+      forecast: string;
+      budget: string;
+    } | null;
+  };
 }
 
 export interface GetCallAssistantOutput {
@@ -6664,6 +6702,53 @@ export interface GetClaimOutput {
   decidedAt: string | null;
   paidAt: string | null;
   decisionNote: string | null;
+}
+
+export interface GetCommissionSplitOutput {
+  invoice: {
+    id: string;
+    number: string;
+    status: string;
+    customerName: string;
+    jobId: string | null;
+    jobNumber: string | null;
+  };
+  plans: Array<{
+    id: string;
+    label: string;
+  }>;
+  others: Array<{
+    technicianId: string;
+    name: string;
+  }>;
+  planId: string | null;
+  planLabel: string | null;
+  revenue: string | null;
+  total: string | null;
+  explanation: string | null;
+  people: Array<{
+    technicianId: string;
+    name: string;
+    onJob: boolean;
+    proposedWeight: string;
+    weight: string;
+    amount: string | null;
+    explanation: string | null;
+  }>;
+  changed: boolean;
+  refusal: string | null;
+  settled: {
+    eventId: string;
+    total: string;
+    occurredAt: string;
+    splitNote: string | null;
+    parts: Array<{
+      technicianId: string;
+      name: string;
+      weight: string | null;
+      amount: string;
+    }>;
+  } | null;
 }
 
 export interface GetCompanyDetailsOutput {
@@ -8574,6 +8659,11 @@ export interface GetJobProfitabilityOutput {
   grossMarginPercent: number | null;
   labourBurden: string;
   overhead: string;
+  overheadParts: {
+    perHour: string;
+    perJob: string;
+    revenueShare: string;
+  };
   fullyLoadedMargin: string;
   fullyLoadedMarginPercent: number | null;
   scheduledHours: string;
@@ -11466,6 +11556,7 @@ export interface HandOverOnCallOutput {
 export interface ImportBudgetInput {
   csv: string;
   businessUnitId?: string;
+  jobTypeId?: string;
 }
 
 export interface ImportBudgetOutput {
@@ -12870,6 +12961,14 @@ export interface ListCostingRatesOutput {
     current: boolean;
     createdAt: string;
   }>;
+  overheadNow: {
+    effectiveFrom: string;
+    parts: Array<{
+      basis: "per_hour" | "per_job" | "percent_of_revenue";
+      label: string;
+      rate: string;
+    }>;
+  } | null;
 }
 
 export interface ListCreditNotesOutput {
@@ -15752,6 +15851,35 @@ export interface ListSetAsideCustomerDuplicatesOutput {
   hasMore: boolean;
 }
 
+export interface ListSharedCommissionsOutput {
+  waiting: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    status: string;
+    customerName: string;
+    jobNumber: string;
+    revenue: string;
+    issuedAt: string;
+    people: Array<{
+      technicianId: string;
+      name: string;
+    }>;
+  }>;
+  settled: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    total: string;
+    occurredAt: string;
+    splitNote: string | null;
+    parts: Array<{
+      technicianId: string;
+      name: string;
+      weight: string | null;
+      amount: string;
+    }>;
+  }>;
+}
+
 export interface ListSpendOutput {
   spend: Array<{
     id: string;
@@ -16318,6 +16446,23 @@ export interface ListVendorItemsOutput {
       cost: string;
     }>;
     eachCost: string | null;
+    secondPack: {
+      packQuantity: string;
+      purchaseUnit: string | null;
+      cost: string | null;
+      priceBreaks: Array<{
+        minimum: string;
+        cost: string;
+      }>;
+      eachCost: string | null;
+    } | null;
+    packs: Array<{
+      packQuantity: string;
+      purchaseUnit: string | null;
+      cost: string | null;
+      eachCost: string | null;
+      second: boolean;
+    }>;
   }>;
 }
 
@@ -17967,6 +18112,7 @@ export interface PreviewVendorCatalogueInput {
   ending?: string | null;
   updateItemCost?: boolean;
   categoryId?: string | null;
+  createVendors?: boolean;
 }
 
 export interface PreviewVendorCatalogueOutput {
@@ -17975,12 +18121,16 @@ export interface PreviewVendorCatalogueOutput {
     message: string;
   }>;
   rows: Array<{
-    action: "create" | "link" | "update" | "unchanged" | "skip";
+    action: "create" | "link" | "update" | "pack" | "unchanged" | "skip";
     line: number;
     sku: string;
-    vendorId?: string;
+    vendorId?: string | null;
     vendorName?: string;
-    itemId?: string;
+    newVendor?: boolean;
+    slot?: "first" | "second";
+    pairsWith?: number | null;
+    packBefore?: string | null;
+    itemId?: string | null;
     itemCode?: string;
     itemName?: string;
     code?: string;
@@ -18008,6 +18158,10 @@ export interface PreviewVendorCatalogueOutput {
     unchanged: number;
     skip: number;
   };
+  newVendors: Array<{
+    name: string;
+    line: number;
+  }>;
 }
 
 export interface ProposeVisitChangeTimeInput {
@@ -19501,6 +19655,7 @@ export interface RemoveAccountingBranchMappingOutput {
 
 export interface RemoveBudgetLineInput {
   businessUnitId?: string;
+  jobTypeId?: string;
 }
 
 export interface RemoveBudgetLineOutput {
@@ -21750,10 +21905,20 @@ export interface SetBranchNumberingOutput {
   unusableCodes: string[];
 }
 
+export interface SetBudgetForecastMethodInput {
+  method: "budget" | "run_rate";
+}
+
+export interface SetBudgetForecastMethodOutput {
+  year: number;
+  method: "budget" | "run_rate";
+}
+
 export interface SetBudgetLineInput {
   line: string;
   amounts: Array<string | null>;
   businessUnitId?: string;
+  jobTypeId?: string;
 }
 
 export interface SetBudgetLineOutput {
@@ -21761,6 +21926,7 @@ export interface SetBudgetLineOutput {
   line: string;
   months: number;
   businessUnitId: string | null;
+  jobTypeId: string | null;
 }
 
 export interface SetBusinessHoursInput {
@@ -22412,6 +22578,30 @@ export interface SetOnboardingLineOutput {
     complete: boolean;
     sentence: string;
   };
+}
+
+export interface SetOverheadMixInput {
+  effectiveFrom: string;
+  perHour?: string;
+  perJob?: string;
+  percentOfRevenue?: string;
+  note?: string;
+}
+
+export interface SetOverheadMixOutput {
+  effectiveFrom: string;
+  rates: Array<{
+    id: string;
+    component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
+    componentLabel: string;
+    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+    basisLabel: string;
+    rate: string;
+    effectiveFrom: string;
+    note: string | null;
+    current: boolean;
+    createdAt: string;
+  }>;
 }
 
 export interface SetPayExtrasInput {
@@ -23077,6 +23267,15 @@ export interface SetVendorItemInput {
     minimum: string;
     cost: string;
   }> | null;
+  secondPack?: {
+    packQuantity: string;
+    purchaseUnit?: string | null;
+    cost?: string | null;
+    priceBreaks?: Array<{
+      minimum: string;
+      cost: string;
+    }> | null;
+  } | null;
 }
 
 export interface SetVendorItemOutput {
@@ -23097,6 +23296,23 @@ export interface SetVendorItemOutput {
     cost: string;
   }>;
   eachCost: string | null;
+  secondPack: {
+    packQuantity: string;
+    purchaseUnit: string | null;
+    cost: string | null;
+    priceBreaks: Array<{
+      minimum: string;
+      cost: string;
+    }>;
+    eachCost: string | null;
+  } | null;
+  packs: Array<{
+    packQuantity: string;
+    purchaseUnit: string | null;
+    cost: string | null;
+    eachCost: string | null;
+    second: boolean;
+  }>;
 }
 
 export interface SetVisitCustomFieldsInput {
@@ -23190,6 +23406,24 @@ export interface SettleCommissionOutput {
     amount: string;
     explanation: string;
   }>;
+}
+
+export interface SettleCommissionSplitInput {
+  invoiceId: string;
+  planId?: string;
+  shares: Array<{
+    technicianId: string;
+    weight: string;
+  }>;
+  reason?: string;
+}
+
+export interface SettleCommissionSplitOutput {
+  id: string;
+  invoiceId: string;
+  total: string;
+  splitNote: string | null;
+  replayed: boolean;
 }
 
 export interface SettleReferralRewardInput {
@@ -27357,6 +27591,7 @@ export type GetBranchOverviewInput = Record<string, never>;
 export interface GetBudgetReportInput {
   year: number;
   businessUnitId?: string;
+  jobTypeId?: string;
 }
 
 export interface GetCallInput {
@@ -27388,6 +27623,12 @@ export interface GetChatWidgetInput {
 
 export interface GetClaimInput {
   id: string;
+}
+
+export interface GetCommissionSplitInput {
+  invoiceId: string;
+  planId?: string;
+  shares?: string;
 }
 
 export type GetCompanyDetailsInput = Record<string, never>;
@@ -28808,6 +29049,8 @@ export interface ListSetAsideCustomerDuplicatesInput {
   limit?: number;
 }
 
+export type ListSharedCommissionsInput = Record<string, never>;
+
 export interface ListSpendInput {
   from: string;
   to: string;
@@ -29632,6 +29875,10 @@ export interface SetAssetObligationParams {
 
 export interface SetAssetTruckKindParams {
   assetId: string;
+}
+
+export interface SetBudgetForecastMethodParams {
+  year: number;
 }
 
 export interface SetBudgetLineParams {
@@ -30487,6 +30734,7 @@ export interface OperationTypes {
   getChangeOrderScheduleDays: { input: GetChangeOrderScheduleDaysInput; output: GetChangeOrderScheduleDaysOutput };
   getChatWidget: { input: GetChatWidgetInput; output: GetChatWidgetOutput };
   getClaim: { input: GetClaimInput; output: GetClaimOutput };
+  getCommissionSplit: { input: GetCommissionSplitInput; output: GetCommissionSplitOutput };
   getCompanyDetails: { input: GetCompanyDetailsInput; output: GetCompanyDetailsOutput };
   getComplianceSummary: { input: GetComplianceSummaryInput; output: GetComplianceSummaryOutput };
   getConsent: { input: GetConsentInput; output: GetConsentOutput };
@@ -30837,6 +31085,7 @@ export interface OperationTypes {
   listServiceRouteStops: { input: ListServiceRouteStopsInput; output: ListServiceRouteStopsOutput };
   listServiceRoutes: { input: ListServiceRoutesInput; output: ListServiceRoutesOutput };
   listSetAsideCustomerDuplicates: { input: ListSetAsideCustomerDuplicatesInput; output: ListSetAsideCustomerDuplicatesOutput };
+  listSharedCommissions: { input: ListSharedCommissionsInput; output: ListSharedCommissionsOutput };
   listSpend: { input: ListSpendInput; output: ListSpendOutput };
   listStaffDocuments: { input: ListStaffDocumentsInput; output: ListStaffDocumentsOutput };
   listStaleRegulatoryConstants: { input: ListStaleRegulatoryConstantsInput; output: ListStaleRegulatoryConstantsOutput };
@@ -31123,6 +31372,7 @@ export interface OperationTypes {
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
   setAssetTruckKind: { input: SetAssetTruckKindParams & SetAssetTruckKindInput; output: SetAssetTruckKindOutput };
   setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
+  setBudgetForecastMethod: { input: SetBudgetForecastMethodParams & SetBudgetForecastMethodInput; output: SetBudgetForecastMethodOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
@@ -31160,6 +31410,7 @@ export interface OperationTypes {
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
+  setOverheadMix: { input: SetOverheadMixInput; output: SetOverheadMixOutput };
   setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
   setPlanPortalLayout: { input: SetPlanPortalLayoutParams & SetPlanPortalLayoutInput; output: SetPlanPortalLayoutOutput };
   setPortalCardAutopay: { input: SetPortalCardAutopayParams & SetPortalCardAutopayInput; output: SetPortalCardAutopayOutput };
@@ -31206,6 +31457,7 @@ export interface OperationTypes {
   setWorkdaySettings: { input: SetWorkdaySettingsInput; output: SetWorkdaySettingsOutput };
   setWorkflowEnabled: { input: SetWorkflowEnabledParams & SetWorkflowEnabledInput; output: SetWorkflowEnabledOutput };
   settleCommission: { input: SettleCommissionInput; output: SettleCommissionOutput };
+  settleCommissionSplit: { input: SettleCommissionSplitInput; output: SettleCommissionSplitOutput };
   settleReferralReward: { input: SettleReferralRewardParams & SettleReferralRewardInput; output: SettleReferralRewardOutput };
   shareAttachmentWithCustomer: { input: ShareAttachmentWithCustomerParams & ShareAttachmentWithCustomerInput; output: ShareAttachmentWithCustomerOutput };
   shareVisitNotes: { input: ShareVisitNotesParams & ShareVisitNotesInput; output: ShareVisitNotesOutput };
@@ -31584,7 +31836,7 @@ export const OPERATIONS = {
   getBackupDestination: { method: "GET", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getBranchNumbering: { method: "GET", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
-  getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: ["businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
+  getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: ["businessUnitId","jobTypeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getCall: { method: "GET", path: "/v1/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallAssistant: { method: "GET", path: "/v1/calls/{id}/assistant", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -31593,6 +31845,7 @@ export const OPERATIONS = {
   getChangeOrderScheduleDays: { method: "GET", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: ["phaseId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getChatWidget: { method: "GET", path: "/v1/public/chat", pathParams: [], queryParams: ["companyKey"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getClaim: { method: "GET", path: "/v1/claims/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getCommissionSplit: { method: "GET", path: "/v1/commissions/split-proposal", pathParams: [], queryParams: ["invoiceId","planId","shares"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   getCompanyDetails: { method: "GET", path: "/v1/company", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getComplianceSummary: { method: "GET", path: "/v1/compliance/documents/summary", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   getConsent: { method: "GET", path: "/v1/consent", pathParams: [], queryParams: ["address"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -31943,6 +32196,7 @@ export const OPERATIONS = {
   listServiceRouteStops: { method: "GET", path: "/v1/service-routes/{id}/stops", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listServiceRoutes: { method: "GET", path: "/v1/service-routes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listSetAsideCustomerDuplicates: { method: "GET", path: "/v1/customer-duplicates/set-aside", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
+  listSharedCommissions: { method: "GET", path: "/v1/commissions/shared", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   listSpend: { method: "GET", path: "/v1/marketing/spend", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listStaffDocuments: { method: "GET", path: "/v1/staff-documents", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listStaleRegulatoryConstants: { method: "GET", path: "/v1/compliance/constants/stale", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -32229,6 +32483,7 @@ export const OPERATIONS = {
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetTruckKind: { method: "PUT", path: "/v1/assets/{assetId}/truck-kind", pathParams: ["assetId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setBudgetForecastMethod: { method: "PUT", path: "/v1/budgets/{year}/forecast", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -32266,6 +32521,7 @@ export const OPERATIONS = {
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setOverheadMix: { method: "POST", path: "/v1/costing/overhead", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setPlanPortalLayout: { method: "PUT", path: "/v1/agreement-plans/{id}/portal-layout", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalCardAutopay: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -32312,6 +32568,7 @@ export const OPERATIONS = {
   setWorkdaySettings: { method: "PUT", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkflowEnabled: { method: "POST", path: "/v1/workflows/{id}/enabled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   settleCommission: { method: "POST", path: "/v1/commissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
+  settleCommissionSplit: { method: "POST", path: "/v1/commissions/splits", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   settleReferralReward: { method: "POST", path: "/v1/marketing/referral-rewards/{id}/settle", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   shareAttachmentWithCustomer: { method: "POST", path: "/v1/attachments/{id}/customer-sharing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
   shareVisitNotes: { method: "POST", path: "/v1/visits/{id}/customer-notes", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
@@ -34813,6 +35070,15 @@ export abstract class GeneratedOperations {
    */
   getClaim(input: GetClaimInput, options?: CallOptions): Promise<GetClaimOutput> {
     return this.call("getClaim", input, options);
+  }
+
+  /**
+   * How an invoice's commission would be shared, worked out before it is settled.
+   *
+   * GET /v1/commissions/split-proposal. Needs commission:read.
+   */
+  getCommissionSplit(input: GetCommissionSplitInput, options?: CallOptions): Promise<GetCommissionSplitOutput> {
+    return this.call("getCommissionSplit", input, options);
   }
 
   /**
@@ -37966,6 +38232,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Commissions several people share: waiting to be settled, and the last ones settled.
+   *
+   * GET /v1/commissions/shared. Needs commission:read.
+   */
+  listSharedCommissions(input: ListSharedCommissionsInput = {} as ListSharedCommissionsInput, options?: CallOptions): Promise<ListSharedCommissionsOutput> {
+    return this.call("listSharedCommissions", input, options);
+  }
+
+  /**
    * Spend rows over a range, newest day first.
    *
    * GET /v1/marketing/spend. Needs adspend:read.
@@ -40540,6 +40815,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Choose how the year end forecast takes the months to come.
+   *
+   * PUT /v1/budgets/{year}/forecast. Needs finance:configure.
+   */
+  setBudgetForecastMethod(input: SetBudgetForecastMethodParams & SetBudgetForecastMethodInput, options?: CallOptions): Promise<SetBudgetForecastMethodOutput> {
+    return this.call("setBudgetForecastMethod", input, options);
+  }
+
+  /**
    * Set one budget line's twelve months.
    *
    * PUT /v1/budgets/{year}/lines. Needs finance:configure.
@@ -40870,6 +41154,15 @@ export abstract class GeneratedOperations {
    */
   setOnboardingLine(input: SetOnboardingLineParams & SetOnboardingLineInput, options?: CallOptions): Promise<SetOnboardingLineOutput> {
     return this.call("setOnboardingLine", input, options);
+  }
+
+  /**
+   * Set overhead from a date as a mix: per paid hour, per job and a share of revenue.
+   *
+   * POST /v1/costing/overhead. Needs finance:configure.
+   */
+  setOverheadMix(input: SetOverheadMixInput, options?: CallOptions): Promise<SetOverheadMixOutput> {
+    return this.call("setOverheadMix", input, options);
   }
 
   /**
@@ -41284,6 +41577,15 @@ export abstract class GeneratedOperations {
    */
   settleCommission(input: SettleCommissionInput, options?: CallOptions): Promise<SettleCommissionOutput> {
     return this.call("settleCommission", input, options);
+  }
+
+  /**
+   * Settle a commission several people share, from the split screen.
+   *
+   * POST /v1/commissions/splits. Needs commission:configure.
+   */
+  settleCommissionSplit(input: SettleCommissionSplitInput, options?: CallOptions): Promise<SettleCommissionSplitOutput> {
+    return this.call("settleCommissionSplit", input, options);
   }
 
   /**
